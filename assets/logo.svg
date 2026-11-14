@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="AStack logo">
+  <defs>
+    <linearGradient id="astackGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="50%" stop-color="#6366F1" />
+      <stop offset="100%" stop-color="#F59E0B" />
+    </linearGradient>
+    <linearGradient id="astackCore" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#1E293B" />
+    </linearGradient>
+  </defs>
+  <!-- ~10% safe padding (content sits inside 28..228) and high contrast for both light and dark UIs -->
+  <rect x="28" y="28" width="200" height="200" rx="44" fill="url(#astackCore)" stroke="url(#astackGrad)" stroke-width="10" />
+  <!-- Stacked engineering layers -->
+  <path d="M70 164 L128 190 L186 164" fill="none" stroke="#94A3B8" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M70 134 L128 160 L186 134" fill="none" stroke="#38BDF8" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+  <!-- A-frame apex / verification chevron -->
+  <path d="M84 114 L128 62 L172 114" fill="none" stroke="url(#astackGrad)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" />
+  <circle cx="128" cy="108" r="11" fill="#F59E0B" />
+</svg>

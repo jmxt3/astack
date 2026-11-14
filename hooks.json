@@ -1,0 +1,27 @@
+{
+  "astack-irreversible-guard": {
+    "enabled": false,
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./scripts/hooks/irreversible-guard.mjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "astack-verify-reminder": {
+    "enabled": false,
+    "Stop": [
+      {
+        "type": "command",
+        "command": "node ./scripts/hooks/verify-reminder.mjs",
+        "timeout": 10
+      }
+    ]
+  }
+}
