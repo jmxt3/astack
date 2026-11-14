@@ -12,10 +12,10 @@
   ],
   "author": {
     "name": "João Machete (port of PStack by Lauren Tan @poteto)",
-    "url": "https://github.com/cursor/plugins/tree/main/pstack"
+    "url": "https://github.com/jmxt3"
   },
-  "homepage": "https://github.com/cursor/plugins/tree/main/pstack",
-  "repository": "https://github.com/cursor/plugins",
+  "homepage": "https://github.com/jmxt3/astack",
+  "repository": "https://github.com/jmxt3/astack",
   "license": "MIT",
   "keywords": [
     "astack",

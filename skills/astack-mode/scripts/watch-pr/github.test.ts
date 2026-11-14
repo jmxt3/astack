@@ -13,6 +13,7 @@ import {
   parseFastCheck,
   parsePullRequest,
   parseReviewThreadPage,
+  quoteWindowsBatchArg,
   resolveChecks,
   resolveContext,
   resolveReviewThreads,
@@ -508,6 +509,48 @@ console.log('[{"number":42,"headRefName":"feature","baseRefName":"main","isCross
       expect(JSON.parse(child.stdout)).toEqual([
         { number: 42, headRefName: "feature", baseRefName: "main", isCrossRepository: true },
       ]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("quotes Windows batch arguments safely against env expansion and metacharacters", () => {
+    expect(quoteWindowsBatchArg('foo"bar')).toBe('"foo""bar"');
+    expect(quoteWindowsBatchArg("x%PATH%y")).toBe('"x"^%"PATH"^%"y"');
+    expect(() => quoteWindowsBatchArg("bad\narg")).toThrow(/multiline/i);
+    expect(() => quoteWindowsBatchArg("bad\rarg")).toThrow(/multiline/i);
+    expect(() => quoteWindowsBatchArg("bad\0arg")).toThrow(/NUL/i);
+
+    if (process.platform !== "win32") return;
+    const directory = mkdtempSync(join(tmpdir(), "watch-pr-cmd-"));
+    try {
+      const fakeGhJs = join(directory, "fake-gh.mjs");
+      writeFileSync(
+        fakeGhJs,
+        `console.log(JSON.stringify([{ number: 7, headRefName: process.argv.slice(2).join(" "), baseRefName: "main", isCrossRepository: false }]));\n`,
+        "utf8"
+      );
+      writeFileSync(
+        join(directory, "gh.cmd"),
+        `@echo off\r\n"${process.execPath}" "${fakeGhJs}" %*\r\n`,
+        "utf8"
+      );
+      const githubUrl = pathToFileURL(join(import.meta.dirname, "github.ts")).href;
+      const program = `import { GhGitHubReader } from ${JSON.stringify(githubUrl)};
+        console.log(JSON.stringify(await new GhGitHubReader().openPullRequests({ owner: "owner&echo-pwned", repo: "%PATH%" })));`;
+      const child = spawnSync(
+        process.execPath,
+        ["--experimental-strip-types", "--disable-warning=ExperimentalWarning", "--input-type=module", "-e", program],
+        {
+          encoding: "utf8",
+          timeout: 5000,
+          env: { ...process.env, PATH: directory + delimiter + (process.env.PATH ?? "") },
+        }
+      );
+      expect(child.error).toBeUndefined();
+      expect(child.status).toBe(0);
+      const parsed = JSON.parse(child.stdout) as Array<{ headRefName: string }>;
+      expect(parsed[0]?.headRefName).toContain("--repo owner&echo-pwned/%PATH%");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

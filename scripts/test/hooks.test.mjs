@@ -45,6 +45,7 @@ test("irreversible-guard flags destructive commands with force_ask", () => {
     "git push origin main --force",
     "git reset --hard HEAD~3",
     "rm -rf /",
+    "Remove-Item -Recurse -Force C:\\",
     "psql -c 'DROP TABLE users;'",
     "terraform destroy -auto-approve",
   ]) {

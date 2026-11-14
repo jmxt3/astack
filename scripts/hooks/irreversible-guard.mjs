@@ -20,6 +20,11 @@ const RULES = [
       /\brm\s+(?:-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\s+(?:\/(?:\s|$|\*)|\/(?:bin|boot|dev|etc|home|lib|opt|proc|root|sbin|sys|usr|var)\b|~(?:\/|\s|$)|[A-Za-z]:\\(?:\s|$))/i,
   },
   {
+    label: "PowerShell recursive root/home delete or disk wipe",
+    pattern:
+      /\b(?:Remove-Item|ri|del|erase|rd|rmdir)\b(?=[^\n;|&]*(?:-Recurse\b|-r\b))(?=[^\n;|&]*(?:-Force\b|-fo\b))[^\n;|&]*(?:[A-Za-z]:\\(?:\s|$|\*|['"])|~(?:\/|\\|\s|$)|\$HOME\b|\$env:USERPROFILE\b|\/(?:\s|$|\*))|\b(?:Format-Volume|Clear-Disk)\b/i,
+  },
+  {
     label: "SQL DROP/TRUNCATE",
     pattern: /\b(?:DROP\s+(?:TABLE|DATABASE|SCHEMA)|TRUNCATE\s+TABLE)\b/i,
   },

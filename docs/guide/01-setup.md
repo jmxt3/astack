@@ -7,7 +7,8 @@ In this page you install the plugin, pick which models astack uses, and run your
 In your shell (or via the Antigravity Plugins Manager), install AStack and confirm it is enabled:
 
 ```bash
-agy plugin install c:\Users\jmach\dev\astack
+git clone https://github.com/jmxt3/astack.git
+agy plugin install ./astack
 agy plugin list --json
 ```
 

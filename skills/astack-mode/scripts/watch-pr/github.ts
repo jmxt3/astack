@@ -31,34 +31,62 @@ export class ChecksUnavailable extends WatcherQueryError {
 }
 const firstLine = (value: string): string =>
   value.trim().split(/\r?\n/, 1)[0]?.slice(0, 240) ?? "";
-function resolveWindowsCommand(cmd: string): { file: string; prefix: string[] } {
-  if (process.platform !== "win32" || cmd.includes("/") || cmd.includes("\\")) {
-    return { file: cmd, prefix: [] };
+export function quoteWindowsBatchArg(arg: string): string {
+  if (/[\r\n\0]/.test(arg)) {
+    throw new Error("Refusing multiline or NUL argument for Windows .cmd/.bat shim");
+  }
+  return `"${arg.replace(/"/g, '""')}"`.replace(/%/g, '"^%"');
+}
+
+function resolveWindowsCommand(cmd: string): { file: string; isBatch: boolean } {
+  if (process.platform !== "win32") {
+    return { file: cmd, isBatch: false };
+  }
+  if (cmd.includes("/") || cmd.includes("\\")) {
+    return { file: cmd, isBatch: /\.(?:cmd|bat)$/i.test(cmd) };
   }
   const pathEntries = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
   for (const dir of pathEntries) {
-    if (existsSync(path.join(dir, `${cmd}.exe`))) {
-      return { file: path.join(dir, `${cmd}.exe`), prefix: [] };
+    const exeCandidate = path.join(dir, `${cmd}.exe`);
+    if (existsSync(exeCandidate)) {
+      return { file: exeCandidate, isBatch: false };
     }
     for (const ext of [".cmd", ".bat"]) {
       const candidate = path.join(dir, `${cmd}${ext}`);
       if (existsSync(candidate)) {
-        return {
-          file: process.env.ComSpec ?? "cmd.exe",
-          prefix: ["/d", "/s", "/c", candidate],
-        };
+        return { file: candidate, isBatch: true };
       }
     }
   }
-  return { file: cmd, prefix: [] };
+  return { file: cmd, isBatch: /\.(?:cmd|bat)$/i.test(cmd) };
 }
 
 function run(argv: readonly [string, ...string[]]): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const resolved = resolveWindowsCommand(argv[0]);
-    const child = spawn(resolved.file, [...resolved.prefix, ...argv.slice(1)], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    let child;
+    try {
+      child = resolved.isBatch
+        ? spawn(
+            process.env.ComSpec ?? "cmd.exe",
+            [
+              "/d",
+              "/s",
+              "/c",
+              `"${[resolved.file, ...argv.slice(1)].map(quoteWindowsBatchArg).join(" ")}"`,
+            ],
+            {
+              stdio: ["ignore", "pipe", "pipe"],
+              windowsVerbatimArguments: true,
+            }
+          )
+        : spawn(resolved.file, argv.slice(1), {
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+    } catch (error) {
+      reject(error);
+      return;
+    }
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");

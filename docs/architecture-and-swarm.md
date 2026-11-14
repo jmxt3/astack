@@ -55,7 +55,7 @@ flowchart TD
 
 ### Why `/fanout` Instead of `/swarm`?
 
-In Antigravity's customization loading order, **built-in skills have higher precedence than plugin skills of the same name**. Wait — even more importantly, shadowing Antigravity's native multi-agent `/swarm` board skill would confuse both users and agents trying to invoke `/swarm`.
+In Antigravity's customization loading order, **built-in skills have higher precedence than plugin skills of the same name**. More importantly, shadowing Antigravity's native multi-agent `/swarm` board skill would confuse both users and agents trying to invoke `/swarm`.
 
 Therefore, AStack explicitly renames `pstack`'s upstream `skills/swarm` slice runner to **`skills/fanout`** (`/fanout`). This preserves Antigravity's built-in `/swarm` cleanly while letting `/fanout` handle lightweight `invoke_subagent` fan-out matrices and seamlessly escalate to native `/swarm` whenever workers need a shared message board or dedicated `@verifier`.
 

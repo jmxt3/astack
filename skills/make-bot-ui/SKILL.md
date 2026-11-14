@@ -31,7 +31,7 @@ Do not hardcode keys or URLs, and never invent webhook endpoints. Ask the user t
 
 Store non-secret config `{url, queuePath}` and read the sender key strictly from process environment / gitignored credential storage at runtime. Buttons POST to this local UI server. The local server — never the browser — forwards the signed POST to the automation webhook or enqueues a local job:
 
-Bind the server to `0.0.0.0:<port>`, not `127.0.0.1`. Tailscale peers cannot reach a localhost-only bind.
+Bind the server specifically to the machine's Tailscale IPv4 address (`<100.x.x.x>:<port>` from `tailscale ip -4`) and optionally `127.0.0.1:<port>` (or expose a `127.0.0.1` listener via `tailscale serve`). Do **not** bind unauthenticated HTTP trigger endpoints to `0.0.0.0:<port>`, which would expose them to every device on untrusted local Wi-Fi/LAN networks.
 
 When forwarding to an HTTP webhook URL, send:
 

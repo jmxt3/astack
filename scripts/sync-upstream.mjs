@@ -259,6 +259,7 @@ function readNormalizedBytes(filePath, relPosix) {
 function walkFiles(dir, baseDir = dir) {
   const results = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...walkFiles(full, baseDir));
@@ -319,6 +320,10 @@ export function syncUpstream({
     }
 
     const destFull = path.join(rootDir, ...destRel.split("/"));
+    const relToRoot = path.relative(rootDir, destFull);
+    if (relToRoot.startsWith("..") || path.isAbsolute(relToRoot)) {
+      throw new Error(`Refusing path traversal outside rootDir: ${destRel}`);
+    }
     const exists = fs.existsSync(destFull);
     if (exists && isOverlayPath(destRel, manifest) && !forceOverlays) {
       report.skippedOverlays.push(destRel);

@@ -2,3 +2,18 @@ node_modules/
 .DS_Store
 *.decision.tsv
 .tmp/
+
+# Secrets, keys, and local environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.credentials.json
+secrets/
+
+# Local automation runtime state
+.agents/benny/
