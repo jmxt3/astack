@@ -10,13 +10,14 @@ A native **Google Antigravity** engineering plugin delivering disciplined planni
 
 ## Install & Quickstart
 
-Install locally from the repository path and verify registration:
+Install directly from GitHub in one command and verify registration:
 
 ```bash
-git clone https://github.com/jmxt3/astack.git
-agy plugin install ./astack
+agy plugin install https://github.com/jmxt3/astack
 agy plugin list --json
 ```
+
+To install from a local clone instead, run `agy plugin install ./astack` (or `agy plugin install .` from inside the repository).
 
 Inside Antigravity:
 

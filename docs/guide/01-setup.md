@@ -4,15 +4,14 @@ In this page you install the plugin, pick which models astack uses, and run your
 
 ## Install the plugin
 
-In your shell (or via the Antigravity Plugins Manager), install AStack and confirm it is enabled:
+In your shell (or via the Antigravity Plugins Manager), install AStack directly from GitHub and confirm it is enabled:
 
 ```bash
-git clone https://github.com/jmxt3/astack.git
-agy plugin install ./astack
+agy plugin install https://github.com/jmxt3/astack
 agy plugin list --json
 ```
 
-(Replace the path with your local clone location or marketplace plugin ID when available.) For workspace-level customization, you can also copy individual skills into `.agents/skills/`. See [Architecture & Swarm](../architecture-and-swarm.md) for how plugin skills interact with Antigravity's built-in `/boost`, `/swarm`, `/teamwork`, and `/goal` commands.
+(To install from a local clone instead, run `agy plugin install ./astack` or `agy plugin install .`.) For workspace-level customization, you can also copy individual skills into `.agents/skills/`. See [Architecture & Swarm](../architecture-and-swarm.md) for how plugin skills interact with Antigravity's built-in `/boost`, `/swarm`, `/teamwork`, and `/goal` commands.
 
 ## Pick your models
 
