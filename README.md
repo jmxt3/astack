@@ -1,4 +1,4 @@
-# AStack (port of pstack for Google Antigravity) — Verification-first engineering skills & multi-agent workflows for Google Antigravity
+# AStack (pstack for Google Antigravity) — Verification-First Engineering & Multi-Agent Workflows
 
 <p align="center">
   <picture>
