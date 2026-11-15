@@ -65,6 +65,29 @@ test("auditWorktrees classifies clean merged vs dirty wip worktrees on Windows a
     assert.equal(byPath.get("wt-chat")?.merged, "no");
     assert.equal(byPath.get("wt-chat")?.bucket, "verify-recent-chat");
 
+    // Verify /private prefix and Windows case-varied path aliases also match
+    const aliasPath =
+      process.platform === "win32"
+        ? wtRecentChat.toUpperCase()
+        : wtRecentChat.startsWith("/private/var/") || wtRecentChat.startsWith("/private/tmp/")
+          ? wtRecentChat.slice("/private".length)
+          : wtRecentChat.startsWith("/var/") || wtRecentChat.startsWith("/tmp/")
+            ? `/private${wtRecentChat}`
+            : wtRecentChat;
+    fs.writeFileSync(
+      path.join(brainDir, "conv-1", ".system_generated", "logs", "transcript.jsonl"),
+      JSON.stringify({ content: `Edited ${aliasPath}/README.md` }) + "\n",
+      "utf8",
+    );
+    const aliasRes = auditWorktrees({
+      repoPath: repo,
+      baseRef: "main",
+      transcriptsRoot: brainDir,
+      skipPrLookup: true,
+    });
+    const aliasChat = aliasRes.rows.find((r) => path.basename(r.path) === "wt-chat");
+    assert.equal(aliasChat?.bucket, "verify-recent-chat");
+
     // Clean up git worktree admin metadata before rmSync
     git(repo, ["worktree", "remove", "--force", wtMerged]);
     git(repo, ["worktree", "remove", "--force", wtDirty]);

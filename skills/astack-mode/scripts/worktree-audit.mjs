@@ -164,20 +164,80 @@ function findTranscriptFiles(transcriptsRoot) {
   return files;
 }
 
+function normalizeSlashes(p) {
+  return p.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function addSwapVariant(variants, source, fromPrefix, toPrefix) {
+  if (!fromPrefix || !toPrefix || fromPrefix === toPrefix) return;
+  const srcNorm = normalizeSlashes(source);
+  const fromNorm = normalizeSlashes(fromPrefix);
+  const toNorm = normalizeSlashes(toPrefix);
+  const matches =
+    process.platform === "win32"
+      ? srcNorm.toLowerCase().startsWith(`${fromNorm.toLowerCase()}/`) ||
+        srcNorm.toLowerCase() === fromNorm.toLowerCase()
+      : srcNorm.startsWith(`${fromNorm}/`) || srcNorm === fromNorm;
+  if (matches) {
+    variants.add(`${toNorm}${srcNorm.slice(fromNorm.length)}`);
+  }
+}
+
+export function buildPathVariants(wtPath) {
+  const variants = new Set([wtPath, normalizeSlashes(wtPath)]);
+  try {
+    const real = fs.realpathSync.native(wtPath);
+    variants.add(real);
+    variants.add(normalizeSlashes(real));
+  } catch {
+    // Ignore unresolved path
+  }
+
+  let rawTmp = "";
+  let realTmp = "";
+  try {
+    rawTmp = normalizeSlashes(os.tmpdir());
+    realTmp = normalizeSlashes(fs.realpathSync.native(os.tmpdir()));
+  } catch {
+    // Ignore tmpdir resolution failures
+  }
+
+  for (const v of [...variants]) {
+    const norm = normalizeSlashes(v);
+    if (norm.startsWith("/private/var/")) variants.add(norm.slice("/private".length));
+    else if (norm.startsWith("/var/")) variants.add(`/private${norm}`);
+    if (norm.startsWith("/private/tmp/")) variants.add(norm.slice("/private".length));
+    else if (norm.startsWith("/tmp/")) variants.add(`/private${norm}`);
+
+    if (rawTmp && realTmp && rawTmp.toLowerCase() !== realTmp.toLowerCase()) {
+      addSwapVariant(variants, norm, realTmp, rawTmp);
+      addSwapVariant(variants, norm, rawTmp, realTmp);
+    }
+  }
+
+  return [...variants];
+}
+
 function lastChatTouchEpochSeconds(wtPath, transcriptFiles) {
-  const normalized = wtPath.replace(/\\/g, "/");
-  const back = wtPath.replace(/\//g, "\\");
-  const escaped = back.replace(/\\/g, "\\\\");
-  const needles = [
-    `${normalized}/`,
-    `${normalized}"`,
-    `${back}\\`,
-    `${back}/`,
-    `${back}"`,
-    `${escaped}\\\\`,
-    `${escaped}/`,
-    `${escaped}"`,
-  ];
+  const needleSet = new Set();
+  for (const variant of buildPathVariants(wtPath)) {
+    const normalized = variant.replace(/\\/g, "/");
+    const back = variant.replace(/\//g, "\\");
+    const escaped = back.replace(/\\/g, "\\\\");
+    for (const needle of [
+      `${normalized}/`,
+      `${normalized}"`,
+      `${back}\\`,
+      `${back}/`,
+      `${back}"`,
+      `${escaped}\\\\`,
+      `${escaped}/`,
+      `${escaped}"`,
+    ]) {
+      needleSet.add(process.platform === "win32" ? needle.toLowerCase() : needle);
+    }
+  }
+  const needles = [...needleSet];
   let latestMs = 0;
 
   for (const file of transcriptFiles) {
@@ -189,7 +249,8 @@ function lastChatTouchEpochSeconds(wtPath, transcriptFiles) {
     }
     if (mtimeMs <= latestMs) continue;
     try {
-      const content = fs.readFileSync(file, "utf8");
+      const raw = fs.readFileSync(file, "utf8");
+      const content = process.platform === "win32" ? raw.toLowerCase() : raw;
       if (needles.some((needle) => content.includes(needle))) {
         latestMs = mtimeMs;
       }
