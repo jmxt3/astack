@@ -24,6 +24,11 @@
         "cli"
       ],
       "tier": "Google AI Pro and Ultra",
+      "uiSurface": {
+        "app": "Swarm sidecar pane (Overview task/timeline from swarm_pane plan.json, Board #seq feed, Members worker chats, Graph @mention replay)",
+        "cli": "/swarm board (or Alt+S) 3-pane Roster / Posts / Message viewer",
+        "handoff": "Load swarm (plus swarm_pane when in <skills> to maintain .system_generated/swarm/plan.json, and swarm_monitor on long runs). Emit the exact open_board value from swarm{action: \"add\"} or swarm{action: \"status\"} verbatim on its own line at kickoff AND at completion (after posting [done] <summary> with no @), inviting the user to explore the Swarm UI or /swarm board. Never hand-write open_board."
+      },
       "summary": "Spawn named workers with isolated workspaces and a @verifier coordinating on a shared board."
     },
     {
@@ -49,6 +54,11 @@
         "cli"
       ],
       "tier": "Google AI Pro and Ultra",
+      "uiSurface": {
+        "app": "Script approval card + live Workflow step card (phase() groups, log() lines, clickable role agent cards)",
+        "cli": "Script approval prompt + inline workflow phase/log stream and /agents",
+        "handoff": "Use phase(), log(), and descriptive agent(role=...) names; at completion point the user to the Workflow step card to inspect phase logs and open individual workflow agent conversations."
+      },
       "summary": "Write and execute a Python workflow using parallel() and pipeline() over many items or stages."
     },
     {
@@ -73,6 +83,11 @@
         "cli"
       ],
       "tier": "All plans",
+      "uiSurface": {
+        "app": "Live Timed/Scheduled step in chat + Overview > Background Tasks",
+        "cli": "/tasks Task Manager TUI + status-line task counter",
+        "handoff": "When leaving a one-shot timer or recurring cron active, name the schedule cadence and point the user to Overview > Background Tasks (App) or /tasks (CLI) to inspect or cancel it."
+      },
       "summary": "Schedule a one-shot timer or recurring cron notification inside the active conversation."
     },
     {
@@ -97,6 +112,11 @@
         "cli"
       ],
       "tier": "All plans",
+      "uiSurface": {
+        "app": "Built-in Side-Panel Browser (v2.30.0+ personal accounts: live cursor, Stop takeover, Add screenshot) or Chrome DevTools MCP thumbnails + Side-Panel image artifacts",
+        "cli": "Chrome DevTools MCP (v144+) + /agents detail view and Alt+J approval jump",
+        "handoff": "Save user-facing proof screenshots to <artifact-dir> (UserFacing: true, RequestFeedback: false) for Side-Panel inspection and region comments, and reference the Browser tab / Overview > Subagents (App) or /agents (CLI)."
+      },
       "summary": "Delegate live web UI inspection, interaction, and screenshots to the browser subagent."
     },
     {
@@ -120,6 +140,11 @@
         "app"
       ],
       "tier": "All plans",
+      "uiSurface": {
+        "app": "Automations tab (Paused until tested & enabled) + [Open Automations Dashboard](sidecar://dashboard) pill",
+        "cli": "N/A (App-only; offer /schedule in-session or agy -p via OS/CI cron)",
+        "handoff": "Leave enabled unset/false in sidecar.json (with CRON_TZ=<IANA>); end the reply with [Open Automations Dashboard](sidecar://dashboard) and the exact display_name so the user can click Test and toggle it on."
+      },
       "summary": "Create a persistent App sidecar automation (sidecar.json with CRON_TZ), dormant until enabled."
     },
     {
@@ -143,6 +168,11 @@
         "cli"
       ],
       "tier": "All plans",
+      "uiSurface": {
+        "app": "Customizations tab, [<name>](customization://<install-dir>) links, <plugin-card catalog-id=\"<id>\"></plugin-card>, and sidecar:// pills",
+        "cli": "/plugin (/plugins) TUI (Installed & Discover tabs) + agy plugin CLI",
+        "handoff": "Link installed plugins via [<name>](customization://<install-dir>) (never plugin://), uninstalled marketplace matches via <plugin-card> on its own line, and running UI plugin panels via ui-plugin-navigation sidecar:// pills (or /plugin in CLI)."
+      },
       "summary": "Open the Plugins Manager or manage, validate, and create Antigravity plugins."
     },
     {
@@ -167,6 +197,11 @@
         "cli"
       ],
       "tier": "All plans",
+      "uiSurface": {
+        "app": "Customizations tab (Rules, Skills, MCP Servers, Plugins)",
+        "cli": "/plugin and agy customization/plugin commands",
+        "handoff": "Cite the exact created or inspected customization path (.agents/rules/, .agents/skills/, hooks.json, MCP config) and point to the Customizations pane when relevant."
+      },
       "summary": "Load official schemas, precedence rules, and formats before authoring rules, skills, plugins, hooks, or MCP configs."
     },
     {
@@ -190,6 +225,11 @@
         "app"
       ],
       "tier": "All plans",
+      "uiSurface": {
+        "app": "Inline <agent-embed> frame (<= 450px) + clickable HTML Artifact card opening full-height in the Side Panel (Overview > Artifacts, Export Artifact)",
+        "cli": "N/A (App-only; render Mermaid diagrams or Markdown tables in CLI)",
+        "handoff": "Write HTML to <artifact-dir>/<name>.html via write_file (UserFacing: true, RequestFeedback: false). Embed compact widgets (<= 450px) inline via <agent-embed src=\"file:///<artifact_path>/<name>.html\"></agent-embed> (no height attr, no 100vh), omit <agent-embed> on tall dashboards, and always point to the Artifact card (Overview > Artifacts) to open in the Side Panel."
+      },
       "summary": "Build rich interactive HTML widgets in the App (falling back to Mermaid in the CLI)."
     },
     {
@@ -213,6 +253,11 @@
         "cli"
       ],
       "tier": "All plans",
+      "uiSurface": {
+        "app": "Cited answer with official antigravity.google/docs links and relevant App UI entrypoints",
+        "cli": "Cited answer with exact agy flags and TUI slash commands",
+        "handoff": "Link the backing official documentation section and name the exact App panel or CLI command (/effort, /agents, /diff, /usage, /context) that surfaces the feature."
+      },
       "summary": "Answer questions about Antigravity App, CLI, IDE, Remote Agents, and SDK from official docs."
     },
     {
@@ -241,6 +286,11 @@
         "cli"
       ],
       "tier": "All plans",
+      "uiSurface": {
+        "app": "Implementation Plan card (Proceed button) + Side-Panel artifact viewer with inline line comments",
+        "cli": "/artifact viewer + chat approval prompt",
+        "handoff": "Write <artifact-dir>/implementation_plan.md (RequestFeedback: true, UserFacing: true), do not duplicate the plan in chat, highlight only open decisions, and point to the Implementation Plan card / Side Panel (or /artifact in CLI)."
+      },
       "summary": "Research read-only, clarify forks, write a reviewable implementation_plan.md artifact, and stop before editing."
     },
     {
@@ -265,6 +315,11 @@
         "cli"
       ],
       "tier": "All plans",
+      "uiSurface": {
+        "app": "Interactive ask_question card above composer (single/multi-select + built-in Other write-in)",
+        "cli": "Interactive TUI choice prompt",
+        "handoff": "Call ask_question sequentially (questions.length === 1) with unnumbered options and (Recommended) first; if stacked with /plan, finish with implementation_plan.md."
+      },
       "summary": "Interview one question at a time with a recommended default, exploring code before asking."
     },
     {
@@ -289,6 +344,11 @@
         "cli"
       ],
       "tier": "All plans",
+      "uiSurface": {
+        "app": "learning_proposal.md Artifact card (Proceed / inline comments) in Side Panel",
+        "cli": "/artifact viewer + approval prompt",
+        "handoff": "Stage <artifact-dir>/learning_proposal.md (RequestFeedback: true, UserFacing: true) and point to the proposal card before writing any rule or skill file."
+      },
       "summary": "Propose persistent rules or skills in learning_proposal.md and write files only after user approval."
     },
     {
@@ -313,6 +373,11 @@
         "cli"
       ],
       "tier": "All plans",
+      "uiSurface": {
+        "app": "Active Goal indicator above composer + Overview > Goals (Active / Completed / Cancelled)",
+        "cli": "Continuous harness loop + /tasks status",
+        "handoff": "Print a copy-ready /goal command with a checkable predicate and note that progress tracks under Overview > Goals (App) or /tasks (CLI); set RequestFeedback: false on intermediate artifacts."
+      },
       "summary": "Harness-owned continuous execution loop with stop interception until the done predicate holds."
     },
     {
@@ -336,6 +401,11 @@
         "cli"
       ],
       "tier": "Paid plans",
+      "uiSurface": {
+        "app": "3-phase Orchestrator -> DeepCoder/DeepInvestigator -> challenge subagent cards + Overview > Subagents",
+        "cli": "Inline phase progress + /agents Subagent Manager",
+        "handoff": "Print a copy-ready /boost command and note that specialist and challenger rounds can be inspected in Overview > Subagents (App) or /agents (CLI)."
+      },
       "summary": "Three-tier multi-agent deep reasoning hierarchy for hard coupled bugs, races, and algorithms."
     },
     {
@@ -359,6 +429,11 @@
         "cli"
       ],
       "tier": "Paid plans",
+      "uiSurface": {
+        "app": "Scoping interview + Prompt approval card + Overview > Artifacts (Request, Project plan, Progress) & Overview > Subagents",
+        "cli": "Scoping prompt + ~/teamwork_projects/{PROJECT_NAME} artifacts + /agents",
+        "handoff": "Print a copy-ready /teamwork command and note that it produces a Prompt approval artifact, ~/teamwork_projects/{PROJECT_NAME} deliverables, and inspectable Sentinel/Orchestrator/Auditor agents in Overview > Subagents or /agents."
+      },
       "summary": "Sentinel scoping interview, binding specification, and collaborative agent teams for multi-day campaigns."
     },
     {
@@ -377,7 +452,39 @@
         "cli"
       ],
       "tier": "All plans",
+      "uiSurface": {
+        "app": "Floating Side Question panel (1/N history, Copy, Minimize pill)",
+        "cli": "Collapsible /btw card + /copy btw",
+        "handoff": "Recommend /btw <question> when the user wants a side answer without interrupting an active tool, subagent, or swarm turn."
+      },
       "summary": "User-initiated contextual side question answered without pausing the primary task."
+    }
+  ],
+  "companionSurfaces": [
+    {
+      "surface": "Subagents (`invoke_subagent`)",
+      "entrypoint": "App: `Overview > Subagents` (`Ctrl+Alt+O` / `Cmd+Option+O`) + clickable inline rows; CLI: `/agents` (`Enter` detail view, `K` kill), `Alt+J` approval jump, `Ctrl+K` fast-path approval, `@<agent>` direct messaging",
+      "guidance": "When AStack runs subagents behind the scenes (`/fanout`, `/arena`, `/interrogate`, `/no-comments`, `/how`, `/why`, `browser`), point the user to these subagent panels so they can inspect child transcripts."
+    },
+    {
+      "surface": "Diff & Code Review",
+      "entrypoint": "App: `Overview > Review` (`N files changed > Review`) with inline line comments; CLI: `/diff` 3-view Interactive Diff Viewer (`All Changes`, `Per Turn`, `Commit Tree`, `C` inline comments)",
+      "guidance": "Point users stopping to inspect changes to the Review pane (App) or `/diff` (CLI)."
+    },
+    {
+      "surface": "Reasoning Effort (`/effort` & `--effort`)",
+      "entrypoint": "CLI: `/effort` interactive timeline gauge (`low`, `medium`, `high`, `xhigh`, `max` per model; `/effort <level>`; `agy -p \"/effort\" [--output-format json]`; `agy --effort <level>` one-run flag)",
+      "guidance": "Fixed-budget models such as **Orchestrator** report effort as non-adjustable because Orchestrator dynamically routes between planner and executor."
+    },
+    {
+      "surface": "Context & Quota (`/context` & `/usage`)",
+      "entrypoint": "CLI: `/context` proportional cell grid + token/checkpoint breakdown; `/usage` (`/quota`) live **Models & Quota** panel",
+      "guidance": "Recommend `/usage` when checking live model quota ahead of cross-family `/arena` or `/swarm`, and `/context` when auditing session compaction."
+    },
+    {
+      "surface": "UI Plugin Sidecars (`ui-plugin-navigation`)",
+      "entrypoint": "App: `[<Label>](sidecar://<sidecar-id>/<view-path>)` one-click pills opening enabled, running `AUX_PANE` UI plugin panels in the Side Panel",
+      "guidance": "Load Antigravity's built-in `ui-plugin-navigation` skill before surfacing a plugin sidecar pill; never guess `sidecar://` URIs."
     }
   ]
 }

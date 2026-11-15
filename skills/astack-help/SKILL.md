@@ -34,7 +34,7 @@ Check workspace state that changes the answer:
 
 See [README](../../README.md), [User Guide](../../docs/user-guide.md), [Architecture & Swarm Guide](../../docs/architecture-and-swarm.md), and [Guide 01: Setup](../../docs/guide/01-setup.md). For crafting your first prompt, follow [`references/prompting.md`](references/prompting.md).
 
-**Cost control.** AStack uses subagents, panels (`/arena`, `/interrogate`), and `@verifier` workers intentionally. Selecting **Orchestrator (Carbon)** (Google AI Ultra) or **Orchestrator (Argon)** (Google AI Pro and Ultra) enables dynamic bidirectional routing between a read-only frontier planner and a fast executor with automatic hand-back on friction. Read-only search and browser sweeps use evergreen `flash` aliases, and manual-only principles/mode skills keep startup `<skills>` discovery compact (`disable-model-invocation: true`).
+**Cost control.** AStack uses subagents, panels (`/arena`, `/interrogate`), and `@verifier` workers intentionally. Selecting **Orchestrator (Carbon)** (Google AI Ultra) or **Orchestrator (Argon)** (Google AI Pro and Ultra) enables dynamic bidirectional routing between a read-only frontier planner and a fast executor with automatic hand-back on friction (Orchestrator manages reasoning effort dynamically; in the CLI, adjustable models expose `/effort` and `--effort`, while `/usage` shows live model quota and `/context` shows context allocation). Read-only search and browser sweeps use evergreen `flash` aliases, and manual-only principles/mode skills keep startup `<skills>` discovery compact (`disable-model-invocation: true`).
 
 ## Antigravity Multi-Agent Tiers
 
@@ -98,7 +98,7 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 
 - **Playbooks** are step checklists inside `skills/astack-mode/playbooks/` ("babysit this PR", "land the stack", "take over this branch", "pause safely", "full autopilot").
 - **24 Principles** (`principle-*`) encode Lauren Tan's core engineering bar (`principle-prove-it-works`, `principle-laziness-protocol`, `principle-fix-root-causes`, etc.). See [Guide 08: Principles](../../docs/guide/08-principles.md).
-- **All 16 Native Antigravity Commands:** Complete mapping across `run`, `load`, `contract`, and `recommend` modes lives in [`native-commands.md`](../astack-mode/references/native-commands.md) and [`plan-contract.md`](../astack-mode/references/plan-contract.md). None of `/swarm`, `/run-workflow`, `/boost`, `/teamwork`, `/goal`, `/plan`, `/grill-me`, `/learn`, `/agy-customizations`, `/plugin`, `/automation`, `/schedule`, `/browser`, `/btw`, `/generative_ui`, or `/antigravity-guide` are shadowed.
+- **All 16 Native Antigravity Commands & Dedicated UIs:** Complete mapping across `run`, `load`, `contract`, and `recommend` modes plus App/CLI UI handoffs (`open_board` for `/swarm` **Overview/Board/Members/Graph** or `/swarm board`, `<agent-embed>` + Side-Panel Artifact cards for `/generative_ui`, `[Open Automations Dashboard](sidecar://dashboard)` for `/automation`, **Overview > Subagents** / `/agents`, **Overview > Review** / `/diff`, `/effort`) lives in [`native-commands.md`](../astack-mode/references/native-commands.md) and [`plan-contract.md`](../astack-mode/references/plan-contract.md). None of `/swarm`, `/run-workflow`, `/boost`, `/teamwork`, `/goal`, `/plan`, `/grill-me`, `/learn`, `/agy-customizations`, `/plugin`, `/automation`, `/schedule`, `/browser`, `/btw`, `/generative_ui`, or `/antigravity-guide` are shadowed.
 
 ## Fix a run that went wrong
 

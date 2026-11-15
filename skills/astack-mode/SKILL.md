@@ -128,6 +128,14 @@ Before matching a playbook, check user intent against [`references/native-comman
 
 An explicit slash command in the prompt wins over any inferred match. Stacked commands (`/plan /grill-me`, `/plan /astack-mode`) execute in order: interview, then plan artifact, then stop.
 
+### Surface dedicated Antigravity UIs
+
+Whenever AStack invokes a native tool or built-in skill behind the scenes, surface its dedicated UI entrypoint from [`references/native-commands.md`](./references/native-commands.md) so the user sees what ran and where to explore it:
+
+- **Swarm (`swarm` tool)**: Load `swarm` (plus `swarm_pane` when in `<skills>` to maintain `.system_generated/swarm/plan.json` for **Overview**). Output the exact `open_board` string from `swarm{action: "add"}` or `swarm{action: "status"}` verbatim on its own line at kickoff AND at completion (after posting `[done] <summary>` with no `@`), noting the **Swarm** UI (**Overview**, **Board**, **Members**, **Graph**) in App or `/swarm board` (`Alt+S`) in CLI. Never hand-write `open_board`.
+- **Generative UI (`generative_ui` skill, App only)**: Write `<artifact-dir>/<name>.html` via `write_file` (`UserFacing: true`, `RequestFeedback: false`). Embed compact widgets (`<= 450px`) inline with `<agent-embed src="file:///<artifact_path>/<name>.html"></agent-embed>`, and point to the **Artifact card** (**Overview > Artifacts**) for full-height **Side Panel** viewing (fall back to Mermaid in CLI).
+- **Workflows, Subagents, Browser, Automations, Schedules, Plugins, and Diffs**: Point to the **Workflow step card** (`phase()` groups and clickable `role` agent cards) for `run_workflow`, **Overview > Subagents** or CLI `/agents` (`Alt+J` and `Ctrl+K`) for `invoke_subagent` and `browser`, `[Open Automations Dashboard](sidecar://dashboard)` with the exact `display_name` for `automation`, **Overview > Background Tasks** or CLI `/tasks` for active `schedule` tasks, `[<name>](customization://<install-dir>)` or `<plugin-card>` or `ui-plugin-navigation` `sidecar://` pills for plugins and running UI sidecars, and **Overview > Review** or CLI `/diff` when stopping for code review.
+
 ## Playbooks
 
 Create a structured checklist whose first items mirror the matched playbook's steps verbatim (keep any skipped step visible as `skip: <reason>`). Open `playbooks/<title>.md` (kebab-case) and follow every step. Route large bespoke migrations to [`figure-it-out`](../figure-it-out/SKILL.md) and multi-day coordinator programs to `playbooks/orchestrate.md` (with native `/swarm`). Short follow-ups stay sticky on the active playbook until `"new task"` resets classification or an explicit slash command takes over. Prefer prompts shaped as goal plus empirical check over fixed skill chains.

@@ -93,7 +93,15 @@ AStack leans directly on Antigravity's native review surfaces so you stay in con
 3. **Inline review & approval (`Proceed`):** Leave inline comments on specific lines of `implementation_plan.md` or workspace files, point context with `@file` / `@rule` / `@conversation` mentions, and click **Proceed** when ready to execute.
 4. **Autonomous guardrails (`/goal` & `hillclimb`):** Unattended completion runs switch to `RequestFeedback: false` on progress artifacts so overnight loops verify continuously instead of blocking on UI buttons.
 
-See [Part 2 of the User Guide](./docs/user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute) and [`plan-contract.md`](./skills/astack-mode/references/plan-contract.md) for exact prompts.
+### Dedicated Antigravity UIs surfaced automatically
+
+Whenever AStack invokes native Antigravity capabilities behind the scenes, it surfaces their dedicated UI entrypoints at handoff so you can see what ran and inspect it directly:
+
+- **Swarm UI (`/swarm`):** Maintains `.system_generated/swarm/plan.json` via `swarm_pane` (when present) and prints the verbatim `open_board` link or `/swarm board` (`Alt+S`) hint on its own line at kickoff **and** in the final report (after posting `[done] <summary>`), letting you explore the **Overview**, **Board** (`#seq` feed), **Members** (worker conversations), and **Graph** (`@mention` replay) views.
+- **Interactive HTML Widgets (`/generative_ui`):** Writes `<artifact-dir>/<name>.html` via `write_file` (`UserFacing: true`, `RequestFeedback: false`), embeds compact widgets (`<= 450px`) inline with `<agent-embed>`, and points to the **Artifact card** (**Overview > Artifacts**) to open full-height in the Side Panel (falling back to Mermaid diagrams in the CLI).
+- **Workflows, Subagents, Browser, Automations, Diffs & CLI Panels:** Surfaces the **Workflow step card** (`phase()` groups and clickable `role` agent cards) for `/run-workflow`, **Overview > Subagents** or CLI `/agents` (`Alt+J` / `Ctrl+K`) and the **Built-in Side-Panel Browser** for subagents and `/browser`, `[Open Automations Dashboard](sidecar://dashboard)` with exact `display_name` for `/automation`, **Overview > Background Tasks** or CLI `/tasks` for `/schedule`, **Overview > Review** or CLI `/diff` for code review, and pairs cleanly with CLI `/effort` (`--effort`), `/usage`, and `/context`.
+
+See [Part 2 of the User Guide](./docs/user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute), [`plan-contract.md`](./skills/astack-mode/references/plan-contract.md), and [`native-commands.md`](./skills/astack-mode/references/native-commands.md) for exact prompts and UI handoffs.
 
 ## How it fits together
 
@@ -155,7 +163,7 @@ Because AStack leaves subagent and `/swarm` worker models unset (`Model: "inheri
 | **`/teamwork`** | Long-horizon, multi-milestone migrations, rewrites, or formal efforts | Scoping interview and milestone gates with [`/architect`](./skills/architect/SKILL.md) and [`/show-me-your-work`](./skills/show-me-your-work/SKILL.md) |
 | **`/goal`, `/schedule`, `/automation`** | `/goal` for uninterrupted loops; `/schedule` for in-session timers/crons; `/automation` (App only, `CRON_TZ=`) for persistent background triggers | `autonomous-run`, [`/figure-it-out`](./skills/figure-it-out/SKILL.md), `decisions.tsv`, [`/ketchup`](./skills/ketchup/SKILL.md) |
 
-> **Why zero native shadowing (`RESERVED_SKILL_NAMES` + `/fanout`)?** In Antigravity's discovery precedence (**Workspace Project > Declared Configs > Global > Built-in > Global Declared**), installed plugins support explicit `<plugin>:<skill>` namespacing (`astack:tdd`). AStack keeps slice fan-out under [`skills/fanout`](./skills/fanout/SKILL.md) and blocks any skill matching all 16 native slash commands or 15 built-in reserved names so native `/swarm`, `/plan`, `/grill-me`, and `/learn` remain untouched.
+> **Why zero native shadowing (`RESERVED_SKILL_NAMES` + `/fanout`)?** In Antigravity's discovery precedence (**Workspace Project > Declared Configs > Global > Built-in > Global Declared**), installed plugins support explicit `<plugin>:<skill>` namespacing (`astack:tdd`). AStack keeps slice fan-out under [`skills/fanout`](./skills/fanout/SKILL.md) and blocks any skill matching all 16 native slash commands or 16 built-in reserved names so native `/swarm`, `swarm_pane`, `/plan`, `/grill-me`, and `/learn` remain untouched.
 
 ## Skill catalog
 

@@ -61,3 +61,4 @@ Return one compact report containing:
 - **Slice verdicts.** Each slice's `PASS`, `ISSUES`, or `BLOCKED` status with echoed SHA and measured output.
 - **Verified findings or winning arm.** Reproduced failures (with exact files and commands) or landed winning change plus post-merge proof.
 - **Gaps and dropouts.** Any respawned slices, remaining unverified slices, or `BLOCKED` coverage holes.
+- **Subagent inspection.** Point the user to clickable inline subagent rows or **Overview > Subagents** (App) / `/agents` (CLI) to open individual slice transcripts.

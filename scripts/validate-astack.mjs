@@ -178,6 +178,14 @@ function formatBackingCell(entry) {
   return `recommend \`${b.exampleLine}\``;
 }
 
+function hasNonEmptyFields(obj, fields) {
+  return Boolean(obj && typeof obj === "object" && fields.every((f) => typeof obj[f] === "string" && obj[f].trim().length > 0));
+}
+
+function escapeTableCell(value) {
+  return String(value ?? "").replace(/\|/g, "\\|");
+}
+
 /**
  * Generates deterministic markdown reference documentation from `native-commands.json`.
  */
@@ -210,6 +218,37 @@ export function renderNativeCommandsMarkdown(registry) {
     const companions = formatCompanionLinks(entry.astackCompanion ?? []);
     lines.push(
       `| \`${entry.command}\` | ${entry.category} | \`${entry.mode}\` | ${formatBackingCell(entry)} | ${triggers} | ${surfaces} | ${entry.tier} | ${companions} |`,
+    );
+  }
+
+  lines.push(
+    "",
+    "## Dedicated UIs & End-of-Turn Handoff",
+    "",
+    "Whenever AStack invokes or recommends one of these native capabilities behind the scenes, surface its dedicated UI entrypoint cleanly so the user sees what ran and where to inspect it:",
+    "",
+    "| Command | App UI | CLI UI | AStack Handoff Rule |",
+    "|---|---|---|---|",
+  );
+
+  for (const entry of registry.commands) {
+    const ui = entry.uiSurface ?? {};
+    lines.push(
+      `| \`${entry.command}\` | ${escapeTableCell(ui.app)} | ${escapeTableCell(ui.cli)} | ${escapeTableCell(ui.handoff)} |`,
+    );
+  }
+
+  lines.push(
+    "",
+    "## Companion Inspection & Effort Surfaces",
+    "",
+    "| Surface | App / CLI Entrypoint | How AStack Surfaces or Pairs With It |",
+    "|---|---|---|",
+  );
+
+  for (const item of registry.companionSurfaces ?? []) {
+    lines.push(
+      `| ${escapeTableCell(item.surface)} | ${escapeTableCell(item.entrypoint)} | ${escapeTableCell(item.guidance)} |`,
     );
   }
 
@@ -293,6 +332,21 @@ function validateNativeCommandsRegistry(rootDir, errors) {
         }
       }
     }
+
+    if (!hasNonEmptyFields(entry.uiSurface, ["app", "cli", "handoff"])) {
+      errors.push({ file: registryRel, message: `${entry.command} missing valid uiSurface.{app,cli,handoff}` });
+    }
+  }
+
+  if (
+    !Array.isArray(registry.companionSurfaces) ||
+    registry.companionSurfaces.length === 0 ||
+    registry.companionSurfaces.some((item) => !hasNonEmptyFields(item, ["surface", "entrypoint", "guidance"]))
+  ) {
+    errors.push({
+      file: registryRel,
+      message: "Registry must contain a non-empty companionSurfaces array with {surface,entrypoint,guidance}",
+    });
   }
 
   for (const expected of EXPECTED_NATIVE_COMMANDS) {

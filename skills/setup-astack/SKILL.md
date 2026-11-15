@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Interactive workspace onboarding for AStack (`astack`), João Machete's verification-first Google Antigravity engineering stack built on Lauren Tan's (`@poteto`) `pstack` and inspired by Garry Tan's (`@garrytan`) `gstack`, integrated natively with `invoke_subagent`, `/boost`, `/swarm`, `/teamwork`, `/goal`, and `/schedule`.
 
-AStack is zero-config for models by default. Subagents (`invoke_subagent`) and `/swarm` workers omit model overrides so they inherit whatever model you picked in Antigravity's UI selector, including **Orchestrator**, effort controls, and newly launched weekly models, while `/arena` discovers cross-family models live at runtime via `swarm{action: "models", all: true}`. Setup focuses on giving agents empirical verification and safety guardrails for this repository.
+AStack is zero-config for models by default. Subagents (`invoke_subagent`) and `/swarm` workers omit model overrides so they inherit whatever model you picked in Antigravity's UI selector, including **Orchestrator**, CLI `/effort` (`--effort`) controls on adjustable models, and newly launched weekly models, while `/arena` discovers cross-family models live at runtime via `swarm{action: "models", all: true}`. Setup focuses on giving agents empirical verification and safety guardrails for this repository.
 
 ## 1. Initiate Setup & Inspect Environment
 
@@ -61,7 +61,7 @@ Then ask concisely with `ask_question` (pass unnumbered options without adding a
 - If the user selected `Review opt-in safety & verification hooks`, explain that [`hooks.json`](../../hooks.json) ships `"enabled": false` by default and show how to opt in to `"enabled": true` for `astack-irreversible-guard` and `astack-verify-reminder`. Open plugin details anytime in the Antigravity App via [astack](customization://astack).
 - If the user chose to remove/reset an existing `astack-models.md` (and confirmed the change), remove or update it cleanly as requested.
 - Close with quick next-step commands:
-  - `/astack-mode <task>`: classify task into a playbook and orchestrate rigor end-to-end
+  - `/astack-mode <task>`: classify task into a playbook, surface dedicated Antigravity UIs (**Swarm** UI via `open_board`, `/generative_ui` Side-Panel widgets, **Overview > Review** / `/diff`), and orchestrate rigor end-to-end
   - `/plan /astack-mode <task>`: investigate and pause at an approval-gated `implementation_plan.md` before editing files
   - `/astack-help`: browse playbooks, verification skills, and recipes
   - `/swarm` / `/run-workflow` / `/boost` / `/teamwork` / `/goal`: Antigravity's native multi-worker board, Python workflow runner, iterative challenge-and-fix, long-horizon, and completion-driven modes

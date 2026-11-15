@@ -47,3 +47,4 @@ Return three sections:
 - **Intent.** 1 to 2 sentences stating what the change is supposed to do.
 - **Findings.** For each verified break, include the exact command run, observed failing output, how it breaks the stated intent, and which adversaries found it (or state `no verified findings`).
 - **Dropped.** Per-adversary count and concrete drop reasons so the human can review or override any cut.
+- **UI handoff.** When adversaries ran on native `/swarm`, post `[done] <summary>` (no `@`) and append the exact `open_board` value from `swarm{action: "status"}` on its own line for the **Swarm** UI (or `/swarm board` in CLI); for `invoke_subagent` runs, point to **Overview > Subagents** (App) or `/agents` (CLI).

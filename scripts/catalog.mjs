@@ -46,6 +46,7 @@ export const BUILTIN_RESERVED_SKILL_NAMES = [
   "run-workflow",
   "swarm_monitor",
   "swarm_narrator",
+  "swarm_pane",
   "ui-plugin-navigation",
 ];
 

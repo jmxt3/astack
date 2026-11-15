@@ -23,7 +23,7 @@ See [`references/devtools-evidence-checklist.md`](references/devtools-evidence-c
 
 ## 3. Drive Like a User (Antigravity `/browser` & DevTools)
 
-- **Default interactive driver (`/browser` in `run` mode)**: Delegate visual/interactive browser flows to Antigravity's `browser` subagent (`invoke_subagent` with `TypeName: "browser"`). On personal App accounts (`v2.30.0+`), Antigravity drives the built-in browser; on CLI or older environments, it connects via Chrome DevTools MCP (`v144+`). Give the subagent clear step-by-step user actions, stable accessibility/DOM cues from the feature map (ARIA labels, visible text, routes; never brittle coordinates), and exact evidence to capture.
+- **Default interactive driver (`/browser` in `run` mode)**: Delegate visual/interactive browser flows to Antigravity's `browser` subagent (`invoke_subagent` with `TypeName: "browser"`). On personal App accounts (`v2.30.0+`), Antigravity drives the **Built-in Side-Panel Browser** (with live cursor, **Stop** user takeover, and **Add screenshot to conversation**); on CLI or Enterprise environments, it connects via Chrome DevTools MCP (`v144+`). Give the subagent clear step-by-step user actions, stable accessibility/DOM cues from the feature map (ARIA labels, visible text, routes; never brittle coordinates), and exact evidence to capture. Point the user to the Browser tab / **Overview > Subagents** (App) or `/agents` + `Alt+J` (CLI) when handing back visual verification results.
 - **Scripted / DevTools / trace workflows**: When you need deterministic scripted assertions (Playwright/Cypress) or deep runtime telemetry (Chrome DevTools console/network logs, CPU/frame traces, memory heap snapshots), use the project's existing harness or Antigravity's Chrome DevTools MCP (`chrome-devtools` / `browser-testing-with-devtools` / `memory-leak-debugging` / `a11y-debugging`).
 - **Real user path only**: Trigger real clicks, keyboard shortcuts, and form submissions; never call internal test hooks, React/store setters, or backdoor endpoints unless explicitly proving an internal unit contract.
 
@@ -31,7 +31,7 @@ See [`references/devtools-evidence-checklist.md`](references/devtools-evidence-c
 
 Capture and verify:
 
-- **Action + resulting state**: Not just a final screenshot; confirm the action fired the expected network request / state transition and landed cleanly without layout breakage, clipped controls, or horizontal overflow.
+- **Action + resulting state**: Not just a final screenshot; confirm the action fired the expected network request / state transition and landed cleanly without layout breakage, clipped controls, or horizontal overflow. Save user-facing proof screenshots under `<artifact-dir>` (`UserFacing: true`, `RequestFeedback: false`) when visual Side-Panel inspection or region comments help review.
 - **Clean console & network**: Zero uncaught exceptions, React/hydration errors, or unexpected 4xx/5xx responses during the verified path.
 - **Durable side effects**: Confirm created records, files, or server state persisted cleanly (e.g., survive a page reload).
 - **Performance evidence (for `perf-issue` / `trace-forensics`)**: Take traces/heap snapshots before and after with isolated warmup vs measured runs, pairing findings with `benchmark-checklist`.

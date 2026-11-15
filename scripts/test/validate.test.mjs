@@ -4,7 +4,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { applyFrontmatterPolicy, parseFrontmatter } from "../catalog.mjs";
+import {
+  BUILTIN_RESERVED_SKILL_NAMES,
+  MAX_ANTIGRAVITY_BYTES,
+  RESERVED_SKILL_NAMES,
+  applyFrontmatterPolicy,
+  parseFrontmatter,
+} from "../catalog.mjs";
 import { DEFAULT_ROOT_DIR, validateAStack } from "../validate-astack.mjs";
 
 function makeTempDir(prefix) {
@@ -134,10 +140,12 @@ test("validateAStack rejects collisions, frontmatter errors, oversized skills, b
     writeFile(path.join(tmp, "skills", "plan", "SKILL.md"), "---\nname: plan\ndescription: clash\n---\n\nPlan.\n");
     writeFile(path.join(tmp, "skills", "learn", "SKILL.md"), "---\nname: learn\ndescription: clash\n---\n\nLearn.\n");
     writeFile(path.join(tmp, "skills", "antigravity_guide", "SKILL.md"), "---\nname: antigravity_guide\ndescription: clash\n---\n\nGuide.\n");
+    writeFile(path.join(tmp, "skills", "swarm_pane", "SKILL.md"), "---\nname: swarm_pane\ndescription: clash\n---\n\nPane.\n");
     const collisionMsgs = validateAStack(tmp, { withAgy: false }).errors.map((e) => e.message).join("\n");
     assert.match(collisionMsgs, /skills\/plan must not exist because it shadows the native \/plan/);
     assert.match(collisionMsgs, /skills\/learn must not exist because it shadows the native \/learn/);
     assert.match(collisionMsgs, /skills\/antigravity_guide must not exist because it shadows the native \/antigravity_guide/);
+    assert.match(collisionMsgs, /skills\/swarm_pane must not exist because it shadows the native \/swarm_pane/);
 
     const realRegistry = JSON.parse(
       fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "skills", "astack-mode", "references", "native-commands.json"), "utf8"),
@@ -153,16 +161,24 @@ test("validateAStack rejects collisions, frontmatter errors, oversized skills, b
       writeFile(path.join(regTmp, "skills", "astack-mode", "references", "plan-contract.md"), "# Plan\n");
       const trimmed = {
         ...realRegistry,
+        companionSurfaces: [],
         commands: realRegistry.commands
           .filter((c) => c.command !== "/btw")
-          .map((c) => ({
-            ...c,
-            astackCompanion: ["skills/astack-mode/SKILL.md"],
-            backing:
-              c.mode === "contract"
-                ? { ...c.backing, contract: "skills/astack-mode/references/plan-contract.md" }
-                : c.backing,
-          })),
+          .map((c, idx) => {
+            const base = {
+              ...c,
+              astackCompanion: ["skills/astack-mode/SKILL.md"],
+              backing:
+                c.mode === "contract"
+                  ? { ...c.backing, contract: "skills/astack-mode/references/plan-contract.md" }
+                  : c.backing,
+            };
+            if (idx === 0) {
+              const { uiSurface: _omitted, ...withoutUi } = base;
+              return withoutUi;
+            }
+            return base;
+          }),
       };
       writeFile(
         path.join(regTmp, "skills", "astack-mode", "references", "native-commands.json"),
@@ -174,6 +190,8 @@ test("validateAStack rejects collisions, frontmatter errors, oversized skills, b
       );
       const regMessages = validateAStack(regTmp, { withAgy: false }).errors.map((e) => e.message).join("\n");
       assert.match(regMessages, /Missing catalog command from registry: \/btw/);
+      assert.match(regMessages, /missing valid uiSurface\.\{app,cli,handoff\}/);
+      assert.match(regMessages, /non-empty companionSurfaces array/);
       assert.match(regMessages, /native-commands\.md drifted from native-commands\.json/);
     } finally {
       fs.rmSync(regTmp, { recursive: true, force: true });
@@ -226,6 +244,35 @@ test("live AStack repo validates cleanly and enforces UI/Orchestrator and agent 
   const setupGuide = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "docs", "guide", "01-setup.md"), "utf8");
   assert.doesNotMatch(userGuide, /Orchestrator \(Ultra\)/);
   assert.doesNotMatch(setupGuide, /Orchestrator \(Ultra\)/);
+
+  assert.equal(BUILTIN_RESERVED_SKILL_NAMES.includes("swarm_pane"), true);
+  assert.equal(BUILTIN_RESERVED_SKILL_NAMES.length, 16);
+  assert.equal(RESERVED_SKILL_NAMES.size, 26);
+
+  const astackModeRaw = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "skills", "astack-mode", "SKILL.md"), "utf8");
+  const astackModeBody = parseFrontmatter(astackModeRaw).body;
+  assert.equal(Buffer.byteLength(astackModeBody, "utf8") <= MAX_ANTIGRAVITY_BYTES, true);
+  assert.match(astackModeBody, /open_board/);
+  assert.match(astackModeBody, /<agent-embed/);
+  assert.match(astackModeBody, /sidecar:\/\/dashboard/);
+  const astackModeProse = astackModeBody.replace(/```[\s\S]*?```/g, "").replace(/`[^`]*`/g, "");
+  assert.doesNotMatch(astackModeProse, /—|--/);
+
+  const swarmCoord = fs.readFileSync(
+    path.join(DEFAULT_ROOT_DIR, "skills", "astack-mode", "references", "swarm-coordination.md"),
+    "utf8",
+  );
+  assert.match(swarmCoord, /open_board/);
+  assert.match(swarmCoord, /swarm_pane/);
+  assert.match(swarmCoord, /\/effort/);
+
+  const nativeCommandsMd = fs.readFileSync(
+    path.join(DEFAULT_ROOT_DIR, "skills", "astack-mode", "references", "native-commands.md"),
+    "utf8",
+  );
+  for (const pattern of [/open_board/, /swarm_pane/, /<agent-embed/, /sidecar:\/\/dashboard/, /\/effort/]) {
+    assert.match(nativeCommandsMd, pattern);
+  }
 });
 
 test("live repo matches scripts/catalog.json manualOnlySkills (33 manual-only, 28 auto-invocable)", () => {

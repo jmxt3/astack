@@ -59,7 +59,7 @@ Inspect live state and repair plan`"]
 | **High-speed execution (Hydrogen)** | Writes code edits, updates packages, and runs builds and tests | Playbook checklists, [`/tdd`](../skills/tdd/SKILL.md), [`/deslop`](../skills/deslop/SKILL.md), [`/no-comments`](../skills/no-comments/SKILL.md), [`/interrogate`](../skills/interrogate/SKILL.md), [`/control-ui`](../skills/control-ui/SKILL.md), [`/control-cli`](../skills/control-cli/SKILL.md), and `verify-<app>` turn "done" into a deterministic runtime check. |
 | **Bidirectional friction recovery (Hydrogen back to planner)** | Hands control back to Carbon or Argon when execution hits roadblocks | Objective Control Glass failures and [`principle-attack-the-premise`](../skills/principle-attack-the-premise/SKILL.md) halt blind retry loops after repeated gate failures so the planner inspects live state and repairs the plan. |
 
-AStack preserves bidirectional routing by omitting hardcoded model overrides (`Model: "inherit"` by default on `invoke_subagent` and unset `model` on `swarm{action: "add"}`). AStack reserves evergreen `flash` aliases for high-volume read-only sweeps and uses `swarm{action: "models"}` to discover distinct live model families only when [`/arena`](../skills/arena/SKILL.md) runs cross-family bakeoffs.
+AStack preserves bidirectional routing by omitting hardcoded model overrides (`Model: "inherit"` by default on `invoke_subagent` and unset `model` on `swarm{action: "add"}`). AStack reserves evergreen `flash` aliases for high-volume read-only sweeps and uses `swarm{action: "models"}` to discover distinct live model families only when [`/arena`](../skills/arena/SKILL.md) runs cross-family bakeoffs. In the Antigravity CLI, `/effort` (interactive timeline gauge across `low`..`max` on adjustable models, plus `agy --effort <level>` and `agy -p "/effort"`), `/usage` (`/quota`), and `/context` provide runtime inspection and tuning alongside fixed-budget dynamic **Orchestrator**.
 
 ## Antigravity Orchestration & Autonomy Decision Matrix
 
@@ -87,6 +87,14 @@ flowchart TD
 | **`/teamwork`** | `recommend` | **Long-horizon, multi-milestone** migrations, rewrites, or simulations spanning hours or days (Paid plans) | `orchestrate`, `multi-phase-plan`, `/architect`, `/interrogate`, `/show-me-your-work` | Dedicated project directory + milestone audit gates |
 | **`/goal`, `/schedule`, `/automation`** | `recommend` / `run` / `load` | `/goal` for uninterrupted completion; `/schedule` for in-session timers/crons; `/automation` (App only, `CRON_TZ=`) for persistent background triggers | `autonomous-run`, `/figure-it-out`, `/show-me-your-work` (`decisions.tsv`), `/ketchup` | Isolated git worktree (`pause-safely`) or App sidecar (`sidecar.json`) |
 
+### Dedicated Antigravity UI Surfacing
+
+When AStack runs native capabilities behind the scenes, each mode surfaces its dedicated Antigravity UI entrypoint per [`native-commands.md`](../skills/astack-mode/references/native-commands.md):
+
+- **`/swarm`**: Loads `swarm` plus `swarm_pane` (maintaining `.system_generated/swarm/plan.json`) and ends both kickoff and completion (after `[done] <summary>`) with the exact `open_board` string on its own line so you can open the **Swarm** UI (**Overview**, **Board**, **Members**, **Graph**) in App or `/swarm board` (`Alt+S`) in CLI.
+- **`/generative_ui` (App only)**: Writes `<artifact-dir>/<name>.html` via `write_file` (`UserFacing: true`, `RequestFeedback: false`), embeds compact widgets (`<= 450px`) inline with `<agent-embed>`, and points to the **Artifact card** (**Overview > Artifacts**) for Side-Panel viewing (Mermaid fallback in CLI).
+- **Workflows, Subagents, Browser, Automations, Reviews & CLI Panels**: Surfaces the **Workflow step card** (`phase()` / clickable `role` cards) for `/run-workflow`, **Overview > Subagents** or CLI `/agents` (`Alt+J` / `Ctrl+K`) and the **Built-in Side-Panel Browser** for subagents and `/browser`, `[Open Automations Dashboard](sidecar://dashboard)` with `display_name` for `/automation`, **Overview > Background Tasks** / **Goals** or CLI `/tasks` for `/schedule` and `/goal`, `customization://<install-dir>` / `<plugin-card>` / `sidecar://` pills for plugins and UI sidecars, and **Overview > Review** or CLI `/diff` when handing back code for review.
+
 ### Customization Precedence, Namespacing & Why `/fanout` Replaces `/swarm`
 
 In Antigravity's customization discovery and precedence order (**Workspace Project** > **Declared Configurations** > **Global `~/.gemini/config/`** > **Built-in Customizations** > **Global Declared Configurations**), installed plugin customizations follow declared-configuration priority and collide cleanly via `<plugin>:<skill>` namespacing (for example `astack:tdd`), while plugin MCP servers are namespaced as `<plugin>_<server>`.
@@ -94,7 +102,7 @@ In Antigravity's customization discovery and precedence order (**Workspace Proje
 To avoid ever shadowing a native slash command or built-in skill:
 
 - AStack keeps slice fan-out under **`skills/fanout`** (`/fanout`), letting `/fanout` handle lightweight `invoke_subagent` fan-out matrices and escalate cleanly to native `/swarm` when workers need a shared message board or dedicated `@verifier`.
-- [`validate-astack.mjs`](../scripts/validate-astack.mjs) and [`catalog.mjs`](../scripts/catalog.mjs) enforce `RESERVED_SKILL_NAMES` against all 16 native slash commands and the 15 built-in reserved names.
+- [`validate-astack.mjs`](../scripts/validate-astack.mjs) and [`catalog.mjs`](../scripts/catalog.mjs) enforce `RESERVED_SKILL_NAMES` against all 16 native slash commands and the 16 built-in reserved names.
 - **Context budget (`disable-model-invocation: true`)**: Antigravity preloads only `name` and `description` for auto-invocable skills. AStack sets `disable-model-invocation: true` on `33` manual-only/reference skills (`24` `principle-*` skills plus `9` explicit slash entrypoints listed in [`catalog.json`](../scripts/catalog.json)), keeping `28` auto-invocable workflow skills lean in the session index.
 
 See [`skills/astack-mode/references/swarm-coordination.md`](../skills/astack-mode/references/swarm-coordination.md) for concrete `swarm` (`title`, `add`, `workspace`, `@verifier`, `@monitor`, cleanup) patterns.

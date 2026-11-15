@@ -4,11 +4,12 @@ AStack aligns 100% with Antigravity's 16 public slash commands through a single 
 
 ## Sub-features
 
-- Single-source 16-command registry (`run`, `load`, `contract`, `recommend` engagement modes, surfaces `app` / `cli`, plan tiers, triggers, and AStack companions)
-- Byte-identical generated Markdown table (`node scripts/validate-astack.mjs --write-native-commands`) checked automatically by `validate-astack.mjs`
+- Single-source 16-command registry (`run`, `load`, `contract`, `recommend` engagement modes, surfaces `app` / `cli`, plan tiers, triggers, AStack companions, `uiSurface.{app,cli,handoff}`, and `companionSurfaces`)
+- Byte-identical generated Markdown tables (`node scripts/validate-astack.mjs --write-native-commands`) checked automatically by `validate-astack.mjs`
+- Dedicated UI handoffs when native commands run behind the scenes (`open_board` verbatim on its own line at kickoff & completion for `/swarm`, HTML artifacts + `<agent-embed>` + Side-Panel Artifact cards for `/generative_ui`, `[Open Automations Dashboard](sidecar://dashboard)` for `/automation`, **Workflow step card**, **Overview > Subagents** / `/agents`, **Overview > Background Tasks** / `/tasks`, **Overview > Review** / `/diff`, `/effort`)
 - Hard `/plan` approval gate (`implementation_plan.md` with `RequestFeedback: true` and `UserFacing: true`, zero workspace edits before approval) and `/learn` `learning_proposal.md` gate
 - Always-on intent routing via `rules/astack-orchestration.md` plus explicit `/` command priority and sticky active-playbook follow-ups reset by `"new task"`
-- Behavioral routing evaluation suite (`R1` to `R12` plus negative twin `R1-neg`, defined only in this file below) graded from transcripts using the general blinded-eval protocol in [eval.md](../../../../skills/astack-mode/playbooks/eval.md)
+- Behavioral routing evaluation suite (`R1` to `R14` plus negative twin `R1-neg`, defined only in this file below) graded from transcripts using the general blinded-eval protocol in [eval.md](../../../../skills/astack-mode/playbooks/eval.md)
 
 ## How to get to it (user POV)
 
@@ -24,9 +25,9 @@ Preconditions: `$ScratchDir` and `$EvidenceDir` exist from `Launch`; inspect gen
 - Run `node scripts/validate-astack.mjs --write-native-commands` followed by `git diff --exit-code skills/astack-mode/references/native-commands.md`. Expect exit `0` and byte-identical table output.
 - Inspect `native-commands.json`: confirm 16 unique commands matching the Antigravity catalog (`/swarm`, `/run-workflow`, `/schedule`, `/browser`, `/automation`, `/plugin`, `/agy-customizations`, `/generative_ui`, `/antigravity-guide`, `/plan`, `/grill-me`, `/learn`, `/goal`, `/boost`, `/teamwork`, `/btw`) and confirm `validate-astack.mjs` rejects any fixture missing a command or drifting `native-commands.md`.
 
-### Behavioral Routing Eval Suite (`R1` to `R12` + `R1-neg`)
+### Behavioral Routing Eval Suite (`R1` to `R14` + `R1-neg`)
 
-Execute each prompt inside a clean `/astack-mode` session (use an isolated scratch repo for headless `agy -p --output-format stream-json` CLI checks on non-App-only prompts, and the Antigravity App for `R6` / `R10` / UI surfaces). Grade directly from `transcript.jsonl` / `stream-json`:
+Execute each prompt inside a clean `/astack-mode` session (use an isolated scratch repo for headless `agy -p --output-format stream-json` CLI checks on non-App-only prompts, and the Antigravity App for `R6` / `R10` / `R14` / UI surfaces). Grade directly from `transcript.jsonl` / `stream-json`:
 
 | ID | Prompt | Expected Engagement & Pass Rule (from transcript) |
 |---|---|---|
@@ -43,6 +44,8 @@ Execute each prompt inside a clean `/astack-mode` session (use an isolated scrat
 | `R10` | `"/astack-mode check the dashboard renders at localhost:3000"` | Invokes `invoke_subagent` with `TypeName: "browser"`. |
 | `R11` | `"/astack-mode add a PreToolUse hook that blocks force push"` | Loads `agy-customizations` built-in skill before authoring hook JSON/script. |
 | `R12` | `"/astack-mode how do I run the CLI headless in GitHub Actions?"` | Loads `antigravity-guide` built-in skill rather than guessing flags from memory. |
+| `R13` | `"/astack-mode split updating package A and package B across named board workers with a verifier"` | Loads `swarm` (plus `swarm_pane` when in `<skills>` to write `.system_generated/swarm/plan.json`), spawns isolated workers + `@verifier`, posts `[done] <summary>` on completion, and emits the verbatim `open_board` string from `swarm` on its own line at kickoff and final handoff. |
+| `R14` | `"/astack-mode build an interactive HTML chart comparing the latency percentiles"` | In App, loads `generative_ui`, writes `<artifact-dir>/<name>.html` via `write_file` (`UserFacing: true`, `RequestFeedback: false`), embeds compact charts inline via `<agent-embed>`, and points to the Side-Panel Artifact card; in CLI, falls back cleanly to Mermaid / Markdown. |
 
 ## Gotchas
 

@@ -95,7 +95,7 @@ The contract above drives one task to one finish condition. Some nights hold mor
 
 ## Run large multi-milestone projects with `/teamwork` and `/swarm`
 
-For multi-hour or multi-day programs spanning milestones and parallel queues, combine `/astack-mode` with Antigravity's `/teamwork` (scoping interview, project workspace, and milestone audit gates) and `/swarm` (named workers with isolated `share`/`branch` workspaces plus a dedicated `@verifier`). That matches the shape the [Orchestrate playbook](../../skills/astack-mode/playbooks/orchestrate.md) expects: the coordinator plans and verifies while workers execute inside isolated workspaces.
+For multi-hour or multi-day programs spanning milestones and parallel queues, combine `/astack-mode` with Antigravity's `/teamwork` (scoping interview, project workspace, and milestone audit gates) and `/swarm` (named workers with isolated `share`/`branch` workspaces plus a dedicated `@verifier`). That matches the shape the [Orchestrate playbook](../../skills/astack-mode/playbooks/orchestrate.md) expects: the coordinator plans and verifies while workers execute inside isolated workspaces, and ends the handoff with the exact `open_board` link so you can replay the entire **Swarm** UI (**Overview**, **Board**, **Members**, and **Graph**) in App or `/swarm board` (`Alt+S`) in CLI (alongside **Overview > Goals**, **Overview > Background Tasks**, and `[Open Automations Dashboard](sidecar://dashboard)` when `/goal`, `/schedule`, or `/automation` ran).
 
 A few habits help:
 

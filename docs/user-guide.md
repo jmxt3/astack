@@ -240,7 +240,7 @@ AStack routes matching intent to all 16 public Antigravity slash commands ([`nat
 | **Autonomy & Schedulers:** `/goal`, `/schedule`, `/automation` | `recommend` / `run` / `load` | `/goal` for uninterrupted completion; `/schedule` for in-session timers/crons; `/automation` (App only, `CRON_TZ=`) for persistent background triggers | `autonomous-run`, `/figure-it-out`, `decisions.tsv` |
 | **Interactive & Docs:** `/btw`, `/generative_ui`, `/antigravity-guide` | `recommend` / `load` | Side queries, rich HTML widgets (App only), or official Antigravity CLI/App docs | `/ketchup`, `/astack-help` |
 
-When returning from a long `/swarm`, `/teamwork`, or `/goal` run, catch up in seconds using [`/ketchup`](../skills/ketchup/SKILL.md) (which uses `/generative_ui` in the App and markdown in the CLI) or [`/ketchup-video`](../skills/ketchup-video/SKILL.md).
+When returning from a long `/swarm`, `/teamwork`, or `/goal` run, catch up in seconds using [`/ketchup`](../skills/ketchup/SKILL.md) (which uses `/generative_ui` in the App with inline `<agent-embed>` + Side-Panel Artifact cards, and Mermaid in the CLI) or [`/ketchup-video`](../skills/ketchup-video/SKILL.md). Every behind-the-scenes invocation also surfaces its dedicated Antigravity UI at handoff: the verbatim `open_board` link (**Overview**, **Board**, **Members**, **Graph**) or `/swarm board` (`Alt+S`) for `/swarm`, **Overview > Subagents** or `/agents` for subagents and `/boost`, `[Open Automations Dashboard](sidecar://dashboard)` for `/automation`, **Overview > Background Tasks** / **Goals** or `/tasks` for `/schedule` and `/goal`, **Overview > Review** or `/diff` for code review, and CLI `/effort` (`--effort`) alongside dynamic **Orchestrator**.
 
 ### 2. Build the Compounding Repository Flywheel
 
