@@ -22,8 +22,8 @@ Read before designing (`principle-verify-before-reporting`):
 Spin up **2–4 independent design runners** in parallel in an isolated scratch workspace directory (one subfolder per candidate, e.g. `<scratch>/architect-<slug>/candidate-a`, `candidate-b`, `candidate-c`, or isolated subagent workspaces if prototyping interfaces in code):
 
 - **Execution mechanism**:
-  - For quick design sketches: `invoke_subagent` (`TypeName: "self"`, `Workspace: "inherit"` writing strictly to its own assigned `<scratch>/candidate-<x>/` directory), mixing models/tiers per `astack-models.md` (`Model: "pro"` and `"inherit"`, or distinct architectural lenses such as "minimal functional core" vs "state-machine explicit" vs "zero-allocation hot path").
-  - For distinct LLM family diversity or large interface prototypes: Native `/swarm` workers (`swarm{action: "models", all: true}`) with `workspace: "branch"` or disjoint sketch subfolders, plus an independent judge.
+  - For quick design sketches: `invoke_subagent` (`TypeName: "self"`, `Workspace: "inherit"` writing strictly to its own assigned `<scratch>/candidate-<x>/` directory), defaulting to `Model: "inherit"` (following your active UI model / **Orchestrator**) with distinct architectural lenses such as "minimal functional core" vs "state-machine explicit" vs "zero-allocation hot path" (honoring optional `astack-models.md` if present).
+  - For distinct LLM family diversity or large interface prototypes: Native `/swarm` workers discovered live via `swarm{action: "models", all: true}` (checking `quota_remaining`) with `workspace: "branch"` or disjoint sketch subfolders, plus an independent judge.
 - Pass every runner:
   1. [`references/runner-prompt.md`](references/runner-prompt.md) (verbatim core discipline: **Usage (caller's view) first**, **data structures first**, **interface depth**, **separate-before-serializing-shared-state**, `not implemented` boundaries).
   2. [`references/rationale-template.md`](references/rationale-template.md) as the mandatory output shape.

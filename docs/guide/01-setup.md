@@ -13,42 +13,37 @@ agy plugin list --json
 
 (To install from a local clone instead, run `agy plugin install ./astack` or `agy plugin install .`. On Windows, if updating while Antigravity is running fails with `Access is denied`, run `agy plugin uninstall astack` before reinstalling.) For workspace-level customization, you can also copy individual skills into `.agents/skills/`. See [Architecture & Swarm](../architecture-and-swarm.md) for how plugin skills interact with Antigravity's built-in `/boost`, `/swarm`, `/teamwork`, and `/goal` commands.
 
-## Pick your models
+## Models & Orchestrator (zero config)
 
-Run:
+AStack does **not** ask you to pin static model IDs upfront. Antigravity's **Orchestrator** already pairs a frontier planner model with a fast implementation model dynamically inside one session, and Antigravity ships new models and effort controls regularly.
+
+By defaulting to `inherit` (omitting explicit model overrides), `/astack-mode`, `invoke_subagent`, and `/swarm` automatically follow your bottom-left UI model selector with zero stale IDs and no chat restart. Read-only sweeps (`research` / `browser`) may use evergreen `flash` aliases, while `/arena` discovers cross-family models and live quota dynamically at runtime via `swarm{action: "models"}`.
+
+If you explicitly want custom per-role overrides for subagent tiers, see [Make it yours](./09-make-it-yours.md#optional-override-subagent-tiers-with-astack-modelsmd).
+
+## Onboard your repo with `/setup-astack`
+
+Inside an application repository, run:
 
 ```text
 /setup-astack
 ```
 
-[`/setup-astack`](../../skills/setup-astack/SKILL.md) inspects the models available in your Antigravity session (via `swarm{action: "models", all: true}`), asks for a reasoning/cost budget, shows you each role (code delegates, judgment, verification, review panels), and asks what you want. Answer the questions. It writes `~/.gemini/config/rules/astack-models.md` (or project-scoped `.agents/rules/astack-models.md`), a small `trigger: model_decision` rule every astack skill reads.
+[`/setup-astack`](../../skills/setup-astack/SKILL.md) inspects what your repository already has and offers to set up empirical verification and safety guardrails:
 
-For `invoke_subagent`, astack maps roles onto Antigravity's model tiers (`pro`, `inherit`, `flash`, `flash_lite`). For native `/swarm` workers (`swarm{action: "add"}`), astack passes explicit Antigravity model IDs or inherits your active coordinator model when unset. The `large`/`unlimited` budgets route judgment, review panels, and adversarial verification to `pro` (or top reasoning models), while `medium` and `small` shift explorer, log-mining, and worker slice roles toward `flash`/`flash_lite` to control token cost.
+1. **Runtime verification skill ([`/create-verification-skill`](../../skills/create-verification-skill/SKILL.md))**: writes `.agents/skills/verify-<app>/` and a `features/` sitemap so agents drive and prove your app the way a user does—and verifies the skill once before handing it over. [Verify and ship](./06-verify-and-ship.md#create-a-project-verification-skill) covers it in depth. If you're new to astack, say yes: an agent that can check its own work keeps going until the check passes, instead of handing every result back to you to check by hand.
+2. **Formal verification skill ([`/create-formal-verification-skill`](../../skills/create-formal-verification-skill/SKILL.md))**: checks a critical invariant with TLA+ when your code has concurrency, retries, a state machine, or a parser where tests rarely reach the breaking case. [Verify and ship](./06-verify-and-ship.md#prove-a-property-with-a-formal-verification-skill) covers it.
+3. **Opt-in lifecycle hooks (`hooks.json`)**: review `astack-irreversible-guard` and `astack-verify-reminder`, which ship disabled (`"enabled": false`) by default.
 
-You only override what you care about. A role with no line in the rule keeps the skill's default. To restore a default, delete that role's line. A rerun of `/setup-astack` preserves any customized roles.
-
-Set a role to `auto`, `inherit`, or `inherit-parent` and astack omits any subagent/worker model override so it inherits your parent chat model. For a panel role the value is a list, and one subagent runs per entry, so the list length sets the panel size. Setup also configures `swarm workers`, the default model for parallel `/fanout` and `/swarm` worker slices unless a specific task overrides it.
-
-## Accept the verification offers, or don't
-
-At the end of setup, `/setup-astack` looks for a way to prove app behavior in your project, either a `verify-*` skill or an existing harness. If it finds neither, it offers once to generate one with [`/create-verification-skill`](../../skills/create-verification-skill/SKILL.md).
-
-Say yes and it writes `.agents/skills/verify-<app>/`, a project-local skill that teaches agents to drive your app the way a user does. It proves the skill works once before handing it over. Say no and setup moves on. You can run `/create-verification-skill` yourself any time. [Verify and ship](./06-verify-and-ship.md#create-a-project-verification-skill) covers it in depth.
-
-If you're new to astack, say yes. An agent that can check its own work keeps going until the check passes. An agent that can't hands every result back to you to check by hand. Of everything in this guide, the verification skill pays off the most.
-
-Then setup offers once to generate a formal verification skill with [`/create-formal-verification-skill`](../../skills/create-formal-verification-skill/SKILL.md), unless the project already has one. Tests check the cases someone thought to write. A formal verification skill checks one key property of your code, such as "a job never runs twice at once", in every case within a stated scope. Say yes when your code has concurrency, retries, a state machine, or a parser, where a bug is costly and tests rarely reach the case that breaks. Otherwise say no, and run it later if that changes. [Verify and ship](./06-verify-and-ship.md#prove-a-property-with-a-formal-verification-skill) covers it.
-
-After setup, start a new chat. The model rule applies to new sessions.
+No chat restart is needed after `/setup-astack`.
 
 ## Keep the cost in check
 
 astack spends extra tokens on subagents and review panels. That's the price of the rigor. To spend fewer:
 
-- Rerun `/setup-astack` and pick a smaller reasoning budget or cheaper models. A strong model in the main chat with cheaper, faster models in the code roles is a good split.
-- Set a role to `auto` or `inherit-parent` so it runs on the chat's own model.
-- Shorten a panel list. Each entry runs one subagent.
+- Select **Orchestrator** in Antigravity's UI model picker so planning uses a frontier model while implementation steps drop down to a fast execution model automatically.
 - Save `/astack-mode` for work that needs rigor. A small, obvious edit doesn't.
+- Right-size `/arena` and `/fanout` candidate counts for the stakes of the decision.
 
 ## Run your first task
 

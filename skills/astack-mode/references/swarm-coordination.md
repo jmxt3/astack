@@ -31,7 +31,7 @@ AStack deliberately renames `pstack`'s lightweight parallel runner to [`/fanout`
    - Workers start fresh with zero view of the coordinator's conversation history (unless `fork: "<member>"` is explicitly set).
    - Every brief MUST state: (a) user goal & problem (**Why**), (b) exact owned files/directories and out-of-bounds files, (c) required read of `agents/astack-agent.md` and `skills/astack-mode/SKILL.md`, (d) concrete empirical done predicate (`control-ui`, `control-cli`, `node --test`, build/lint command), and (e) instruction to report back `@coordinator` on the board with `#seq` evidence.
 3. **Independent `@verifier` gate (mandatory before landing)**:
-   - Spawn at least one `@verifier` for every 2 to 4 author workers, ideally on a distinct model family (via `swarm{action: "models"}` and the `astack-models.md` rule).
+   - Spawn at least one `@verifier` for every 2 to 4 author workers with `workspace: "inherit"`, leaving `model` unset by default so it inherits the session's active model / **Orchestrator** (or selecting a distinct live model family with available `quota_remaining` via `swarm{action: "models"}` when cross-family verification is wanted or configured).
    - Authors self-check; `@verifier` proves behavior end-to-end on the real surface without trusting author summaries (**principle-prove-it-works**).
    - On `@verifier` FAIL, post exact `#seq` reproduction evidence and assign the fix wave to a clean worker or owner before re-verifying.
 4. **Long-running swarms (`@monitor` & reactive wakeups)**:
@@ -41,9 +41,8 @@ AStack deliberately renames `pstack`'s lightweight parallel runner to [`/fanout`
    - Calling `swarm{action: "kill", name}` permanently terminates the worker and **deletes its `share` or `branch` workspace**.
    - Always cherry-pick, merge, or push verified worker changes before killing author workers.
 
-## 4. Model Routing (`astack-models.md`)
+## 4. Model Routing (UI Picker & Orchestrator First)
 
-Check `~/.gemini/config/rules/astack-models.md` (user global) or `.agents/rules/astack-models.md` (workspace) created by `/setup-astack`.
-
-- **Subagent model tiers**: Map `judgment / architecture / hardest tasks` -> `Model: "pro"`, `balanced / default code` -> `Model: "inherit"`, `fast parallel audits / search` -> `Model: "flash"`, `trivial mechanical tasks` -> `Model: "flash_lite"`.
-- **Swarm model diversity**: Discover live model IDs via `swarm{action: "models", all: true}` and pair code authors with an independent verifier model family when available. If a rule is missing or `inherit` is specified, omit explicit overrides so Antigravity uses your active session defaults.
+- **Default inheritance (`inherit`)**: Omit `Model` on `invoke_subagent` and omit `model` on `swarm{action: "add"}` so workers follow the user's Antigravity UI model selector (**Orchestrator**, effort levels, and newly released models). Never force `Model: "pro"` over an active Orchestrator session by default.
+- **Evergreen fast sweeps**: Parallel read-only exploration (`TypeName: "research"`) and `TypeName: "browser"` may pass `Model: "flash"` (an evergreen capability alias, never a versioned model slug).
+- **Live runtime discovery for `/arena` & cross-family gates**: Call `swarm{action: "models", all: true}` at invocation time—checking `quota_remaining`—when pitting or judging across genuinely distinct model families (e.g., Gemini, Claude, GPT). Honor `.agents/rules/astack-models.md` or `~/.gemini/config/rules/astack-models.md` only when explicitly present as a power-user override.

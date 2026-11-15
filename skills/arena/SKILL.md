@@ -9,15 +9,15 @@ When ambiguity is architectural, algorithmic, or high-leverage enough that picki
 
 ## Choose Your Arena Harness
 
-Check `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` and `swarm{action: "models", all: true}` to use genuinely distinct model tiers or model families.
+Default to inheriting your active Antigravity UI model / **Orchestrator** unless competing across model families, and honor `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` only if present.
 
 1. **Subagent Branch Arena (2–3 isolated candidates)**:
    - Launch 2–3 concurrent candidates via `invoke_subagent` (`TypeName: "self"`, `Workspace: "branch"` for code candidates; for read-only architectural sketches, keep `Workspace: "inherit"` and give each candidate its own unique subfolder under your scratch/sketch dir).
-   - Route tiers explicitly (e.g., `Model: "pro"` vs `"inherit"`, or distinct prompts/constraints when competing approaches rather than models).
+   - Omit `Model` (or pass `Model: "inherit"`) so candidates follow your active UI model / **Orchestrator**, differentiating them via distinct prompts/constraints or architectural lenses (unless a custom tier override is present in `astack-models.md`).
    - For design bakeoffs paired with [`/architect`](../architect/SKILL.md), pass `skills/architect/references/runner-prompt.md` + Phase A grounding brief + target output dir.
 2. **Native `/swarm` Cross-Family Arena (best for distinct LLM families + `@judge`)**:
-   - Discover live models via `swarm{action: "models", all: true}`.
-   - Spawn `candidate-1`, `candidate-2` (optionally `candidate-3`) with `workspace: "branch"` across different model families when available, plus an independent `@judge` / `@verifier` on a *separate* model family from the code candidates (`workspace: "inherit"` or checking out each candidate branch).
+   - Call `swarm{action: "models", all: true}` **live at invocation time** and filter to models with healthy `quota_remaining`.
+   - Spawn `candidate-1`, `candidate-2` (optionally `candidate-3`) with `workspace: "branch"` across distinct model families when available, plus an independent `@judge` / `@verifier` on a *separate* model family from the code candidates (`workspace: "inherit"` or checking out each candidate branch). If only one model family is available or has quota, fall back cleanly to `inherit` (omitting `model`) and differentiate candidates by architectural lens.
 
 Wait reactively — never sleep-poll (`invoke_subagent` wakes automatically; `/swarm` uses `swarm_wait` or reactive wakeups).
 

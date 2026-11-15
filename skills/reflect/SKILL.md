@@ -19,19 +19,19 @@ Inspect the opening `USER_INPUT` step in `transcript.jsonl` (or verify `step_ind
 
 One turn, three `invoke_subagent` calls with `TypeName: "self"` (since `self` inherits your full MCP tools to look up referenced tickets, chat threads, and observability traces; do not use `research`, which has no network or MCP access).
 
-Each reviewer and the synthesizer name a role line in `astack-models.md` and a default `Model` parameter for `invoke_subagent` (`inherit`, `pro`, `flash`, or `flash_lite`). Set `Model` to the mapped tier from `astack-models.md`, or to the default below if the rule or line is missing. Pick each subagent's tier for the job, per the Subagents section of the **astack-mode** skill.
+Default `Model` to `"inherit"` (omitting `Model`) so all three reviewers and the synthesizer inherit your active Antigravity UI model / **Orchestrator**. Honor `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` role overrides only if present.
 
-| Lens | Role line | Default `Model` | Prompt template |
+| Lens | Optional role line | Default `Model` | Prompt template |
 |---|---|---|---|
-| Judgment | `reflect judgment, divergent, synthesizer` | `pro` | `references/judgment-reviewer.md` |
+| Judgment | `reflect judgment, divergent, synthesizer` | `inherit` | `references/judgment-reviewer.md` |
 | Tooling | `reflect tooling` | `inherit` | `references/tooling-reviewer.md` |
-| Divergent | `reflect judgment, divergent, synthesizer` | `pro` | `references/divergent-reviewer.md` |
+| Divergent | `reflect judgment, divergent, synthesizer` | `inherit` | `references/divergent-reviewer.md` |
 
 Pass each template verbatim, substituting the transcript path or digest where marked. Reviewers return findings in their final message to you.
 
 ## 3. Synthesize
 
-One `invoke_subagent` call with `TypeName: "self"` and `Model` from the `reflect judgment, divergent, synthesizer` line (default `pro`). It spot-verifies citations through inherited MCP tools. Pass `references/synthesizer.md` verbatim, with each reviewer's full output inlined where marked. It returns an Accepted / Rejected / Backlog list.
+One `invoke_subagent` call with `TypeName: "self"` and `Model: "inherit"` (unless overridden by `astack-models.md`). It spot-verifies citations through inherited MCP tools. Pass `references/synthesizer.md` verbatim, with each reviewer's full output inlined where marked. It returns an Accepted / Rejected / Backlog list.
 
 ## 4. Structural enforcement check
 

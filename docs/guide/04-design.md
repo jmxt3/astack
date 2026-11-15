@@ -32,7 +32,7 @@ The design isn't sacred once code starts. If implementation shows the same worka
 
 ```mermaid
 flowchart LR
-    A[One task] --> B[Configured panel]
+    A[One task] --> B[Parallel candidates]
     B --> C[Candidate 1]
     B --> D[Candidate 2]
     B --> E[Candidate N]
@@ -44,7 +44,7 @@ flowchart LR
     H --> I[Verify]
 ```
 
-The panel comes from your [`/setup-astack`](../../skills/setup-astack/SKILL.md) configuration, and you can adjust it per task. Ask for more candidates when the decision matters, fewer when it doesn't:
+By default, `/arena` runs candidates on your active Antigravity model (or **Orchestrator**) using distinct architectural lenses, and for cross-family bakeoffs it discovers live model families and quota dynamically at runtime via `swarm{action: "models"}` with zero upfront setup. Ask for more candidates when the decision matters, fewer when it doesn't:
 
 ```text
 /arena this, 5 candidates. the cache key format is expensive to change later.
@@ -66,7 +66,7 @@ Reach for `/fanout` when parallelism buys simple coverage or lets independent ch
 /interrogate the whole branch, but skeptically. no nitpicks unless it's an actual bug or regression.
 ```
 
-[`/interrogate`](../../skills/interrogate/SKILL.md) gives the change and its intent to adversaries on the configured models, and each tries to break it with a run against the real code. Adversaries find different failures. A finding survives only when rerunning its command shows a failure that breaks the intent. The report lists every verified finding with the adversaries that found it, then what each adversary dropped and why, and applies nothing.
+[`/interrogate`](../../skills/interrogate/SKILL.md) gives the change and its intent to independent adversarial reviewers (defaulting to your active model or live cross-family reviewers via `/swarm` when requested), and each tries to break it with a run against the real code. Adversaries find different failures. A finding survives only when rerunning its command shows a failure that breaks the intent. The report lists every verified finding with the adversaries that found it, then what each adversary dropped and why, and applies nothing.
 
 Read the Dropped list too. You can override the verdict.
 

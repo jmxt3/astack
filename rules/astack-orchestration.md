@@ -20,4 +20,4 @@ When the user asks for engineering rigor, debugging with evidence, performance h
    - **`/swarm`**: Broad tasks that divide cleanly across separate files, packages, PRs, or research tracks using named workers, isolated workspaces, and `@verifier` gates.
    - **`/teamwork`**: Long-horizon, multi-milestone migrations, simulations, or formal proofs needing an upfront scoping interview and milestone audit gates.
    - **`/goal`**: Overnight or unattended execution driven to an explicit completion predicate.
-4. Load `.agents/rules/astack-models.md` or `~/.gemini/config/rules/astack-models.md` if present before selecting subagent or swarm models.
+4. Default subagents and `/swarm` workers to inherit your active Antigravity session model (including Orchestrator and effort settings) by omitting explicit model overrides; discover distinct model families live via `swarm{action: "models"}` only when running cross-family `/arena` bakeoffs or explicit multi-family verification (and honor an optional `astack-models.md` rule only if present).

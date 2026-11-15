@@ -96,7 +96,7 @@ Read the leaf `../principle-<title>/SKILL.md` in full for any principle you appl
 - Read [`references/swarm-coordination.md`](./references/swarm-coordination.md) whenever spawning multi-worker teams or choosing between `invoke_subagent`, `/boost`, `/swarm`, and `/teamwork`.
 - Use `invoke_subagent` with `TypeName: "self"` (instructed to read `agents/astack-agent.md` + `skills/astack-mode/SKILL.md`) for code-writing playbook steps. Never delegate running `/astack-mode`'s top-level router itself to a delegate.
 - Use `TypeName: "research"` for read-only exploration and `TypeName: "browser"` for interactive UI steps.
-- Route models via `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` (`inherit` default, `pro` for hardest design/judgment/bugs, `flash` / `flash_lite` for routine sweeps, diverse model family via `swarm{action: "models"}` for `@verifier` and `/interrogate`).
+- Default subagents and `/swarm` workers to inherit your active Antigravity session model (including Orchestrator and effort settings) by omitting explicit model overrides. Use evergreen `Model: "flash"` (or `"flash_lite"`) only for high-volume read-only sweeps or browser tasks, discover live cross-family models via `swarm{action: "models"}` when running `/arena` or explicit cross-family `@verifier` gates, and honor an optional `astack-models.md` rule only if the user created one.
 - Review every delegate's diff yourself and write your own verified summary.
 - Keep delegates fresh with consolidated scope; reuse via `send_message` only when state in that subagent (running dev server, active checkout, uncommitted WIP) is costly to rebuild.
 

@@ -1,6 +1,6 @@
 # Make it yours
 
-astack-mode is one person's style. The playbooks, routing, and model roles underneath it work just as well with yours. This page covers generating a personal mode, capturing lessons from a session, fixing the repo so agents stop repeating mistakes, authoring a focused skill, and testing a skill change before you trust it.
+astack-mode is one person's style. The playbooks and orchestration patterns underneath it work just as well with yours. This page covers generating a personal mode, capturing lessons from a session, fixing the repo so agents stop repeating mistakes, authoring a focused skill, testing a skill change before you trust it, and optional subagent tier overrides.
 
 Start smaller than you think. You don't need many skills on day one, or even this whole plugin. Prompt plainly, watch where agents fail, and add a skill or a check when the same failure shows up twice.
 
@@ -90,6 +90,23 @@ Asking for the eval up front keeps the edit honest. A fix written from one bad s
 The [Eval playbook](../../skills/astack-mode/playbooks/eval.md) is built around one failure mode, the observer effect. An agent that knows it's being evaluated behaves differently. So candidate agents get an organic-looking task in sanitized directories, never the words "eval" or "candidate", and never each other's existence. One judge scores all outputs under neutral labels, and chain-following gets graded from which files each candidate actually read, not from what it claims.
 
 Read every output yourself before accepting the verdict. If you disagree with the judge, suspect the rubric before you suspect your judgment.
+
+## Optional: Override subagent tiers with `astack-models.md`
+
+By default, AStack leaves subagent and `/swarm` model selection on `inherit` so everything follows your Antigravity UI model picker (including **Orchestrator** and newly released weekly models). If you explicitly want per-role `invoke_subagent` tier overrides, create `~/.gemini/config/rules/astack-models.md` (or `.agents/rules/astack-models.md`) as a `trigger: model_decision` rule using evergreen tier aliases (`inherit`, `flash`, `flash_lite`, `pro`):
+
+```markdown
+---
+trigger: model_decision
+description: Optional subagent tier overrides for AStack skills.
+---
+
+- Judgment & architecture: `Model: "pro"`
+- Code authoring & fixes: `Model: "inherit"`
+- Read-only exploration & sweeps: `Model: "flash"`
+```
+
+Avoid pinning versioned model slugs in rule files so Antigravity's **Orchestrator** and weekly model upgrades are never blocked.
 
 ## Build a bot UI with `/make-bot-ui`
 

@@ -6,7 +6,7 @@ astack works best when you stop micromanaging the agent. You describe what you w
 
 Here's what you'll learn:
 
-1. [Set up astack](./01-setup.md). Install the plugin and pick your models.
+1. [Set up astack](./01-setup.md). Install the plugin, use Orchestrator or any live model, and set up verification.
 2. [Route work through `/astack-mode`](./02-astack-mode.md). Give it a goal and watch it pick a playbook.
 3. [Understand the code](./03-understand.md). A read-only investigation, then `/how`, `/why`, `/teach`, and `/recall` before you edit anything.
 4. [Design the change](./04-design.md). `/architect`, `/arena`, `/fanout`, `/interrogate`, prototypes, and plans before code locks in a shape.

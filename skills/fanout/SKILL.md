@@ -15,7 +15,7 @@ Run $N$ independent tasks concurrently using Antigravity's `invoke_subagent` wit
 | Use `/fanout` (`invoke_subagent`) | Graduate to Native `/swarm` |
 |---|---|
 | 2–5 independent read-only investigations (`TypeName: "research"`, `/how`, `/why`, audit sweeps). | Broad multi-package or multi-PR changes that need named workers posting status to a shared board. |
-| Disjoint quick edits that do not need peer-to-peer handoffs mid-flight. | Multi-worker delivery that needs an independent **`@verifier`** model family gating sign-off and a `@monitor` for long runs. |
+| Disjoint quick edits that do not need peer-to-peer handoffs mid-flight. | Multi-worker delivery that needs an independent **`@verifier`** gating sign-off and a `@monitor` for long runs. |
 | Exploratory design/fix trials (`Workspace: "branch"`) where you inspect and land results yourself. | You want real-time visibility and steering on the board while workers execute. |
 
 If the problem is *hard and tightly coupled* rather than cleanly divisible (race conditions, deep algorithmic bugs, flaky failures across shared code), skip parallel fanout and use **`/boost`** instead.
@@ -23,10 +23,10 @@ If the problem is *hard and tightly coupled* rather than cleanly divisible (race
 ## Workflow
 
 1. **Partition cleanly before launching.** Every write worker MUST own disjoint files/modules (`Workspace: "share"`), OR run in an isolated clone (`Workspace: "branch"`) when exploring alternative edits to the same code. Never let two `Workspace: "inherit"` writers mutate overlapping files (`principle-separate-before-serializing-shared-state`).
-2. **Load model routing.** Check `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` if present:
-   - Read-only exploration/audit (`TypeName: "research"`): `Model: "flash"` (or configured tier).
-   - Engineering / code writing (`TypeName: "self"`): `Model: "inherit"` or `"pro"` as configured, directing each prompt to read `agents/astack-agent.md` and `skills/astack-mode/SKILL.md` first.
-   - Live browser checks: `TypeName: "browser"`.
+2. **Model selection.** Inherit the active UI model / **Orchestrator** by default (honoring `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` only if present):
+   - Engineering / code writing (`TypeName: "self"`): `Model: "inherit"` (or omit `Model`), directing each prompt to read `agents/astack-agent.md` and `skills/astack-mode/SKILL.md` first.
+   - Read-only exploration/audit (`TypeName: "research"`): `Model: "flash"` (or `"inherit"`).
+   - Live browser checks (`TypeName: "browser"`): `Model: "flash"`.
 3. **Launch all independent slices in a single batch** via `invoke_subagent`. Give each child:
    - Exact scope (files/questions owned and what is out of bounds).
    - Exact return format + empirical proof command to run before finishing.

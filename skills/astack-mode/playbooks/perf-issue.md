@@ -14,7 +14,7 @@
    7. Do it cheaper.
 
    When an earlier mantra meets the target, stop.
-3. Plan the fix from the trace (consider `/boost` when iterative coupled optimizations or noisy measurement rounds need adversarial re-verification). If it crosses a function boundary, [`architect`](../../architect/SKILL.md) first. Delegate implementation via `invoke_subagent` (`TypeName: "self"`, `Model` tier from `astack-models.md`), review the diff yourself, and capture a post-fix trace via `control-ui` or `control-cli`.
+3. Plan the fix from the trace (consider `/boost` when iterative coupled optimizations or noisy measurement rounds need adversarial re-verification). If it crosses a function boundary, [`architect`](../../architect/SKILL.md) first. Delegate implementation via `invoke_subagent` (`TypeName: "self"`, default `Model: "inherit"` to follow your active session / Orchestrator, or honoring optional `astack-models.md` if present), review the diff yourself, and capture a post-fix trace via `control-ui` or `control-cli`.
    Apply the **sequence-verifiable-units** principle skill, verifying each attempt before trying the next.
 4. Parse and compare the artifacts (JSON to sqlite, diff). "Inconclusive" or wrong-surface is not a pass. Flag it.
 5. Cite the measurement in the PR.

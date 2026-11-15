@@ -7,7 +7,7 @@ description: "Use for \"how does X work\", code walkthroughs before changing som
 
 Explore the codebase to answer "how does X work?" questions. Produce architectural explanations at the level of a senior engineer onboarding onto a subsystem, enough to build a working mental model, not so much that it reads like annotated source code.
 
-Launch subagents with Antigravity `invoke_subagent`. Explorers use `TypeName: "research"` (or `"self"` with strict read-only instructions when inspecting ignored/external paths) using the explorer tier from `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` (default `Model: "flash"`). The explainer uses `TypeName: "self"` (instructed to make zero edits) using the explainer tier (default `Model: "pro"`, or omit `Model` / `"inherit"` to follow the active session). Never poll in a loop; Antigravity wakes you automatically when workers report back.
+Launch subagents with Antigravity `invoke_subagent`. Explorers use `TypeName: "research"` (or `"self"` with strict read-only instructions when inspecting ignored/external paths) defaulting to `Model: "flash"` for multi-angle exploration. The explainer uses `TypeName: "self"` (instructed to make zero edits) defaulting to `Model: "inherit"` (omitting `Model`) so it stays on your active Antigravity session model / **Orchestrator**. Honor `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` only if present. Never poll in a loop; Antigravity wakes you automatically when workers report back.
 
 ## 1. Assess complexity
 

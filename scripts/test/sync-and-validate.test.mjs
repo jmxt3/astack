@@ -8,7 +8,7 @@ import {
   syncUpstream,
   transformPortedMarkdown,
 } from "../sync-upstream.mjs";
-import { validateAStack } from "../validate-astack.mjs";
+import { DEFAULT_ROOT_DIR, validateAStack } from "../validate-astack.mjs";
 
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -164,4 +164,25 @@ test("validateAStack rejects collisions, frontmatter errors, oversized skills, b
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+test("live AStack repo validates cleanly and defaults to UI/Orchestrator inheritance", () => {
+  const result = validateAStack(DEFAULT_ROOT_DIR, { withAgy: false });
+  assert.equal(result.ok, true, JSON.stringify({ errors: result.errors, warnings: result.warnings }));
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.warnings.length, 0);
+
+  const setupSkill = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "skills", "setup-astack", "SKILL.md"), "utf8");
+  assert.match(setupSkill, /Orchestrator/);
+  assert.match(setupSkill, /\/create-verification-skill/);
+  assert.doesNotMatch(setupSkill, /Reasoning budget & subagent tier preset/i);
+
+  const helpSkill = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "skills", "astack-help", "SKILL.md"), "utf8");
+  assert.doesNotMatch(helpSkill, /No `~\/\.gemini\/config\/rules\/astack-models\.md`.*means `\/setup-astack` has not run yet/);
+
+  const whySkill = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "skills", "why", "SKILL.md"), "utf8");
+  assert.doesNotMatch(whySkill, /grok-4\.7/);
+  assert.doesNotMatch(whySkill, /claude-opus-5-5-xhigh/);
+  assert.doesNotMatch(whySkill, /generalPurpose/);
+  assert.doesNotMatch(whySkill, /Cursor environment/);
 });

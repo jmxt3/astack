@@ -21,8 +21,8 @@ To install from a local clone instead, run `agy plugin install ./astack` (or `ag
 
 Inside Antigravity:
 
-1. Run `/setup-astack` once to configure model routing (`astack-models.md`) and optionally scaffold project verification (`verify-<app>`) and formal verification skills.
-2. Start serious tasks with `/astack-mode <goal + how to prove it's done>`.
+1. Pick your preferred model or **Orchestrator** directly in Antigravity's UI model picker—AStack inherits it automatically with zero model-pinning config, so newly launched weekly Antigravity models work immediately.
+2. Start serious tasks with `/astack-mode <goal + how to prove it's done>` (and optionally run `/setup-astack` inside an app repo to scaffold `verify-<app>`, formal TLA+ verification skills, and opt-in hooks).
 3. Ask `/astack-help <question>` anytime for tailored skill recommendations and ready-to-send prompts without starting execution.
 
 ## Antigravity Execution Modes
@@ -47,7 +47,7 @@ AStack pairs its 23 playbooks and 24 engineering principles with Antigravity's n
   - **Understanding, Design & Hygiene**: [`/how`](./skills/how/SKILL.md), [`/why`](./skills/why/SKILL.md), [`/teach`](./skills/teach/SKILL.md), [`/recall`](./skills/recall/SKILL.md), [`/architect`](./skills/architect/SKILL.md), [`/arena`](./skills/arena/SKILL.md), [`/fanout`](./skills/fanout/SKILL.md), [`/interrogate`](./skills/interrogate/SKILL.md), [`/deslop`](./skills/deslop/SKILL.md), [`/no-comments`](./skills/no-comments/SKILL.md), [`/unslop`](./skills/unslop/SKILL.md), [`/correct`](./skills/correct/SKILL.md), [`/reflect`](./skills/reflect/SKILL.md)
   - **24 Engineering Principle Skills** (`skills/principle-*/`): decision-shaping rules automatically surfaced and cited by `/astack-mode`
 - **2 Custom Agents** (`agents/`): [`astack-agent`](./agents/astack-agent.md) (verifier-first builder/reviewer) and [`comment-sicko`](./agents/comment-sicko.md) (skeptical comment & suppressor auditor)
-- **1 Orchestration Rule** ([`rules/astack-orchestration.md`](./rules/astack-orchestration.md)): model-decision routing across Antigravity execution modes and `astack-models.md`
+- **1 Orchestration Rule** ([`rules/astack-orchestration.md`](./rules/astack-orchestration.md)): model-decision routing across Antigravity execution modes with zero-config session and Orchestrator model inheritance
 - **Opt-In Lifecycle Hooks** ([`hooks.json`](./hooks.json)): `astack-irreversible-guard` (`PreToolUse`) and `astack-verify-reminder` (`Stop`), both shipped with `"enabled": false`
 - **User Guide & Automations**: Full walkthrough in [`docs/guide/README.md`](./docs/guide/README.md) and dormant Slack triage/repro pack in [`docs/automations/benny/README.md`](./docs/automations/benny/README.md)
 

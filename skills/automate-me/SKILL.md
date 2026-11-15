@@ -27,7 +27,7 @@ Update mode changes the rest of the flow:
 
 Locate transcripts belonging to the active workspace under `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (never mine private conversations belonging to unrelated workspaces without explicit permission).
 
-Survey recent agent conversations within that scope for recurring patterns. Launch parallel subagents via `invoke_subagent` (`TypeName: "research"` or `"self"`, `Model: "flash"` per `astack-models.md`) across time slices (e.g. last 2–4 weeks, split into 3 slices). Wait reactively for all slices to report back. Default signals worth hunting:
+Survey recent agent conversations within that scope for recurring patterns. Launch parallel subagents via `invoke_subagent` (`TypeName: "research"` or `"self"`, `Model: "flash"` by default for transcript sweeps, or honoring optional `astack-models.md` if present) across time slices (e.g. last 2–4 weeks, split into 3 slices). Wait reactively for all slices to report back. Default signals worth hunting:
 
 - Response preferences (length, tone, format, "dumb it down" corrections)
 - Delegation habits (subagents, models, specialized workflows, parallelism)

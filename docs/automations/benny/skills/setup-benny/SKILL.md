@@ -92,9 +92,9 @@ Ask for or confirm:
 - Status emoji strings
 - Pull request URL format
 - Polling and effort budgets
-- Model slug for triage, repro, code work, and media review
+- Model preference for triage, repro, code work, and media review (default: follow Antigravity's active model / Orchestrator)
 
-Use only model identifiers shown as available in `astack-models.md` or your Antigravity model selector (`swarm{action: "models", all: true}`). Do not guess a slug and do not carry over a private default.
+Prefer omitting hardcoded model slugs so scheduled runs follow the active Antigravity default or Orchestrator model. If an explicit model slug is required, use only live model identifiers verified via `swarm{action: "models", all: true}` (or an explicit `astack-models.md` override). Do not guess a slug and do not carry over a private default.
 
 The source channel, triage identity, repository, tracker adapter, control skill, and feature map must be explicit. Fail setup if any required value stays ambiguous.
 

@@ -6,7 +6,7 @@
   "description": "Rigorous, verification-first engineering skills, playbooks, and Swarm workflows ported from Lauren Tan's (@poteto) PStack by João Machete.",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
-    "Run /setup-astack to configure AStack models and verification skills for this repo",
+    "Run /setup-astack to scaffold runtime verification skills and safety guardrails for this repo",
     "Use /astack-help to pick the right playbook, Subagent, /boost, /swarm, or /teamwork workflow",
     "Use /astack-mode to investigate how this codebase works and verify our test harness"
   ],

@@ -9,7 +9,7 @@ Ambiguous assumptions written into code become 1,000-line rewrites later. Spend 
 
 ## 1. Interrogate the Codebase First (Never Ask What Code Can Answer)
 
-Run parallel read-only checks (`invoke_subagent` with `TypeName: "research"` or `"self"` when static tracing + targeted CLI/test probes are needed; match tiers from `astack-models.md`) to uncover:
+Run parallel read-only checks (`invoke_subagent` with `TypeName: "self"` when MCP/command probes are needed or `"research"` for wide read-only sweeps; default `Model: "inherit"` to follow your active UI model / **Orchestrator**, or `"flash"` for wide `research` sweeps, honoring optional `astack-models.md` if present; escalate to `/swarm` with live `swarm{action: "models"}` discovery when cross-family adversarial review is requested) to uncover:
 
 - **Existing truth vs comments/docs**: Trace real callers, schemas, configs, and entry points (`principle-evidence-over-inference`).
 - **Concurrency & failure modes**: What happens when two actors run simultaneously, a step retries halfway, or an upstream dependency fails (`principle-make-operations-idempotent`, `principle-separate-before-serializing-shared-state`)?

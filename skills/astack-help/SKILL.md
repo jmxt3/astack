@@ -23,19 +23,19 @@ Infer what the user needs from the conversation. If still unclear, call `ask_que
 
 Check workspace state that changes the answer:
 
-- No `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` means `/setup-astack` has not run yet, so roles use active session defaults. Offer [`/setup-astack`](../setup-astack/SKILL.md).
-- No `.agents/skills/verify-<app>/SKILL.md` means agents lack an app-specific driver and fall back to AStack's built-in [`/control-ui`](../control-ui/SKILL.md) and [`/control-cli`](../control-cli/SKILL.md); mention [`/create-verification-skill`](../create-verification-skill/SKILL.md) when verification is discussed.
+- AStack needs no model config file by default: subagents and `/swarm` workers inherit your active Antigravity UI model picker / **Orchestrator** automatically. Only flag `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` if one exists and pins stale model IDs that override the UI selector.
+- No `.agents/skills/verify-<app>/SKILL.md` means agents lack an app-specific driver and fall back to AStack's built-in [`/control-ui`](../control-ui/SKILL.md) and [`/control-cli`](../control-cli/SKILL.md); mention [`/create-verification-skill`](../create-verification-skill/SKILL.md) (or [`/setup-astack`](../setup-astack/SKILL.md)) when verification is discussed.
 - No formal verification spec means invariants and races are untested past unit tests; mention [`/create-formal-verification-skill`](../create-formal-verification-skill/SKILL.md) (and [`/maintain-formal-verification-skill`](../maintain-formal-verification-skill/SKILL.md) if specs drifted).
 
 ## Get set up
 
 1. Install AStack via Antigravity Plugins Manager or CLI: `agy plugin install <path-or-repo>`.
-2. Run [`/setup-astack`](../setup-astack/SKILL.md). It sets a reasoning budget, maps `invoke_subagent` tiers (`inherit`, `pro`, `flash`, `flash_lite`) plus `/swarm` verifier models into `~/.gemini/config/rules/astack-models.md` (or `.agents/rules/astack-models.md`), and offers to bootstrap verification skills.
+2. Pick your preferred model or **Orchestrator** directly in Antigravity's UI model picker (inherited automatically with zero config). Optionally run [`/setup-astack`](../setup-astack/SKILL.md) inside an app repo to bootstrap `.agents/skills/verify-<app>/`, formal TLA+ specs, and opt-in hooks (`hooks.json`).
 3. Run your first real task with `/astack-mode`, a concrete goal, and an observable done check.
 
 See [README](../../README.md), [Architecture & Swarm Guide](../../docs/architecture-and-swarm.md), and [Guide 01: Setup](../../docs/guide/01-setup.md). For crafting your first prompt, follow [`references/prompting.md`](references/prompting.md).
 
-**Cost control:** AStack uses subagents, panels (`/arena`, `/interrogate`), and `@verifier` workers intentionally. Re-run `/setup-astack` to assign `inherit` or `flash` to routine roles, or keep `/astack-mode` for nontrivial work while `rules/astack-orchestration.md` (`trigger: model_decision`) stays idle in casual chats.
+**Cost control:** AStack uses subagents, panels (`/arena`, `/interrogate`), and `@verifier` workers intentionally. Selecting **Orchestrator** in Antigravity's model picker pairs a frontier planner with a fast implementation model automatically, read-only search/browser sweeps use evergreen `flash` aliases, and saving `/astack-mode` for nontrivial engineering tasks keeps casual chats light while `rules/astack-orchestration.md` (`trigger: model_decision`) stays idle.
 
 ## Antigravity Multi-Agent Tiers
 
@@ -87,7 +87,7 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 | Audit performance measurement validity | [`/benchmark-checklist`](../benchmark-checklist/SKILL.md) |
 | Custom workflow for huge cross-cutting shifts | [`/figure-it-out`](../figure-it-out/SKILL.md) |
 | Append-only TSV decision trail | [`/show-me-your-work`](../show-me-your-work/SKILL.md) |
-| Configure model tiers & Swarm roles | [`/setup-astack`](../setup-astack/SKILL.md) |
+| Onboard repo verification skills & guardrails | [`/setup-astack`](../setup-astack/SKILL.md) |
 | Distill chat habits into a personal skill | [`/automate-me`](../automate-me/SKILL.md) |
 | Turn completed session lessons into skill PRs | [`/reflect`](../reflect/SKILL.md) |
 | Push fixes up the 5-tier ladder + `/learn` | [`/correct`](../correct/SKILL.md) |
@@ -104,7 +104,7 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 
 | Symptom | Fix |
 |---|---|
-| Model choices had no effect | `~/.gemini/config/rules/astack-models.md` applies to new chats or workers; start a fresh session after `/setup-astack`. |
+| Workers used an unexpected/old model or hit quota on a pinned ID | Delete or reset stale overrides in `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` so workers inherit your active Antigravity UI model / **Orchestrator**. |
 | Parallel workers overwrote files | Use `/swarm` with `workspace: "share"` / `"branch"` or `invoke_subagent` `Workspace: "share"`. |
 | Autonomous loop moved but solved nothing | Use `/goal` with a checkable predicate (failing -> passing command/test) rather than vague timing. See [Guide 07](../../docs/guide/07-overnight.md). |
 | Reply claims done from compile/lint only | Demand [`/control-ui`](../control-ui/SKILL.md) or [`/control-cli`](../control-cli/SKILL.md) runtime proof (`principle-prove-it-works`). |
