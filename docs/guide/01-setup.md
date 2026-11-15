@@ -11,7 +11,7 @@ agy plugin install https://github.com/jmxt3/astack
 agy plugin list --json
 ```
 
-(To install from a local clone instead, run `agy plugin install ./astack` or `agy plugin install .`.) For workspace-level customization, you can also copy individual skills into `.agents/skills/`. See [Architecture & Swarm](../architecture-and-swarm.md) for how plugin skills interact with Antigravity's built-in `/boost`, `/swarm`, `/teamwork`, and `/goal` commands.
+(To install from a local clone instead, run `agy plugin install ./astack` or `agy plugin install .`. On Windows, if updating while Antigravity is running fails with `Access is denied`, run `agy plugin uninstall astack` before reinstalling.) For workspace-level customization, you can also copy individual skills into `.agents/skills/`. See [Architecture & Swarm](../architecture-and-swarm.md) for how plugin skills interact with Antigravity's built-in `/boost`, `/swarm`, `/teamwork`, and `/goal` commands.
 
 ## Pick your models
 

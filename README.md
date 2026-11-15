@@ -17,7 +17,7 @@ agy plugin install https://github.com/jmxt3/astack
 agy plugin list --json
 ```
 
-To install from a local clone instead, run `agy plugin install ./astack` (or `agy plugin install .` from inside the repository).
+To install from a local clone instead, run `agy plugin install ./astack` (or `agy plugin install .` from inside the repository). On Windows, if updating while Antigravity is running fails with `Access is denied`, run `agy plugin uninstall astack` first and then reinstall.
 
 Inside Antigravity:
 
