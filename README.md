@@ -21,8 +21,8 @@ To install from a local clone instead, run `agy plugin install ./astack` (or `ag
 
 Inside Antigravity:
 
-1. Pick your preferred model or **Orchestrator** directly in Antigravity's UI model picker—AStack inherits it automatically with zero model-pinning config, so newly launched weekly Antigravity models work immediately.
-2. Start serious tasks with `/astack-mode <goal + how to prove it's done>` (and optionally run `/setup-astack` inside an app repo to scaffold `verify-<app>`, formal TLA+ verification skills, and opt-in hooks).
+1. Use whatever model your Antigravity plan already provides—AStack works with **any model** out of the box with zero model-pinning config (including newly released models and **Orchestrator** on plans that include it).
+2. Run `/setup-astack` once in an app repo (pick `(Recommended)`), then run tasks with `/astack-mode <goal + how to prove it's done>`.
 3. Ask `/astack-help <question>` anytime for tailored skill recommendations and ready-to-send prompts without starting execution.
 
 > **New to AStack?** Read the single-page **[AStack User Guide: Quickstart, Daily Workflow & Mastery](./docs/user-guide.md)** (or dive into the [10-part step-by-step guide](./docs/guide/README.md)).
@@ -49,7 +49,7 @@ AStack pairs its 23 playbooks and 24 engineering principles with Antigravity's n
   - **Understanding, Design & Hygiene**: [`/how`](./skills/how/SKILL.md), [`/why`](./skills/why/SKILL.md), [`/teach`](./skills/teach/SKILL.md), [`/recall`](./skills/recall/SKILL.md), [`/architect`](./skills/architect/SKILL.md), [`/arena`](./skills/arena/SKILL.md), [`/fanout`](./skills/fanout/SKILL.md), [`/interrogate`](./skills/interrogate/SKILL.md), [`/deslop`](./skills/deslop/SKILL.md), [`/no-comments`](./skills/no-comments/SKILL.md), [`/unslop`](./skills/unslop/SKILL.md), [`/correct`](./skills/correct/SKILL.md), [`/reflect`](./skills/reflect/SKILL.md)
   - **24 Engineering Principle Skills** (`skills/principle-*/`): decision-shaping rules automatically surfaced and cited by `/astack-mode`
 - **2 Custom Agents** (`agents/`): [`astack-agent`](./agents/astack-agent.md) (verifier-first builder/reviewer) and [`comment-sicko`](./agents/comment-sicko.md) (skeptical comment & suppressor auditor)
-- **1 Orchestration Rule** ([`rules/astack-orchestration.md`](./rules/astack-orchestration.md)): model-decision routing across Antigravity execution modes with zero-config session and Orchestrator model inheritance
+- **1 Orchestration Rule** ([`rules/astack-orchestration.md`](./rules/astack-orchestration.md)): model-decision routing across Antigravity execution modes with zero-config model inheritance across any Antigravity plan
 - **Opt-In Lifecycle Hooks** ([`hooks.json`](./hooks.json)): `astack-irreversible-guard` (`PreToolUse`) and `astack-verify-reminder` (`Stop`), both shipped with `"enabled": false`
 - **User Guides & Automations**: Single-page quickstart & mastery handbook in [`docs/user-guide.md`](./docs/user-guide.md), 10-part deep-dive walkthrough in [`docs/guide/README.md`](./docs/guide/README.md), and dormant Slack triage/repro pack in [`docs/automations/benny/README.md`](./docs/automations/benny/README.md)
 

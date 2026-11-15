@@ -4,9 +4,9 @@
 
 ---
 
-## Part 1: Start Using AStack in 3 Minutes (Simple Step-by-Step)
+## Part 1: Start Using AStack in 1 Minute
 
-### Step 1: Install (or Refresh Your Local Build)
+### Step 1: Install the Plugin
 
 From GitHub:
 
@@ -15,22 +15,9 @@ agy plugin install https://github.com/jmxt3/astack
 agy plugin list --json
 ```
 
-If you are updating from a local clone (for example `./astack`), uninstall first on Windows so Antigravity doesn't hit an `Access is denied` lock:
+If you are updating from a local clone (for example `./astack`) on Windows while Antigravity is running, run `agy plugin uninstall astack` before `agy plugin install .`.
 
-```bash
-agy plugin uninstall astack
-agy plugin install .
-agy plugin list --json
-```
-
-### Step 2: Select `Orchestrator` in Antigravity's Bottom-Left Model Picker
-
-Click the model selector in the bottom-left corner of your Antigravity chat and choose **Orchestrator (Carbon)** or **Orchestrator (Argon)** (or any live model and effort level you prefer).
-
-- **Zero model config needed:** AStack leaves subagent and `/swarm` model overrides unset (`inherit`) by default, so everything automatically follows your UI picker—including Antigravity's **Orchestrator** (which pairs a frontier planner with a fast implementation model dynamically) and newly released weekly models, with **zero chat restarts**.
-- **Cross-family runtime discovery:** When you invoke `/arena` for multi-model bakeoffs, AStack queries `swarm{action: "models", all: true}` live at runtime and checks `quota_remaining`.
-
-### Step 3: Onboard an Application Repo Once with `/setup-astack`
+### Step 2: Run `/setup-astack` Once in Your Project
 
 Open your project workspace and run:
 
@@ -38,26 +25,22 @@ Open your project workspace and run:
 /setup-astack
 ```
 
-[`/setup-astack`](../skills/setup-astack/SKILL.md) inspects your repository and offers three project-level hardenings:
-
-1. **Generate a runtime verification skill (`/create-verification-skill`):** Builds `.agents/skills/verify-<app>/` plus a `features/` sitemap so agents know how to launch, health-check, drive, capture evidence from, and tear down your app end-to-end. **Accept this for any app repo.** Commit `.agents/skills/verify-<app>/` so every future session inherits it.
-2. **Generate a formal TLA+ verification skill (`/create-formal-verification-skill`):** Adds model-checked invariants via [`/statechart`](../skills/statechart/SKILL.md) for code with concurrency, retries, state machines, or parsers.
-3. **Review opt-in safety hooks ([hooks.json](../hooks.json)):** Both `astack-irreversible-guard` and `astack-verify-reminder` ship disabled (`"enabled": false`) until you opt in.
+Select the **`(Recommended)`** option when prompted so [`/setup-astack`](../skills/setup-astack/SKILL.md) teaches agents how to launch and verify your app automatically.
 
 > [!TIP]
-> You do **not** need to restart your chat after `/setup-astack`, and you never need to maintain a model-routing file unless you explicitly want custom overrides later.
+> AStack works out of the box with **any model on any Antigravity plan**—no model config or chat restart needed. Broad read-only sweeps use `flash` automatically, `/arena` checks the models available on your account live, optional `flash`/`pro` role overrides are available in [Make it yours](./guide/09-make-it-yours.md), and if your plan includes `Orchestrator` (Ultra), AStack inherits it automatically too.
 
-### Step 4: Run Your First Task with `/astack-mode`
+### Step 3: Run Tasks With `/astack-mode`
 
-Describe **the goal**, **how to prove it works**, and any **real constraints** in plain English:
+Describe **what you want** and **how to check it works** in plain English:
 
 ```text
 /astack-mode add a --json flag to the export command. keep plain text output byte-identical, prove both outputs on the sample fixture, and don't push yet.
 ```
 
-AStack matches the right playbook from its 23 playbooks, copies the steps into your task checklist (marking any skipped step with `skip: <reason>`), runs subagents as needed, verifies against the real surface, and reports observed evidence.
+`/astack-mode` picks the right playbook from its 23 playbooks, writes and cleans the code, and proves behavior on the real surface before finishing.
 
-If you ever want a ready-to-copy prompt or want to know which skill fits without spending execution tokens yet, ask [`/astack-help`](../skills/astack-help/SKILL.md):
+Unsure which skill fits? Ask [`/astack-help`](../skills/astack-help/SKILL.md) without spending execution tokens yet:
 
 ```text
 /astack-help which skill should I use to review this branch before opening a PR?
@@ -71,7 +54,7 @@ Most engineering tasks flow naturally through five stages. You don't have to mem
 
 ```mermaid
 flowchart LR
-    UI["UI Picker (Orchestrator / Live Model)"] --> U["1. Understand (/how, /why, /recall)"]
+    G["Your Goal (/astack-mode)"] --> U["1. Understand (/how, /why, /recall)"]
     U --> D["2. Design (/architect, /arena, Prototype)"]
     D --> B["3. Build (/astack-mode Playbooks)"]
     B --> C["4. Clean (/deslop, /no-comments, /unslop)"]
@@ -108,7 +91,7 @@ One attempt locks in the first shape the model thinks of. For boundary-crossing 
   ```text
   /architect design the webhook rate limiter across our API gateway. stop and show me the design before implementing.
   ```
-- **Competitive multi-candidate bakeoff:** `/arena` ([SKILL.md](../skills/arena/SKILL.md)) runs 2–3 isolated implementations in parallel (`Workspace: "branch"` or `/swarm`), screens them against the same empirical pass predicate, picks **one clean base**, and grafts 1–2 non-conflicting wins.
+- **Competitive multi-candidate bakeoff:** `/arena` ([SKILL.md](../skills/arena/SKILL.md)) runs 2–3 isolated implementations in parallel, screens them against the same empirical pass predicate, picks **one clean base**, and grafts 1–2 non-conflicting wins.
   ```text
   /arena solve the cache key invalidation bug in 3 isolated candidates and graft the cleanest solution.
   ```
@@ -137,7 +120,7 @@ One attempt locks in the first shape the model thinks of. For boundary-crossing 
 AStack separates code cleanup, comment removal, and prose cleanup into three specialized passes:
 
 1. **`/deslop` ([SKILL.md](../skills/deslop/SKILL.md)) — Strip code bloat:** Inlines single-caller wrappers, deletes unsupported defensive fallbacks and dead compatibility layers, removes unrelated changes, and re-runs verification.
-2. **`/no-comments` ([SKILL.md](../skills/no-comments/SKILL.md)) — Fresh-eyes comment & suppression audit:** Spawns [`comment-sicko`](../agents/comment-sicko.md) to delete narrating comments, flag workaround comments (`MUST KILL`) for root-cause fixes, and offer structural encodings (types/lints/tests) for claimed constraints.
+2. **`/no-comments` ([SKILL.md](../skills/no-comments/SKILL.md)) — Fresh-eyes comment & suppression audit:** Spawns [`comment-sicko`](../agents/comment-sicko.md) to delete narrating comments, flag workaround comments for root-cause fixes, and offer structural encodings (types/lints/tests) for claimed constraints.
 3. **`/unslop` ([SKILL.md](../skills/unslop/SKILL.md)) & `/technical-writing` ([SKILL.md](../skills/technical-writing/SKILL.md)) — Tighten prose:** Removes AI writing tells, filler, long dashes, and mid-sentence colons from docs, READMEs, RFCs, PR descriptions, and commit messages.
 
 ### Stage 5: Verify on the Real Surface & Ship
@@ -161,10 +144,10 @@ The biggest leverage in Antigravity comes from matching **task shape** to the ri
 
 | Problem Shape | Use This Command / Mode | Why It Wins |
 |---|---|---|
-| Single focused task | `/astack-mode` (with **Orchestrator** in UI) | Clean single-thread playbook execution without multi-worker overhead. |
-| 2–5 independent read-only sweeps, test matrices, or file-disjoint edits | `/fanout` ([SKILL.md](../skills/fanout/SKILL.md)) | Fast `invoke_subagent` parallelism without spinning up a full message board. |
+| Single focused task | `/astack-mode <goal>` | Clean single-thread playbook execution on your active model without multi-worker overhead. |
+| 2–5 independent read-only sweeps, test matrices, or file-disjoint edits | `/fanout` ([SKILL.md](../skills/fanout/SKILL.md)) | Fast subagent parallelism without spinning up a full message board. |
 | **Hard, tightly coupled** bug, race condition, or perf bottleneck | `/boost /astack-mode <problem>` | Multi-round hypothesis challenge, fix, and empirical re-verification on shared code. |
-| **Broad, divisible** work across multiple modules, packages, or PRs | `/swarm /astack-mode <goal>` | Live shared board, isolated `workspace: "share"` / `"branch"` writers, plus an independent `@verifier` gate (ideally cross-family via `swarm{action: "models"}`). |
+| **Broad, divisible** work across multiple modules, packages, or PRs | `/swarm /astack-mode <goal>` | Live shared board, isolated worker workspaces, plus an independent `@verifier` gate. |
 | Multi-milestone, multi-hour or multi-day migration | `/teamwork /astack-mode <goal>` | Upfront scoping interview plus milestone verification gates. |
 | Unattended overnight run with a crisp pass/fail command | `/goal /astack-mode <goal + check command>` | Drives until the checkable predicate passes; logs every step via [`/show-me-your-work`](../skills/show-me-your-work/SKILL.md) (`decisions.tsv`). |
 
@@ -196,8 +179,8 @@ Instead of writing paragraphs of correction, drop a principle name or slash shor
 |---|---|
 | State **goal + empirical done check** and let `/astack-mode` pick the playbook. | Micromanaging skill chains (`"use /how then /architect then /arena..."`). |
 | State **symptoms and artifacts first**; let the agent restate the problem before sharing your hunch. | Leading with your own guess so the agent only searches where you pointed. |
-| Leave model routing on **UI picker inheritance (`Orchestrator`)** and let `/arena` discover models live. | Pinning dated model slugs in `astack-models.md` (breaks **Orchestrator** and weekly model upgrades). |
-| Give parallel writers isolated workspaces (`Workspace: "share"` or `"branch"`). | Letting two concurrent writers edit the same `inherit` working tree. |
+| Keep default **UI model inheritance**—works on any model and plan, with live model discovery in `/arena`. | Pinning dated model version slugs in config files (breaks when new models ship or quota runs out). |
+| Give parallel writers isolated workspaces when running swarms. | Letting two concurrent writers edit the same working tree. |
 | Save `/astack-mode` for real features, bugs, refactors, and investigations. | Running full `/astack-mode` playbooks for a trivial one-line typo edit. |
 | Demand real artifacts (failing->passing output, screenshots, `decisions.tsv`, vetted medians). | Trusting `"all tests pass"` or unvetted benchmark speedups without [`/benchmark-checklist`](../skills/benchmark-checklist/SKILL.md). |
 

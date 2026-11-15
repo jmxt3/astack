@@ -13,13 +13,11 @@ agy plugin list --json
 
 (To install from a local clone instead, run `agy plugin install ./astack` or `agy plugin install .`. On Windows, if updating while Antigravity is running fails with `Access is denied`, run `agy plugin uninstall astack` before reinstalling.) For workspace-level customization, you can also copy individual skills into `.agents/skills/`. See [Architecture & Swarm](../architecture-and-swarm.md) for how plugin skills interact with Antigravity's built-in `/boost`, `/swarm`, `/teamwork`, and `/goal` commands.
 
-## Models & Orchestrator (zero config)
+## Works with any model & plan (zero config)
 
-AStack does **not** ask you to pin static model IDs upfront. Antigravity's **Orchestrator** already pairs a frontier planner model with a fast implementation model dynamically inside one session, and Antigravity ships new models and effort controls regularly.
+AStack works out of the box with **any model on any Antigravity plan** without pinning static model IDs upfront.
 
-By defaulting to `inherit` (omitting explicit model overrides), `/astack-mode`, `invoke_subagent`, and `/swarm` automatically follow your bottom-left UI model selector with zero stale IDs and no chat restart. Read-only sweeps (`research` / `browser`) may use evergreen `flash` aliases, while `/arena` discovers cross-family models and live quota dynamically at runtime via `swarm{action: "models"}`.
-
-If you explicitly want custom per-role overrides for subagent tiers, see [Make it yours](./09-make-it-yours.md#optional-override-subagent-tiers-with-astack-modelsmd).
+By defaulting to `inherit` (omitting explicit model overrides), `/astack-mode`, `invoke_subagent`, and `/swarm` automatically follow whatever model you already have selected in Antigravity's UI picker with zero stale IDs and no chat restart. High-volume read-only sweeps (`research` / `browser`) automatically use `flash`, `/arena` discovers only the models and quota available on your account live at runtime via `swarm{action: "models"}`, standard-plan users who want custom `flash`/`pro` role splits can use [Make it yours](./09-make-it-yours.md#optional-override-subagent-tiers-with-astack-modelsmd), and if your plan includes **Orchestrator** (Ultra), AStack inherits its planner/executor split automatically too.
 
 ## Onboard your repo with `/setup-astack`
 
@@ -41,7 +39,7 @@ No chat restart is needed after `/setup-astack`.
 
 astack spends extra tokens on subagents and review panels. That's the price of the rigor. To spend fewer:
 
-- Select **Orchestrator** in Antigravity's UI model picker so planning uses a frontier model while implementation steps drop down to a fast execution model automatically.
+- Let AStack route high-volume read-only sweeps to `flash` automatically (and optionally set `flash`/`pro` role tiers in `astack-models.md`, or select **Orchestrator** if your plan includes it).
 - Save `/astack-mode` for work that needs rigor. A small, obvious edit doesn't.
 - Right-size `/arena` and `/fanout` candidate counts for the stakes of the decision.
 
