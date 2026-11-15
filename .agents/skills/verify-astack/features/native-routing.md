@@ -1,6 +1,6 @@
 # Native Antigravity Command Registry & Behavioral Routing
 
-AStack aligns 100% with Antigravity's 16 public slash commands through a single source of truth ([native-commands.json](../../../skills/astack-mode/references/native-commands.json) and generated [native-commands.md](../../../skills/astack-mode/references/native-commands.md)), enforcing `/plan` and `/grill-me` gates via [plan-contract.md](../../../skills/astack-mode/references/plan-contract.md) and deferring overlapping AStack skills to native flows.
+AStack aligns 100% with Antigravity's 16 public slash commands through a single source of truth ([native-commands.json](../../../../skills/astack-mode/references/native-commands.json) and generated [native-commands.md](../../../../skills/astack-mode/references/native-commands.md)), enforcing `/plan` and `/grill-me` gates via [plan-contract.md](../../../../skills/astack-mode/references/plan-contract.md) and deferring overlapping AStack skills to native flows.
 
 ## Sub-features
 
@@ -8,7 +8,7 @@ AStack aligns 100% with Antigravity's 16 public slash commands through a single 
 - Byte-identical generated Markdown table (`node scripts/validate-astack.mjs --write-native-commands`) checked automatically by `validate-astack.mjs`
 - Hard `/plan` approval gate (`implementation_plan.md` with `RequestFeedback: true` and `UserFacing: true`, zero workspace edits before approval) and `/learn` `learning_proposal.md` gate
 - Always-on intent routing via `rules/astack-orchestration.md` plus explicit `/` command priority and sticky active-playbook follow-ups reset by `"new task"`
-- Behavioral routing evaluation suite (`R1` to `R12` plus negative twin `R1-neg`) graded from transcripts per [eval.md](../../../skills/astack-mode/playbooks/eval.md)
+- Behavioral routing evaluation suite (`R1` to `R12` plus negative twin `R1-neg`, defined only in this file below) graded from transcripts using the general blinded-eval protocol in [eval.md](../../../../skills/astack-mode/playbooks/eval.md)
 
 ## How to get to it (user POV)
 

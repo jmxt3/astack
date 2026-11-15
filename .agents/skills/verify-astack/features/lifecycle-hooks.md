@@ -5,7 +5,7 @@ Users can optionally enable AStack's two safety hooks in `hooks.json` (`astack-i
 ## Sub-features
 
 - `PreToolUse` destructive-command guard (`scripts/hooks/irreversible-guard.mjs`, wired in `hooks.json` with `"enabled": false` by default)
-- Multi-schema tool payload extraction (`toolCall.args.CommandLine`, `command`, `tool_input.command`)
+- Multi-schema tool payload extraction (`toolCall.args.CommandLine`, `toolCall.args.command`, `tool_input.command`; a top-level `command` key is not read and fails open to `allow`)
 - `Stop` verification reminder (`scripts/hooks/verify-reminder.mjs`, gated by `ASTACK_REQUIRE_VERIFY === "1"`)
 - Opt-in diff filtering (ignores clean repos, `.md`-only changes, `continuationActive: true`, and non-`NO_TOOL_CALL` terminations)
 
@@ -18,7 +18,7 @@ By default both hooks in `hooks.json` ship disabled (`"enabled": false`). Mainta
 Preconditions: `$ScratchDir` and `$EvidenceDir` exist from `Launch`. Pipe UTF-8 JSON without BOM into each script's stdin and inspect single-line JSON stdout plus exit code `0`.
 
 - **`irreversible-guard.mjs` safe command (`allow`)**: Pipe `'{"toolCall":{"args":{"CommandLine":"git status --short"}}}'` into `node scripts/hooks/irreversible-guard.mjs`. Expect exit code `0` and stdout `{"decision":"allow"}`; save output to `$EvidenceDir/hooks-proof.txt`.
-- **`irreversible-guard.mjs` destructive command (`force_ask`)**: Pipe `'{"toolCall":{"args":{"CommandLine":"git reset --hard HEAD~1"}}}'` and `'{"command":"git push --force origin main"}'` into `node scripts/hooks/irreversible-guard.mjs`. Expect exit code `0` and `{"decision":"force_ask","reason":"AStack irreversible-guard: matched potentially destructive command (...). Confirm before executing."}`; append to `$EvidenceDir/hooks-proof.txt`.
+- **`irreversible-guard.mjs` destructive command (`force_ask`)**: Pipe `'{"toolCall":{"args":{"CommandLine":"git reset --hard HEAD~1"}}}'` and `'{"toolCall":{"args":{"command":"git push --force origin main"}}}'` into `node scripts/hooks/irreversible-guard.mjs`. Expect exit code `0` and `{"decision":"force_ask","reason":"AStack irreversible-guard: matched potentially destructive command (...). Confirm before executing."}`; append to `$EvidenceDir/hooks-proof.txt`.
 - **`irreversible-guard.mjs` malformed JSON fallback**: Pipe `'not-valid-json'` into `node scripts/hooks/irreversible-guard.mjs`. Expect exit code `0` and `{"decision":"allow"}` (fail-open on hook parse error so benign sessions are not locked).
 - **`verify-reminder.mjs` gating across clean, `.md`-only, and dirty code repos**: Create a temporary git repo under `$ScratchDir/hook-git`, commit a baseline file, then test `node scripts/hooks/verify-reminder.mjs` with `$env:ASTACK_REQUIRE_VERIFY = "1"` and stdin `'{"continuationActive":false,"terminationReason":"NO_TOOL_CALL","cwd":"<abs-hook-git>"}'`:
   1. Clean repo -> `{"decision":"allow"}`
@@ -30,5 +30,6 @@ Preconditions: `$ScratchDir` and `$EvidenceDir` exist from `Launch`. Pipe UTF-8 
 ## Gotchas
 
 - `verify-reminder.mjs` checks `ASTACK_REQUIRE_VERIFY === "1"` first; without that env var set, it always returns `{"decision":"allow"}` even on dirty code repositories.
+- `irreversible-guard.mjs` fails open: payloads whose command sits outside the three supported paths (for example a bare top-level `{"command": ...}`) resolve to an empty command and return `{"decision":"allow"}`, so a mis-shaped fixture looks like a regex miss.
 - Because `verify-reminder.mjs` runs `git status` against `cwd`, always point `"cwd"` in test payloads to an isolated git repo inside `$ScratchDir` so live repo state does not confound the assertion.
 - Clear `$env:ASTACK_REQUIRE_VERIFY` in the same shell block or child process after the hook check so unrelated commands do not inherit it.
