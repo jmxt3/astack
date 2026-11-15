@@ -1,6 +1,6 @@
 # Watch-PR & TLA+ Statechart TypeScript Suites
 
-AStack runs its TypeScript helper CLIs (`watch-pr` and `statechart`) directly on Node 22+ via `--experimental-strip-types` with zero Bun runtime dependency, backed by automated cross-platform CI suites on Linux, Windows, and macOS.
+AStack runs its TypeScript helper CLIs (`watch-pr` and `statechart`) directly on Node 22+ via native type stripping (`watch-pr.mjs` always passes `--experimental-strip-types`; `statechart.mjs` passes it only on Node `22.6`–`22.17` and relies on default stripping from `22.18`) with zero Bun runtime dependency, backed by automated cross-platform CI suites on Linux, Windows, and macOS.
 
 ## Sub-features
 
@@ -17,6 +17,7 @@ AStack runs its TypeScript helper CLIs (`watch-pr` and `statechart`) directly on
 - Automated suites via root `package.json`:
   - `node --run test:watch-pr`
   - `node --run test:statechart`
+- Render corpus (no `package.json` script; run directly):
   - `node --experimental-strip-types --disable-warning=ExperimentalWarning --test skills/statechart/scripts/test/render.test.ts`
 
 ## Driving it with control-cli
