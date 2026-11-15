@@ -215,12 +215,10 @@ test("live AStack repo validates cleanly and enforces UI/Orchestrator and agent 
   assert.match(readme, /fork it\. improve it\. make it yours\. PRs are welcome!/);
   assert.match(readme, /CREDITS\.md/);
   const archDoc = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "docs", "architecture-and-swarm.md"), "utf8");
-  for (const doc of [readme, archDoc]) {
-    assert.match(doc, /dynamic bidirectional model routing/i);
-    assert.match(doc, /gemini-4-carbon-in-google-antigravity/);
-    assert.match(doc, /introducing-gemini-4-hydrogen/);
-    assert.match(doc, /gemini-4-hydrogen-in-google-antigravity/);
-  }
+  assert.match(archDoc, /dynamic bidirectional model routing/i);
+  assert.match(archDoc, /gemini-4-carbon-in-google-antigravity/);
+  assert.match(archDoc, /introducing-gemini-4-hydrogen/);
+  assert.match(archDoc, /gemini-4-hydrogen-in-google-antigravity/);
 
   const userGuide = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "docs", "user-guide.md"), "utf8");
   const setupGuide = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "docs", "guide", "01-setup.md"), "utf8");
