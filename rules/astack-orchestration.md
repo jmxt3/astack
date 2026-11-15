@@ -8,7 +8,7 @@ description: >-
 
 # AStack Orchestration Guidance
 
-AStack is the Google Antigravity port of Lauren Tan's (`@poteto`) `pstack`, maintained by João Machete.
+AStack is João Machete's verification-first engineering plugin for Google Antigravity, built on Lauren Tan's (`@poteto`) `pstack` and inspired by Garry Tan's (`@garrytan`) `gstack`.
 
 When the user asks for engineering rigor, debugging with evidence, performance hillclimbing, multi-agent code bakeoffs, verification skills, planning before coding, or invokes `/astack-mode`:
 

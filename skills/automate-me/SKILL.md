@@ -14,10 +14,10 @@ This skill orchestrates three steps: an inline transcript-mining pass (Step 1), 
 
 ### 0. Check for an existing skill
 
-Look recursively for `.agents/skills/**/*-mode/SKILL.md` and `~/.gemini/config/skills/*-mode/SKILL.md` matching the user's handle. Mode skills can live in a personal category directory (`.agents/skills/<handle>/`), not only at the top level. If one exists, confirm intent with `ask_question` (unless they already said "update my skill" or similar):
+Look recursively for `.agents/skills/**/*-mode/SKILL.md` and `~/.gemini/config/skills/*-mode/SKILL.md` matching the user's handle. Mode skills can live in a personal category directory (`.agents/skills/<handle>/`), not only at the top level. If one exists, confirm intent with `ask_question` using unnumbered choices (unless they already said "update my skill" or similar):
 
-- Update the existing skill (default for repeat runs)
-- Start fresh (rare, ask why before doing it)
+- `(Recommended)` Update the existing skill
+- Start fresh (ask why before overwriting)
 
 Update mode changes the rest of the flow:
 - Step 1 mines only history since the skill was last edited (`git log -1 --format=%cI <path>`).
@@ -41,7 +41,7 @@ Cross-check across slices before elevating a signal. Patterns seen in 2+ slices 
 
 ### 2. Ask the user directly
 
-Mining misses intent that hasn't come up yet. Use the `ask_question` tool (structured multi-choice) rather than asking the user to type from scratch.
+Mining misses intent that hasn't come up yet. Use the `ask_question` tool (structured multi-choice) rather than asking the user to type from scratch. Keep options unnumbered with `(Recommended)` first when a default fits, and never add a manual `"Other"` option or `"select all that apply"` wording because Antigravity includes `"Other (write your answer)"` automatically.
 
 Shape: one or two questions with 4-6 options each, `is_multi_select: true` for category questions. Start broad ("Which areas matter most?"), then follow up on selected areas with specific options. After the structured rounds, one free-form chat question catches anything the options missed.
 

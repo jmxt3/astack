@@ -1,10 +1,9 @@
 # AStack User Guide: Quickstart, Daily Workflow & Mastery
 
-**AStack** (`astack`) adapts Lauren Tan's (`@poteto`) verification-first `pstack` workflows natively for **Google Antigravity**. Instead of reviewing long unverified diffs by hand, you state **what outcome you want and how to prove it works**, while AStack matches a rigorous playbook, coordinates Antigravity's subagents and multi-agent modes, cleans the diff, and proves behavior on the running app before reporting done.
+**AStack** (`astack`) is **João Machete**'s verification-first engineering stack for **Google Antigravity**, built on **Lauren Tan**'s (`@poteto`) [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) and inspired by **Garry Tan**'s (`@garrytan`) [`gstack`](https://github.com/garrytan/gstack). Instead of trusting unverified diffs by eye, you state **what outcome you want and how to prove it works**, while AStack matches a rigorous playbook, coordinates Antigravity's subagents and multi-agent modes, cleans the diff, and proves behavior on the running app before reporting done.
 
 > **Credits & Attribution**  
-> **Original Plugin (`pstack`):** Created by **Lauren Tan** (`@poteto`) in [`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack) (MIT License, baseline `v0.15.36`).  
-> **Antigravity Port (`astack`):** Adapted and engineered for Google Antigravity by **João Machete** ([`jmxt3/astack`](https://github.com/jmxt3/astack)).
+> Built on **`pstack`** by **Lauren Tan** (`@poteto`, [`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack), MIT License) and inspired by **`gstack`** by **Garry Tan** (`@garrytan`, [`garrytan/gstack`](https://github.com/garrytan/gstack), MIT License, no code copied). Engineered for Google Antigravity by **João Machete** ([`jmxt3/astack`](https://github.com/jmxt3/astack)). See [CREDITS.md](../CREDITS.md).
 
 **Contents:**
 - [Part 1: Start using AStack in 1 minute](#part-1-start-using-astack-in-1-minute)
@@ -60,15 +59,15 @@ Unsure which skill fits? Ask [`/astack-help`](../skills/astack-help/SKILL.md) wi
 
 ## Part 2: Plan-first workflow (write a plan, approve, then execute)
 
-Under **Orchestrator** (**Carbon** on Google AI Ultra or **Argon** on Google AI Pro and Ultra), a frontier planner already explores read-only before handing edits and tests to Hydrogen, and recovers automatically on friction. Whenever you ask for a plan (or invoke `/plan`), AStack's [`plan-contract.md`](../skills/astack-mode/references/plan-contract.md) enforces a hard stop: write `<artifact-dir>/implementation_plan.md` (`RequestFeedback: true`, `UserFacing: true`) and make zero workspace edits until you approve:
+Under **Orchestrator** (**Carbon** on Google AI Ultra or **Argon** on Google AI Pro and Ultra), a frontier planner already explores read-only before handing edits and tests to Hydrogen, and recovers automatically on friction. Whenever you ask for a plan (or invoke `/plan`), AStack's [`plan-contract.md`](../skills/astack-mode/references/plan-contract.md) enforces a hard stop: write `<artifact-dir>/implementation_plan.md` (`RequestFeedback: true`, `UserFacing: true`; staged cleanly via `exit_plan_mode` when Orchestrator Plan Mode runs read-only) and make zero workspace edits until you leave feedback or click **Proceed**:
 
 ```mermaid
 flowchart LR
     P["`**1. Write plan**
 Read-only investigation
 Zero file edits`"] --> A["`**2. Review & approve**
-Inspect or revise steps
-Explicit go-ahead`"] --> E["`**3. Execute & verify**
+Inline comments + ask_question
+Click Proceed to execute`"] --> E["`**3. Execute & verify**
 /astack-mode + Control Glass
 Stop before push or merge`"]
 ```
@@ -77,11 +76,11 @@ Stop before push or merge`"]
 
 Pick the stacked prompt that matches the work:
 
-1. **Everyday feature or bug fix (`/plan /astack-mode`):** Pairs Antigravity's `/plan` gate with AStack's discovery and verification rigor (for bugs, reproduce live first via `control-ui` or `control-cli` before finalizing the fix plan):
+1. **Everyday feature or bug fix (`/plan /astack-mode`):** Pairs Antigravity's `/plan` gate with AStack's discovery and verification rigor (for bugs, reproduce live first via `control-ui` or `control-cli` before finalizing the fix plan). If requirements have product tradeoffs, Antigravity presents interactive `ask_question` cards (single or multi-select plus built-in `"Other (write your answer)"` write-in):
    ```text
    /plan /astack-mode <task or bug>
    ```
-2. **Unclear requirements or product forks (`/plan /grill-me` or [`prototype.md`](../skills/astack-mode/playbooks/prototype.md)):** Runs `/grill-me`'s one-question-at-a-time interview first, then writes `implementation_plan.md` and stops for approval (or use `prototype` when running code settles empirical forks directly; save [`/interrogate`](../skills/interrogate/SKILL.md) for breaking built code):
+2. **Unclear requirements or product forks (`/plan /grill-me` or [`prototype.md`](../skills/astack-mode/playbooks/prototype.md)):** Runs `/grill-me`'s sequential one-question-at-a-time interview via `ask_question` first, then writes `implementation_plan.md` and stops for approval (or use `prototype` when running code settles empirical forks directly; save [`/interrogate`](../skills/interrogate/SKILL.md) for breaking built code):
    ```text
    /plan /grill-me <idea>
    ```
@@ -89,14 +88,14 @@ Pick the stacked prompt that matches the work:
    ```text
    /architect <feature or API>. With checkpoint. Compare candidate designs, screen for red flags, write the type sketch and rationale, and stop for my approval before implementing.
    ```
-4. **Multi-PR feature, refactor, or migration ([`multi-phase-plan.md`](../skills/astack-mode/playbooks/multi-phase-plan.md)):** Writes the `check-plan.mjs`-validated multi-PR checklist into `<artifact-dir>/implementation_plan.md` first with zero edits, then materializes `docs/<name>-plan.md` only after you approve (pair with `/teamwork` for milestone gates):
+4. **Multi-PR feature, refactor, or migration ([`multi-phase-plan.md`](../skills/astack-mode/playbooks/multi-phase-plan.md)):** Writes the `check-plan.mjs`-validated multi-PR checklist into `<artifact-dir>/implementation_plan.md` first with zero edits, then materializes `docs/<name>-plan.md` only after you click **Proceed** (pair with `/teamwork` for milestone gates):
    ```text
    /plan /astack-mode Turn <goal> into a multi-PR plan with small verifiable units and live verification steps.
    ```
 
-### Step 2: Review, revise, or sharpen
+### Step 2: Review, leave inline comments, or click Proceed
 
-Ask for revisions directly in chat before giving the go-ahead:
+Review `<artifact-dir>/implementation_plan.md` in Antigravity's side panel (or in CLI review), highlight specific lines to attach inline comments (works on workspace files too), tag context with `@file`, `@rule`, or `@conversation` mentions, or request changes in chat before clicking **Proceed**:
 
 ```text
 Update step 2 to use <X> instead of <Y>, keep <Z> out of scope, and show me the revised plan before implementing.

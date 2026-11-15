@@ -15,7 +15,7 @@ Each file under `features/` documents one verification surface of the AStack rep
 - Write temporary fixtures, synthetic repos, mock upstream trees, and generated `.tsv`/`.plan.md` artifacts only inside `$ScratchDir`.
 - Write captured stdout/stderr, `$LASTEXITCODE` records, and serialized JSON/TSV outputs directly into `$EvidenceDir` so Cleanup never erases proof.
 - Pipe JSON payloads cleanly in `pwsh` without BOM issues (`[System.Text.UTF8Encoding]::new($false)` or plain PowerShell pipeline `'...' | node ...`).
-- Never pass `--force-overlays` against the live workspace root during verification runs.
+- Never point `upstream-watch.mjs --out` inside the repository or `$ScratchDir` (it must exit `2`); pass a path under `$env:TEMP` outside `rootDir` when testing report export.
 
 ## Proof and skip reporting
 
@@ -37,8 +37,8 @@ Every feature file in this directory stays user-observable and concise:
 
 ## Features
 
-- [Plugin & Strict Antigravity Validation](./plugin-validation.md): `validate-astack.mjs` structural lints, official skill/agent frontmatter schemas, `RESERVED_SKILL_NAMES` collision guard, `native-commands.md` sync check, `--json` telemetry, and `agy plugin validate --strict`.
-- [Upstream PStack Synchronization](./upstream-sync.md): `sync-upstream.mjs` diffing/mapping against `UPSTREAM.json`, `--dry-run`, `--diff-dir` unified patch export, `--apply-frontmatter-policy`, reserved-name collision rejection, and overlay protection in isolated scratch copies.
+- [Plugin & Strict Antigravity Validation](./plugin-validation.md): `validate-astack.mjs` structural lints, `--apply-frontmatter-policy` against `catalog.json`, official skill/agent frontmatter schemas, `RESERVED_SKILL_NAMES` collision guard, `native-commands.md` sync check, `--json` telemetry, and `agy plugin validate --strict`.
+- [Read-Only Upstream Watch](./upstream-watch.md): `upstream-watch.mjs` read-only inspection of `pstack` and `gstack`, counterpart classification, `--fail-on-updates`, internal `--out` refusal (`exit 2`), and SHA-256 repository invariance.
 - [Opt-In Safety & Verification Lifecycle Hooks](./lifecycle-hooks.md): `hooks.json` entrypoints `irreversible-guard.mjs` (`PreToolUse`) and `verify-reminder.mjs` (`Stop`) across allow/block/skip cases.
 - [Bundled Workflow & Control Glass CLIs](./workflow-clis.md): `log.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, and `control-cli-template.mjs` real CLI execution, `-h`/`--help`, `--json`, `--dry-run`, exit codes, and preserved proof artifacts.
 - [Watch-PR & TLA+ Statechart TypeScript Suites](./watch-pr-and-statechart.md): `watch-pr.mjs`, `statechart.mjs` (`--help`/`-h`, `67` non-TLC tests, `74` Mermaid/Pele `render.test.ts` checks), and `verified-unreachable` boundaries.

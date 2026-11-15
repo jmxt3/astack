@@ -1,11 +1,11 @@
 ---
 name: verify-astack
-description: "Project verification skill for the AStack repository (astack): drives plugin validation, upstream pstack sync, lifecycle hooks, and bundled Node 22+ workflow CLIs against isolated fixtures and captures stdio/exit-code proof. Use when verifying changes in the astack repo."
+description: "Project verification skill for the AStack repository (astack): drives plugin validation, read-only upstream watch, lifecycle hooks, and bundled Node 22+ workflow CLIs against isolated fixtures and captures stdio/exit-code proof. Use when verifying changes in the astack repo."
 ---
 
 # Verify AStack
 
-Drives the AStack plugin repository's real Node 22+ CLI entrypoints, Antigravity manifest validator, upstream sync tooling, lifecycle hooks, and workflow helper scripts under isolated scratch and evidence directories so changes are proved against live execution before landing.
+Drives the AStack plugin repository's real Node 22+ CLI entrypoints, Antigravity manifest validator, read-only upstream watch tooling, lifecycle hooks, and workflow helper scripts under isolated scratch and evidence directories so changes are proved against live execution before landing.
 
 ## Launch
 
@@ -43,9 +43,9 @@ Read the feature map first: [features/README.md](./features/README.md).
 
 Drive only the feature files affected by your change (or walk all seven for a full repository check):
 
-1. [Plugin & Strict Antigravity Validation](./features/plugin-validation.md): valid repo pass, `--json` telemetry, `--write-native-commands`, official frontmatter schema, `33/28` manual-only split, and negative fixture rejection (`RESERVED_SKILL_NAMES`, broken relative links, Cursor leaks, drifted registry).
-2. [Upstream PStack Synchronization](./features/upstream-sync.md): `sync-upstream.mjs --dry-run --json`, `--diff-dir <dir>` non-mutating patch export, `--apply-frontmatter-policy`, reserved collision rejection, and isolated `syncUpstream()` overlay checks.
-3. [Opt-In Safety & Verification Lifecycle Hooks](./features/lifecycle-hooks.md): stdin/stdout JSON contract checks for `irreversible-guard.mjs` (`allow` vs `force_ask`) and `verify-reminder.mjs` (dirty non-`.md` vs `.md`-only vs `continuationActive`).
+1. [Plugin & Strict Antigravity Validation](./features/plugin-validation.md): valid repo pass, `--json` telemetry, `--write-native-commands`, `--apply-frontmatter-policy`, official frontmatter schema, `33/28` manual-only split, `comment-sicko` `inheritCustomizations: false`, and negative fixture rejection.
+2. [Read-Only Upstream Watch](./features/upstream-watch.md): `upstream-watch.mjs --source-id pstack|gstack|all`, external `--out`, `--out` inside-repo refusal (`exit 2`), `--fail-on-updates`, and SHA-256 byte-identity proof.
+3. [Opt-In Safety & Verification Lifecycle Hooks](./features/lifecycle-hooks.md): stdin/stdout JSON contract checks for `irreversible-guard.mjs` (`allow`, `force_ask`, headless `deny`, subshell unwrap, SQL search scoping, trunk refspecs) and `verify-reminder.mjs`.
 4. [Bundled Workflow & Control Glass CLIs](./features/workflow-clis.md): `log.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, and `control-cli-template.mjs` real stdio, `--help`/`-h`, `--json`, `--dry-run`, exit codes, and preserved evidence in `$ScratchDir`.
 5. [Watch-PR & TLA+ Statechart TypeScript Suites](./features/watch-pr-and-statechart.md): `watch-pr.mjs` (`55` TS tests), `statechart.mjs` (`--help`/`-h` exit `0`, `67` non-TLC tests, `74` `render.test.ts` checks), and offline/Java `verified-unreachable` reporting.
 6. [Setup Onboarding & Banner CLI](./features/setup-onboarding.md): `setup-banner.mjs` `--help`/`-h` and live vs empty-repo detection plus `setup-astack` UI-inheritance invariants.

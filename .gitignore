@@ -17,3 +17,6 @@ secrets/
 
 # Local automation runtime state
 .agents/benny/
+
+# Local reference dumps and ecosystem snapshots
+refs/

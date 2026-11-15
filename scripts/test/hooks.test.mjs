@@ -29,32 +29,66 @@ test("hooks.json declares both hooks opt-in (enabled: false) using Stop flat for
   assert.equal(cfg["astack-verify-reminder"].Stop[0]?.type, "command");
 });
 
-test("irreversible-guard allows safe commands and malformed JSON", () => {
-  assert.deepEqual(
-    runHook(
-      guardScript,
-      JSON.stringify({ toolCall: { name: "run_command", args: { CommandLine: "git status" } } }),
-    ),
-    { decision: "allow" },
-  );
-  assert.deepEqual(runHook(guardScript, "{not valid json"), { decision: "allow" });
+test("irreversible-guard allows safe commands, read-only SQL searches, feature leases, and malformed JSON", () => {
+  for (const cmd of [
+    "git status",
+    'rg "DROP TABLE" scripts/',
+    'Select-String -Pattern "DROP DATABASE" scripts/',
+    'git log -S "TRUNCATE TABLE"',
+    'echo "SELECT 1; DROP TABLE users;"',
+    "git push --force-with-lease origin feat/v0.2-native-identity",
+    "git push origin main",
+    'bash -c "rg \'DROP TABLE\' src/"',
+  ]) {
+    assert.deepEqual(
+      runHook(
+        guardScript,
+        JSON.stringify({ toolCall: { name: "run_command", args: { CommandLine: cmd } } }),
+        { CI: "", NON_INTERACTIVE: "" },
+      ),
+      { decision: "allow" },
+      cmd,
+    );
+  }
+  assert.deepEqual(runHook(guardScript, "{not valid json", { CI: "", NON_INTERACTIVE: "" }), { decision: "allow" });
 });
 
-test("irreversible-guard flags destructive commands with force_ask", () => {
+test("irreversible-guard flags destructive, wrapped, piped SQL, and trunk refspec commands with force_ask interactively", () => {
   for (const cmd of [
     "git push origin main --force",
+    "git push origin +main",
+    "git push origin :main",
+    "git push --delete origin main",
+    "git push --force-with-lease origin main",
     "git reset --hard HEAD~3",
     "rm -rf /",
+    'bash -c "rm -rf /"',
+    'pwsh -Command "git reset --hard HEAD~2"',
     "Remove-Item -Recurse -Force C:\\",
     "psql -c 'DROP TABLE users;'",
+    'echo "DROP DATABASE app;" | psql',
+    "sqlite3 app.db 'TRUNCATE TABLE sessions;'",
     "terraform destroy -auto-approve",
   ]) {
     const out = runHook(
       guardScript,
       JSON.stringify({ toolCall: { name: "run_command", args: { CommandLine: cmd } } }),
+      { CI: "", NON_INTERACTIVE: "" },
     );
     assert.equal(out.decision, "force_ask", cmd);
     assert.match(out.reason, /irreversible-guard/);
+  }
+});
+
+test("irreversible-guard returns deny in headless CI or NON_INTERACTIVE environments", () => {
+  for (const env of [{ CI: "true", NON_INTERACTIVE: "" }, { CI: "", NON_INTERACTIVE: "1" }]) {
+    const out = runHook(
+      guardScript,
+      JSON.stringify({ toolCall: { name: "run_command", args: { CommandLine: "git reset --hard HEAD~1" } } }),
+      env,
+    );
+    assert.equal(out.decision, "deny");
+    assert.match(out.reason, /headless mode/i);
   }
 });
 

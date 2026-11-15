@@ -1,48 +1,60 @@
-# AStack (pstack for Google Antigravity) — Verification-First Engineering & Multi-Agent Workflows
+# AStack: Verification-First Engineering for Google Antigravity
+
+> **Don't trust the agent. Trust the evidence.**
 
 <p align="center">
-  <img src="./assets/banner_ASCII%20terminal@1x.png" alt="AStack — Verification-first engineering skills and multi-agent workflows for Google Antigravity" width="100%">
+  <img src="./assets/banner_ASCII%20terminal@1x.png" alt="AStack: Verification-first engineering skills and multi-agent workflows for Google Antigravity" width="100%">
 </p>
 
 <p align="center">
   <a href="https://github.com/jmxt3/astack/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jmxt3/astack/ci.yml?branch=main&style=flat-square&label=ci" alt="CI status"></a>
-  <a href="./plugin.json"><img src="https://img.shields.io/badge/plugin-v0.1.0-38BDF8?style=flat-square" alt="Plugin v0.1.0"></a>
+  <a href="./plugin.json"><img src="https://img.shields.io/badge/plugin-v0.2.0-38BDF8?style=flat-square" alt="Plugin v0.2.0"></a>
   <a href="https://antigravity.google"><img src="https://img.shields.io/badge/platform-Google%20Antigravity-6366F1?style=flat-square" alt="Platform: Google Antigravity"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22.6-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js >= 22.6"></a>
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/stack-ESM%20%2B%20TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Stack: ESM + TypeScript"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-22C55E?style=flat-square" alt="License: MIT"></a>
 </p>
 
-**AStack** (`astack`) is a native **Google Antigravity** plugin bundling **61 skills** (`28` auto-invocable plus `33` manual-only with `disable-model-invocation: true`), **23 playbooks**, **24 engineering principles**, **2 native subagents** (`astack-agent` and `comment-sicko`), **1 orchestration rule**, and **2 opt-in lifecycle hooks**. It routes user intent to Antigravity's **16 native slash commands** first ([`native-commands.md`](./skills/astack-mode/references/native-commands.md)), enforces the `/plan` and `/grill-me` approval gate ([`plan-contract.md`](./skills/astack-mode/references/plan-contract.md)), coordinates subagents and multi-agent modes, cleans the diff, and proves behavior against the running UI or CLI before reporting done.
+**AStack** (`astack`) is a verification-first engineering plugin for **Google Antigravity**. It bundles **61 skills** (`28` auto-invocable plus `33` manual-only with `disable-model-invocation: true`), **23 playbooks**, **24 engineering principles**, **2 native subagents** (`astack-agent` and `comment-sicko`), **1 orchestration rule**, and **2 opt-in lifecycle hooks**. AStack routes user intent to Antigravity's **16 native slash commands** first ([`native-commands.md`](./skills/astack-mode/references/native-commands.md)), enforces interactive `/plan` and `/grill-me` approval gates ([`plan-contract.md`](./skills/astack-mode/references/plan-contract.md)), coordinates subagents and Swarms, cleans the diff, and proves behavior on the running app before reporting done.
 
-**Local-first, with zero model lock-in.** AStack installs as static markdown skills and local Node.js 22+ scripts (via zero-dependency root [`package.json`](./package.json)) with no hosted backend, no telemetry, and no model-pinning config. It inherits whatever model or plan you select in Antigravity and pairs natively with **Orchestrator (Carbon)** (Google AI Ultra) and **Orchestrator (Argon)** (Google AI Pro and Ultra) for dynamic bidirectional model routing with [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/).
+**Local-first, with zero model lock-in.** AStack installs as static markdown skills and zero-dependency Node.js 22+ scripts ([`package.json`](./package.json)) with no hosted backend, no telemetry, and no model-pinning config. It inherits whatever model or plan you pick in Antigravity and pairs natively with **Orchestrator (Carbon)** (Google AI Ultra) and **Orchestrator (Argon)** (Google AI Pro and Ultra) for dynamic bidirectional model routing with [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/).
 
-> **Credits & Attribution**  
-> **Original Plugin (`pstack`):** Created by **Lauren Tan** (`@poteto`) in [`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack) (MIT License, baseline `v0.15.36`), grounded in her SpaceX AI / Cursor workflow architecture.  
-> **Antigravity Port (`astack`):** Adapted and engineered for Google Antigravity by **João Machete** ([`jmxt3/astack`](https://github.com/jmxt3/astack)), integrating AStack natively with Antigravity's 16 public slash commands (`/plan`, `/grill-me`, `/learn`, `/boost`, `/swarm`, `/teamwork`, `/run-workflow`, `/goal`, `/schedule`, `/automation`, `/browser`, `/btw`, `/plugin`, `/agy-customizations`, `/generative_ui`, `/antigravity-guide`), `Subagents`, and lifecycle hooks.
+fork it. improve it. make it yours. PRs are welcome!
 
 <p align="center">
+  <a href="#why-trust-is-the-limiting-step-loops-you-can-trust">Earned trust</a> ·
   <a href="#install">Install</a> ·
   <a href="#quick-start">Quick start</a> ·
-  <a href="./docs/user-guide.md">User guide</a> ·
-  <a href="./docs/guide/README.md">10-part tutorial</a> ·
-  <a href="#dynamic-bidirectional-model-routing">Model routing</a> ·
-  <a href="./docs/architecture-and-swarm.md">Architecture &amp; Swarm</a> ·
-  <a href="#documentation">Documentation</a> ·
+  <a href="#interactive-plan-review--execute-workflow">Plan &amp; review</a> ·
+  <a href="#how-it-fits-together">How it fits</a> ·
   <a href="#skill-catalog">61 skills</a> ·
+  <a href="./docs/user-guide.md">User guide</a> ·
+  <a href="./CREDITS.md">Credits</a> ·
   <a href="./CONTRIBUTING.md">Contributing</a> ·
   <a href="./SECURITY.md">Security</a>
 </p>
 
-## Feature highlights
+## Why trust is the limiting step (Loops You Can Trust)
 
-- **Start from one command.** Give [`/astack-mode`](./skills/astack-mode/SKILL.md) a goal, and it picks from 23 playbooks for bugs, features, refactors, and releases.
-- **Verify on the running app.** [`/control-ui`](./skills/control-ui/SKILL.md), [`/control-cli`](./skills/control-cli/SKILL.md), and `verify-<app>` check behavior in a real browser or terminal.
-- **Test designs and break diffs.** [`/architect`](./skills/architect/SKILL.md) and [`/arena`](./skills/arena/SKILL.md) compare candidate designs in isolated branches, while [`/interrogate`](./skills/interrogate/SKILL.md) stress-tests built prototypes and branches with empirical reproduction.
-- **Native slash commands first.** Any planning, interview, workflow, automation, learning, or browser request routes to Antigravity's 16 public slash commands ([`native-commands.md`](./skills/astack-mode/references/native-commands.md)) through `run`, `load`, `contract`, or `recommend` mode, including `/plan /astack-mode <task>` and `/plan /grill-me <task>`.
-- **Built for dynamic bidirectional model routing.** Zero static model slugs lets Antigravity's **Orchestrator (Carbon)** (Google AI Ultra) and **Orchestrator (Argon)** (Google AI Pro and Ultra) hand control dynamically between frontier planning ([Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) or Argon) and fast execution ([Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/)) inside one session.
-- **Scale across agents.** AStack works with Antigravity subagents, [`/fanout`](./skills/fanout/SKILL.md), `/run-workflow`, `/boost`, `/swarm`, `/teamwork`, `/goal`, `/schedule`, and `/automation` on any model.
-- **Clean diffs before review.** [`/deslop`](./skills/deslop/SKILL.md), [`/no-comments`](./skills/no-comments/SKILL.md), and [`/unslop`](./skills/unslop/SKILL.md) remove dead code, noisy comments, and AI filler.
+Speed is cheap. Unverified diffs are expensive. When an agent says "all tests pass" or "looks clean" without driving the real app, reviewing and debugging falls right back on you.
+
+AStack closes that gap in four stages so you never have to trust the agent blindly or trust AStack without checking:
+
+1. **Understand first.** Read-only sweeps ([`/how`](./skills/how/SKILL.md), [`/why`](./skills/why/SKILL.md), [`/teach`](./skills/teach/SKILL.md), [`/recall`](./skills/recall/SKILL.md)) and adversarial design checks ([`/architect`](./skills/architect/SKILL.md), [`/arena`](./skills/arena/SKILL.md)) lock down real callers and data shapes before code is written.
+2. **Build the lever.** [`/setup-astack`](./skills/setup-astack/SKILL.md) and [`/create-verification-skill`](./skills/create-verification-skill/SKILL.md) generate a repo-local `.agents/skills/verify-<app>/` driver and `features/` map so every agent knows how to launch, drive, and verify your app from scratch.
+3. **Prove on the running surface.** [`/control-ui`](./skills/control-ui/SKILL.md), [`/control-cli`](./skills/control-cli/SKILL.md), [`/statechart`](./skills/statechart/SKILL.md), [`/deslop`](./skills/deslop/SKILL.md), and [`/no-comments`](./skills/no-comments/SKILL.md) collect real browser/CLI output, exit codes, DOM/network checks, and clean diffs before handoff.
+4. **Scale autonomy only after the loop holds.** Once the verification predicate is concrete, scale out safely across Antigravity subagents, [`/fanout`](./skills/fanout/SKILL.md), `/run-workflow`, `/swarm`, `/teamwork`, and `/goal`.
+
+### Check it yourself
+
+| Guarantee | What AStack claims | Run it locally |
+|---|---|---|
+| **The Result** | Every nontrivial change ends with runtime proof on the UI, CLI, or formal model checker instead of compile-only optimism | Drive [`verify-astack`](./.agents/skills/verify-astack/SKILL.md), [`/control-ui`](./skills/control-ui/SKILL.md), or [`/control-cli`](./skills/control-cli/SKILL.md) |
+| **The Install & Safety Hooks** | Zero background servers, zero telemetry, hooks ship `"enabled": false`, and `irreversible-guard` scopes SQL searches away from DB CLIs and blocks in headless CI | Inspect [`hooks.json`](./hooks.json) and run `node --test scripts/test/hooks.test.mjs` |
+| **The Catalog & Cross-OS Suite** | Strict Antigravity schema compliance, zero native slash-command collisions, exact 33/28 manual split, and Node 22+ helpers tested across OSes | Run `node --run validate`, `node --run test`, and `agy plugin validate --strict --json .` |
+| **The Lineage** | Full open-source attribution (`pstack` and `gstack`) plus a strictly read-only upstream watch CLI that refuses writes inside the repo | Read [CREDITS.md](./CREDITS.md) and run `node scripts/upstream-watch.mjs --source-id pstack --fetch` |
+
+> **Honest scope:** `/astack-mode` earns its keep on nontrivial features, root-cause bugs, refactors, performance hillclimbs, stacked PRs, and overnight `/goal` runs. For a trivial one-line copy or typo edit, skip the heavy playbook and ask directly.
 
 ## Install
 
@@ -59,18 +71,29 @@ To install from a local clone instead, run `agy plugin install ./astack` (or `ag
 
 ## Quick start
 
-1. **Initialize verification in your repository once** by running `/setup-astack` inside Antigravity and choosing **`(Recommended)`**. It inspects your project and scaffolds a repo-specific `.agents/skills/verify-<app>/` skill so future runs know how to start and verify your app.
+1. **Initialize verification in your repository once** by running `/setup-astack` inside Antigravity and picking the recommended option. It inspects your project and scaffolds `.agents/skills/verify-<app>/` so future runs know how to start and verify your app.
 2. **Run a task with `/astack-mode`** by stating what you want and how to check it works:
 
    ```text
    /astack-mode add a --json flag to the export command. keep plain text output byte-identical, prove both outputs on the sample fixture, and don't push yet.
    ```
 
-3. **Ask `/astack-help` when unsure** to get a recommended skill, reasoning, and ready-to-send prompt before spending execution turns:
+3. **Ask `/astack-help` when unsure** to get a recommended skill, reasoning, and copy-ready prompt without spending execution turns:
 
    ```text
    /astack-help which skill should I use to review this branch before opening a PR?
    ```
+
+## Interactive plan, review & execute workflow
+
+AStack leans directly on Antigravity's native review surfaces so you stay in control before edits start:
+
+1. **Plan with a hard stop (`/plan /astack-mode <task>`):** Explores read-only and stages `<artifact-dir>/implementation_plan.md` (`RequestFeedback: true`) with zero workspace file edits until you approve. Under **Orchestrator** (`Carbon` or `Argon`), read-only planner turns automatically stage a clean handoff to write the plan artifact and pause for your review.
+2. **Branching interview (`/plan /grill-me <idea>`):** Resolves product or requirement forks sequentially one question at a time via interactive `ask_question` cards (unnumbered choices, `(Recommended)` first, built-in `"Other (write your answer)"` write-in) before generating the plan.
+3. **Inline review & approval (`Proceed`):** Leave inline comments on specific lines of `implementation_plan.md` or workspace files, point context with `@file` / `@rule` / `@conversation` mentions, and click **Proceed** when ready to execute.
+4. **Autonomous guardrails (`/goal` & `hillclimb`):** Unattended completion runs switch to `RequestFeedback: false` on progress artifacts so overnight loops verify continuously instead of blocking on UI buttons.
+
+See [Part 2 of the User Guide](./docs/user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute) and [`plan-contract.md`](./skills/astack-mode/references/plan-contract.md) for exact prompts.
 
 ## How it fits together
 
@@ -110,12 +133,12 @@ verify-{app} · /blast-radius`"]
 
 ### Dynamic bidirectional model routing
 
-Traditional static model routers guess task difficulty from the first prompt and lock into a single model. Antigravity's **Orchestrator** routes dynamically between a frontier planner (**Orchestrator (Carbon)** using [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) on Google AI Ultra, or **Orchestrator (Argon)** on Google AI Pro and Ultra) and [Gemini 4 Hydrogen](https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-hydrogen/) ([Gemini 4 Hydrogen in Google Antigravity](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/)) as a single session or trajectory evolves.
+Traditional static model routers guess task difficulty from the first prompt and lock into a single model. Antigravity's **Orchestrator** performs dynamic bidirectional model routing between a frontier planner (**Orchestrator (Carbon)** using [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) on Google AI Ultra, or **Orchestrator (Argon)** on Google AI Pro and Ultra) and [Gemini 4 Hydrogen](https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-hydrogen/) ([Gemini 4 Hydrogen in Google Antigravity](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/)) as a single session or trajectory evolves.
 
 AStack strengthens all three cooperative role hand-offs without overriding the router:
 
-1. **Read-only planning on a frontier model (Carbon or Argon).** Starts in a read-only phase (enforced when `/plan` matches) to explore dependencies, resolve ambiguities with [`/how`](./skills/how/SKILL.md), [`/why`](./skills/why/SKILL.md), `/grill-me`, prototypes, and [`/architect`](./skills/architect/SKILL.md), and build an explicit plan with re-planning triggers before editing files.
-2. **Execution and verification on Hydrogen.** Takes over after plan approval to write edits, update packages, run tests, clean the diff with [`/deslop`](./skills/deslop/SKILL.md) and [`/no-comments`](./skills/no-comments/SKILL.md), red-team with [`/interrogate`](./skills/interrogate/SKILL.md), and run [`/control-ui`](./skills/control-ui/SKILL.md), [`/control-cli`](./skills/control-cli/SKILL.md), or `verify-<app>`.
+1. **Read-only planning on a frontier model (Carbon or Argon).** Starts read-only (enforced when `/plan` matches) to explore dependencies, resolve ambiguities with [`/how`](./skills/how/SKILL.md), [`/why`](./skills/why/SKILL.md), `/grill-me`, prototypes, and [`/architect`](./skills/architect/SKILL.md), and build an explicit plan with re-planning triggers before editing files.
+2. **Execution and verification on Hydrogen.** Takes over after approval to write edits, update packages, run tests, clean the diff with [`/deslop`](./skills/deslop/SKILL.md) and [`/no-comments`](./skills/no-comments/SKILL.md), red-team with [`/interrogate`](./skills/interrogate/SKILL.md), and run [`/control-ui`](./skills/control-ui/SKILL.md), [`/control-cli`](./skills/control-cli/SKILL.md), or `verify-<app>`.
 3. **Automatic hand-back on friction.** If Hydrogen hits failing verification checks or broken plan assumptions, control hands back to Carbon or Argon (paired with [`principle-attack-the-premise`](./skills/principle-attack-the-premise/SKILL.md) instead of blind retry loops) to inspect the workspace state, repair the plan, and resume execution.
 
 Because AStack leaves subagent and `/swarm` worker models unset (`Model: "inherit"` by default), pinning static model slugs never locks turns to one model or blocks bidirectional hand-offs. AStack inherits your active UI model or **Orchestrator** automatically, uses evergreen `flash` aliases only for broad `research` and `browser` sweeps, and queries `swarm{action: "models"}` live during [`/arena`](./skills/arena/SKILL.md) bakeoffs.
@@ -124,15 +147,15 @@ Because AStack leaves subagent and `/swarm` worker models unset (`Model: "inheri
 
 | Execution / command mode | Choose when | Key AStack pairing |
 |---|---|---|
-| **Planning gates (`/plan`, `/grill-me`, `/learn`)** | Upfront architecture plan, one-question alignment, or persisting session rules | [`plan-contract.md`](./skills/astack-mode/references/plan-contract.md), [`/architect`](./skills/architect/SKILL.md), [`/reflect`](./skills/reflect/SKILL.md), [`/correct`](./skills/correct/SKILL.md) |
-| **Subagents (`invoke_subagent`, [`/fanout`](./skills/fanout/SKILL.md), `/browser`)** | Self-contained research, live browser checks, comment audits, or 2-5 parallel slices | [`/how`](./skills/how/SKILL.md), [`/why`](./skills/why/SKILL.md), [`/fanout`](./skills/fanout/SKILL.md), [`/arena`](./skills/arena/SKILL.md), [`/control-ui`](./skills/control-ui/SKILL.md) |
+| **Planning gates (`/plan`, `/grill-me`, `/learn`)** | Upfront architecture plan, sequential alignment interview, or persisting session rules | [`plan-contract.md`](./skills/astack-mode/references/plan-contract.md), [`/architect`](./skills/architect/SKILL.md), [`/reflect`](./skills/reflect/SKILL.md), [`/correct`](./skills/correct/SKILL.md) |
+| **Subagents (`invoke_subagent`, [`/fanout`](./skills/fanout/SKILL.md), `/browser`)** | Self-contained research, live browser checks, comment audits (`comment-sicko` with `inheritCustomizations: false`), or 2 to 5 parallel slices | [`/how`](./skills/how/SKILL.md), [`/why`](./skills/why/SKILL.md), [`/fanout`](./skills/fanout/SKILL.md), [`/arena`](./skills/arena/SKILL.md), [`/control-ui`](./skills/control-ui/SKILL.md) |
 | **`/run-workflow`** (`run_workflow` tool) | Repeating one check across many files or running staged multi-phase Python pipelines (Pro & Ultra) | [`/fanout`](./skills/fanout/SKILL.md), [`swarm-coordination.md`](./skills/astack-mode/references/swarm-coordination.md) |
 | **`/boost`** | Problem is hard rather than broad (races, coupled refactors, deep perf or bugs) | `bug-fix`, `perf-issue`, `hillclimb`, [`/tdd`](./skills/tdd/SKILL.md), [`/statechart`](./skills/statechart/SKILL.md) |
 | **`/swarm`** | Work is broad and divides cleanly across files, packages, or test suites | Shared board, isolated `workspace: "share"` or `"branch"` writers, `@verifier` + `@monitor` |
 | **`/teamwork`** | Long-horizon, multi-milestone migrations, rewrites, or formal efforts | Scoping interview and milestone gates with [`/architect`](./skills/architect/SKILL.md) and [`/show-me-your-work`](./skills/show-me-your-work/SKILL.md) |
 | **`/goal`, `/schedule`, `/automation`** | `/goal` for uninterrupted loops; `/schedule` for in-session timers/crons; `/automation` (App only, `CRON_TZ=`) for persistent background triggers | `autonomous-run`, [`/figure-it-out`](./skills/figure-it-out/SKILL.md), `decisions.tsv`, [`/ketchup`](./skills/ketchup/SKILL.md) |
 
-> **Why zero native shadowing (`RESERVED_SKILL_NAMES` + `/fanout`)?** In Antigravity's discovery precedence (**Workspace Project -> Declared Configs -> Global -> Built-in -> Global Declared**), plugin skills outrank built-in skills of the same name. AStack renames upstream `skills/swarm` to [`skills/fanout`](./skills/fanout/SKILL.md) and blocks any skill matching all 16 native slash commands or 4 built-in skills (`antigravity_guide`, `native_swarm`, `swarm_monitor`, `swarm_narrator`).
+> **Why zero native shadowing (`RESERVED_SKILL_NAMES` + `/fanout`)?** In Antigravity's discovery precedence (**Workspace Project > Declared Configs > Global > Built-in > Global Declared**), installed plugins support explicit `<plugin>:<skill>` namespacing (`astack:tdd`). AStack keeps slice fan-out under [`skills/fanout`](./skills/fanout/SKILL.md) and blocks any skill matching all 16 native slash commands or 15 built-in reserved names so native `/swarm`, `/plan`, `/grill-me`, and `/learn` remain untouched.
 
 ## Skill catalog
 
@@ -268,7 +291,7 @@ AStack ships **61 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 
 </details>
 
-- **Custom agents (`agents/`)**: [`astack-agent`](./agents/astack-agent.md) (verification-first builder and reviewer) and [`comment-sicko`](./agents/comment-sicko.md) (adversarial comment and suppression auditor).
+- **Custom agents (`agents/`)**: [`astack-agent`](./agents/astack-agent.md) (verification-first builder and reviewer) and [`comment-sicko`](./agents/comment-sicko.md) (isolated `inheritCustomizations: false` adversarial comment and suppression auditor).
 - **Routing rule (`rules/`)**: [`astack-orchestration.md`](./rules/astack-orchestration.md).
 - **Lifecycle hooks (`hooks.json`)**: `astack-irreversible-guard` (`PreToolUse`) and `astack-verify-reminder` (`Stop`).
 
@@ -283,8 +306,8 @@ AStack ships **61 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 | 5-layer enforcement model, dynamic bidirectional model routing, Control Glass, and Antigravity mode matrix | [Architecture & Swarm](./docs/architecture-and-swarm.md) · [Swarm Coordination Reference](./skills/astack-mode/references/swarm-coordination.md) |
 | Prompting patterns, copy-paste recipes, and review checklists | [Prompting Guide](./skills/astack-help/references/prompting.md) · [Prompt Recipes](./skills/astack-help/references/recipes.md) · [Bugbot & Review Triage](./skills/astack-mode/references/bugbot-triage.md) · [DevTools Evidence Checklist](./skills/control-ui/references/devtools-evidence-checklist.md) · [Design Red Flags](./skills/architect/references/design-red-flags.md) · [TypeScript Patterns](./skills/typescript-best-practices/references/patterns.md) |
 | Outer-loop Slack issue triage and reproduction automation | [Benny Automation Overview](./docs/automations/benny/README.md) · [Benny Agent Setup Runbook](./docs/automations/benny/FOR_AGENTS.md) |
-| Verify AStack's own CLIs, hooks, and sync tooling | [Verify AStack (`verify-astack`)](./.agents/skills/verify-astack/SKILL.md) · [Verification Feature Map](./.agents/skills/verify-astack/features/README.md) |
-| Community standards, security policy, and licensing | [Contributing Guide](./CONTRIBUTING.md) · [Code of Conduct](./CODE_OF_CONDUCT.md) · [Security Policy](./SECURITY.md) · [MIT License](./LICENSE) |
+| Verify AStack's own CLIs, hooks, and read-only watch tooling | [Verify AStack (`verify-astack`)](./.agents/skills/verify-astack/SKILL.md) · [Verification Feature Map](./.agents/skills/verify-astack/features/README.md) · [Upstream Watch Feature](./.agents/skills/verify-astack/features/upstream-watch.md) |
+| Lineage, open-source credits, community standards, security policy, and license | [Credits & Lineage](./CREDITS.md) · [Contributing Guide](./CONTRIBUTING.md) · [Code of Conduct](./CODE_OF_CONDUCT.md) · [Security Policy](./SECURITY.md) · [MIT License](./LICENSE) |
 
 ### 10-chapter tutorial (`docs/guide/`)
 
@@ -305,31 +328,33 @@ AStack executes locally inside Antigravity with zero background servers, zero ne
 
 [`hooks.json`](./hooks.json) ships both lifecycle hooks disabled by default (`"enabled": false`) so installing the plugin adds zero unexpected prompts:
 
-- **`astack-irreversible-guard` (`PreToolUse` on `run_command`)**: Implemented in [`scripts/hooks/irreversible-guard.mjs`](./scripts/hooks/irreversible-guard.mjs). Returns `{"decision": "force_ask"}` for destructive shell commands (`git push --force`, `git reset --hard`, root recursive deletes, `DROP TABLE` or `DROP DATABASE`, and production destroys or deploys).
+- **`astack-irreversible-guard` (`PreToolUse` on `run_command`)**: Implemented in [`scripts/hooks/irreversible-guard.mjs`](./scripts/hooks/irreversible-guard.mjs). Unwraps nested subshells (`sh -c`, `bash -c`, `pwsh -Command`, `cmd /c`, `eval`), skips false positives on read-only SQL searches (`rg`, `Select-String`, `git log -S`) unless DB CLIs are present, and catches trunk refspec pushes (`+main`, `:main`, `--delete main`). Returns `{"decision": "force_ask"}` interactively, or `{"decision": "deny"}` under `CI=true` or `NON_INTERACTIVE=1`.
 - **`astack-verify-reminder` (`Stop`)**: Implemented in [`scripts/hooks/verify-reminder.mjs`](./scripts/hooks/verify-reminder.mjs). When enabled alongside `ASTACK_REQUIRE_VERIFY=1`, nudges once before stopping if uncommitted non-markdown changes remain.
 
 See [SECURITY.md](./SECURITY.md) for the security model and private vulnerability reporting instructions.
 
-## Local development & upstream sync
+## Local development & upstream watch
 
-Run the structural validator, strict Antigravity manifest check, and full Node 22+ test suites (plugin invariants, helper CLIs, `watch-pr`, and `statechart`) via root [`package.json`](./package.json):
+Run the structural validator, strict Antigravity manifest check, and full Node 22+ test suites (plugin invariants, upstream watch, helper CLIs, `watch-pr`, and `statechart`) via root [`package.json`](./package.json):
 
 ```bash
 node --run validate
 node --run test
 agy plugin validate --strict --json .
+node scripts/validate-astack.mjs --apply-frontmatter-policy
 node scripts/validate-astack.mjs --write-native-commands
 ```
 
-Preview changes from an upstream `pstack` checkout, write unified overlay patches without modifying the repo (`--diff-dir`), or re-apply the `manualOnlySkills` frontmatter policy:
+Inspect recent commits and changed files from [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) or [`gstack`](https://github.com/garrytan/gstack) inside an OS temp cache without mutating the repository (`--out` rejects any path inside the AStack repo with exit code `2`):
 
 ```bash
-node scripts/sync-upstream.mjs --source <path-to-pstack> --dry-run
-node scripts/sync-upstream.mjs --source <path-to-pstack> --diff-dir ./tmp-patches
-node scripts/sync-upstream.mjs --apply-frontmatter-policy
+node scripts/upstream-watch.mjs --source-id pstack --fetch
+node scripts/upstream-watch.mjs --source-id gstack --fetch --json
+node scripts/upstream-watch.mjs --source-id all --fetch --out /tmp/astack-watch.json
 ```
 
-## Community & license
+## Credits & license
 
+- **Credits & lineage**: AStack is built on **Lauren Tan (`@poteto`)**'s [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) (code-derived MIT baseline) and inspired by **Garry Tan (`@garrytan`)**'s [`gstack`](https://github.com/garrytan/gstack) (workflow and verification-gate inspiration, no code copied). Read [CREDITS.md](./CREDITS.md) for full attribution.
 - **Contribute and report issues**: Read [CONTRIBUTING.md](./CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md), or open a report using the [GitHub issue chooser](https://github.com/jmxt3/astack/issues/new/choose).
-- **License**: Released under the [MIT License](./LICENSE) — copyright **Lauren Tan** (`@poteto`) and **João Machete** ([`@jmxt3`](https://github.com/jmxt3)).
+- **License**: Released under the [MIT License](./LICENSE), copyright **Lauren Tan** (`@poteto`) and **João Machete** ([`@jmxt3`](https://github.com/jmxt3)).
