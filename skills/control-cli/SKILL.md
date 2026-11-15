@@ -1,6 +1,6 @@
 ---
 name: control-cli
-description: "Antigravity CLI, TUI & Service Control Glass: verify CLIs, scripts, workers, daemons, and HTTP/RPC APIs against real processes, temp workspaces, exit codes, stdio transcripts, and persisted side effects — with isolated ports and strict daemon cleanup."
+description: "Antigravity CLI, TUI & Service Control Glass: verify CLIs, scripts, workers, daemons, and HTTP/RPC APIs against real processes, temp workspaces, exit codes, stdio transcripts, and persisted side effects with isolated ports and strict daemon cleanup."
 ---
 
 # Control CLI ("Control Glass" for Commands & Services)
@@ -14,7 +14,8 @@ Prove non-browser software against **real executions**, not code-reading guesses
 
 ## 2. Isolate State, Ports & Platform Assumptions
 
-- **Scratch state only**: Pass temporary `--dir`, `--config`, `HOME` / `USERPROFILE` overrides, or ephemeral ports (`0` or free high ports) inside a dedicated temp folder so repeated verification runs are reproducible and never touch user state (`~/.config`, `~/.gemini`, production DBs).
+- **Scratch state only**: Pass temporary `--dir`, `--config`, `HOME` / `USERPROFILE` overrides, or ephemeral ports (`findFreePort()` via `net.createServer()`) inside a dedicated temp folder so repeated verification runs are reproducible and never touch user state (`~/.config`, `~/.gemini`, production DBs).
+- **Reusable wrapper starter**: When scaffolding a project helper CLI (`doctor`, `launch`, `snapshot`, `cleanup`), copy [`control-cli-template.mjs`](../create-verification-skill/references/control-cli-template.mjs), which includes `--help`, `--json`, `--dry-run`, `findFreePort()`, isolated temp `stateDir`, and PID-scoped cleanup that keeps proof artifacts.
 - **Cross-platform rigor**: Run commands cleanly on the active shell (Windows PowerShell `pwsh` or POSIX `sh`). Never assume `/tmp`, Unix sockets, or POSIX signals exist on Windows unless testing a POSIX-only feature.
 
 ## 3. Drive Real Commands & Services
@@ -31,6 +32,6 @@ Prove non-browser software against **real executions**, not code-reading guesses
 
 ## 4. Mandatory Cleanup
 
-- Kill every daemon/background `TaskId` you started with `manage_task(Action: "kill", TaskId)` when done — including on failure paths.
+- Kill every daemon/background `TaskId` (or PID recorded in `state.json`) you started with `manage_task(Action: "kill", TaskId)` when done, including on failure paths.
 - Remove temporary scratch directories only **after** copying/confirming proof logs if evidence is needed later. Never nuke files still needed for inspection in a final handoff unless recreated cleanly inside the artifact dir.
 - Never extrapolate unprinted exit codes, row counts, or timings; quote observed command outputs verbatim.

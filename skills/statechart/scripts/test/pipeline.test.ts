@@ -29,21 +29,40 @@ const sources = (target: string) => {
 };
 
 const RECORD = `
-import { registerHooks } from "node:module";
-const edges = [];
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    const resolved = nextResolve(specifier, context);
-    if (context.parentURL !== import.meta.url) edges.push([context.parentURL, resolved.url]);
-    return resolved;
-  },
+import { MessageChannel, receiveMessageOnPort } from "node:worker_threads";
+import { register } from "node:module";
+const { port1, port2 } = new MessageChannel();
+const hookCode = \`
+let port;
+let entryURL;
+export async function initialize(data) { port = data.port; entryURL = data.entryURL; }
+export async function resolve(specifier, context, nextResolve) {
+  const resolved = await nextResolve(specifier, context);
+  if (context.parentURL && context.parentURL !== entryURL && !context.parentURL.startsWith("data:")) {
+    port.postMessage([context.parentURL, resolved.url]);
+  }
+  return resolved;
+}
+\`;
+register("data:text/javascript," + encodeURIComponent(hookCode), {
+  parentURL: import.meta.url,
+  data: { port: port2, entryURL: import.meta.url },
+  transferList: [port2],
 });
 for (const url of process.argv.slice(1)) await import(url);
+const edges = [];
+for (let msg; (msg = receiveMessageOnPort(port1)) !== undefined; ) edges.push(msg.message);
+port1.close();
 console.log(JSON.stringify(edges));
 `;
+const [nodeMajor, nodeMinor] = process.versions.node.split(".").map(Number);
+const stripArgs =
+  nodeMajor === 22 && nodeMinor >= 6 && nodeMinor < 18
+    ? ["--experimental-strip-types", "--disable-warning=ExperimentalWarning"]
+    : ["--disable-warning=ExperimentalWarning"];
 const loads = (...targets: string[]) => {
   const urls = targets.flatMap(sources).map((file) => pathToFileURL(path.join(scripts, file)).href);
-  const out = execFileSync(process.execPath, ["--input-type=module", "-e", RECORD, ...urls], {
+  const out = execFileSync(process.execPath, [...stripArgs, "--input-type=module", "-e", RECORD, ...urls], {
     encoding: "utf8",
   });
   const name = (url: string) =>

@@ -27,7 +27,13 @@ jobs:
         run: node scripts/validate-astack.mjs --no-agy
 
       - name: Run plugin validator and hook tests
-        run: node --test scripts/test/*.test.mjs
+        run: node --run test:plugin
 
       - name: Run workflow helper tests
-        run: node --experimental-strip-types --test skills/astack-mode/scripts/check-plan.test.ts skills/astack-mode/scripts/worktree-audit.test.mjs skills/show-me-your-work/scripts/log.test.mjs skills/setup-astack/scripts/setup-banner.test.mjs
+        run: node --run test:helpers
+
+      - name: Run watch-pr tests
+        run: node --run test:watch-pr
+
+      - name: Run statechart tests
+        run: node --run test:statechart

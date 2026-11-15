@@ -28,7 +28,7 @@ Right after a task that taught you something, run:
 /reflect that took way too long. capture what we learned so the next run doesn't repeat it.
 ```
 
-[`/reflect`](../../skills/reflect/SKILL.md) sends the transcript to three parallel reviewers, then a synthesizer sorts the proposals into `Accepted`, `Rejected`, and `Backlog` and waits for your approval before any skill changes. Approve a proposal only if it would change a future decision. One weird session is an anecdote, not a rule.
+[`/reflect`](../../skills/reflect/SKILL.md) sends the transcript to three parallel reviewers, sorts the proposals into `Accepted`, `Rejected`, and `Backlog`, and routes new rules or skills through Antigravity's `/learn` contract (`learning_proposal.md` approval gate) before writing any workspace files. Approve a proposal only if it would change a future decision. One weird session is an anecdote, not a rule.
 
 ## Fix the environment with `/correct`
 
@@ -37,7 +37,7 @@ When you correct agents for the same mistake again and again, the fix belongs in
 1. Make the mistake impossible with architecture or a better data structure.
 2. Block it with types, or with a lint or CI check whose error names the fix.
 3. Catch it with a test.
-4. Write it down as a doc or agent rule. Nothing fails when an agent skips a rule, so this comes last.
+4. Write it down as a doc or agent rule (`learning_proposal.md` approval gate via `/learn` for persistent rules). Nothing fails when an agent skips a rule, so this comes last.
 
 Human review isn't on the list. A reviewer who must catch the same mistake on every PR is the problem this fixes. [`/correct`](../../skills/correct/SKILL.md) does the work:
 
@@ -57,7 +57,7 @@ When you already know the workflow you want to capture:
 /astack-mode write a skill for verifying database migrations in this repo
 ```
 
-Writing a skill matches the [Authoring or modifying a skill playbook](../../skills/astack-mode/playbooks/authoring-a-skill.md), which follows Antigravity's `agy-customizations` skill structure, validates frontmatter and links (`agy plugin validate`), and ships the result through the Opening a PR playbook. Agent-facing prose has a higher bar than human prose, because an unhelpful sentence becomes an instruction some future agent follows. Let the playbook hold that bar rather than writing a `SKILL.md` freehand.
+Writing a skill matches the [Authoring or modifying a skill playbook](../../skills/astack-mode/playbooks/authoring-a-skill.md), which follows Antigravity's `/agy-customizations` skill conventions (set `disable-model-invocation: true` for manual-only workflows so the session skill index stays lean, matching AStack's `33` manual-only vs `28` auto-invocable split), validates frontmatter and links (`node --run validate` and `agy plugin validate --strict`), and ships the result through the Opening a PR playbook. Agent-facing prose has a higher bar than human prose, because an unhelpful sentence becomes an instruction some future agent follows. Let the playbook hold that bar rather than writing a `SKILL.md` freehand.
 
 Two special cases have their own generators. A skill that must drive your app and prove behavior is a verification skill, so use [`/create-verification-skill`](../../skills/create-verification-skill/SKILL.md) and [`/maintain-verification-skill`](../../skills/maintain-verification-skill/SKILL.md) instead. A skill that checks a property of your code with a model checker, a proof, or another verifier is a formal verification skill, so use [`/create-formal-verification-skill`](../../skills/create-formal-verification-skill/SKILL.md) and [`/maintain-formal-verification-skill`](../../skills/maintain-formal-verification-skill/SKILL.md). [Verify and ship](./06-verify-and-ship.md#prove-a-property-with-a-formal-verification-skill) covers both kinds.
 

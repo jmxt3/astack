@@ -20,7 +20,8 @@ A strong prompt names the intent, any known facts, and a checkable done predicat
 - New chat continuing old work? Run `/recall <topic>` or `/astack-mode session pickup`.
 - Unfamiliar area? Ask `/how` for current mechanics and `/why` for historical decisions.
 - Need 2–3 competing directions? Ask `/astack-mode prototype` or `/arena`.
-- Broad multi-file / multi-PR scope? Pair `/astack-mode` with `/swarm` (plus independent `@verifier`), `/boost` for gnarly races/perf, or `/teamwork` + `/goal` for multi-milestone runs.
+- Ambiguous requirements? Run `/plan /grill-me <task>` (or `/plan /astack-mode <task>`) to align and gate on a reviewable plan artifact before edits.
+- Broad multi-file / multi-PR scope? Pair `/astack-mode` with `/run-workflow` (item pipelines), `/swarm` (plus independent `@verifier`), `/boost` for gnarly races/perf, or `/teamwork` + `/goal` for multi-milestone runs.
 
 ## Steer in one line
 

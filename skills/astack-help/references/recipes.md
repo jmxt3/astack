@@ -14,9 +14,10 @@ Swap in real paths, PR numbers, and done checks.
 
 ## Plan First, Approve, Then Execute
 
-- Everyday gate: `/plan /astack-mode <task>. investigate first, write a step-by-step fix and verification plan, and stop for my approval before editing any files.`
+- Everyday gate (`plan-contract.md`): `/plan /astack-mode <task>`
+- Ambiguous requirements interview first: `/plan /grill-me <task>`
 - Architecture gate: `/architect <feature>. with checkpoint. compare designs, write the type sketch and rationale, and wait for sign-off before coding.`
-- Multi-PR written plan: `/astack-mode turn <goal> into a plan in docs/<name>-plan.md with small verifiable units and live proof steps. do not implement. stop for my approval.`
+- Multi-PR written plan (writes `implementation_plan.md` artifact first, repo `docs/<name>-plan.md` after approval): `/plan /astack-mode build a multi-PR plan for <goal> with small verifiable units and live proof steps.`
 - Execute after approval: `/astack-mode approved. execute the plan, prove it works live, run /deslop and /no-comments, and stop before git push.` (Multi-PR plans: `/swarm /astack-mode approved. execute docs/<name>-plan.md with autopilot-stack.`)
 
 ## Build
@@ -32,8 +33,10 @@ Swap in real paths, PR numbers, and done checks.
 - `/astack-mode prototype two approaches for <feature> and show screenshots via /control-ui.`
 - `/architect <feature> across <module-boundary>. stop with design rationale before coding.`
 - `/arena solve <hard-problem> in three isolated branch candidates and graft the cleanest solution.`
+- `/run-workflow inspect every file changed since main in parallel and return a one-line verdict per file.`
 - `/swarm /astack-mode migrate these N independent packages (one shared worker per package + independent @verifier gate on each).`
 - `/fanout check every workspace package against its test script and return one report.`
+- `/browser verify the settings flow renders cleanly at http://localhost:3000 with zero console errors.`
 
 ## Review, Babysit & Ship
 
@@ -43,10 +46,14 @@ Swap in real paths, PR numbers, and done checks.
 - `/astack-mode babysit pr <number> to green.` (Status only: `/astack-mode check on pr <number>.`)
 - `/astack-mode land the verified stack.`
 
-## Multi-milestone & Overnight (`/teamwork` + `/goal`)
+## Multi-milestone, Automations & Customizations (`/teamwork`, `/goal`, `/automation`, `/learn`)
 
 - `/teamwork /astack-mode plan and execute <migration> across phases with milestone verification gates.`
 - `/goal /astack-mode in a fresh worktree off main, drive until <check command> passes. keep a decision trail via /show-me-your-work, commit clean verified units, stop only if blocked by a real dead end.`
+- `/automation every weekday at 9am check open PRs in this repo and summarize blockers.` (App persistent sidecar; use `/schedule` inside active chats.)
 - `/show-me-your-work summarize what changed overnight.`
 - `/ketchup` (or `/ketchup-video` for slide summary + open decisions)
+- `/learn remember to always run migrations in transactions` (proposes `learning_proposal.md` before writing rules)
+- `/agy-customizations add a PreToolUse hook blocking force push`
+- `/antigravity-guide how do I run the Antigravity CLI headless in CI?`
 - `/reflect` and `/correct` after the run so mistakes upgrade into code/lint/rules/hooks/`/learn`.

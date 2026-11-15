@@ -1,11 +1,11 @@
-# Verify AStack — Feature Map
+# Verify AStack Feature Map
 
 Each file under `features/` documents one verification surface of the AStack repository (`astack`), how an engineer invokes it from the workspace root, and how to prove both happy paths and failure paths under `control-cli` isolation without mutating tracked repository state.
 
 ## Baseline preconditions
 
 - Repository root `c:\Users\jmach\dev\astack` is checked out and clean relative to intended work.
-- Node 22+ (`node -v`) is on `PATH` (supports `--experimental-strip-types` and `node:test`).
+- Node 22+ (`node -v`, minimum `>= 22.6.0`) is on `PATH` (supports `--experimental-strip-types` and `node --run`).
 - `git` and Antigravity CLI (`agy --version`) are on `PATH` unless testing offline structural fallback with `--no-agy`.
 - Per-run directories `$ScratchDir` (`.tmp/verify-astack-scratch/<run-id>`) and `$EvidenceDir` (`.tmp/verify-astack-evidence/<run-id>`) exist; `.tmp/` is listed in `.gitignore`.
 
@@ -23,21 +23,24 @@ Report every driven scenario against observed results rather than assuming pass 
 
 - Report **verified** with exact command, exit code, stdout/stderr snippet, and preserved file path in `$EvidenceDir`.
 - Report **verified-fail** if the real artifact rejects valid input or silently skips expected failures, attaching raw diagnostics.
-- Report **verified-unreachable** only when an external prerequisite is genuinely absent (for example `java` for live TLC execution in `statechart.mjs` or `gh` auth / network for live GitHub queries in `watch-pr.mjs`), stating what prerequisite was missing.
+- Report **verified-unreachable** only when an external prerequisite is genuinely absent (for example `java` + `TLA2TOOLS` for live TLC execution in `statechart.mjs`, `gh` auth/network for live GitHub queries in `watch-pr.mjs`, or interactive App surfaces for App-only `/automation` and `/generative_ui`), stating what prerequisite was missing.
 
 ## Feature entry contract
 
 Every feature file in this directory stays user-observable and concise:
 
-1. Title + 1-paragraph summary of what the feature does for an AStack user or maintainer.
-2. `## Sub-features` — bulleted capabilities covered.
-3. `## How to get to it (user POV)` — exact CLI commands, hooks, or flags the user invokes.
-4. `## Driving it with control-cli` — `Preconditions:` line followed by labeled test recipes pairing exact command, fixture input, and observable stdout/stderr/exit-code proof.
-5. `## Gotchas` — edge cases, Windows/PowerShell quirks, CLI limitations, or non-obvious failure modes observed in real scripts.
+1. Title plus 1-paragraph summary of what the feature does for an AStack user or maintainer.
+2. `## Sub-features`: bulleted capabilities covered.
+3. `## How to get to it (user POV)`: exact CLI commands, hooks, or flags the user invokes.
+4. `## Driving it with control-cli`: `Preconditions:` line followed by labeled test recipes pairing exact command, fixture input, and observable stdout/stderr/exit-code proof.
+5. `## Gotchas`: edge cases, Windows/PowerShell quirks, CLI limitations, or non-obvious failure modes observed in real scripts.
 
 ## Features
 
-- [Plugin & Strict Antigravity Validation](./plugin-validation.md) — `validate-astack.mjs` structural lints, Cursor-leak guards, relative-link checking, `--json` telemetry, and `agy plugin validate --strict`.
-- [Upstream PStack Synchronization](./upstream-sync.md) — `sync-upstream.mjs` diffing/mapping against `UPSTREAM.json`, `--dry-run` safety, and overlay protection in isolated scratch copies.
-- [Opt-In Safety & Verification Lifecycle Hooks](./lifecycle-hooks.md) — `hooks.json` entrypoints `irreversible-guard.mjs` (`PreToolUse`) and `verify-reminder.mjs` (`Stop`) across allow/block/skip cases.
-- [Bundled Workflow CLIs (Decision Log, Plan Lint, Worktree Audit, Watch-PR, Statechart)](./workflow-clis.md) — `log.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, `watch-pr.mjs`, and `statechart.mjs` real CLI execution, exit codes, and output files.
+- [Plugin & Strict Antigravity Validation](./plugin-validation.md): `validate-astack.mjs` structural lints, official skill/agent frontmatter schemas, `RESERVED_SKILL_NAMES` collision guard, `native-commands.md` sync check, `--json` telemetry, and `agy plugin validate --strict`.
+- [Upstream PStack Synchronization](./upstream-sync.md): `sync-upstream.mjs` diffing/mapping against `UPSTREAM.json`, `--dry-run`, `--diff-dir` unified patch export, `--apply-frontmatter-policy`, reserved-name collision rejection, and overlay protection in isolated scratch copies.
+- [Opt-In Safety & Verification Lifecycle Hooks](./lifecycle-hooks.md): `hooks.json` entrypoints `irreversible-guard.mjs` (`PreToolUse`) and `verify-reminder.mjs` (`Stop`) across allow/block/skip cases.
+- [Bundled Workflow & Control Glass CLIs](./workflow-clis.md): `log.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, and `control-cli-template.mjs` real CLI execution, `-h`/`--help`, `--json`, `--dry-run`, exit codes, and preserved proof artifacts.
+- [Watch-PR & TLA+ Statechart TypeScript Suites](./watch-pr-and-statechart.md): `watch-pr.mjs`, `statechart.mjs` (`--help`/`-h`, `67` non-TLC tests, `74` Mermaid/Pele `render.test.ts` checks), and `verified-unreachable` boundaries.
+- [Setup Onboarding & Banner CLI](./setup-onboarding.md): `setup-banner.mjs` workspace inspection and `setup-astack` Orchestrator inheritance and verification scaffolding contracts.
+- [Native Antigravity Command Registry & Behavioral Routing](./native-routing.md): 16-command registry consistency checks plus `R1` to `R12` and negative twin `R1-neg` transcript-graded routing evaluations.

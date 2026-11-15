@@ -1,6 +1,7 @@
 ---
 name: astack-mode
 description: Rigorous, verification-first engineering mode for concise replies, deliberate Antigravity Subagents and Swarms, unslopped prose, simple code, and empirically proven work. Ported from Lauren Tan's (@poteto) pstack. Use for /astack-mode, poteto-style rigor, or requests to work in this style.
+disable-model-invocation: true
 ---
 
 # AStack Mode
@@ -20,6 +21,7 @@ Remaining triggers:
 - Code crossing a function boundary -> run [`architect`](../architect/SKILL.md) (parallel design exploration) before implementing.
 - Parallel fan-out vs broad coordination -> check [Orchestration Tiers](./references/swarm-coordination.md):
   - Lightweight N-way race, audit, or matrix -> [`fanout`](../fanout/SKILL.md) (`/fanout`).
+  - Staged or N-item Python workflow (`parallel()` / `pipeline()`) -> `/run-workflow` (`run` mode: load `run-workflow` skill + call `run_workflow`).
   - Independent design bakeoff & grafting -> [`arena`](../arena/SKILL.md) (`/arena`).
   - Broad multi-file / multi-PR implementation with peer handoffs & `@verifier` gates -> native Antigravity `/swarm` (`swarm`, `post_message`, `read_board`, `swarm_wait`) per [`references/swarm-coordination.md`](./references/swarm-coordination.md).
   - Hard coupled debugging, races, or algorithmic optimization -> recommend `/boost`.
@@ -94,9 +96,9 @@ Read the leaf `../principle-<title>/SKILL.md` in full for any principle you appl
 ## Subagents & Swarms
 
 - Read [`references/swarm-coordination.md`](./references/swarm-coordination.md) whenever spawning multi-worker teams or choosing between `invoke_subagent`, `/boost`, `/swarm`, and `/teamwork`.
-- Use `invoke_subagent` with `TypeName: "self"` (instructed to read `agents/astack-agent.md` + `skills/astack-mode/SKILL.md`) for code-writing playbook steps. Never delegate running `/astack-mode`'s top-level router itself to a delegate.
+- Use `invoke_subagent` with `TypeName: "astack-agent"` (falling back to `TypeName: "self"` reading `agents/astack-agent.md` + `skills/astack-mode/SKILL.md` only if plugin subagents are disabled) for code-writing playbook steps. Never delegate running `/astack-mode`'s top-level router itself to a delegate.
 - Use `TypeName: "research"` for read-only exploration and `TypeName: "browser"` for interactive UI steps.
-- Default subagents and `/swarm` workers to inherit your active Antigravity session model (including **Orchestrator** and effort settings) by omitting explicit model overrides. Keeping overrides unset preserves Orchestrator's dynamic bidirectional routing, where a frontier planner explores read-only and sets re-planning triggers, Hydrogen writes edits and runs tests, and friction hands control back to the planner automatically (paired with `principle-attack-the-premise` so repeated gate failures trigger plan repair instead of blind retries). Use evergreen `Model: "flash"` (or `"flash_lite"`) only for high-volume read-only sweeps or browser tasks, discover live cross-family models via `swarm{action: "models"}` when running `/arena` or explicit cross-family `@verifier` gates, and honor an optional `astack-models.md` rule only if the user created one.
+- Default subagents and `/swarm` workers to inherit your active Antigravity session model (**Orchestrator (Carbon)** on Google AI Ultra, **Orchestrator (Argon)** on Google AI Pro and Ultra, plus manual picker and effort settings) by omitting explicit model overrides. Keeping overrides unset preserves Orchestrator's dynamic bidirectional routing, where a frontier planner explores read-only and sets re-planning triggers, Hydrogen writes edits and runs tests, and friction hands control back to the planner automatically (paired with `principle-attack-the-premise` so repeated gate failures trigger plan repair instead of blind retries). Use evergreen `Model: "flash"` (or `"flash_lite"`) only for high-volume read-only sweeps or browser tasks, discover live cross-family models via `swarm{action: "models"}` when running `/arena` or explicit cross-family `@verifier` gates, and honor an optional `astack-models.md` rule only if the user created one.
 - Review every delegate's diff yourself and write your own verified summary.
 - Keep delegates fresh with consolidated scope; reuse via `send_message` only when state in that subagent (running dev server, active checkout, uncommitted WIP) is costly to rebuild.
 
@@ -115,9 +117,20 @@ Write clean prose as you draft:
 
 Write comments clean as you go. Keep comments only for non-obvious external invariants/constraints the code cannot express. Test/verification scripts rely on assertion messages rather than phase banners.
 
+## Native commands first
+
+Before matching a playbook, check user intent against [`references/native-commands.md`](./references/native-commands.md). When a native command matches, engage it by its mode, then let the matching AStack playbook supply engineering rigor:
+
+- **run**: Call the native tool directly (`swarm`, `run_workflow`, `schedule`, `invoke_subagent` with `TypeName: "browser"`), loading its built-in skill first when one exists.
+- **load**: Read the built-in Antigravity skill (`automation`, `plugin`, `agy-customizations`, `generative_ui`, `antigravity-guide`) and follow it.
+- **contract**: Follow [`references/plan-contract.md`](./references/plan-contract.md) for `/plan`, `/grill-me`, and `/learn`. Any request to plan work writes `<artifact-dir>/implementation_plan.md` (`RequestFeedback: true`, `UserFacing: true`) and stops with zero workspace edits until approved.
+- **recommend**: Print a copy-ready command line for `/goal`, `/boost`, `/teamwork`, or `/btw`, state what it adds, and use in-turn fallback only if the user declines.
+
+An explicit slash command in the prompt wins over any inferred match. Stacked commands (`/plan /grill-me`, `/plan /astack-mode`) execute in order: interview, then plan artifact, then stop.
+
 ## Playbooks
 
-Create a structured checklist whose first items mirror the matched playbook's steps verbatim (keep any skipped step visible as `skip: <reason>`). Open `playbooks/<title>.md` (kebab-case) and follow every step. Route large bespoke migrations to [`figure-it-out`](../figure-it-out/SKILL.md) and multi-day coordinator programs to `playbooks/orchestrate.md` (with native `/swarm`).
+Create a structured checklist whose first items mirror the matched playbook's steps verbatim (keep any skipped step visible as `skip: <reason>`). Open `playbooks/<title>.md` (kebab-case) and follow every step. Route large bespoke migrations to [`figure-it-out`](../figure-it-out/SKILL.md) and multi-day coordinator programs to `playbooks/orchestrate.md` (with native `/swarm`). Short follow-ups stay sticky on the active playbook until `"new task"` resets classification or an explicit slash command takes over. Prefer prompts shaped as goal plus empirical check over fixed skill chains.
 
 - **Investigation** (`playbooks/investigation.md`). Read-only architecture, provenance, or feasibility question.
 - **Bug fix** (`playbooks/bug-fix.md`). Reproduce first on the real surface, isolate root cause, fix, verify.

@@ -1,0 +1,383 @@
+{
+  "source": "https://antigravity.google/docs/commands/",
+  "commands": [
+    {
+      "command": "/swarm",
+      "category": "Reasoning",
+      "mode": "run",
+      "backing": {
+        "tool": "swarm",
+        "skill": "swarm"
+      },
+      "triggers": [
+        "parallel workers on a board",
+        "named workers and verifier",
+        "split across files with a verifier",
+        "multi-PR stack execution"
+      ],
+      "astackCompanion": [
+        "skills/astack-mode/references/swarm-coordination.md",
+        "skills/fanout/SKILL.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "Google AI Pro and Ultra",
+      "summary": "Spawn named workers with isolated workspaces and a @verifier coordinating on a shared board."
+    },
+    {
+      "command": "/run-workflow",
+      "category": "Reasoning",
+      "mode": "run",
+      "backing": {
+        "tool": "run_workflow",
+        "skill": "run-workflow"
+      },
+      "triggers": [
+        "same task across many files",
+        "for each file or package",
+        "staged multi-agent pipeline",
+        "python workflow script"
+      ],
+      "astackCompanion": [
+        "skills/fanout/SKILL.md",
+        "skills/astack-mode/references/swarm-coordination.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "Google AI Pro and Ultra",
+      "summary": "Write and execute a Python workflow using parallel() and pipeline() over many items or stages."
+    },
+    {
+      "command": "/schedule",
+      "category": "Automation",
+      "mode": "run",
+      "backing": {
+        "tool": "schedule"
+      },
+      "triggers": [
+        "in N minutes",
+        "one-time timer",
+        "poll every",
+        "recurring check in this chat"
+      ],
+      "astackCompanion": [
+        "skills/astack-mode/playbooks/autonomous-run.md",
+        "skills/astack-mode/playbooks/babysit.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "All plans",
+      "summary": "Schedule a one-shot timer or recurring cron notification inside the active conversation."
+    },
+    {
+      "command": "/browser",
+      "category": "Tools",
+      "mode": "run",
+      "backing": {
+        "tool": "invoke_subagent",
+        "subagentType": "browser"
+      },
+      "triggers": [
+        "open in browser",
+        "check localhost",
+        "take UI screenshot",
+        "test live web page"
+      ],
+      "astackCompanion": [
+        "skills/control-ui/SKILL.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "All plans",
+      "summary": "Delegate live web UI inspection, interaction, and screenshots to the browser subagent."
+    },
+    {
+      "command": "/automation",
+      "category": "Automation",
+      "mode": "load",
+      "backing": {
+        "skill": "automation"
+      },
+      "triggers": [
+        "every morning",
+        "every Monday",
+        "persistent background automation",
+        "Automations tab"
+      ],
+      "astackCompanion": [
+        "skills/astack-mode/playbooks/autonomous-run.md",
+        "docs/automations/benny/README.md"
+      ],
+      "surfaces": [
+        "app"
+      ],
+      "tier": "All plans",
+      "summary": "Create a persistent App sidecar automation (sidecar.json with CRON_TZ), dormant until enabled."
+    },
+    {
+      "command": "/plugin",
+      "category": "Customization",
+      "mode": "load",
+      "backing": {
+        "skill": "plugin"
+      },
+      "triggers": [
+        "install plugin",
+        "manage plugins",
+        "package plugin",
+        "plugin marketplace"
+      ],
+      "astackCompanion": [
+        "skills/setup-astack/SKILL.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "All plans",
+      "summary": "Open the Plugins Manager or manage, validate, and create Antigravity plugins."
+    },
+    {
+      "command": "/agy-customizations",
+      "category": "Customization",
+      "mode": "load",
+      "backing": {
+        "skill": "agy-customizations"
+      },
+      "triggers": [
+        "create a hook",
+        "configure MCP server",
+        "rule frontmatter",
+        "skill discovery precedence"
+      ],
+      "astackCompanion": [
+        "skills/astack-mode/playbooks/authoring-a-skill.md",
+        "skills/automate-me/SKILL.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "All plans",
+      "summary": "Load official schemas, precedence rules, and formats before authoring rules, skills, plugins, hooks, or MCP configs."
+    },
+    {
+      "command": "/generative_ui",
+      "category": "Tools",
+      "mode": "load",
+      "backing": {
+        "skill": "generative_ui"
+      },
+      "triggers": [
+        "interactive chart",
+        "interactive HTML widget",
+        "visual explainer",
+        "HTML diagram"
+      ],
+      "astackCompanion": [
+        "skills/ketchup/SKILL.md",
+        "skills/teach/SKILL.md"
+      ],
+      "surfaces": [
+        "app"
+      ],
+      "tier": "All plans",
+      "summary": "Build rich interactive HTML widgets in the App (falling back to Mermaid in the CLI)."
+    },
+    {
+      "command": "/antigravity-guide",
+      "category": "Tools",
+      "mode": "load",
+      "backing": {
+        "skill": "antigravity-guide"
+      },
+      "triggers": [
+        "how do I use Antigravity",
+        "Antigravity CLI flags",
+        "headless CI",
+        "Antigravity official docs"
+      ],
+      "astackCompanion": [
+        "skills/astack-help/SKILL.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "All plans",
+      "summary": "Answer questions about Antigravity App, CLI, IDE, Remote Agents, and SDK from official docs."
+    },
+    {
+      "command": "/plan",
+      "category": "Planning",
+      "mode": "contract",
+      "backing": {
+        "contract": "skills/astack-mode/references/plan-contract.md",
+        "pairsWith": [
+          "planning-and-task-breakdown"
+        ]
+      },
+      "triggers": [
+        "plan",
+        "write a plan",
+        "plan first",
+        "review before editing",
+        "before you change anything"
+      ],
+      "astackCompanion": [
+        "skills/astack-mode/playbooks/multi-phase-plan.md",
+        "skills/architect/SKILL.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "All plans",
+      "summary": "Research read-only, clarify forks, write a reviewable implementation_plan.md artifact, and stop before editing."
+    },
+    {
+      "command": "/grill-me",
+      "category": "Planning",
+      "mode": "contract",
+      "backing": {
+        "contract": "skills/astack-mode/references/plan-contract.md"
+      },
+      "triggers": [
+        "interview me",
+        "grill me",
+        "ask me one question at a time",
+        "clarify requirements first"
+      ],
+      "astackCompanion": [
+        "skills/interrogate/SKILL.md",
+        "skills/astack-mode/playbooks/prototype.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "All plans",
+      "summary": "Interview one question at a time with a recommended default, exploring code before asking."
+    },
+    {
+      "command": "/learn",
+      "category": "Customization",
+      "mode": "contract",
+      "backing": {
+        "contract": "skills/astack-mode/references/plan-contract.md"
+      },
+      "triggers": [
+        "remember this rule",
+        "save this preference",
+        "turn this correction into a rule"
+      ],
+      "astackCompanion": [
+        "skills/reflect/SKILL.md",
+        "skills/correct/SKILL.md",
+        "skills/automate-me/SKILL.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "All plans",
+      "summary": "Propose persistent rules or skills in learning_proposal.md and write files only after user approval."
+    },
+    {
+      "command": "/goal",
+      "category": "Reasoning",
+      "mode": "recommend",
+      "backing": {
+        "exampleLine": "/goal <task>. Done when <checkable predicate>."
+      },
+      "triggers": [
+        "don't stop",
+        "overnight",
+        "run until done",
+        "fully autonomous"
+      ],
+      "astackCompanion": [
+        "skills/astack-mode/playbooks/autonomous-run.md",
+        "skills/show-me-your-work/SKILL.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "All plans",
+      "summary": "Harness-owned continuous execution loop with stop interception until the done predicate holds."
+    },
+    {
+      "command": "/boost",
+      "category": "Reasoning",
+      "mode": "recommend",
+      "backing": {
+        "exampleLine": "/boost <hard bug, race condition, or algorithm optimization with benchmark>"
+      },
+      "triggers": [
+        "gnarly race condition",
+        "deep algorithmic optimization",
+        "three-tier deep reasoning"
+      ],
+      "astackCompanion": [
+        "skills/astack-mode/playbooks/bug-fix.md",
+        "skills/astack-mode/playbooks/perf-issue.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "Paid plans",
+      "summary": "Three-tier multi-agent deep reasoning hierarchy for hard coupled bugs, races, and algorithms."
+    },
+    {
+      "command": "/teamwork",
+      "category": "Reasoning",
+      "mode": "recommend",
+      "backing": {
+        "exampleLine": "/teamwork <repo-scale migration or multi-day research campaign>"
+      },
+      "triggers": [
+        "multi-day migration",
+        "subsystem rewrite",
+        "agent teams with Sentinel spec"
+      ],
+      "astackCompanion": [
+        "skills/astack-mode/playbooks/orchestrate.md",
+        "skills/figure-it-out/SKILL.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "Paid plans",
+      "summary": "Sentinel scoping interview, binding specification, and collaborative agent teams for multi-day campaigns."
+    },
+    {
+      "command": "/btw",
+      "category": "Tools",
+      "mode": "recommend",
+      "backing": {
+        "exampleLine": "/btw <quick side question while the agent keeps working>"
+      },
+      "triggers": [],
+      "astackCompanion": [
+        "skills/astack-help/SKILL.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "All plans",
+      "summary": "User-initiated contextual side question answered without pausing the primary task."
+    }
+  ]
+}

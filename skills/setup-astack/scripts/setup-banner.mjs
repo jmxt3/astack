@@ -139,13 +139,26 @@ export function formatSetupBanner(status) {
   ].join("\n");
 }
 
+const SETUP_BANNER_USAGE = `Usage: node setup-banner.mjs [options]
+
+Options:
+  --cwd <dir>  Workspace directory to inspect (defaults to current working directory)
+  --json       Emit machine-readable workspace status JSON
+  -h, --help   Show this help text and exit 0`;
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { values } = parseArgs({
     options: {
       cwd: { type: "string" },
       json: { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
     },
   });
+
+  if (values.help) {
+    process.stdout.write(`${SETUP_BANNER_USAGE}\n`);
+    process.exit(0);
+  }
 
   const status = inspectWorkspace({ cwd: values.cwd ?? process.cwd() });
   if (values.json) {

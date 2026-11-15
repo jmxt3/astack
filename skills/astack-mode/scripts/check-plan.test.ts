@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { expect, test } from "./test-compat.ts";
+import { checkPlan } from "./check-plan.mjs";
 
 const checker = join(import.meta.dirname, "check-plan.mjs");
 const rule =
@@ -20,7 +21,7 @@ ${rule}
 ### PR mechanics
 ### Verdict and merge
 ### Boot recipe
-\`git show origin/main:\` /loop 1h status message
+\`git show origin/main:\` schedule status message
 
 ## PR 1
 **Depends on.** None.
@@ -107,4 +108,36 @@ test("checks prose following a multi-backtick span and unmatched delimiters", ()
 	expect(outside.stderr).toContain("mid-sentence colon");
 	const unmatched = runPlan("Use ``unclosed: bad` here.\n", 1);
 	expect(unmatched.stderr).toContain("mid-sentence colon");
+});
+
+test("multi-phase-plan.md skeleton passes checkPlan once placeholders are filled", () => {
+	const playbookPath = join(import.meta.dirname, "..", "playbooks", "multi-phase-plan.md");
+	const playbook = readFileSync(playbookPath, "utf8");
+	const match = playbook.match(/````markdown\r?\n([\s\S]*?)\r?\n````/);
+	expect(Boolean(match)).toBe(true);
+	const filled = match![1].replace(/<[^<>\r\n]+>/g, "placeholder");
+	const result = checkPlan(filled, "skeleton.md");
+	expect(result.problems).toEqual([]);
+	expect(result.ok).toBe(true);
+	expect(result.prSections).toBe(1);
+});
+
+test("check-plan.mjs supports --help and --json", () => {
+	const help = spawnSync("node", [checker, "--help"], { encoding: "utf8" });
+	expect(help.status).toBe(0);
+	expect(help.stdout).toContain("Usage:");
+
+	const directory = mkdtempSync(join(tmpdir(), "check-plan-json-"));
+	const file = join(directory, "plan.md");
+	writeFileSync(file, validPlan);
+	try {
+		const jsonRes = spawnSync("node", [checker, "--json", file], { encoding: "utf8" });
+		expect(jsonRes.status).toBe(0);
+		const parsed = JSON.parse(jsonRes.stdout);
+		expect(parsed.ok).toBe(true);
+		expect(parsed.prSections).toBe(1);
+		expect(parsed.problems).toEqual([]);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
 });

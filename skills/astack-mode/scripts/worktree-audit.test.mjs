@@ -4,7 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { auditWorktrees } from "./worktree-audit.mjs";
+
+const worktreeAuditCli = path.join(path.dirname(fileURLToPath(import.meta.url)), "worktree-audit.mjs");
 
 function git(cwd, args) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -87,6 +90,15 @@ test("auditWorktrees classifies clean merged vs dirty wip worktrees on Windows a
     });
     const aliasChat = aliasRes.rows.find((r) => path.basename(r.path) === "wt-chat");
     assert.equal(aliasChat?.bucket, "verify-recent-chat");
+
+    const jsonOut = execFileSync("node", [worktreeAuditCli, "--base", "main", "--json", repo], {
+      encoding: "utf8",
+      env: { ...process.env, ASTACK_TRANSCRIPTS_DIR: brainDir },
+    });
+    const parsedJson = JSON.parse(jsonOut);
+    assert.equal(parsedJson.base, "main");
+    assert.equal(parsedJson.warned, false);
+    assert.equal(parsedJson.rows.length, 3);
 
     // Clean up git worktree admin metadata before rmSync
     git(repo, ["worktree", "remove", "--force", wtMerged]);

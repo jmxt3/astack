@@ -1,6 +1,6 @@
 # Run work while you sleep
 
-This is the payoff for everything before it. An agent you can trust to verify its own work is an agent you can leave alone with a hard task. What makes that safe isn't hope. It's a checkable finish condition, an isolated worktree or cloud agent, and a decision log you audit in the morning.
+This is the payoff for everything before it. An agent you can trust to verify its own work is an agent you can leave alone with a hard task. What makes that safe isn't hope. It's a checkable finish condition, an isolated worktree, Remote Agents, or Remote Control, and a decision log you audit in the morning.
 
 ![She waves goodnight from the door while robots keep the factory running, one updating a DECISION LOG wall board under a BUILD LOOP ACTIVE sign.](./images/overnight.jpg)
 
@@ -29,11 +29,12 @@ keep going until done. if you're truly stuck after a few hours, stop and write u
 Walk through what each line buys you:
 
 - "im going to bed" is a session override. The agent stops asking and keeps going.
-- `/goal` turns on Antigravity's sustained autonomous completion mode; for recurring heartbeats or cron checks, pair it with `/schedule`.
+- `/goal` turns on Antigravity's sustained autonomous completion mode (keep working without pausing until the finish predicate passes). Pair it with `/schedule` for in-session timers or recurring crons, or `/automation` (App only, `sidecar.json` + `CRON_TZ=`) for persistent background schedules that run across sessions.
+- Use **Remote Agents** (isolated Google-managed cloud sandboxes) when you want long-running test suites or migrations to keep running after shutting your laptop off, or **Remote Control** when monitoring and steering an active workstation session from another device.
 - "done means..." turns the goal into checks every iteration can run.
 - "fresh worktree off `<base>`" keeps the run from colliding with anything else you have open.
 - "don't ask me before committing" pre-answers the permission the agent would otherwise block on.
-- The [Autonomous run playbook](../../skills/astack-mode/playbooks/autonomous-run.md) re-checks the finish condition across iterations using `/schedule` timers when waiting on background work or CI.
+- The [Autonomous run playbook](../../skills/astack-mode/playbooks/autonomous-run.md) re-checks the finish condition across iterations using `schedule` timers when waiting on background work or CI, or `/automation` when scheduling persistent recurring triggers.
 - The escape hatch lets it stop at a genuine dead end and write up why, which beats eight hours of creative goal reinterpretation.
 
 Because you'll review this work after stepping away, `/astack-mode` routes it through [`/figure-it-out`](../../skills/figure-it-out/SKILL.md), which designs the run's phases before any code and wires in the decision log.
@@ -116,8 +117,8 @@ Every loop above still waits for you to start it. A scheduled or event-driven au
 - Every stage can stop the line. Triage can decide the report is expected behavior, repro can fail to reproduce it, and the fixer can judge the change too risky. Each of those outcomes is useful, because it keeps bad work from reaching the next stage, where it costs more to undo.
 - Every stage hands over evidence. Repro attaches screenshots and video of the broken state, and the fix attaches before-and-after proof. A human can then check that the agent fixed the right thing before reading a line of code.
 
-astack ships this as a dormant [automation pack](../automations/benny/README.md) for Slack issue reports. One automation triages each report. The other reproduces confirmed bugs and may prepare a small draft fix. Point an agent at its [`FOR_AGENTS.md`](../automations/benny/FOR_AGENTS.md) and name the target repository to set it up.
+astack ships this as a dormant [automation pack](../automations/benny/README.md) for Slack issue reports (`sidecar.json`, Remote Agents, and headless `agy -p`). One automation triages each report. The other reproduces confirmed bugs and may prepare a small draft fix. Point an agent at its [`FOR_AGENTS.md`](../automations/benny/FOR_AGENTS.md) and name the target repository to set it up.
 
-**Pitfall:** a duration is not a finish condition. "work on this for 4 hours" gives the agent nothing to check, and you'll wake up to four hours of motion instead of a result. Give `/goal` or `/schedule` a predicate that can pass or fail.
+**Pitfall:** a duration is not a finish condition. "work on this for 4 hours" gives the agent nothing to check, and you'll wake up to four hours of motion instead of a result. Give `/goal`, `/schedule`, or `/automation` a predicate that can pass or fail.
 
 Next: [Steer with principle names](./08-principles.md).

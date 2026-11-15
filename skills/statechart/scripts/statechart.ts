@@ -6,7 +6,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { killGroup, messageOf } from "./run.ts";
 
-const USAGE = `Usage: statechart SPEC.tla [--config FILE] [--view FILE] [--out DIR]
+const USAGE = `Usage: statechart SPEC.tla [--config FILE] [--view FILE] [--out DIR] [--help]
 
 Checks SPEC.tla with TLC and draws its state graph as Mermaid. Above 500 states, the chart
 draws only the paths to the rules that break, and with no rule broken there is no chart.mmd.
@@ -18,6 +18,7 @@ draws only the paths to the rules that break, and with no rule broken there is n
   --out DIR      Where to write report.md, chart.mmd, tlc.out, and tlc-RULE.out for each
                  property that breaks and each rule that breaks off the chart. The folder must
                  be new or empty. Default: SPEC-chart.
+  -h, --help     Show this help text and exit 0.
 Exit code: TLC's own on the config as written: 0 when every rule holds, 1 when a rule breaks,
 and 2 when TLC stops with an error, a signal kills the check, or the command cannot run. 130 or
 143 when SIGINT or SIGTERM stops the check. Only exits 0 and 1 write output.`;
@@ -36,8 +37,17 @@ let specFile;
 try {
   const args = parseArgs({
     allowPositionals: true,
-    options: { config: { type: "string" }, view: { type: "string" }, out: { type: "string" } },
+    options: {
+      config: { type: "string" },
+      view: { type: "string" },
+      out: { type: "string" },
+      help: { type: "boolean", short: "h", default: false },
+    },
   });
+  if (args.values.help) {
+    console.log(USAGE);
+    process.exit(0);
+  }
   flags = args.values;
   [specFile] = args.positionals;
   if (args.positionals.length !== 1) throw new Error("Give one SPEC.tla.");

@@ -41,12 +41,15 @@ node scripts/validate-astack.mjs --json | Out-File -FilePath "$EvidenceDir/docto
 
 Read the feature map first: [features/README.md](./features/README.md).
 
-Drive only the feature files affected by your change (or walk all four for a full repository check):
+Drive only the feature files affected by your change (or walk all seven for a full repository check):
 
-1. [Plugin & Strict Antigravity Validation](./features/plugin-validation.md) — valid repo pass, `--json` telemetry, and negative fixture rejection (`skills/swarm`, broken relative links, Cursor leaks, malformed frontmatter).
-2. [Upstream PStack Synchronization](./features/upstream-sync.md) — `sync-upstream.mjs --dry-run --json` against scratch upstream sources, plus isolated-destination sync and overlay-protection checks via exported `syncUpstream()`.
-3. [Opt-In Safety & Verification Lifecycle Hooks](./features/lifecycle-hooks.md) — stdin/stdout JSON contract checks for `irreversible-guard.mjs` (`allow` vs `force_ask`) and `verify-reminder.mjs` (dirty non-`.md` vs `.md`-only vs `continuationActive`).
-4. [Bundled Workflow CLIs](./features/workflow-clis.md) — `log.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, `watch-pr.mjs`, and `statechart.mjs` real stdio, exit codes, and side-effect files in `$ScratchDir`.
+1. [Plugin & Strict Antigravity Validation](./features/plugin-validation.md): valid repo pass, `--json` telemetry, `--write-native-commands`, official frontmatter schema, `33/28` manual-only split, and negative fixture rejection (`RESERVED_SKILL_NAMES`, broken relative links, Cursor leaks, drifted registry).
+2. [Upstream PStack Synchronization](./features/upstream-sync.md): `sync-upstream.mjs --dry-run --json`, `--diff-dir <dir>` non-mutating patch export, `--apply-frontmatter-policy`, reserved collision rejection, and isolated `syncUpstream()` overlay checks.
+3. [Opt-In Safety & Verification Lifecycle Hooks](./features/lifecycle-hooks.md): stdin/stdout JSON contract checks for `irreversible-guard.mjs` (`allow` vs `force_ask`) and `verify-reminder.mjs` (dirty non-`.md` vs `.md`-only vs `continuationActive`).
+4. [Bundled Workflow & Control Glass CLIs](./features/workflow-clis.md): `log.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, and `control-cli-template.mjs` real stdio, `--help`/`-h`, `--json`, `--dry-run`, exit codes, and preserved evidence in `$ScratchDir`.
+5. [Watch-PR & TLA+ Statechart TypeScript Suites](./features/watch-pr-and-statechart.md): `watch-pr.mjs` (`55` TS tests), `statechart.mjs` (`--help`/`-h` exit `0`, `67` non-TLC tests, `74` `render.test.ts` checks), and offline/Java `verified-unreachable` reporting.
+6. [Setup Onboarding & Banner CLI](./features/setup-onboarding.md): `setup-banner.mjs` `--help`/`-h` and live vs empty-repo detection plus `setup-astack` UI-inheritance invariants.
+7. [Native Antigravity Command Registry & Behavioral Routing](./features/native-routing.md): `native-commands.json` / `native-commands.md` sync checks plus transcript-graded prompts `R1` to `R12` and negative twin `R1-neg`.
 
 ## Evidence
 
@@ -75,8 +78,12 @@ If any test modified a tracked repository file (never do so unless strictly nece
 
 ## Helpers
 
-Existing repository verification suites that complement runtime driving:
+Existing repository verification scripts defined in [`package.json`](../../../package.json) that complement runtime driving:
 
-- Full Node test suite: `node --test scripts/test/*.test.mjs`
-- Helper unit suites (Node 22+ type stripping): `node --experimental-strip-types --test skills/astack-mode/scripts/check-plan.test.ts skills/astack-mode/scripts/worktree-audit.test.mjs skills/show-me-your-work/scripts/log.test.mjs`
-- Single-command baseline repo validator: `node scripts/validate-astack.mjs`
+- Full automated suite (`validate` + `test:plugin` + `test:helpers` + `test:watch-pr` + `test:statechart`): `node --run test`
+- Baseline repo validator: `node --run validate` (or `node scripts/validate-astack.mjs --write-native-commands` to regenerate `native-commands.md`)
+- Strict Antigravity CLI check: `agy plugin validate --strict --json .`
+- Plugin & hook suite: `node --run test:plugin`
+- Helper CLI suite (`check-plan`, `worktree-audit`, `log`, `setup-banner`): `node --run test:helpers`
+- TypeScript `watch-pr` (`55` tests) & `statechart` (`67` non-TLC tests): `node --run test:watch-pr` and `node --run test:statechart`
+- Statechart Mermaid/Pele corpus (`74` tests, Windows-safe `npm.cmd`): `node --experimental-strip-types --disable-warning=ExperimentalWarning --test skills/statechart/scripts/test/render.test.ts`

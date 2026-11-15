@@ -9,7 +9,7 @@
  * untouched baseline files while protecting native AStack overlay files.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -20,8 +20,49 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_ROOT_DIR = path.resolve(__dirname, "..");
 export const MAX_ANTIGRAVITY_BYTES = 24000;
 
+export const EXPECTED_NATIVE_COMMANDS = [
+  "/boost",
+  "/teamwork",
+  "/run-workflow",
+  "/swarm",
+  "/goal",
+  "/plan",
+  "/grill-me",
+  "/learn",
+  "/agy-customizations",
+  "/plugin",
+  "/automation",
+  "/schedule",
+  "/browser",
+  "/btw",
+  "/generative_ui",
+  "/antigravity-guide",
+];
+
+export const BUILTIN_RESERVED_SKILL_NAMES = [
+  "agy-customizations",
+  "antigravity_guide",
+  "antigravity-guide",
+  "automation",
+  "generative_ui",
+  "mcp-app-development",
+  "migrate-agent-settings",
+  "migrate-workflows",
+  "native_swarm",
+  "permissioned-github",
+  "plugin",
+  "run-workflow",
+  "swarm_monitor",
+  "swarm_narrator",
+  "ui-plugin-navigation",
+];
+
+export const RESERVED_SKILL_NAMES = new Set([
+  ...EXPECTED_NATIVE_COMMANDS.map((c) => c.slice(1)),
+  ...BUILTIN_RESERVED_SKILL_NAMES,
+]);
+
 const CURSOR_FRONTMATTER_KEYS = new Set([
-  "disable-model-invocation",
   "icon",
   "color",
   "paths",
@@ -119,11 +160,11 @@ const REGEX_REPLACEMENTS = [
 
   // Cursor harness tools -> Antigravity tools
   [/`subagent_type:\s*"?generalPurpose"?`/g, '`TypeName: "self"`'],
-  [/`subagent_type:\s*"?astack-agent"?`/g, '`TypeName: "self"` (following `agents/astack-agent.md`)'],
-  [/`subagent_type:\s*"?comment-sicko"?`/g, '`TypeName: "self"` (following `agents/comment-sicko.md`)'],
+  [/`subagent_type:\s*"?astack-agent"?`/g, '`TypeName: "astack-agent"`'],
+  [/`subagent_type:\s*"?comment-sicko"?`/g, '`TypeName: "comment-sicko"`'],
   [/subagent_type:\s*"?generalPurpose"?/g, 'TypeName: "self"'],
-  [/subagent_type:\s*"?astack-agent"?/g, 'TypeName: "self" (astack-agent)'],
-  [/subagent_type:\s*"?comment-sicko"?/g, 'TypeName: "self" (comment-sicko)'],
+  [/subagent_type:\s*"?astack-agent"?/g, 'TypeName: "astack-agent"'],
+  [/subagent_type:\s*"?comment-sicko"?/g, 'TypeName: "comment-sicko"'],
   [/`TodoWrite`/g, "task tracking"],
   [/`AskQuestion`/g, "`ask_question`"],
   [/`StrReplace`/g, "`edit_file`"],
@@ -157,18 +198,41 @@ export function rewriteUpstreamText(text) {
   return out.replace(/\r\n/g, "\n");
 }
 
+function upsertManualInvocationEntries(entries, manualOnly) {
+  const withoutFlag = entries.filter((e) => e.key !== "disable-model-invocation");
+  if (!manualOnly) {
+    return withoutFlag;
+  }
+  const next = [];
+  let inserted = false;
+  for (const entry of withoutFlag) {
+    next.push(entry);
+    if (entry.key === "description" && !inserted) {
+      next.push({ key: "disable-model-invocation", valueLines: ["true"] });
+      inserted = true;
+    }
+  }
+  if (!inserted) {
+    next.push({ key: "disable-model-invocation", valueLines: ["true"] });
+  }
+  return next;
+}
+
 /**
  * Normalizes a ported SKILL.md or agent markdown file: strips Cursor-only
  * frontmatter keys, sets `name` to match its target folder/agent name, and
  * rewrites Cursor-isms.
  */
-export function transformPortedMarkdown(rawContent, { targetName, stripExtraFrontmatter = true } = {}) {
+export function transformPortedMarkdown(
+  rawContent,
+  { targetName, stripExtraFrontmatter = true, disableModelInvocation } = {},
+) {
   const { hasFrontmatter, entries, body } = parseFrontmatter(rawContent);
   if (!hasFrontmatter) {
     return rewriteUpstreamText(rawContent);
   }
 
-  const cleanedEntries = [];
+  let cleanedEntries = [];
   for (const entry of entries) {
     if (stripExtraFrontmatter && CURSOR_FRONTMATTER_KEYS.has(entry.key)) {
       continue;
@@ -183,8 +247,57 @@ export function transformPortedMarkdown(rawContent, { targetName, stripExtraFron
     });
   }
 
+  if (typeof disableModelInvocation === "boolean") {
+    cleanedEntries = upsertManualInvocationEntries(cleanedEntries, disableModelInvocation);
+  }
+
   const rewrittenBody = rewriteUpstreamText(body);
   return `${serializeFrontmatter(cleanedEntries)}${rewrittenBody}`;
+}
+
+/**
+ * Applies scripts/UPSTREAM.json `manualOnlySkills` frontmatter policy across
+ * every `skills/<name>/SKILL.md` under `rootDir`.
+ */
+export function applyFrontmatterPolicy(rootDir = DEFAULT_ROOT_DIR) {
+  const manifestPath = path.join(rootDir, "scripts", "UPSTREAM.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const manualOnly = new Set(manifest.manualOnlySkills ?? []);
+  const skillsRoot = path.join(rootDir, "skills");
+  const report = { updated: [], unchanged: [] };
+  if (!fs.existsSync(skillsRoot)) {
+    return report;
+  }
+
+  const skillDirs = fs
+    .readdirSync(skillsRoot, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort();
+
+  for (const skillName of skillDirs) {
+    const skillPath = path.join(skillsRoot, skillName, "SKILL.md");
+    if (!fs.existsSync(skillPath)) continue;
+    const raw = fs.readFileSync(skillPath, "utf8");
+    const { hasFrontmatter, entries, body } = parseFrontmatter(raw);
+    if (!hasFrontmatter) continue;
+
+    const wantManual = manualOnly.has(skillName);
+    const existingFlag = entries.find((e) => e.key === "disable-model-invocation");
+    const currentVal = existingFlag?.valueLines.join("\n").trim();
+    const rel = `skills/${skillName}/SKILL.md`;
+    if ((wantManual && currentVal === "true") || (!wantManual && !existingFlag)) {
+      report.unchanged.push(rel);
+      continue;
+    }
+
+    const nextEntries = upsertManualInvocationEntries(entries, wantManual);
+    const nextContent = `${serializeFrontmatter(nextEntries)}${body.replace(/\r\n/g, "\n")}`;
+    fs.writeFileSync(skillPath, nextContent, "utf8");
+    report.updated.push(rel);
+  }
+
+  return report;
 }
 
 /**
@@ -282,6 +395,48 @@ function cloneUpstreamSparse(repoUrl, targetCloneDir, subdir) {
   return path.join(targetCloneDir, subdir);
 }
 
+function writeUnifiedPatch({ diffDir, destRel, exists, destFull, nextBytes, tmpWorkDir }) {
+  const beforePath = exists ? destFull : path.join(tmpWorkDir, "__empty__");
+  if (!exists && !fs.existsSync(beforePath)) {
+    fs.writeFileSync(beforePath, "");
+  }
+  const afterPath = path.join(tmpWorkDir, "after", ...destRel.split("/"));
+  fs.mkdirSync(path.dirname(afterPath), { recursive: true });
+  fs.writeFileSync(afterPath, nextBytes);
+
+  const res = spawnSync(
+    "git",
+    ["diff", "--no-index", "--unified=3", "--no-color", "--", beforePath, afterPath],
+    { encoding: "utf8" },
+  );
+  if (res.error) {
+    throw res.error;
+  }
+  if (res.status !== 0 && res.status !== 1) {
+    throw new Error(`git diff --no-index failed (${res.status}) for ${destRel}: ${res.stderr}`);
+  }
+  if (!res.stdout) {
+    return null;
+  }
+
+  const normalized = res.stdout
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("diff --git ")) return `diff --git a/${destRel} b/${destRel}`;
+      if (line.startsWith("--- ")) return exists ? `--- a/${destRel}` : "--- /dev/null";
+      if (line.startsWith("+++ ")) return `+++ b/${destRel}`;
+      return line;
+    })
+    .join("\n");
+
+  const patchRel = `${destRel}.patch`;
+  const patchFull = path.join(diffDir, ...patchRel.split("/"));
+  fs.mkdirSync(path.dirname(patchFull), { recursive: true });
+  fs.writeFileSync(patchFull, normalized, "utf8");
+  return patchRel;
+}
+
 /**
  * Synchronizes files from `sourceDir` (upstream `pstack/`) into `rootDir` (`astack/`).
  */
@@ -290,9 +445,11 @@ export function syncUpstream({
   sourceDir,
   dryRun = false,
   forceOverlays = false,
+  diffDir,
 } = {}) {
   const manifestPath = path.join(rootDir, "scripts", "UPSTREAM.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const manualOnly = new Set(manifest.manualOnlySkills ?? []);
   const resolvedSource =
     sourceDir ?? path.join(os.tmpdir(), "astack-upstream-pstack", manifest.upstreamSubdir ?? "pstack");
 
@@ -302,6 +459,7 @@ export function syncUpstream({
     );
   }
 
+  const effectiveDryRun = dryRun || Boolean(diffDir);
   const files = walkFiles(resolvedSource);
   const report = {
     sourceDir: resolvedSource,
@@ -311,71 +469,113 @@ export function syncUpstream({
     skippedOverlays: [],
     overlayChanged: [],
     ignored: [],
+    patches: [],
   };
 
-  for (const { full, rel } of files) {
-    const destRel = mapUpstreamRelativePath(rel, manifest);
-    if (!destRel) {
-      report.ignored.push(rel);
-      continue;
-    }
-
-    const destFull = path.join(rootDir, ...destRel.split("/"));
-    const relToRoot = path.relative(rootDir, destFull);
-    if (relToRoot.startsWith("..") || path.isAbsolute(relToRoot)) {
-      throw new Error(`Refusing path traversal outside rootDir: ${destRel}`);
-    }
-    const exists = fs.existsSync(destFull);
-    const isTextTransformTarget =
-      destRel.endsWith(".md") && !destRel.startsWith("docs/guide/images/");
-
-    let nextBytes;
-    if (isTextTransformTarget) {
-      const raw = fs.readFileSync(full, "utf8");
-      let targetName;
-      if (destRel.startsWith("skills/") && destRel.endsWith("/SKILL.md")) {
-        targetName = destRel.split("/")[1];
-      } else if (destRel.startsWith("agents/") && destRel.endsWith(".md")) {
-        targetName = path.posix.basename(destRel, ".md");
-      }
-      const stripExtraFrontmatter =
-        destRel.endsWith("/SKILL.md") || (destRel.startsWith("agents/") && destRel.endsWith(".md"));
-      const transformed = transformPortedMarkdown(raw, {
-        targetName,
-        stripExtraFrontmatter,
-      });
-      nextBytes = Buffer.from(transformed, "utf8");
-    } else {
-      nextBytes = readNormalizedBytes(full, destRel);
-    }
-
-    if (exists && isOverlayPath(destRel, manifest) && !forceOverlays) {
-      report.skippedOverlays.push(destRel);
-      if (Buffer.compare(fs.readFileSync(destFull), nextBytes) !== 0) {
-        report.overlayChanged.push(destRel);
-      }
-      continue;
-    }
-
-    if (exists) {
-      const prevBytes = fs.readFileSync(destFull);
-      if (Buffer.compare(prevBytes, nextBytes) === 0) {
-        report.unchanged.push(destRel);
+  let tmpWorkDir = null;
+  try {
+    for (const { full, rel } of files) {
+      const destRel = mapUpstreamRelativePath(rel, manifest);
+      if (!destRel) {
+        report.ignored.push(rel);
         continue;
       }
-      report.updated.push(destRel);
-    } else {
-      report.added.push(destRel);
-    }
 
-    if (!dryRun) {
-      fs.mkdirSync(path.dirname(destFull), { recursive: true });
-      fs.writeFileSync(destFull, nextBytes);
+      if (destRel.startsWith("skills/")) {
+        const mappedSkill = destRel.split("/")[1];
+        if (RESERVED_SKILL_NAMES.has(mappedSkill)) {
+          throw new Error(
+            `Upstream path "${rel}" maps to reserved Antigravity skill name "skills/${mappedSkill}"; rename or ignore it in scripts/UPSTREAM.json.`,
+          );
+        }
+      }
+
+      const destFull = path.join(rootDir, ...destRel.split("/"));
+      const relToRoot = path.relative(rootDir, destFull);
+      if (relToRoot.startsWith("..") || path.isAbsolute(relToRoot)) {
+        throw new Error(`Refusing path traversal outside rootDir: ${destRel}`);
+      }
+      const exists = fs.existsSync(destFull);
+      const isTextTransformTarget =
+        destRel.endsWith(".md") && !destRel.startsWith("docs/guide/images/");
+
+      let nextBytes;
+      if (isTextTransformTarget) {
+        const raw = fs.readFileSync(full, "utf8");
+        let targetName;
+        if (destRel.startsWith("skills/") && destRel.endsWith("/SKILL.md")) {
+          targetName = destRel.split("/")[1];
+        } else if (destRel.startsWith("agents/") && destRel.endsWith(".md")) {
+          targetName = path.posix.basename(destRel, ".md");
+        }
+        const isSkillEntry = destRel.startsWith("skills/") && destRel.endsWith("/SKILL.md");
+        const stripExtraFrontmatter =
+          destRel.endsWith("/SKILL.md") || (destRel.startsWith("agents/") && destRel.endsWith(".md"));
+        const transformed = transformPortedMarkdown(raw, {
+          targetName,
+          stripExtraFrontmatter,
+          disableModelInvocation: isSkillEntry ? manualOnly.has(targetName) : undefined,
+        });
+        nextBytes = Buffer.from(transformed, "utf8");
+      } else {
+        nextBytes = readNormalizedBytes(full, destRel);
+      }
+
+      if (exists && isOverlayPath(destRel, manifest) && !forceOverlays) {
+        report.skippedOverlays.push(destRel);
+        if (Buffer.compare(fs.readFileSync(destFull), nextBytes) !== 0) {
+          report.overlayChanged.push(destRel);
+          if (diffDir) {
+            tmpWorkDir ??= fs.mkdtempSync(path.join(os.tmpdir(), "astack-diff-"));
+            const patchRel = writeUnifiedPatch({ diffDir, destRel, exists, destFull, nextBytes, tmpWorkDir });
+            if (patchRel) report.patches.push(patchRel);
+          }
+        }
+        continue;
+      }
+
+      if (exists) {
+        const prevBytes = fs.readFileSync(destFull);
+        if (Buffer.compare(prevBytes, nextBytes) === 0) {
+          report.unchanged.push(destRel);
+          continue;
+        }
+        report.updated.push(destRel);
+      } else {
+        report.added.push(destRel);
+      }
+
+      if (diffDir) {
+        tmpWorkDir ??= fs.mkdtempSync(path.join(os.tmpdir(), "astack-diff-"));
+        const patchRel = writeUnifiedPatch({ diffDir, destRel, exists, destFull, nextBytes, tmpWorkDir });
+        if (patchRel) report.patches.push(patchRel);
+      }
+
+      if (!effectiveDryRun) {
+        fs.mkdirSync(path.dirname(destFull), { recursive: true });
+        fs.writeFileSync(destFull, nextBytes);
+      }
+    }
+  } finally {
+    if (tmpWorkDir) {
+      fs.rmSync(tmpWorkDir, { recursive: true, force: true });
     }
   }
 
   return report;
 }
+
+const SYNC_USAGE = `Usage: node scripts/sync-upstream.mjs [options]
+
+Options:
+  --source <dir>               Upstream pstack checkout directory
+  --fetch                      Sparsely clone upstream pstack into OS temp dir
+  --dry-run                    Preview changes without modifying repository files
+  --force-overlays             Allow overwriting overlayPaths defined in scripts/UPSTREAM.json
+  --diff-dir <dir>             Write unified .patch files (including overlayChanged) without mutating rootDir
+  --apply-frontmatter-policy   Apply scripts/UPSTREAM.json manualOnlySkills disable-model-invocation policy
+  --json                       Emit machine-readable JSON output
+  -h, --help                   Show this help text and exit 0`;
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { values } = parseArgs({
@@ -384,10 +584,33 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       "dry-run": { type: "boolean", default: false },
       "force-overlays": { type: "boolean", default: false },
       "diff-overlays": { type: "boolean", default: false },
+      "diff-dir": { type: "string" },
+      "apply-frontmatter-policy": { type: "boolean", default: false },
       fetch: { type: "boolean", default: false },
       json: { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
     },
   });
+
+  if (values.help) {
+    console.log(SYNC_USAGE);
+    process.exit(0);
+  }
+
+  if (values["apply-frontmatter-policy"] && !values.source && !values.fetch) {
+    const policyReport = applyFrontmatterPolicy(DEFAULT_ROOT_DIR);
+    if (values.json) {
+      console.log(JSON.stringify(policyReport, null, 2));
+    } else {
+      console.log(
+        `[sync-upstream] applyFrontmatterPolicy updated=${policyReport.updated.length} unchanged=${policyReport.unchanged.length}`,
+      );
+      for (const relPath of policyReport.updated) {
+        console.log(`UPDATED ${relPath}`);
+      }
+    }
+    process.exit(0);
+  }
 
   const manifestPath = path.join(DEFAULT_ROOT_DIR, "scripts", "UPSTREAM.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
@@ -404,13 +627,18 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     sourceDir,
     dryRun: values["dry-run"],
     forceOverlays: values["force-overlays"],
+    diffDir: values["diff-dir"] ? path.resolve(values["diff-dir"]) : undefined,
   });
+
+  if (values["apply-frontmatter-policy"] && !values["dry-run"] && !values["diff-dir"]) {
+    applyFrontmatterPolicy(DEFAULT_ROOT_DIR);
+  }
 
   if (values.json) {
     console.log(JSON.stringify(report, null, 2));
   } else {
     console.log(
-      `[sync-upstream] source=${report.sourceDir} dryRun=${values["dry-run"]} added=${report.added.length} updated=${report.updated.length} skippedOverlays=${report.skippedOverlays.length} overlayChanged=${report.overlayChanged.length} unchanged=${report.unchanged.length} ignored=${report.ignored.length}`,
+      `[sync-upstream] source=${report.sourceDir} dryRun=${values["dry-run"] || Boolean(values["diff-dir"])} added=${report.added.length} updated=${report.updated.length} skippedOverlays=${report.skippedOverlays.length} overlayChanged=${report.overlayChanged.length} patches=${report.patches.length} unchanged=${report.unchanged.length} ignored=${report.ignored.length}`,
     );
     if (values["diff-overlays"]) {
       for (const relPath of report.overlayChanged) {

@@ -70,7 +70,7 @@ if `astack` is unavailable or any shared dependency does not resolve, stop and e
 
 tell me that `.agents/automations/benny/` and any referenced secret-free configuration must be committed before either automation is enabled. do not create or update a live schedule, webhook listener, or automation until i explicitly ask.
 
-for wiring live triggers, use Antigravity's `/schedule` (`schedule` with `IsDaemon: true`), a local `agy -p` webhook runner (see AStack's `make-bot-ui` or CI triggers), or the user's automation orchestrator — reviewing the triage automation completely before configuring the repro automation.
+for wiring live triggers, use Antigravity's `/automation` (`automation` built-in skill writing a dormant `sidecar.json` with `CRON_TZ=` until an interactive test pass grants permissions and the user enables it in the Automations tab), **Remote Agents** (`agy --remote-agent`), a local headless `agy -p --output-format stream-json` webhook runner (see AStack's `make-bot-ui` or CI triggers), or in-session `/schedule` (`schedule` tool), reviewing the triage automation completely before configuring the repro automation.
 
 paraphrase this intent and the finished configuration into each runner prompt. the triage prompt must read and follow `.agents/automations/benny/skills/triage-issue-reports/SKILL.md`. the repro prompt must read and follow `.agents/automations/benny/skills/reproduce-and-fix-issues/SKILL.md`. use these repo-relative paths only after confirming they are committed on the branch where the automation runs.
 

@@ -14,10 +14,11 @@ import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const HELP_TEXT = `Read-only worktree prune audit.
-Usage: node worktree-audit.mjs [-b|--base <ref>] [repo-path]
+Usage: node worktree-audit.mjs [-b|--base <ref>] [--json] [repo-path]
 
   repo-path        Git repository path (defaults to current repo).
   -b, --base <ref> Reference branch/commit for MERGED checks (defaults to origin/HEAD, origin/main, origin/master, main, or master).
+  --json           Emit machine-readable JSON output.
   -h, --help       Show this help text.
 `;
 
@@ -368,6 +369,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       allowPositionals: true,
       options: {
         base: { type: "string", short: "b" },
+        json: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
     });
@@ -387,7 +389,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (result.warned) {
       console.error(`warn: no -b given; MERGED checks against ${result.base}`);
     }
-    process.stdout.write(result.formatted);
+    if (parsed.values.json) {
+      process.stdout.write(`${JSON.stringify({ base: result.base, warned: result.warned, rows: result.rows }, null, 2)}\n`);
+    } else {
+      process.stdout.write(result.formatted);
+    }
   } catch (err) {
     console.error(`error: ${err.message}`);
     process.exit(1);

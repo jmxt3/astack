@@ -1,6 +1,7 @@
 ---
 name: reflect
 description: Spawn three parallel review subagents over the active transcript, surface learnings, and route each to a concrete edit on an existing skill. Use when the user says reflect.
+disable-model-invocation: true
 ---
 
 # Reflect
@@ -47,10 +48,11 @@ Never edit a skill under `~/.gemini/config/plugins/`. Before approval, show its 
 
 Follow each approved row's Routing exactly:
 
-- Trivial existing-skill edit (a one-line bullet, a tightened sentence, a stale fact corrected): the parent does it directly.
-- Substantive existing-skill edit (a new section, a new pattern table, more than ~10 lines): follow the project/Antigravity skill conventions in the `agy-customizations` skill to draft, test, and verify the updated `SKILL.md`. If a user rule should persist globally, suggest `/learn`.
+- Trivial existing-skill edit (a one-line bullet, a tightened sentence, a stale fact corrected): the parent does it directly after user approval.
+- Substantive existing-skill edit (a new section, a new pattern table, more than ~10 lines): load the built-in `agy-customizations` skill first, draft, verify, and apply after user approval.
+- Persistent workspace or global rules and new skills: follow Antigravity's `/learn` contract in [`plan-contract.md`](../astack-mode/references/plan-contract.md). Load `agy-customizations`, draft `<artifact-dir>/learning_proposal.md` (`RequestFeedback: true`, `UserFacing: true`), and write `.agents/rules/`, `AGENTS.md`, `GEMINI.md`, or `.agents/skills/` only after user approval.
 - `tune description: <skill path>` (the skill exists but didn't trigger when it should have): tighten the description's trigger phrasing (front-load concrete cues and slash commands) so future model-decision routing fires reliably.
-- `new skill via skill-authoring: <kebab-name>`: scaffold `.agents/skills/<kebab-name>/SKILL.md` (or `~/.gemini/config/skills/<kebab-name>/SKILL.md`) following `agy-customizations` rules rather than inventing a custom shape ad hoc.
+- `new skill via skill-authoring: <kebab-name>`: follow the `/learn` contract (`learning_proposal.md` approval gate) plus `agy-customizations` conventions for `.agents/skills/<kebab-name>/SKILL.md` or `~/.gemini/config/skills/<kebab-name>/SKILL.md`.
 
 If touching a workspace or plugin skill, run `agy plugin validate` (or `node scripts/validate-astack.mjs` when inside AStack) on every touched skill before declaring done.
 

@@ -7,7 +7,9 @@ description: Guides users through AStack setup, /astack-mode, Antigravity Subage
 
 Answer the user's question about AStack (ported from Lauren Tan's `@poteto` `pstack` for Google Antigravity by João Machete), give them a copyable prompt, and link the local skill or guide file that backs it. For a help question, stop after answering instead of executing the task.
 
-A message asking for implementation work ("use astack to fix this bug") is not a help question: load [`astack-mode`](../astack-mode/SKILL.md) and execute the matching playbook.
+If the user asks a general Antigravity question (CLI flags, headless CI `agy -p`, App settings, Remote Agents, SDK, or MCP setup) rather than an AStack workflow question, load Antigravity's built-in `antigravity-guide` skill (`load` mode) directly.
+
+A message asking for implementation work ("use astack to fix this bug") or planning ("plan this refactor") is not a help question: load [`astack-mode`](../astack-mode/SKILL.md) (and [`plan-contract.md`](../astack-mode/references/plan-contract.md) for planning intent).
 
 This file maps questions to the skills and guide docs holding the details. Always read a file before quoting it.
 
@@ -17,7 +19,7 @@ Infer what the user needs from the conversation. If still unclear, call `ask_que
 
 - Get set up
 - Start a task with `/astack-mode`
-- Pick a skill or Antigravity tier (`Subagents`, `/boost`, `/swarm`, `/teamwork`)
+- Pick a skill or native Antigravity command (`/plan`, `/run-workflow`, `/swarm`, `/boost`, `/teamwork`, `/automation`)
 - Fix a run that went wrong
 - Make AStack my own
 
@@ -35,15 +37,16 @@ Check workspace state that changes the answer:
 
 See [README](../../README.md), [User Guide](../../docs/user-guide.md), [Architecture & Swarm Guide](../../docs/architecture-and-swarm.md), and [Guide 01: Setup](../../docs/guide/01-setup.md). For crafting your first prompt, follow [`references/prompting.md`](references/prompting.md).
 
-**Cost control.** AStack uses subagents, panels (`/arena`, `/interrogate`), and `@verifier` workers intentionally. Selecting **Orchestrator** in Antigravity's model picker enables dynamic bidirectional routing between a read-only frontier planner (such as Gemini 4 Carbon) and a fast executor (Gemini 4 Hydrogen) with automatic hand-back on friction. Read-only search and browser sweeps use evergreen `flash` aliases, and saving `/astack-mode` for nontrivial engineering tasks keeps casual chats light while `rules/astack-orchestration.md` (`trigger: model_decision`) stays idle.
+**Cost control.** AStack uses subagents, panels (`/arena`, `/interrogate`), and `@verifier` workers intentionally. Selecting **Orchestrator (Carbon)** (Google AI Ultra) or **Orchestrator (Argon)** (Google AI Pro and Ultra) enables dynamic bidirectional routing between a read-only frontier planner and a fast executor with automatic hand-back on friction. Read-only search and browser sweeps use evergreen `flash` aliases, and manual-only principles/mode skills keep startup `<skills>` discovery compact (`disable-model-invocation: true`).
 
 ## Antigravity Multi-Agent Tiers
 
 | Problem Shape | Recommended Mode | What Runs |
 |---|---|---|
-| Focused side task (research, UI check, test run) | `invoke_subagent` | Built into `/astack-mode`: `research`, `browser`, or `self` (`astack-agent`). |
+| Focused side task (research, UI check, test run) | `invoke_subagent` / `/fanout` | Built into `/astack-mode`: `astack-agent`, `research`, `browser`, `comment-sicko`, or 2-5 `/fanout` slices. |
+| Same task across many files or staged pipeline | `/run-workflow` | Native `run_workflow` Python `parallel()` / `pipeline()` orchestration (`run` mode). |
 | Hard, coupled bug, race, or optimization | `/boost` | Multi-round challenge -> fix -> verify alongside `astack-mode` playbooks. |
-| Broad parallel sweep across files or PRs | Native `/swarm` | Live message board, `workspace: "share"`, and independent `@verifier` gates. (`/fanout` handles quick subagent sweeps without colliding with `/swarm`.) |
+| Broad parallel sweep across files or PRs | Native `/swarm` | Live message board, `workspace: "share"`, and independent `@verifier` gates. |
 | Multi-milestone project or overnight drive | `/teamwork` + `/goal` | Scoped milestones (`/grill-me`, `/architect`), audit gates, `show-me-your-work` logs, persistent drive. |
 
 ## Start a task with `/astack-mode`
@@ -98,7 +101,7 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 
 - **Playbooks** are step checklists inside `skills/astack-mode/playbooks/` ("babysit this PR", "land the stack", "take over this branch", "pause safely", "full autopilot").
 - **24 Principles** (`principle-*`) encode Lauren Tan's core engineering bar (`principle-prove-it-works`, `principle-laziness-protocol`, `principle-fix-root-causes`, etc.). See [Guide 08: Principles](../../docs/guide/08-principles.md).
-- **Antigravity built-ins stay intact:** `/swarm`, `/boost`, `/teamwork`, `/goal`, `/plan`, `/schedule`, `/learn`, and `find-skills` all work directly without shadowing.
+- **All 16 Native Antigravity Commands:** Complete mapping across `run`, `load`, `contract`, and `recommend` modes lives in [`native-commands.md`](../astack-mode/references/native-commands.md) and [`plan-contract.md`](../astack-mode/references/plan-contract.md). None of `/swarm`, `/run-workflow`, `/boost`, `/teamwork`, `/goal`, `/plan`, `/grill-me`, `/learn`, `/agy-customizations`, `/plugin`, `/automation`, `/schedule`, `/browser`, `/btw`, `/generative_ui`, or `/antigravity-guide` are shadowed.
 
 ## Fix a run that went wrong
 

@@ -32,10 +32,10 @@ The diagram shows the common routes. There are also playbooks for hillclimbing a
 You don't write a spec. You say what's wrong or what you want, plus anything you already know that saves the agent time:
 
 ```text
-/astack-mode users get two notifications after a retry. repro first, then fix and verify.
+/astack-mode users get two notifications after a retry. repro live first, then fix and verify.
 ```
 
-That's a Bug fix prompt. "repro first" is a real constraint, not politeness, and the playbook honors it. Watch the todo list fill with the Bug fix steps. A skipped step stays visible with `skip: <reason>`.
+That's a Bug fix prompt. "repro live first" ensures the agent reproduces the failure on the running surface before planning or writing a fix, and skipped steps stay visible as `skip: <reason>`.
 
 ## What goes in a prompt
 
@@ -94,13 +94,13 @@ Short works because the playbook holds the structure inside the active session (
 
 ## Gate execution behind plan approval
 
-If you want to review and approve every plan before any file changes, pair Antigravity's `/plan` command with an explicit stop constraint:
+Whenever you ask for a plan or pair Antigravity's `/plan` command, AStack's [`plan-contract.md`](../../skills/astack-mode/references/plan-contract.md) enforces a hard stop right after writing `<artifact-dir>/implementation_plan.md` (`RequestFeedback: true`, zero workspace edits):
 
 ```text
-/plan /astack-mode users get duplicate invoices on retry. investigate the cause, write a fix and verification plan, and stop for my approval before editing any files.
+/plan /astack-mode users get duplicate invoices on retry
 ```
 
-On normal `/astack-mode` runs under **Orchestrator**, a frontier model such as Carbon plans in a read-only phase and hands off immediately to Hydrogen for edits and tests, taking control back automatically if Hydrogen hits friction. Adding `/plan` or `"stop for my approval"` pauses right after the plan is written so you can inspect the steps before any files change. Review the steps, ask for edits if anything looks wrong, and run the approved plan through AStack while keeping final push control:
+On bug fixes, reproduce the symptom live first (`control-ui` or `control-cli`) before locking the plan steps. On normal `/astack-mode` runs under **Orchestrator** (**Carbon** or **Argon**), a frontier planner plans read-only and hands edits off to Hydrogen automatically, while `/plan` (or `"stop for my approval"`) pauses for your sign-off before any file changes. Review the plan artifact, ask for revisions, and run the approved plan through AStack while keeping final push control:
 
 ```text
 /astack-mode approved. execute the plan, verify end-to-end, run /deslop and /no-comments, and stop before git push.
@@ -122,10 +122,11 @@ A long chat accumulates context from the last task. When you change subjects, sa
 
 If you run several agents against one repository at once, they will fight over the working tree, ports, and build output. In Antigravity, match the isolation mechanism to the task:
 
-- **Focused subagents (`invoke_subagent` / `/fanout`)**: Pass `Workspace: "share"` (shared repository working copy without duplicating storage) or `Workspace: "branch"` (isolated clone) when parallel subagents edit or build simultaneously; keep `Workspace: "inherit"` for read-only research and checks.
+- **Focused subagents (`invoke_subagent` / `/fanout`)**: Pass `Workspace: "share"` (shared repository working copy without duplicating storage) or `Workspace: "branch"` (isolated clone) when parallel subagents edit or build simultaneously; keep `Workspace: "inherit"` for read-only research and `/browser` checks.
+- **Many items or staged phases (`/run-workflow`)**: Generate and run a Python `parallel()` / `pipeline()` workflow across files or checks with structured summaries (Google AI Pro and Ultra).
 - **Broad multi-worker coordination (`/swarm`)**: Spawn named workers on a shared message board with `workspace: "share"` or `"branch"` for independent writers, plus a dedicated `@verifier` and optional `@monitor`.
 - **Single-problem depth (`/boost`)**: When a bug is coupled (race condition, tricky perf bottleneck, deep refactor), skip broad parallelism and let `/boost` run adversarial fix-and-verify rounds.
-- **Multi-day programs (`/teamwork`)** and **overnight targets (`/goal`)**: Use `/teamwork` for scoped multi-milestone projects and `/goal` when the agent should keep iterating autonomously until a checkable finish predicate passes.
+- **Multi-day programs (`/teamwork`)** and **autonomy (`/goal`, `/schedule`, `/automation`)**: Use `/teamwork` for scoped multi-milestone projects, `/goal` for uninterrupted completion loops, `/schedule` for in-session timers/crons, and `/automation` (App only, `CRON_TZ=`) for persistent background runs.
 
 When a single-thread task needs an explicit git worktree up front, say so:
 

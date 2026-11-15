@@ -1,37 +1,35 @@
-# Bundled Workflow CLIs (Decision Log, Plan Lint, Worktree Audit, Watch-PR, Statechart)
+# Bundled Workflow & Control Glass CLIs
 
-AStack bundles five standalone Node 22+ workflow CLIs across its skills so engineers and agents can append structured decision logs, lint plans against writing/format slop, audit git worktrees, watch GitHub PR stacks, and invoke TLA+ statechart checks.
+AStack bundles standalone Node 22+ workflow and verification helper CLIs across its skills so engineers and agents can append formula-safe TSV decision logs, lint multi-phase plans, audit git worktrees, and scaffold isolated daemon/port wrappers via `control-cli-template.mjs`. For `watch-pr.mjs` and `statechart.mjs`, see [Watch-PR & TLA+ Statechart TypeScript Suites](./watch-pr-and-statechart.md).
 
 ## Sub-features
 
-- TSV decision logger (`skills/show-me-your-work/scripts/log.mjs`) with formula-injection escaping (`'=`, `'+`, `'-`, `'@`)
-- Plan structural and prose linter (`skills/astack-mode/scripts/check-plan.mjs`)
-- Read-only git worktree table reporter (`skills/astack-mode/scripts/worktree-audit.mjs`)
-- TypeScript-via-Node-22 PR stack watcher (`skills/astack-mode/scripts/watch-pr/watch-pr.mjs`)
-- TLA+ / TLC statechart runner (`skills/statechart/scripts/statechart.mjs`)
+- TSV decision logger (`skills/show-me-your-work/scripts/log.mjs`) with formula-injection escaping (`'=`, `'+`, `'-`, `'@`), `-h`/`--help`, and `--dry-run`
+- Plan structural and prose linter (`skills/astack-mode/scripts/check-plan.mjs`) checking the `"schedule"` marker, headings, and prose hygiene, supporting `-h`/`--help` and `--json`
+- Read-only git worktree table reporter (`skills/astack-mode/scripts/worktree-audit.mjs`) with `-h`/`--help` and `--json`
+- Zero-dependency Control Glass wrapper starter (`skills/create-verification-skill/references/control-cli-template.mjs`) implementing `doctor`, `launch`, `snapshot`, `cleanup`, `findFreePort()` via `net.createServer()`, `-h`/`--help`, `--json`, and `--dry-run`
 
 ## How to get to it (user POV)
 
 Invoke each script from the repository root with `node`:
 
-- `node skills/show-me-your-work/scripts/log.mjs <logfile> <phase> <decision> <why> <evidence> <result>`
-- `node skills/astack-mode/scripts/check-plan.mjs <plan.md>`
-- `node skills/astack-mode/scripts/worktree-audit.mjs [-b|--base <ref>] [repo-path]`
-- `node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --help` (or `--pr <n> --status-only`)
-- `node skills/statechart/scripts/statechart.mjs SPEC.tla [--config FILE] [--view FILE] [--out DIR]`
+- `node skills/show-me-your-work/scripts/log.mjs [--dry-run] <logfile> <phase> <decision> <why> <evidence> <result>`
+- `node skills/astack-mode/scripts/check-plan.mjs [--json] <plan.md>`
+- `node skills/astack-mode/scripts/worktree-audit.mjs [--json] [-b|--base <ref>] [repo-path]`
+- `node skills/create-verification-skill/references/control-cli-template.mjs <doctor|launch|snapshot|cleanup> [--json] [--dry-run] [--state-dir <dir>]`
 
 ## Driving it with control-cli
 
-Preconditions: `$ScratchDir` and `$EvidenceDir` exist from `Launch`; Node 22+ is available on `PATH`. Keep all written logs and synthetic repos inside `$ScratchDir`.
+Preconditions: `$ScratchDir` and `$EvidenceDir` exist from `Launch`; Node 22+ is available on `PATH`. Keep all written logs, scratch state, and synthetic repos inside `$ScratchDir`.
 
-- **`log.mjs` TSV header creation, whitespace flattening, and formula prefix escaping**: Run `node skills/show-me-your-work/scripts/log.mjs "$ScratchDir/test.decision.tsv" "build" "=cmd()" "keep it safe" "exit 0" "pass"` and a second call missing arguments (`< 6` args). Expect exit `0` on the 6-arg call, TSV file with header `ts\tphase\tdecision\twhy\tevidence\tresult` and escaped `'=cmd()`, and exit `1` on invalid arg count; copy the TSV and exit proof to `$EvidenceDir/cli-log-proof.txt`.
-- **`check-plan.mjs` pass vs violation detection**: Build `$ScratchDir/good.plan.md` matching the `check-plan.mjs` multi-PR program structure (`# Title`, `< 10` intro lines, `## How to read this` with required markers, `## Program checklist` with the 5 ordered `###` sections and markers, a PR section between `## Program checklist` and `## Close the program` with all 9 `**...**` sub-blocks, `Ten lanes on \`inherit\` at the PR head` with checked/unchecked `Lane 1.`..`Lane 10.` boxes naming screenshots and `Pass when`, `Metric.`/`Probe.`/`Baseline.`/`Rule.` perf boxes, and `## Appendix Prototype evidence`, with no em/en dashes, curly quotes, or mid-sentence `: \S`), and `$ScratchDir/bad.plan.md` containing an em-dash and missing sections. Run `node skills/astack-mode/scripts/check-plan.mjs` on each plus with zero args. Expect exit `0` on `good.plan.md`, exit `1` on `bad.plan.md`, and exit `2` with no argument; save outputs to `$EvidenceDir/cli-check-plan.txt`.
-- **`worktree-audit.mjs` help and isolated repo TSV table**: Run `node skills/astack-mode/scripts/worktree-audit.mjs --help` (expect exit `0`), create a scratch git repo at `$ScratchDir/wt-repo` with one commit, and run `node skills/astack-mode/scripts/worktree-audit.mjs "$ScratchDir/wt-repo"`. Expect exit `0`, `# base: ...` line, and TSV columns `SIZE\tAGE\tMERGED\tDIRTY\tREMOTE\tPR\tLAST_CHAT\tBUCKET\tWORKTREE`; save to `$EvidenceDir/cli-worktree-audit.txt`.
-- **`watch-pr.mjs` Node 22 TypeScript wrapper help**: Run `node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --help`. Expect exit `0` and `Usage: watch-pr [options]` listing `--owner`, `--repo`, `--pr`, `--stack`, `--status-only`, `--pretty`, `-h`, `--help`; save stdout to `$EvidenceDir/cli-watch-pr-help.txt`. (Report live `--pr` network polling `verified-unreachable` if offline or `gh` is unauthenticated.)
-- **`statechart.mjs` option usage check and prerequisite gate**: Run `node skills/statechart/scripts/statechart.mjs --help` (no TLA+ model required) and capture stdout/stderr plus `$LASTEXITCODE`. Expect exit `2` with `Unknown option '--help'` and `Usage: statechart SPEC.tla [--config FILE] [--view FILE] [--out DIR]`. Only run live TLC model checks if `java` is installed; otherwise report live TLC runs as `verified-unreachable` citing missing `java`. Save output to `$EvidenceDir/cli-statechart.txt`.
+- **Zero module warnings and `--help` / `-h` smoke check**: Run `--help` and `-h` across `log.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, and `control-cli-template.mjs` (plus `validate-astack.mjs`, `sync-upstream.mjs`, `setup-banner.mjs`, `watch-pr.mjs`, and `statechart.mjs`). Expect exit `0`, usage output on stdout, and zero `MODULE_TYPELESS_PACKAGE_JSON` warnings on stderr; save summary to `$EvidenceDir/cli-help-smoke.txt`.
+- **`log.mjs` dry-run + TSV write and formula escaping**: Run `node skills/show-me-your-work/scripts/log.mjs --dry-run "$ScratchDir/dry.decision.tsv" "build" "skip write" "dry run" "none" "pass"` and verify `$ScratchDir/dry.decision.tsv` was **not** created. Then run the 6-arg write call with `"=cmd()"` and inspect `header ts\tphase\tdecision\twhy\tevidence\tresult` and escaped `'=cmd()`, plus invalid arg count (`< 6` args) exiting `1`; save proof to `$EvidenceDir/cli-log-proof.txt`.
+- **`check-plan.mjs` JSON diagnostics + `multi-phase-plan.md` skeleton regression**: Extract the skeleton from `skills/astack-mode/playbooks/multi-phase-plan.md` into `$ScratchDir/skeleton.plan.md` and run `node skills/astack-mode/scripts/check-plan.mjs --json "$ScratchDir/skeleton.plan.md"`, a bad plan (with em dash or missing `schedule` check) expecting exit `1`, and zero args expecting exit `2`; save to `$EvidenceDir/cli-check-plan.txt`.
+- **`worktree-audit.mjs` TSV and `--json` table on isolated git repo**: Create a scratch git repo at `$ScratchDir/wt-repo` with one commit, and run both `node skills/astack-mode/scripts/worktree-audit.mjs "$ScratchDir/wt-repo"` and `node skills/astack-mode/scripts/worktree-audit.mjs --json "$ScratchDir/wt-repo"`. Expect exit `0`, valid JSON containing `base`, `warned`, and `rows`, and clean TSV columns; save to `$EvidenceDir/cli-worktree-audit.txt`.
+- **`control-cli-template.mjs` full lifecycle (`doctor` -> `launch` -> `snapshot` -> `cleanup`)**: Run `node skills/create-verification-skill/references/control-cli-template.mjs doctor --json --dry-run` expecting exit `0` and valid JSON `{ ok: true, portAvailable: <port> }`. Then run `launch`, `snapshot`, and `cleanup` pointing `--state-dir "$ScratchDir/tpl-state"` and `--evidence-dir "$EvidenceDir/tpl-evidence"`; verify exit `0` at every step, scratch state directory removed after cleanup, and `$EvidenceDir/tpl-evidence/snapshot.json` preserved intact.
 
 ## Gotchas
 
-- `statechart.mjs` does **not** implement `-h` or `--help`; passing `--help` intentionally prints `Unknown option '--help'` plus the usage banner and exits `2`.
-- `watch-pr.mjs` and `statechart.mjs` spawn `node --experimental-strip-types` internally on `.ts` targets; Node versions older than 22 fail to execute those wrappers.
+- `control-cli-template.mjs launch` binds an ephemeral free port with `net.createServer()` on `127.0.0.1` unless `--port` is supplied, and `cleanup` terminates only the child PID saved in `<state-dir>/scratch/state.json` (`taskkill /PID <pid> /T /F` on Windows, process group `SIGTERM` on POSIX).
 - `*.decision.tsv` is gitignored repo-wide, but still write test `.decision.tsv` files into `$ScratchDir` so Cleanup removes them deterministically.
+- Run `node --run test:helpers` to execute the bundled automated unit suite covering `check-plan`, `worktree-audit`, `log`, and `setup-banner` together.

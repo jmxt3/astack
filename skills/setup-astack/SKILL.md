@@ -1,6 +1,7 @@
 ---
 name: setup-astack
 description: "Onboard a repository to AStack: scaffold runtime verification skills (verify-<app>), optional formal TLA+ specs, and opt-in safety hooks while respecting Antigravity's native UI model picker and Orchestrator. Use for /setup-astack or initial workspace setup."
+disable-model-invocation: true
 ---
 
 # Setup AStack
@@ -47,12 +48,12 @@ Right below the banner, briefly tell the user (one or two sentences, and do **no
 Then ask concisely with `ask_question`:
 
 1. **Project verification & guardrails** (multi-select, tailored to what Step 1 found):
-   - `(Recommended) Generate runtime verification skill (/create-verification-skill)` — scaffolds `.agents/skills/verify-<app>/` and a `features/` map so agents can drive and prove your app end-to-end (or offer `/maintain-verification-skill` if a `verify-*/SKILL.md` already exists).
-   - `Generate formal TLA+ / invariant verification skill (/create-formal-verification-skill)` — powered by `/statechart`, ideal for state machines, retries, concurrency, or parsers.
-   - `Review opt-in safety & verification hooks (hooks.json)` — review `astack-irreversible-guard` (`PreToolUse`) and `astack-verify-reminder` (`Stop`).
-2. **Conditional — ONLY ask if Step 1 found an existing `astack-models.md` OR the user explicitly asked to customize subagent tiers**:
-   - `(Recommended) Remove/reset astack-models.md` — clear static overrides so all subagents and `/swarm` workers inherit your active Antigravity UI model picker / **Orchestrator**.
-   - `Keep lightweight evergreen invoke_subagent tier aliases` — write only capability aliases (`inherit`, `flash`, `flash_lite`, `pro`) into `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` (with `trigger: model_decision` frontmatter, under 60 lines), never pinning versioned model slugs.
+   - `(Recommended) Generate runtime verification skill (/create-verification-skill)`: scaffolds `.agents/skills/verify-<app>/` and a `features/` map so agents can drive and prove your app end-to-end (or offer `/maintain-verification-skill` if a `verify-*/SKILL.md` already exists).
+   - `Generate formal TLA+ / invariant verification skill (/create-formal-verification-skill)`: powered by `/statechart`, ideal for state machines, retries, concurrency, or parsers.
+   - `Review opt-in safety & verification hooks (hooks.json)`: review `astack-irreversible-guard` (`PreToolUse`) and `astack-verify-reminder` (`Stop`).
+2. **Conditional (ONLY ask if Step 1 found an existing `astack-models.md` OR the user explicitly asked to customize subagent tiers)**:
+   - `(Recommended) Remove/reset astack-models.md`: clear static overrides so all subagents and `/swarm` workers inherit your active Antigravity UI model picker / **Orchestrator**.
+   - `Keep lightweight evergreen invoke_subagent tier aliases`: write only capability aliases (`inherit`, `flash`, `flash_lite`, `pro`) into `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` (with `trigger: model_decision` frontmatter, under 60 lines), never pinning versioned model slugs.
 
 ## 3. Run Selected Follow-Up Steps & Report
 
@@ -60,6 +61,7 @@ Then ask concisely with `ask_question`:
 - If the user selected `Review opt-in safety & verification hooks`, explain that [`hooks.json`](../../hooks.json) ships `"enabled": false` by default and show how to opt in to `"enabled": true` for `astack-irreversible-guard` and `astack-verify-reminder`.
 - If the user chose to remove/reset an existing `astack-models.md` (and confirmed the change), remove or update it cleanly as requested.
 - Close with quick next-step commands:
-  - `/astack-mode <task>` — classify task into a playbook and orchestrate rigor end-to-end
-  - `/astack-help` — browse playbooks, verification skills, and recipes
-  - `/swarm` / `/boost` / `/teamwork` / `/goal` — Antigravity's native multi-worker, iterative challenge-and-fix, long-horizon, and completion-driven modes
+  - `/astack-mode <task>`: classify task into a playbook and orchestrate rigor end-to-end
+  - `/plan /astack-mode <task>`: investigate and pause at an approval-gated `implementation_plan.md` before editing files
+  - `/astack-help`: browse playbooks, verification skills, and recipes
+  - `/swarm` / `/run-workflow` / `/boost` / `/teamwork` / `/goal`: Antigravity's native multi-worker board, Python workflow runner, iterative challenge-and-fix, long-horizon, and completion-driven modes

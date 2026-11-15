@@ -100,15 +100,13 @@ Writing the tutorial first forces the caller's view. You describe the API to a h
 
 ## Plan after the design settles
 
-astack has no separate planning skill, on purpose. Ambiguous specs get settled with prototypes (or Antigravity's `/grill-me` for product forks), cross-boundary designs can pause at [`/architect`](../../skills/architect/SKILL.md) with `with checkpoint`, and written plans come once open questions are settled:
+astack delegates planning gates cleanly to Antigravity's native commands (`/plan` and `/grill-me`, routed via [`plan-contract.md`](../../skills/astack-mode/references/plan-contract.md)). Settle ambiguous product forks with `/plan /grill-me`, settle empirical questions with prototypes, pause at [`/architect`](../../skills/architect/SKILL.md) `with checkpoint` on boundary changes, and generate multi-PR execution plans only once open questions are resolved:
 
 ```text
-/astack-mode turn this design into a plan in docs/<name>-plan.md. small verifiable PRs, each with its own live verification steps. do not implement. stop for my approval.
+/plan /astack-mode turn this design into a multi-PR plan with small verifiable PRs and live verification steps.
 ```
 
-The [Multi-phase plan playbook](../../skills/astack-mode/playbooks/multi-phase-plan.md) settles any remaining open questions by prototype, then writes one section per PR, each ending in proof that the change works. A passing test suite alone doesn't count as that proof. It validates the plan checklist with [`check-plan.mjs`](../../skills/astack-mode/scripts/check-plan.mjs), makes the plan the deliverable, edits no product code, and names the execution playbook that runs it once you give the go-ahead.
-
-For a migration, state the bar in the prompt:
+The [Multi-phase plan playbook](../../skills/astack-mode/playbooks/multi-phase-plan.md) settles any remaining open questions by prototype, validates the multi-PR checklist with [`check-plan.mjs`](../../skills/astack-mode/scripts/check-plan.mjs), and writes `<artifact-dir>/implementation_plan.md` first with zero workspace edits until you approve. After approval, it writes `docs/<name>-plan.md` (if requested) and hands off to execution. For a migration, state the bar in the prompt:
 
 ```text
 /astack-mode plan the migration of our ui library to the new styling system. small verifiable PRs, each with visual regression checks. the result must match the original exactly, bugs included.

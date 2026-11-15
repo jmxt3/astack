@@ -1,6 +1,7 @@
 ---
 name: automate-me
 description: "Use for \"automate me\", \"create/update/refresh my -mode skill\", \"turn/capture my preferences or working style into a skill\", or wanting agents to follow how the user works. Drafts or revises a personal -mode skill using AStack skill-authoring guidelines + unslop (plus Antigravity /schedule or automation skill for recurring tasks), optionally pulling evidence from recent transcripts."
+disable-model-invocation: true
 ---
 
 # Automate me
@@ -63,11 +64,11 @@ The **astack-mode** skill shows the shape. Read it for granularity. Don't copy i
 
 ### 4. Draft the skill
 
-Follow [`authoring-a-skill.md`](../astack-mode/playbooks/authoring-a-skill.md) to author a valid Antigravity skill:
+Load Antigravity's built-in `agy-customizations` skill first, then follow [`authoring-a-skill.md`](../astack-mode/playbooks/authoring-a-skill.md) to author a valid Antigravity skill:
 
 - Path: preserve an existing mode skill's category. For a new mode, use `.agents/skills/<handle>/<handle>-mode/SKILL.md` when the repo has an established personal category for that handle. Otherwise default to `.agents/skills/<handle>-mode/SKILL.md` in the project (or `~/.gemini/config/skills/<handle>-mode/SKILL.md` for a global personal skill).
 - Handle: the user's first name or chosen identifier.
-- Antigravity frontmatter: keep ONLY `name` (`<handle>-mode`, matching the folder name) and `description` as YAML keys so `agy plugin validate` / Antigravity's skill loader accepts it cleanly (total body under `24,000` bytes). Do NOT add Cursor-only keys like `disable-model-invocation: true`; instead keep auto-triggering scoped cleanly by writing explicit triggers (`/<handle>-mode`, `"work in <handle>'s style"`) in `description`. Keep `description` as one quoted YAML scalar or `>-` folded block.
+- Antigravity frontmatter: follow the official plugin skill schema (`name`, `description`, optional boolean `disable-model-invocation`, `license`, `compatibility`). Set `name: <handle>-mode` matching the folder, write explicit trigger phrases (`/<handle>-mode`, `"work in <handle>'s style"`) in `description`, and set `disable-model-invocation: true` so a personal `-mode` skill stays manual-only without consuming auto-invocation budget. Keep the body under `24,000` bytes. If the user wants standalone workspace rules instead of a full `-mode` skill, follow the `/learn` contract in [`plan-contract.md`](../astack-mode/references/plan-contract.md).
 
 ### 5. Iterate on prose
 

@@ -24,11 +24,14 @@ const cache = path.join(
 );
 const install = (name: string, ...packages: string[]) => {
   const dir = path.join(cache, name);
-  execFileSync(
-    "npm",
-    ["install", "--prefix", dir, "--no-audit", "--no-fund", "--save-exact", ...packages],
-    { stdio: ["ignore", "pipe", "pipe"] },
-  );
+  const npmArgs = ["install", "--prefix", dir, "--no-audit", "--no-fund", "--save-exact", ...packages];
+  if (process.platform === "win32") {
+    execFileSync("cmd.exe", ["/d", "/s", "/c", "npm.cmd", ...npmArgs], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } else {
+    execFileSync("npm", npmArgs, { stdio: ["ignore", "pipe", "pipe"] });
+  }
   return createRequire(path.join(dir, "package.json"));
 };
 

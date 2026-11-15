@@ -2,9 +2,11 @@
 /**
  * Comprehensive structural and Antigravity compliance validator for AStack.
  *
- * Checks `plugin.json`, `skills/` frontmatter & 24KB loader limits, `/swarm`
- * collision avoidance, `agents/` & `rules/` schemas, relative markdown links,
- * Cursor-runtime leak regressions, and optionally runs `agy plugin validate --strict`.
+ * Checks `plugin.json`, `skills/` frontmatter & 24KB loader limits, native
+ * Antigravity slash-command & built-in skill collision avoidance, registry parity
+ * (`native-commands.json` <-> `native-commands.md`), `agents/` & `rules/`
+ * schemas, relative markdown links, Cursor/Bun leak regressions, and optionally
+ * runs `agy plugin validate --strict`.
  */
 
 import { execFileSync } from "node:child_process";
@@ -12,14 +14,42 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
-import { MAX_ANTIGRAVITY_BYTES, parseFrontmatter } from "./sync-upstream.mjs";
+import {
+  BUILTIN_RESERVED_SKILL_NAMES,
+  EXPECTED_NATIVE_COMMANDS,
+  MAX_ANTIGRAVITY_BYTES,
+  RESERVED_SKILL_NAMES,
+  parseFrontmatter,
+} from "./sync-upstream.mjs";
+
+export { BUILTIN_RESERVED_SKILL_NAMES, EXPECTED_NATIVE_COMMANDS, RESERVED_SKILL_NAMES };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_ROOT_DIR = path.resolve(__dirname, "..");
 
-const ALLOWED_SKILL_KEYS = new Set(["name", "description"]);
-const ALLOWED_AGENT_KEYS = new Set(["name", "description"]);
+const ALLOWED_SKILL_KEYS = new Set([
+  "name",
+  "description",
+  "disable-model-invocation",
+  "license",
+  "compatibility",
+]);
+const ALLOWED_AGENT_KEYS = new Set([
+  "name",
+  "description",
+  "mainAgent",
+  "subagent",
+  "model",
+  "tools",
+  "commandExecutionPolicy",
+  "skills",
+  "inheritMcp",
+  "inheritCustomizations",
+]);
+const BOOLEAN_AGENT_KEYS = ["mainAgent", "subagent", "inheritMcp", "inheritCustomizations"];
 const ALLOWED_RULE_TRIGGERS = new Set(["always_on", "model_decision", "glob", "manual"]);
+
+const VALID_COMMAND_MODES = new Set(["run", "load", "contract", "recommend"]);
 
 const CURSOR_LEAK_PATTERNS = [
   { id: "cursor-dir", regex: /~?\.cursor\//g },
@@ -34,6 +64,9 @@ const CURSOR_LEAK_PATTERNS = [
   { id: "author-typo", regex: /\bMaschi[t]\b/g },
   { id: "invalid-global-skills-dir", regex: /~\/\.agents\/skills\b/g },
   { id: "cursor-ask-allow-multiple", regex: /\ballow_multiple\b/g },
+  { id: "cursor-slash-visualize", regex: /(?:^|[\s`])\/visualize\b/gm },
+  { id: "cursor-package-scope", regex: /@cursor-skill\//g },
+  { id: "bun-types-leak", regex: /\bbun-types\b/g },
 ];
 
 const PRINCIPLE_REF_REGEX = /\b(principle-[a-z0-9][a-z0-9-]*)\b/g;
@@ -108,6 +141,182 @@ function toRel(rootDir, fullPath) {
   return path.relative(rootDir, fullPath).split(path.sep).join("/");
 }
 
+function formatCompanionLinks(companions) {
+  return companions
+    .map((relPath) => {
+      const clean = relPath.replace(/\\/g, "/");
+      const label = clean.endsWith("/SKILL.md")
+        ? clean.split("/").slice(-2, -1)[0]
+        : path.posix.basename(clean);
+      return `[${label}](../../../${clean})`;
+    })
+    .join(", ");
+}
+
+function formatBackingCell(entry) {
+  const b = entry.backing ?? {};
+  if (entry.mode === "run") {
+    const parts = [`tool \`${b.tool}\``];
+    if (b.subagentType) parts.push(`TypeName \`${b.subagentType}\``);
+    if (b.skill) parts.push(`skill \`${b.skill}\``);
+    return parts.join(", ");
+  }
+  if (entry.mode === "load") {
+    return `built-in skill \`${b.skill}\``;
+  }
+  if (entry.mode === "contract") {
+    const base = `[${path.posix.basename(b.contract)}](../../../${b.contract})`;
+    return b.pairsWith?.length ? `${base} + \`${b.pairsWith.join("`, `")}\`` : base;
+  }
+  return `recommend \`${b.exampleLine}\``;
+}
+
+/**
+ * Generates deterministic markdown reference documentation from `native-commands.json`.
+ */
+export function renderNativeCommandsMarkdown(registry) {
+  const lines = [
+    "# Native Antigravity Slash Commands",
+    "",
+    `Generated from [native-commands.json](./native-commands.json) (source catalog \`${registry.source}\`). Do not edit manually; run \`node scripts/validate-astack.mjs --write-native-commands\` after updating the registry.`,
+    "",
+    "## Engagement Modes",
+    "",
+    "- **run**: Call the native tool directly (after loading its built-in skill when present).",
+    "- **load**: Read the built-in Antigravity `SKILL.md` and follow its workflow.",
+    "- **contract**: Reproduce the command's documented protocol in the active turn (stop at reviewable artifacts when required).",
+    "- **recommend**: Harness-owned mode. Print a copy-ready command line for the user, explain what it adds, and use in-turn fallback only if they decline.",
+    "",
+    "When a command is `app`-only (such as `/automation` or `/generative_ui`), CLI sessions route to `/schedule` or plain Markdown/Mermaid fallbacks cleanly.",
+    "",
+    "## All 16 Native Commands",
+    "",
+    "| Command | Category | Mode | Backing | Triggers | Surfaces | Tier | AStack Companion |",
+    "|---|---|---|---|---|---|---|---|",
+  ];
+
+  for (const entry of registry.commands) {
+    const triggers = entry.triggers?.length
+      ? entry.triggers.map((t) => `\`${t}\``).join(", ")
+      : "User-initiated only";
+    const surfaces = (entry.surfaces ?? []).join(", ");
+    const companions = formatCompanionLinks(entry.astackCompanion ?? []);
+    lines.push(
+      `| \`${entry.command}\` | ${entry.category} | \`${entry.mode}\` | ${formatBackingCell(entry)} | ${triggers} | ${surfaces} | ${entry.tier} | ${companions} |`,
+    );
+  }
+
+  lines.push("");
+  return `${lines.join("\n")}`;
+}
+
+function validateNativeCommandsRegistry(rootDir, errors) {
+  const registryRel = "skills/astack-mode/references/native-commands.json";
+  const markdownRel = "skills/astack-mode/references/native-commands.md";
+  const registryPath = path.join(rootDir, registryRel);
+  const markdownPath = path.join(rootDir, markdownRel);
+  const hasAstackMode = fs.existsSync(path.join(rootDir, "skills", "astack-mode"));
+
+  if (!fs.existsSync(registryPath)) {
+    if (hasAstackMode) {
+      errors.push({ file: registryRel, message: `Missing native command registry: ${registryRel}` });
+    }
+    return;
+  }
+
+  let registry;
+  try {
+    registry = JSON.parse(fs.readFileSync(registryPath, "utf8"));
+  } catch (err) {
+    errors.push({ file: registryRel, message: `Invalid JSON: ${err.message}` });
+    return;
+  }
+
+  if (!Array.isArray(registry?.commands)) {
+    errors.push({ file: registryRel, message: "Registry must contain a commands array" });
+    return;
+  }
+
+  const seen = new Set();
+  for (const entry of registry.commands) {
+    if (!entry || typeof entry.command !== "string") {
+      errors.push({ file: registryRel, message: "Registry command entry missing string command field" });
+      continue;
+    }
+    if (seen.has(entry.command)) {
+      errors.push({ file: registryRel, message: `Duplicate native command entry: ${entry.command}` });
+      continue;
+    }
+    seen.add(entry.command);
+
+    if (!VALID_COMMAND_MODES.has(entry.mode)) {
+      errors.push({ file: registryRel, message: `Invalid mode "${entry.mode}" for ${entry.command}` });
+    }
+
+    const backing = entry.backing ?? {};
+    if (entry.mode === "run" && !backing.tool) {
+      errors.push({ file: registryRel, message: `Run-mode command ${entry.command} missing backing.tool` });
+    }
+    if (entry.mode === "load" && !backing.skill) {
+      errors.push({ file: registryRel, message: `Load-mode command ${entry.command} missing backing.skill` });
+    }
+    if (entry.mode === "contract") {
+      if (!backing.contract) {
+        errors.push({ file: registryRel, message: `Contract-mode command ${entry.command} missing backing.contract` });
+      } else if (!fs.existsSync(path.join(rootDir, ...backing.contract.split("/")))) {
+        errors.push({
+          file: registryRel,
+          message: `Contract-mode command ${entry.command} points to missing path: ${backing.contract}`,
+        });
+      }
+    }
+    if (entry.mode === "recommend" && !backing.exampleLine) {
+      errors.push({ file: registryRel, message: `Recommend-mode command ${entry.command} missing backing.exampleLine` });
+    }
+
+    if (!Array.isArray(entry.astackCompanion) || entry.astackCompanion.length === 0) {
+      errors.push({ file: registryRel, message: `${entry.command} must list at least one astackCompanion` });
+    } else {
+      for (const comp of entry.astackCompanion) {
+        if (!fs.existsSync(path.join(rootDir, ...comp.split("/")))) {
+          errors.push({
+            file: registryRel,
+            message: `${entry.command} lists missing astackCompanion: ${comp}`,
+          });
+        }
+      }
+    }
+  }
+
+  for (const expected of EXPECTED_NATIVE_COMMANDS) {
+    if (!seen.has(expected)) {
+      errors.push({ file: registryRel, message: `Missing catalog command from registry: ${expected}` });
+    }
+  }
+  const expectedSet = new Set(EXPECTED_NATIVE_COMMANDS);
+  for (const actual of seen) {
+    if (!expectedSet.has(actual)) {
+      errors.push({ file: registryRel, message: `Unknown catalog command in registry: ${actual}` });
+    }
+  }
+
+  const expectedMarkdown = renderNativeCommandsMarkdown(registry);
+  if (!fs.existsSync(markdownPath)) {
+    errors.push({
+      file: markdownRel,
+      message: `Missing generated ${markdownRel}. Run: node scripts/validate-astack.mjs --write-native-commands`,
+    });
+  } else {
+    const actualMarkdown = fs.readFileSync(markdownPath, "utf8").replace(/\r\n/g, "\n");
+    if (actualMarkdown !== expectedMarkdown) {
+      errors.push({
+        file: markdownRel,
+        message: `${markdownRel} drifted from native-commands.json. Run: node scripts/validate-astack.mjs --write-native-commands`,
+      });
+    }
+  }
+}
+
 /**
  * Validates an AStack plugin tree at `rootDir`. Returns `{ ok, errors, warnings, stats }`.
  */
@@ -145,16 +354,22 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
     }
   }
 
-  // Guard against shadowing Antigravity's built-in /swarm slash command
-  if (fs.existsSync(path.join(rootDir, "skills", "swarm"))) {
-    errors.push({
-      file: "skills/swarm",
-      message: "skills/swarm must not exist because Priority 3 plugin skills shadow Antigravity's Priority 4 built-in /swarm; use skills/fanout",
-    });
+  // Guard against shadowing native Antigravity slash commands or built-in skills
+  const skillsRoot = path.join(rootDir, "skills");
+  if (fs.existsSync(skillsRoot)) {
+    for (const entry of fs.readdirSync(skillsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (!RESERVED_SKILL_NAMES.has(entry.name)) continue;
+      errors.push({
+        file: `skills/${entry.name}`,
+        message: `skills/${entry.name} must not exist because it shadows the native /${entry.name} command or built-in skill. Rename it (use skills/fanout for swarm) and route through skills/astack-mode/references/native-commands.json.`,
+      });
+    }
   }
 
+  validateNativeCommandsRegistry(rootDir, errors);
+
   // Validate skills
-  const skillsRoot = path.join(rootDir, "skills");
   const validSkillNames = new Set();
   let skillCount = 0;
   if (fs.existsSync(skillsRoot)) {
@@ -187,6 +402,15 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
       }
       if (!keyMap.description) {
         errors.push({ file: rel, message: "Missing required frontmatter field: description" });
+      }
+      if (keyMap["disable-model-invocation"] !== undefined) {
+        const val = keyMap["disable-model-invocation"];
+        if (val !== "true" && val !== "false") {
+          errors.push({
+            file: rel,
+            message: `Invalid disable-model-invocation value "${val}": must be boolean true or false`,
+          });
+        }
       }
       const bodyBytes = Buffer.byteLength(body, "utf8");
       if (bodyBytes > MAX_ANTIGRAVITY_BYTES) {
@@ -224,6 +448,14 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
       }
       if (!keyMap.description) {
         errors.push({ file: rel, message: "Agent missing description" });
+      }
+      for (const boolKey of BOOLEAN_AGENT_KEYS) {
+        if (keyMap[boolKey] !== undefined && keyMap[boolKey] !== "true" && keyMap[boolKey] !== "false") {
+          errors.push({
+            file: rel,
+            message: `Invalid ${boolKey} value "${keyMap[boolKey]}": must be boolean true or false`,
+          });
+        }
       }
     }
   }
@@ -338,15 +570,35 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
   };
 }
 
+const USAGE = `Usage: node scripts/validate-astack.mjs [options] [rootDir]
+
+Options:
+  --no-agy                 Skip agy plugin validate --strict
+  --json                   Emit machine-readable JSON output
+  --write-native-commands  Regenerate skills/astack-mode/references/native-commands.md from native-commands.json
+  -h, --help               Show this help text and exit 0`;
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
       "no-agy": { type: "boolean", default: false },
       json: { type: "boolean", default: false },
+      "write-native-commands": { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
     },
   });
+  if (values.help) {
+    console.log(USAGE);
+    process.exit(0);
+  }
   const rootDir = positionals[0] ? path.resolve(positionals[0]) : DEFAULT_ROOT_DIR;
+  if (values["write-native-commands"]) {
+    const registryPath = path.join(rootDir, "skills", "astack-mode", "references", "native-commands.json");
+    const markdownPath = path.join(rootDir, "skills", "astack-mode", "references", "native-commands.md");
+    const registry = JSON.parse(fs.readFileSync(registryPath, "utf8"));
+    fs.writeFileSync(markdownPath, renderNativeCommandsMarkdown(registry), "utf8");
+  }
   const result = validateAStack(rootDir, { withAgy: !values["no-agy"] });
 
   if (values.json) {

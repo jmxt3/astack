@@ -38,19 +38,23 @@ You pick from things that run, not from descriptions. The agent answers its own 
 
 ## Plan first, approve, then execute
 
-Build the plan without editing product code (or use `/plan /astack-mode ... stop for my approval before editing any files` on single-PR tasks, or `/architect ... with checkpoint` for API boundaries):
+Build `<artifact-dir>/implementation_plan.md` with zero workspace edits until you approve, using Antigravity's native stacked slash form (add `/grill-me` first when requirements need alignment, or `/architect ... with checkpoint` for API boundaries):
 
 ```text
-/astack-mode turn this into a plan in docs/<name>-plan.md with small verifiable units and live proof steps. do not implement. stop for my approval.
+/plan /astack-mode turn this design into small verifiable PRs with live proof steps
 ```
 
-Once you review and approve it, execute through AStack without auto-merging:
+```text
+/plan /grill-me <idea or ambiguous feature>
+```
+
+Once you review and approve the plan artifact, execute through AStack (and write `docs/<name>-plan.md` only after approval when a multi-PR plan needs a repo copy) without auto-merging:
 
 ```text
 /astack-mode approved. execute the plan, prove it works live, run /deslop and /no-comments, and stop before git push.
 ```
 
-For multi-PR plans, replace `/astack-mode` execution with `/swarm /astack-mode approved. execute docs/<name>-plan.md with autopilot-stack.`. The plan is the deliverable first, and execution waits for your go.
+For multi-PR plans, replace `/astack-mode` execution with `/swarm /astack-mode approved. execute docs/<name>-plan.md with autopilot-stack.`. The plan artifact is the gate first, and execution waits for your go.
 
 ## Get a second opinion on a design
 
@@ -67,6 +71,12 @@ Your current design becomes one candidate among several, and the synthesis tells
 ```
 
 Each worker owns one package. The parent waits for every slice and returns one `PASS`, `ISSUES`, or `BLOCKED` report instead of raw worker dumps.
+
+When you need the exact same check across many files or a staged multi-phase Python flow with structured per-item output (Google AI Pro & Ultra), use Antigravity's `/run-workflow` instead:
+
+```text
+/run-workflow list every .ts file changed since main, check each in parallel for unparsed external payloads, and return a one-line verdict per file
+```
 
 ## Review a branch skeptically
 
@@ -171,7 +181,7 @@ To watch the catch-up instead, run [`/ketchup-video`](../../skills/ketchup-video
 ## The pitfalls
 
 - **Enumerating skills in the prompt.** "use /how then /architect then /arena" reorders steps the playbook already sequences. State the goal and constraints. Name a skill only to override a default.
-- **A vague finish condition.** "make it better" gives `/goal` or `/schedule` nothing to check. Give a command or artifact that can pass or fail.
+- **A vague finish condition.** "make it better" gives `/goal`, `/schedule`, or `/automation` nothing to check. Give a command or artifact that can pass or fail.
 - **Leading with your theory of the cause.** The agent searches wherever you pointed. Ask it to restate the problem first, then share your hunch.
 - **Taking the first design.** One attempt locks in the first shape the model thought of. Ask for prototypes or `/architect` and pick from evidence.
 - **Polishing an abstract plan.** Adversarial review of a plan with no code behind it invents risks that will never happen. Settle the open questions with prototypes, then review what got built.
