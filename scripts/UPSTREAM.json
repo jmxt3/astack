@@ -36,6 +36,7 @@
     "docs/architecture-and-swarm.md",
     "docs/automations/benny",
     "docs/guide",
+    "docs/user-guide.md",
     "hooks.json",
     "rules/astack-orchestration.md",
     "scripts/hooks",

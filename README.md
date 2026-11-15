@@ -25,6 +25,8 @@ Inside Antigravity:
 2. Start serious tasks with `/astack-mode <goal + how to prove it's done>` (and optionally run `/setup-astack` inside an app repo to scaffold `verify-<app>`, formal TLA+ verification skills, and opt-in hooks).
 3. Ask `/astack-help <question>` anytime for tailored skill recommendations and ready-to-send prompts without starting execution.
 
+> **New to AStack?** Read the single-page **[AStack User Guide: Quickstart, Daily Workflow & Mastery](./docs/user-guide.md)** (or dive into the [10-part step-by-step guide](./docs/guide/README.md)).
+
 ## Antigravity Execution Modes
 
 AStack pairs its 23 playbooks and 24 engineering principles with Antigravity's native execution modes (detailed in [`docs/architecture-and-swarm.md`](./docs/architecture-and-swarm.md)):
@@ -49,7 +51,7 @@ AStack pairs its 23 playbooks and 24 engineering principles with Antigravity's n
 - **2 Custom Agents** (`agents/`): [`astack-agent`](./agents/astack-agent.md) (verifier-first builder/reviewer) and [`comment-sicko`](./agents/comment-sicko.md) (skeptical comment & suppressor auditor)
 - **1 Orchestration Rule** ([`rules/astack-orchestration.md`](./rules/astack-orchestration.md)): model-decision routing across Antigravity execution modes with zero-config session and Orchestrator model inheritance
 - **Opt-In Lifecycle Hooks** ([`hooks.json`](./hooks.json)): `astack-irreversible-guard` (`PreToolUse`) and `astack-verify-reminder` (`Stop`), both shipped with `"enabled": false`
-- **User Guide & Automations**: Full walkthrough in [`docs/guide/README.md`](./docs/guide/README.md) and dormant Slack triage/repro pack in [`docs/automations/benny/README.md`](./docs/automations/benny/README.md)
+- **User Guides & Automations**: Single-page quickstart & mastery handbook in [`docs/user-guide.md`](./docs/user-guide.md), 10-part deep-dive walkthrough in [`docs/guide/README.md`](./docs/guide/README.md), and dormant Slack triage/repro pack in [`docs/automations/benny/README.md`](./docs/automations/benny/README.md)
 
 ## Requirements & Scripts
 

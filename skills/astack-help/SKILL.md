@@ -33,7 +33,7 @@ Check workspace state that changes the answer:
 2. Pick your preferred model or **Orchestrator** directly in Antigravity's UI model picker (inherited automatically with zero config). Optionally run [`/setup-astack`](../setup-astack/SKILL.md) inside an app repo to bootstrap `.agents/skills/verify-<app>/`, formal TLA+ specs, and opt-in hooks (`hooks.json`).
 3. Run your first real task with `/astack-mode`, a concrete goal, and an observable done check.
 
-See [README](../../README.md), [Architecture & Swarm Guide](../../docs/architecture-and-swarm.md), and [Guide 01: Setup](../../docs/guide/01-setup.md). For crafting your first prompt, follow [`references/prompting.md`](references/prompting.md).
+See [README](../../README.md), [User Guide](../../docs/user-guide.md), [Architecture & Swarm Guide](../../docs/architecture-and-swarm.md), and [Guide 01: Setup](../../docs/guide/01-setup.md). For crafting your first prompt, follow [`references/prompting.md`](references/prompting.md).
 
 **Cost control:** AStack uses subagents, panels (`/arena`, `/interrogate`), and `@verifier` workers intentionally. Selecting **Orchestrator** in Antigravity's model picker pairs a frontier planner with a fast implementation model automatically, read-only search/browser sweeps use evergreen `flash` aliases, and saving `/astack-mode` for nontrivial engineering tasks keeps casual chats light while `rules/astack-orchestration.md` (`trigger: model_decision`) stays idle.
 
