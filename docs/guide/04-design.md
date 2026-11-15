@@ -100,13 +100,13 @@ Writing the tutorial first forces the caller's view. You describe the API to a h
 
 ## Plan after the design settles
 
-astack has no planning skill, on purpose. When you do want a written plan, ask for it once the design is settled:
+astack has no separate planning skill, on purpose. Ambiguous specs belong in [`/interrogate`](../../skills/interrogate/SKILL.md) (or Antigravity's `/grill-me`), cross-boundary designs can pause at [`/architect`](../../skills/architect/SKILL.md) with `with checkpoint`, and written plans come once open questions are settled:
 
 ```text
-/astack-mode turn this design into a plan. small verifiable PRs, each with its own verification steps.
+/astack-mode turn this design into a plan in docs/<name>-plan.md. small verifiable PRs, each with its own live verification steps. do not implement. stop for my approval.
 ```
 
-The [Multi-phase plan playbook](../../skills/astack-mode/playbooks/multi-phase-plan.md) settles any remaining open questions by prototype, then writes one section per PR, each ending in proof that the change works. A passing test suite alone doesn't count as that proof. The plan is the deliverable. The playbook doesn't implement it, and it names which execution playbook should run it next.
+The [Multi-phase plan playbook](../../skills/astack-mode/playbooks/multi-phase-plan.md) settles any remaining open questions by prototype, then writes one section per PR, each ending in proof that the change works. A passing test suite alone doesn't count as that proof. It validates the plan checklist with [`check-plan.mjs`](../../skills/astack-mode/scripts/check-plan.mjs), makes the plan the deliverable, edits no product code, and names the execution playbook that runs it once you give the go-ahead.
 
 For a migration, state the bar in the prompt:
 
@@ -115,6 +115,17 @@ For a migration, state the bar in the prompt:
 ```
 
 "bugs included" keeps the migration from quietly fixing things on the way, which would make the old and new output impossible to compare. For a project that spans many days, you can commit the plan to the repo for a while so other agents see the work in progress. Delete it when the work lands.
+
+Once you review and approve the plan, execute it through AStack without auto-merging:
+
+- **One unit or single branch at a time:**
+  ```text
+  /astack-mode approved. execute unit 1 from docs/<name>-plan.md, verify live, run /deslop and /no-comments, and stop before git push.
+  ```
+- **Multi-PR stack with manual merge sign-off:** Pair `/swarm` with the [Autopilot-stack playbook](../../skills/astack-mode/playbooks/autopilot-stack.md) instead of [Autopilot-full](../../skills/astack-mode/playbooks/autopilot-full.md). `autopilot-stack` builds and verifies every PR in the plan, then stops and hands the verified PRs to you before pushing or merging:
+  ```text
+  /swarm /astack-mode approved. execute docs/<name>-plan.md with autopilot-stack. stop once every unit is verified and wait for my review before pushing or merging.
+  ```
 
 ## How much design work does a task deserve?
 

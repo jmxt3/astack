@@ -36,13 +36,21 @@ The agent names what an expert would do that you didn't ask for, the raw materia
 
 You pick from things that run, not from descriptions. The agent answers its own layout and timing questions along the way.
 
-## Turn a settled design into a plan
+## Plan first, approve, then execute
+
+Build the plan without editing product code (or use `/plan /astack-mode ... stop for my approval before editing any files` on single-PR tasks, or `/architect ... with checkpoint` for API boundaries):
 
 ```text
-/astack-mode turn this design into a plan. small verifiable PRs, each with its own proof.
+/astack-mode turn this into a plan in docs/<name>-plan.md with small verifiable units and live proof steps. do not implement. stop for my approval.
 ```
 
-Ask only after the design settles. The plan is the deliverable, and it names the playbook that will execute it.
+Once you review and approve it, execute through AStack without auto-merging:
+
+```text
+/astack-mode approved. execute the plan, prove it works live, run /deslop and /no-comments, and stop before git push.
+```
+
+For multi-PR plans, replace `/astack-mode` execution with `/swarm /astack-mode approved. execute docs/<name>-plan.md with autopilot-stack.`. The plan is the deliverable first, and execution waits for your go.
 
 ## Get a second opinion on a design
 
@@ -176,6 +184,7 @@ To watch the catch-up instead, run [`/ketchup-video`](../../skills/ketchup-video
 - **Pinning static model slugs in rules.** Hardcoding specific model versions blocks Antigravity's **Orchestrator** and weekly model drops, and fails when a pinned model runs out of quota. Keep defaults on `inherit` so workers follow your UI model picker, and let `/arena` discover live models at runtime. [Setup](./01-setup.md) covers why.
 - **Reporting success off a green build.** A build proves it compiles. Ask for the real command, flow, stored value, or profile, and expect the evidence in the reply.
 - **Writing a `SKILL.md` freehand.** Route it through the [Authoring or modifying a skill playbook](../../skills/astack-mode/playbooks/authoring-a-skill.md) so validation and review happen.
+- **Running `autopilot-full` when you want manual merge approval.** `autopilot-full` merges verified PRs automatically. Use `autopilot-stack` (or say `"stop before git push"`) when every PR needs your sign-off before landing.
 
 That's the guide. If you skipped ahead, go back to [setup](./01-setup.md) and run one real task. The habits stick from use, not from reading.
 

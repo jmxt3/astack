@@ -2,6 +2,12 @@
 
 **AStack** (`astack`) adapts Lauren Tan's (`@poteto`) verification-first `pstack` workflows natively for **Google Antigravity**. Instead of reviewing long unverified diffs by hand, you state **what outcome you want and how to prove it works**, while AStack matches a rigorous playbook, coordinates Antigravity's subagents and multi-agent modes, cleans the diff, and proves behavior on the running app before reporting done.
 
+**Contents:**
+- [Part 1: Start using AStack in 1 minute](#part-1-start-using-astack-in-1-minute)
+- [Part 2: Plan-first workflow (write a plan, approve, then execute)](#part-2-plan-first-workflow-write-a-plan-approve-then-execute)
+- [Part 3: Day-to-day 5-stage workflow](#part-3-day-to-day-5-stage-workflow)
+- [Part 4: Multi-agent modes and power moves](#part-4-multi-agent-modes-and-power-moves)
+
 ---
 
 ## Part 1: Start Using AStack in 1 Minute
@@ -48,17 +54,94 @@ Unsure which skill fits? Ask [`/astack-help`](../skills/astack-help/SKILL.md) wi
 
 ---
 
-## Part 2: Step-by-Step — How to Work With AStack Day-to-Day
+## Part 2: Plan-first workflow (write a plan, approve, then execute)
 
-Most engineering tasks flow naturally through five stages. You don't have to memorize or chain these commands manually—`/astack-mode` invokes them automatically when needed—but knowing each stage lets you call any skill directly when you want focused control.
+Both Antigravity (`/plan` and **Orchestrator**) and AStack pause before touching project files whenever your prompt asks for plan approval first or runs a plan-only playbook:
 
 ```mermaid
 flowchart LR
-    G["Your Goal (/astack-mode)"] --> U["1. Understand (/how, /why, /recall)"]
-    U --> D["2. Design (/architect, /arena, Prototype)"]
-    D --> B["3. Build (/astack-mode Playbooks)"]
-    B --> C["4. Clean (/deslop, /no-comments, /unslop)"]
-    C --> V["5. Verify & Ship (/control-ui, /control-cli, verify-app)"]
+    P["`**1. Write plan**
+Read-only investigation
+Zero file edits`"] --> A["`**2. Review & approve**
+Inspect or revise steps
+Explicit go-ahead`"] --> E["`**3. Execute & verify**
+/astack-mode + Control Glass
+Stop before push or merge`"]
+```
+
+### Step 1: Write a plan without changing code
+
+Pick the prompt that matches the size of the work:
+
+1. **Everyday feature or bug fix (`/plan` + `/astack-mode`):** Pairs Antigravity's `/plan` gate with AStack's read-only [`investigation.md`](../skills/astack-mode/playbooks/investigation.md) path:
+   ```text
+   /plan /astack-mode <task or bug>. Investigate the codebase, write a step-by-step implementation and verification plan, and stop for my approval before editing any files.
+   ```
+2. **Unclear requirements or edge cases ([`/interrogate`](../skills/interrogate/SKILL.md) or `/grill-me`):** Audits real callers and failure cases first, then asks only what code could not settle (pair with Antigravity's `/grill-me` for a structured alignment interview):
+   ```text
+   /interrogate <idea>. Check the codebase first, surface hidden assumptions and edge cases, and align with me before writing a plan or changing code.
+   ```
+3. **API, module boundary, or architecture change ([`/architect`](../skills/architect/SKILL.md) with checkpoint):** By default `/architect` moves straight from design into code unless you pass `with checkpoint`:
+   ```text
+   /architect <feature or API>. With checkpoint. Compare candidate designs, screen for red flags, write the type sketch and rationale, and stop for my approval before implementing.
+   ```
+4. **Multi-PR feature, refactor, or migration ([`multi-phase-plan.md`](../skills/astack-mode/playbooks/multi-phase-plan.md)):** Makes the checklist the deliverable, validates it with [`check-plan.mjs`](../skills/astack-mode/scripts/check-plan.mjs), and edits zero product files (pair with `/teamwork` when you want approval gates after every milestone):
+   ```text
+   /astack-mode Turn <goal> into a plan in docs/<name>-plan.md with small verifiable units and live verification steps. Do not implement. Stop for my approval.
+   ```
+
+### Step 2: Review, revise, or sharpen
+
+Ask for revisions directly in chat before giving the go-ahead:
+
+```text
+Update step 2 to use <X> instead of <Y>, keep <Z> out of scope, and show me the revised plan before implementing.
+```
+
+Three zero-execution skills help refine prompts and check understanding before you spend execution turns:
+
+- [`/sharpen`](../skills/sharpen/SKILL.md): rewrites a rough prompt deeper without running the task.
+- [`/in-your-own-words`](../skills/in-your-own-words/SKILL.md): restates what the agent thinks your goal is so you catch misreadings early.
+- [`/astack-help`](../skills/astack-help/SKILL.md): recommends the right skill and returns a copyable prompt without starting work.
+
+### Step 3: Execute the approved plan through AStack
+
+Once you approve the plan, execute it through AStack while keeping final git push and merge decisions in your hands:
+
+- **Single-branch execution** (prepend `/boost` for hard race conditions or coupled defects):
+  ```text
+  /astack-mode Approved. Execute the plan above, prove it works end-to-end, run /deslop and /no-comments, and stop before git push so I can review the diff.
+  ```
+- **Parallel or stacked multi-PR execution from a saved plan file:** Use [`autopilot-stack.md`](../skills/astack-mode/playbooks/autopilot-stack.md) instead of [`autopilot-full.md`](../skills/astack-mode/playbooks/autopilot-full.md). `autopilot-stack` builds and verifies every PR in the plan, then stops and hands them back without merging:
+  ```text
+  /swarm /astack-mode Approved. Execute docs/<name>-plan.md with the autopilot-stack playbook. Stop once every unit is verified and wait for my review before pushing or merging.
+  ```
+
+---
+
+## Part 3: Day-to-day 5-stage workflow
+
+Most engineering tasks flow naturally through five stages. You don't have to memorize or chain these commands manually. `/astack-mode` invokes them automatically when needed, and knowing each stage lets you call any skill directly when you want focused control.
+
+```mermaid
+flowchart LR
+    S1["`**1. Understand**
+/how · /why
+/teach · /recall`"]
+    S2["`**2. Design**
+/architect · /arena
+/interrogate`"]
+    S3["`**3. Build**
+/astack-mode
+playbooks + /tdd`"]
+    S4["`**4. Clean**
+/deslop · /no-comments
+/unslop`"]
+    S5["`**5. Verify & ship**
+/control-ui · /control-cli
+verify-app · /blast-radius`"]
+
+    S1 --> S2 --> S3 --> S4 --> S5
 ```
 
 ### Stage 1: Understand Before Changing Code
@@ -136,7 +219,7 @@ AStack separates code cleanup, comment removal, and prose cleanup into three spe
 
 ---
 
-## Part 3: How to Take the Most Out of AStack (Power Moves)
+## Part 4: Multi-agent modes and power moves
 
 ### 1. Pair `/astack-mode` With Antigravity's Native Execution Modes
 

@@ -1,10 +1,7 @@
 # AStack (pstack for Google Antigravity) — Verification-First Engineering & Multi-Agent Workflows
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="./assets/banner-light.png">
-    <img src="./assets/banner-dark.png" alt="AStack — Verification-first engineering skills and multi-agent workflows for Google Antigravity" width="100%">
-  </picture>
+  <img src="./assets/banner_ASCII%20terminal@1x.png" alt="AStack — Verification-first engineering skills and multi-agent workflows for Google Antigravity" width="100%">
 </p>
 
 <p align="center">
@@ -34,12 +31,11 @@
 
 ## Feature highlights
 
-- **Goal-driven playbook routing**: [`/astack-mode`](./skills/astack-mode/SKILL.md) matches your request to 23 engineering playbooks (`bug-fix`, `feature`, `refactoring`, `perf-issue`, `babysit`, `shipping`, and more), while [`/astack-help`](./skills/astack-help/SKILL.md) recommends the right skill and copy-paste prompt without running execution work.
-- **Live UI and CLI verification ("Control Glass")**: [`/control-ui`](./skills/control-ui/SKILL.md) drives live web and Electron apps through Antigravity's `browser` subagent and Chrome DevTools MCP, [`/control-cli`](./skills/control-cli/SKILL.md) tests CLIs and daemons in isolated temp directories, and [`/create-verification-skill`](./skills/create-verification-skill/SKILL.md) generates repo-local `.agents/skills/verify-<app>/` feature maps.
-- **Native Antigravity multi-agent integration**: Pairs AStack playbooks with `invoke_subagent` ([`/fanout`](./skills/fanout/SKILL.md)), `/boost` (hard coupled bugs), `/swarm` (board-coordinated parallel writers and `@verifier` gates), `/teamwork` (multi-milestone efforts), and `/goal` + `/schedule` (overnight runs with `decisions.tsv`).
-- **Parallel design and formal checks**: [`/architect`](./skills/architect/SKILL.md) explores competing cross-boundary designs, [`/arena`](./skills/arena/SKILL.md) runs isolated multi-candidate bakeoffs and grafts winning pieces, [`/interrogate`](./skills/interrogate/SKILL.md) challenges assumptions with diverse reviewers, and [`/statechart`](./skills/statechart/SKILL.md) turns TLA+ / TLC checks into Mermaid statecharts.
-- **Automated code, comment, and prose cleanup**: [`/deslop`](./skills/deslop/SKILL.md) strips dead wrappers and unsupported fallbacks, [`/no-comments`](./skills/no-comments/SKILL.md) runs [`comment-sicko`](./agents/comment-sicko.md) to delete narrating comments and flag workarounds, and [`/unslop`](./skills/unslop/SKILL.md) + [`/technical-writing`](./skills/technical-writing/SKILL.md) tighten docs and PR descriptions.
-- **Cross-platform Node.js 22+ runtime**: Every bundled CLI (`statechart.mjs`, `watch-pr`, `worktree-audit`, `log.mjs`, hooks, sync, and validation) runs natively on Windows, macOS, and Linux with no Bun requirement.
+- **Playbook routing** — [`/astack-mode`](./skills/astack-mode/SKILL.md) matches your goal to 23 engineering playbooks (`bug-fix`, `feature`, `refactoring`, `perf-issue`, `shipping`, and more).
+- **Live verification ("Control Glass")** — Proves changes against running apps and CLIs via [`/control-ui`](./skills/control-ui/SKILL.md), [`/control-cli`](./skills/control-cli/SKILL.md), and repo-local `verify-<app>` skills.
+- **Parallel design & bakeoffs** — Stress-tests specs and compares competing implementations in isolated workspaces with [`/interrogate`](./skills/interrogate/SKILL.md), [`/architect`](./skills/architect/SKILL.md), and [`/arena`](./skills/arena/SKILL.md).
+- **Native Antigravity orchestration** — Coordinates subagents ([`/fanout`](./skills/fanout/SKILL.md)), `/boost`, `/swarm`, `/teamwork`, and `/goal` with zero model lock-in.
+- **Anti-slop cleanup** — Strips dead wrappers, narrating comments, and AI filler before review with [`/deslop`](./skills/deslop/SKILL.md), [`/no-comments`](./skills/no-comments/SKILL.md), and [`/unslop`](./skills/unslop/SKILL.md).
 
 ## Install
 
@@ -73,12 +69,25 @@ To install from a local clone instead, run `agy plugin install ./astack` (or `ag
 
 Most work flows through five stages. You do not need to chain commands manually because `/astack-mode` calls them when needed, though you can invoke any stage directly:
 
-```text
-1. Understand (/how, /why, /teach, /recall)
-   -> 2. Design (/architect, /arena, /interrogate)
-   -> 3. Build (/astack-mode playbooks + /tdd)
-   -> 4. Clean (/deslop, /no-comments, /unslop)
-   -> 5. Verify & ship (/control-ui, /control-cli, verify-<app>, /blast-radius)
+```mermaid
+flowchart LR
+    S1["`**1. Understand**
+/how · /why
+/teach · /recall`"]
+    S2["`**2. Design**
+/architect · /arena
+/interrogate`"]
+    S3["`**3. Build**
+/astack-mode
+playbooks + /tdd`"]
+    S4["`**4. Clean**
+/deslop · /no-comments
+/unslop`"]
+    S5["`**5. Verify & ship**
+/control-ui · /control-cli
+verify-app · /blast-radius`"]
+
+    S1 --> S2 --> S3 --> S4 --> S5
 ```
 
 [`rules/astack-orchestration.md`](./rules/astack-orchestration.md) also guides model-decision routing across Antigravity's native execution modes (explained in full in [`docs/architecture-and-swarm.md`](./docs/architecture-and-swarm.md)):
@@ -237,7 +246,7 @@ AStack ships **61 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 
 | Goal | Documents |
 |---|---|
-| Single-page quickstart, 5-stage daily workflow, and power-moves handbook | [AStack User Guide](./docs/user-guide.md) |
+| Single-page quickstart, plan-approve-execute workflow, 5-stage guide, and power moves | [AStack User Guide](./docs/user-guide.md) · [Plan-First Workflow](./docs/user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute) |
 | Step-by-step 10-chapter onboarding course | [The AStack Guide](./docs/guide/README.md) |
 | 5-layer enforcement model, Control Glass, and Antigravity mode matrix | [Architecture & Swarm](./docs/architecture-and-swarm.md) · [Swarm Coordination Reference](./skills/astack-mode/references/swarm-coordination.md) |
 | Prompting patterns, copy-paste recipes, and review checklists | [Prompting Guide](./skills/astack-help/references/prompting.md) · [Prompt Recipes](./skills/astack-help/references/recipes.md) · [Bugbot & Review Triage](./skills/astack-mode/references/bugbot-triage.md) · [DevTools Evidence Checklist](./skills/control-ui/references/devtools-evidence-checklist.md) · [Design Red Flags](./skills/architect/references/design-red-flags.md) · [TypeScript Patterns](./skills/typescript-best-practices/references/patterns.md) |
@@ -248,9 +257,9 @@ AStack ships **61 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 ### 10-chapter tutorial (`docs/guide/`)
 
 1. [Set up AStack](./docs/guide/01-setup.md): install the plugin, use any model on your plan, and scaffold verification.
-2. [Route work through `/astack-mode`](./docs/guide/02-astack-mode.md): give a goal and let `/astack-mode` pick the playbook.
+2. [Route work through `/astack-mode`](./docs/guide/02-astack-mode.md): give a goal, gate execution behind plan approval, and let `/astack-mode` pick the playbook.
 3. [Understand the code](./docs/guide/03-understand.md): read-only investigation with `/how`, `/why`, `/teach`, and `/recall`.
-4. [Design the change](./docs/guide/04-design.md): `/architect`, `/arena`, `/fanout`, `/interrogate`, and prototypes.
+4. [Design the change](./docs/guide/04-design.md): `/architect` checkpoints, `/arena`, `/fanout`, `/interrogate`, prototypes, and approved multi-PR plans.
 5. [Build and clean the change](./docs/guide/05-build-and-clean.md): build playbooks, `/tdd`, `/deslop`, `/unslop`, and `/no-comments`.
 6. [Verify and ship](./docs/guide/06-verify-and-ship.md): Control Glass verification, formal TLA+ checks, `/benchmark-checklist`, and PR shipping.
 7. [Run work while you sleep](./docs/guide/07-overnight.md): `/goal` contracts, `decisions.tsv` audit logs, and `/schedule` automations.

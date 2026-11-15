@@ -92,6 +92,22 @@ keep going until done
 
 Short works because the playbook holds the structure inside the active session (or your pinned `.agents/rules/` orchestration rule keeps rigor active across turns). Your words carry the intent, and the skill carries the rigor.
 
+## Gate execution behind plan approval
+
+If you want to review and approve every plan before any file changes, pair Antigravity's `/plan` command with an explicit stop constraint:
+
+```text
+/plan /astack-mode users get duplicate invoices on retry. investigate the cause, write a fix and verification plan, and stop for my approval before editing any files.
+```
+
+Both `/plan` (along with **Orchestrator**) and `/astack-mode`'s read-only investigation path stop as soon as the plan is written. Review the steps, ask for edits if anything looks wrong, and run the approved plan through AStack while keeping final push control:
+
+```text
+/astack-mode approved. execute the plan, verify end-to-end, run /deslop and /no-comments, and stop before git push.
+```
+
+For architectural design checkpoints (`/architect with checkpoint`) and multi-PR written plans (`multi-phase-plan`), see [Plan after the design settles](./04-design.md#plan-after-the-design-settles) and the [Plan-first workflow in the User Guide](../user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute).
+
 ## Switch tasks with "new task"
 
 A long chat accumulates context from the last task. When you change subjects, say so:

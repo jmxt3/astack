@@ -261,7 +261,13 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
     const content = fs.readFileSync(mdFile, "utf8");
 
     for (const target of extractRelativeLinks(content)) {
-      const resolved = path.resolve(path.dirname(mdFile), ...target.split("/"));
+      let decodedTarget = target;
+      try {
+        decodedTarget = decodeURIComponent(target);
+      } catch {
+        // Keep raw target if malformed percent-encoding
+      }
+      const resolved = path.resolve(path.dirname(mdFile), ...decodedTarget.split("/"));
       if (!fs.existsSync(resolved)) {
         errors.push({ file: rel, message: `Broken relative link target: ${target}` });
       }

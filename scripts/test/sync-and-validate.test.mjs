@@ -130,6 +130,8 @@ test("validateAStack rejects collisions, frontmatter errors, oversized skills, b
       "Copyright (c) 2026 Lauren Tan\nCopyright (c) 2026 João Machete\n",
     );
     writeFile(path.join(tmp, "assets", "logo.svg"), "<svg/>");
+    writeFile(path.join(tmp, "assets", "banner test@1x.png"), "png");
+    writeFile(path.join(tmp, "README.md"), '<p><img src="./assets/banner%20test@1x.png" alt="Banner"></p>\n');
     writeFile(
       path.join(tmp, "skills", "alpha", "SKILL.md"),
       "---\nname: alpha\ndescription: ok\n---\n\nSee [ref](./references/doc.md).\n",

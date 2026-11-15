@@ -12,6 +12,13 @@ Swap in real paths, PR numbers, and done checks.
 - `/recall my work on <topic>, then inspect <issue>.`
 - `/astack-mode session pickup on branch <name> from recent transcript.`
 
+## Plan First, Approve, Then Execute
+
+- Everyday gate: `/plan /astack-mode <task>. investigate first, write a step-by-step fix and verification plan, and stop for my approval before editing any files.`
+- Architecture gate: `/architect <feature>. with checkpoint. compare designs, write the type sketch and rationale, and wait for sign-off before coding.`
+- Multi-PR written plan: `/astack-mode turn <goal> into a plan in docs/<name>-plan.md with small verifiable units and live proof steps. do not implement. stop for my approval.`
+- Execute after approval: `/astack-mode approved. execute the plan, prove it works live, run /deslop and /no-comments, and stop before git push.` (Multi-PR plans: `/swarm /astack-mode approved. execute docs/<name>-plan.md with autopilot-stack.`)
+
 ## Build
 
 - Bug (Web/UI): `/astack-mode repro <symptom> with /control-ui. if it reproduces on main, /tdd if cheap, fix the root cause, and prove with before/after DevTools output.`

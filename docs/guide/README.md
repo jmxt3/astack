@@ -2,14 +2,14 @@
 
 astack is **João Machete**'s native Google Antigravity port of **Lauren Tan (`@poteto`)**'s [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) (MIT), integrated with Antigravity's `Subagents`, `/boost`, `/swarm`, `/teamwork`, `/goal`, and `/schedule` workflows.
 
-astack works best when you stop micromanaging the agent. You describe what you want and how you'll know it's done. `/astack-mode` picks the playbook, runs the other skills as the steps need them, escalates to Antigravity's multi-agent modes when work broadens, and shows you the evidence. This guide teaches that habit with realistic prompts. (Want a single-page quickstart, daily 5-stage workflow, and power-moves cheat sheet first? Read the [AStack User Guide](../user-guide.md). For the full system model and Antigravity mode routing, read [Architecture & Swarm](../architecture-and-swarm.md).)
+astack works best when you stop micromanaging the agent. You describe what you want and how you'll know it's done. `/astack-mode` picks the playbook, runs the other skills as the steps need them, escalates to Antigravity's multi-agent modes when work broadens, and shows you the evidence. This guide teaches that habit with realistic prompts. (Want a single-page quickstart, [plan-first approval workflow](../user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute), daily 5-stage workflow, and power-moves cheat sheet first? Read the [AStack User Guide](../user-guide.md). For the full system model and Antigravity mode routing, read [Architecture & Swarm](../architecture-and-swarm.md).)
 
 Here's what you'll learn:
 
 1. [Set up astack](./01-setup.md). Install the plugin, use any model on your plan with zero config, and set up verification.
-2. [Route work through `/astack-mode`](./02-astack-mode.md). Give it a goal and watch it pick a playbook.
+2. [Route work through `/astack-mode`](./02-astack-mode.md). Give it a goal, gate execution behind plan approval if you want sign-off first, and watch it pick a playbook.
 3. [Understand the code](./03-understand.md). A read-only investigation, then `/how`, `/why`, `/teach`, and `/recall` before you edit anything.
-4. [Design the change](./04-design.md). `/architect`, `/arena`, `/fanout`, `/interrogate`, prototypes, and plans before code locks in a shape.
+4. [Design the change](./04-design.md). `/architect` (with optional checkpoints), `/arena`, `/fanout`, `/interrogate`, prototypes, and approved multi-PR plans before code locks in a shape.
 5. [Build and clean the change](./05-build-and-clean.md). The build playbooks, `/tdd`, `/unslop`, and `/no-comments`.
 6. [Verify and ship](./06-verify-and-ship.md). Prove behavior on the real app, formally verify what tests rarely reach, vet numbers with `/benchmark-checklist`, then open a focused PR and drive it to merged.
 7. [Run work while you sleep](./07-overnight.md). Trust before loops, an overnight contract, a decision log you can audit, and Projects and automations that scale past one agent.
