@@ -82,7 +82,7 @@ flowchart TD
 
 ### Why `/fanout` Instead of `/swarm`?
 
-In Antigravity's customization loading order, **built-in skills have higher precedence than plugin skills of the same name**. More importantly, shadowing Antigravity's native multi-agent `/swarm` board skill would confuse both users and agents trying to invoke `/swarm`.
+In Antigravity's customization loading order (**Workspace -> Global -> Plugin -> Built-in**), **plugin skills have higher precedence than built-in skills of the same name**. Shipping a plugin skill at `skills/swarm` would shadow Antigravity's built-in multi-agent `/swarm` board skill.
 
 Therefore, AStack explicitly renames `pstack`'s upstream `skills/swarm` slice runner to **`skills/fanout`** (`/fanout`). This preserves Antigravity's built-in `/swarm` cleanly while letting `/fanout` handle lightweight `invoke_subagent` fan-out matrices and seamlessly escalate to native `/swarm` whenever workers need a shared message board or dedicated `@verifier`.
 
@@ -97,4 +97,17 @@ See [`skills/astack-mode/references/swarm-coordination.md`](../skills/astack-mod
 
 ## Outer Loop Automations (`benny`)
 
-AStack includes [`docs/automations/benny/`](./automations/benny/README.md) — a dormant two-stage automation pack (triage + reproduce-and-fix) adapted to `.agents/automations/benny/`, Antigravity `/schedule` / `agy -p` runners, `control-ui`/`control-cli`, and fail-closed Slack thread invariants.
+AStack includes [`docs/automations/benny/`](./automations/benny/README.md), a dormant two-stage automation pack (triage plus reproduce-and-fix) adapted to `.agents/automations/benny/`, Antigravity `/schedule` and `agy -p` runners, `control-ui` and `control-cli`, and fail-closed Slack thread invariants.
+
+## Upstream pstack to AStack Port Map
+
+| Upstream pstack Concept | AStack Antigravity Equivalent | Notes |
+|---|---|---|
+| Plugin manifest and lifecycle hooks | [`plugin.json`](../plugin.json) + opt-in [`hooks.json`](../hooks.json) | Verified by [`validate-astack.mjs`](../scripts/validate-astack.mjs) and `agy plugin validate --strict` |
+| Mode router, help, and repo setup | [`/astack-mode`](../skills/astack-mode/SKILL.md), [`/astack-help`](../skills/astack-help/SKILL.md), [`/setup-astack`](../skills/setup-astack/SKILL.md) | `SKILL.md` frontmatter restricted to `name` and `description`; body `<= 24,000` bytes |
+| Slice fan-out vs coordinated board | [`/fanout`](../skills/fanout/SKILL.md) (`invoke_subagent`) + built-in `/swarm` (`swarm`, `post_message`, `read_board`, `swarm_wait`) | Renaming `skills/swarm` to `skills/fanout` prevents Plugin priority from shadowing Built-in `/swarm` |
+| Model routing and cross-family diversity | `Model: "inherit"` default (UI picker and **Orchestrator** bidirectional routing), `Model: "flash"` for broad `research`/`browser` sweeps, live `swarm{action: "models", all: true}` discovery, optional `astack-models.md` | Cross-family `/arena` and `/interrogate` discover healthy `quota_remaining` live |
+| Workspace and global customizations | `.agents/skills/` and `~/.gemini/config/skills/`; `.agents/rules/` and `~/.gemini/config/rules/` | Global skills live under `~/.gemini/config/skills/` |
+| Structured multi-choice prompts | `ask_question` (`is_multi_select: true`, `(Recommended)` prefix on default option) | Used by [`/automate-me`](../skills/automate-me/SKILL.md) and [`/setup-astack`](../skills/setup-astack/SKILL.md) |
+| Conversation transcripts | `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` | Paired with `transcript_full.jsonl` when `truncated_fields` is present |
+| Verification harnesses and outer loop | [`/control-ui`](../skills/control-ui/SKILL.md), [`/control-cli`](../skills/control-cli/SKILL.md), [`/deslop`](../skills/deslop/SKILL.md), repo `.agents/skills/verify-<app>/`, [`docs/automations/benny/`](./automations/benny/README.md) | Concrete runtime proof before reporting done |

@@ -129,7 +129,7 @@ Because AStack leaves subagent and `/swarm` worker models unset (`Model: "inheri
 | **`/teamwork`** | Long-horizon, multi-milestone migrations, rewrites, or formal efforts | Scoping interview and milestone gates with [`/architect`](./skills/architect/SKILL.md) and [`/show-me-your-work`](./skills/show-me-your-work/SKILL.md) |
 | **`/goal`** (+ **`/schedule`**) | Overnight or autonomous iteration toward a checkable finish predicate | `autonomous-run`, [`/figure-it-out`](./skills/figure-it-out/SKILL.md), `decisions.tsv`, [`/ketchup`](./skills/ketchup/SKILL.md) |
 
-> **Why `/fanout` instead of `skills/swarm`?** Antigravity gives built-in skills higher priority than plugin skills of the same name. AStack renames upstream `skills/swarm` to [`skills/fanout`](./skills/fanout/SKILL.md) so Antigravity's native `/swarm` multi-agent board is never shadowed.
+> **Why `/fanout` instead of `skills/swarm`?** Antigravity gives plugin skills higher priority than built-in skills of the same name (Workspace -> Global -> Plugin -> Built-in). AStack renames upstream `skills/swarm` to [`skills/fanout`](./skills/fanout/SKILL.md) so Antigravity's native `/swarm` multi-agent board is never shadowed.
 
 ## Skill catalog
 

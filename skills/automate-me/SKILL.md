@@ -13,7 +13,7 @@ This skill orchestrates three steps: an inline transcript-mining pass (Step 1), 
 
 ### 0. Check for an existing skill
 
-Look recursively for `.agents/skills/**/*-mode/SKILL.md` and `~/.agents/skills/*-mode/SKILL.md` matching the user's handle. Mode skills can live in a personal category directory (`.agents/skills/<handle>/`), not only at the top level. If one exists, confirm intent with `ask_question` (unless they already said "update my skill" or similar):
+Look recursively for `.agents/skills/**/*-mode/SKILL.md` and `~/.gemini/config/skills/*-mode/SKILL.md` matching the user's handle. Mode skills can live in a personal category directory (`.agents/skills/<handle>/`), not only at the top level. If one exists, confirm intent with `ask_question` (unless they already said "update my skill" or similar):
 
 - Update the existing skill (default for repeat runs)
 - Start fresh (rare, ask why before doing it)
@@ -42,7 +42,7 @@ Cross-check across slices before elevating a signal. Patterns seen in 2+ slices 
 
 Mining misses intent that hasn't come up yet. Use the `ask_question` tool (structured multi-choice) rather than asking the user to type from scratch.
 
-Shape: one or two questions with 4-6 options each, `allow_multiple: true` for category questions. Start broad ("Which areas matter most?"), then follow up on selected areas with specific options. After the structured rounds, one free-form chat question catches anything the options missed.
+Shape: one or two questions with 4-6 options each, `is_multi_select: true` for category questions. Start broad ("Which areas matter most?"), then follow up on selected areas with specific options. After the structured rounds, one free-form chat question catches anything the options missed.
 
 Don't dump 20 questions.
 
@@ -65,7 +65,7 @@ The **astack-mode** skill shows the shape. Read it for granularity. Don't copy i
 
 Follow [`authoring-a-skill.md`](../astack-mode/playbooks/authoring-a-skill.md) to author a valid Antigravity skill:
 
-- Path: preserve an existing mode skill's category. For a new mode, use `.agents/skills/<handle>/<handle>-mode/SKILL.md` when the repo has an established personal category for that handle. Otherwise default to `.agents/skills/<handle>-mode/SKILL.md` in the project (or `~/.agents/skills/<handle>-mode/SKILL.md` for a global personal skill).
+- Path: preserve an existing mode skill's category. For a new mode, use `.agents/skills/<handle>/<handle>-mode/SKILL.md` when the repo has an established personal category for that handle. Otherwise default to `.agents/skills/<handle>-mode/SKILL.md` in the project (or `~/.gemini/config/skills/<handle>-mode/SKILL.md` for a global personal skill).
 - Handle: the user's first name or chosen identifier.
 - Antigravity frontmatter: keep ONLY `name` (`<handle>-mode`, matching the folder name) and `description` as YAML keys so `agy plugin validate` / Antigravity's skill loader accepts it cleanly (total body under `24,000` bytes). Do NOT add Cursor-only keys like `disable-model-invocation: true`; instead keep auto-triggering scoped cleanly by writing explicit triggers (`/<handle>-mode`, `"work in <handle>'s style"`) in `description`. Keep `description` as one quoted YAML scalar or `>-` folded block.
 

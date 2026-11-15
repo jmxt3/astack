@@ -12,7 +12,7 @@ AStack is the Google Antigravity port of Lauren Tan's (`@poteto`) `pstack`, main
 
 When the user asks for engineering rigor, debugging with evidence, performance hillclimbing, multi-agent code bakeoffs, verification skills, or invokes `/astack-mode`:
 
-1. Load and follow `skills/astack-mode/SKILL.md` (or ask the user to invoke `/astack-mode` explicitly for full playbook enforcement, since `astack-mode` sets `disable-model-invocation: true`).
+1. Load and follow `skills/astack-mode/SKILL.md` (or suggest `/astack-mode` explicitly when the user wants full playbook enforcement).
 2. Never shadow or replace Antigravity's built-in `/swarm` command. For lightweight N-way `invoke_subagent` fan-out, use `/fanout`; for broad multi-file or multi-PR coordination with live board visibility and `@verifier` sign-off, use Antigravity's native `swarm` board tools or recommend `/swarm`.
 3. Match orchestration mode to task shape:
    - **Subagents (`invoke_subagent`)**: Focused background delegation (`astack-agent`, `comment-sicko`, `research`, `browser`). Use `Workspace: "share"` when parallel workers edit files.

@@ -5,7 +5,7 @@ description: "Antigravity CLI, TUI & Service Control Glass: verify CLIs, scripts
 
 # Control CLI ("Control Glass" for Commands & Services)
 
-Prove non-browser software against **real executions**, not code-reading guesses or mocked unit assertions alone (`principle-prove-it-works`, `principle-verify-before-reporting`).
+Prove non-browser software against **real executions**, not code-reading guesses or mocked unit assertions alone (`principle-prove-it-works`).
 
 ## 1. Check Project Verification Skill First
 

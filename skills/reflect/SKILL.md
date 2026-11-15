@@ -43,14 +43,14 @@ Present the synthesizer's full Accepted / Rejected / Backlog output and wait for
 
 File each Backlog item to your team's devex or backlog tracker without waiting. Only the Accepted list waits for approval.
 
-Never edit a skill under `~/.gemini/config/plugins/`. Before approval, show its destination, `.agents/skills/<skill>/` or `~/.agents/skills/<skill>/`. After approval, copy the skill folder there and edit the copy. Never open a PR or push.
+Never edit a skill under `~/.gemini/config/plugins/`. Before approval, show its destination, `.agents/skills/<skill>/` or `~/.gemini/config/skills/<skill>/`. After approval, copy the skill folder there and edit the copy. Never open a PR or push.
 
 Follow each approved row's Routing exactly:
 
 - Trivial existing-skill edit (a one-line bullet, a tightened sentence, a stale fact corrected): the parent does it directly.
 - Substantive existing-skill edit (a new section, a new pattern table, more than ~10 lines): follow the project/Antigravity skill conventions in the `agy-customizations` skill to draft, test, and verify the updated `SKILL.md`. If a user rule should persist globally, suggest `/learn`.
 - `tune description: <skill path>` (the skill exists but didn't trigger when it should have): tighten the description's trigger phrasing (front-load concrete cues and slash commands) so future model-decision routing fires reliably.
-- `new skill via skill-authoring: <kebab-name>`: scaffold `.agents/skills/<kebab-name>/SKILL.md` (or `~/.agents/skills/<kebab-name>/SKILL.md`) following `agy-customizations` rules rather than inventing a custom shape ad hoc.
+- `new skill via skill-authoring: <kebab-name>`: scaffold `.agents/skills/<kebab-name>/SKILL.md` (or `~/.gemini/config/skills/<kebab-name>/SKILL.md`) following `agy-customizations` rules rather than inventing a custom shape ad hoc.
 
 If touching a workspace or plugin skill, run `agy plugin validate` (or `node scripts/validate-astack.mjs` when inside AStack) on every touched skill before declaring done.
 
