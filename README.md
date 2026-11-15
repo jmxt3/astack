@@ -1,3 +1,5 @@
+![AStack — Engineering discipline for Google Antigravity](./assets/banner.png)
+
 # AStack (`astack`)
 
 A native **Google Antigravity** engineering plugin delivering disciplined planning, empiricism, verification ("Control Glass"), architecture principles, and multi-agent coordination.
