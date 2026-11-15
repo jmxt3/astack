@@ -19,10 +19,17 @@ import {
   EXPECTED_NATIVE_COMMANDS,
   MAX_ANTIGRAVITY_BYTES,
   RESERVED_SKILL_NAMES,
+  applyFrontmatterPolicy,
   parseFrontmatter,
-} from "./sync-upstream.mjs";
+} from "./catalog.mjs";
 
-export { BUILTIN_RESERVED_SKILL_NAMES, EXPECTED_NATIVE_COMMANDS, RESERVED_SKILL_NAMES };
+export {
+  BUILTIN_RESERVED_SKILL_NAMES,
+  EXPECTED_NATIVE_COMMANDS,
+  RESERVED_SKILL_NAMES,
+  applyFrontmatterPolicy,
+  parseFrontmatter,
+};
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_ROOT_DIR = path.resolve(__dirname, "..");
@@ -485,7 +492,7 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
 
   // Check markdown relative links + Cursor runtime leaks across markdown content
   const mdScanTargets = [
-    ...["README.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md", "SECURITY.md"]
+    ...["README.md", "CREDITS.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md", "SECURITY.md"]
       .map((f) => path.join(rootDir, f))
       .filter((p) => fs.existsSync(p)),
     ...collectFiles(path.join(rootDir, "rules"), [".md"]),
@@ -573,10 +580,11 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
 const USAGE = `Usage: node scripts/validate-astack.mjs [options] [rootDir]
 
 Options:
-  --no-agy                 Skip agy plugin validate --strict
-  --json                   Emit machine-readable JSON output
-  --write-native-commands  Regenerate skills/astack-mode/references/native-commands.md from native-commands.json
-  -h, --help               Show this help text and exit 0`;
+  --no-agy                   Skip agy plugin validate --strict
+  --json                     Emit machine-readable JSON output
+  --write-native-commands    Regenerate skills/astack-mode/references/native-commands.md from native-commands.json
+  --apply-frontmatter-policy Synchronize disable-model-invocation from scripts/catalog.json before validating
+  -h, --help                 Show this help text and exit 0`;
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { values, positionals } = parseArgs({
@@ -585,6 +593,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       "no-agy": { type: "boolean", default: false },
       json: { type: "boolean", default: false },
       "write-native-commands": { type: "boolean", default: false },
+      "apply-frontmatter-policy": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -593,6 +602,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exit(0);
   }
   const rootDir = positionals[0] ? path.resolve(positionals[0]) : DEFAULT_ROOT_DIR;
+  if (values["apply-frontmatter-policy"]) {
+    applyFrontmatterPolicy(rootDir);
+  }
   if (values["write-native-commands"]) {
     const registryPath = path.join(rootDir, "skills", "astack-mode", "references", "native-commands.json");
     const markdownPath = path.join(rootDir, "skills", "astack-mode", "references", "native-commands.md");

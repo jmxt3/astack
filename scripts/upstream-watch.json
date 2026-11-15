@@ -1,0 +1,48 @@
+{
+  "sources": {
+    "pstack": {
+      "id": "pstack",
+      "name": "pstack by Lauren Tan (@poteto)",
+      "repoUrl": "https://github.com/cursor/plugins.git",
+      "subdir": "pstack",
+      "relationship": "code-derived (MIT)",
+      "license": "MIT",
+      "baselineVersion": "0.15.36",
+      "baselineCommit": "3dbd22ff12742fb28c9700b9760baa29ed41dc13",
+      "lastReviewed": "3dbd22ff12742fb28c9700b9760baa29ed41dc13",
+      "skillRenames": {
+        "poteto-mode": "astack-mode",
+        "poteto-help": "astack-help",
+        "setup-pstack": "setup-astack",
+        "swarm": "fanout"
+      },
+      "agentRenames": {
+        "poteto-agent": "astack-agent"
+      },
+      "ignoredPaths": [
+        ".cursor-plugin",
+        ".gitignore",
+        "LICENSE",
+        "README.md",
+        "assets/logo.png",
+        "docs/harness/claude-code.md",
+        "plugin.json",
+        "skills/poteto-mode/scripts/bootstrap.ts",
+        "skills/poteto-mode/scripts/bun.lock",
+        "skills/poteto-mode/scripts/package.json"
+      ]
+    },
+    "gstack": {
+      "id": "gstack",
+      "name": "gstack by Garry Tan (@garrytan)",
+      "repoUrl": "https://github.com/garrytan/gstack.git",
+      "subdir": "",
+      "relationship": "inspiration (MIT, no code copied)",
+      "license": "MIT",
+      "lastReviewed": null,
+      "skillRenames": {},
+      "agentRenames": {},
+      "ignoredPaths": []
+    }
+  }
+}

@@ -1,9 +1,9 @@
 # AStack Architecture & Antigravity Mode Integration
 
-**Original `pstack` & Michelin Kitchen thesis:** **Lauren Tan (`@poteto`)** ([`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack), MIT License).  
-**Native Antigravity port (`astack`):** **João Machete**.
+**Author & Maintainer:** **João Machete** ([`@jmxt3`](https://github.com/jmxt3))  
+**Foundations & Inspiration:** Built on **Lauren Tan (`@poteto`)**'s [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) (MIT License) and inspired by **Garry Tan (`@garrytan`)**'s [`gstack`](https://github.com/garrytan/gstack) (MIT License, conceptual inspiration with no code copied). See [CREDITS.md](../CREDITS.md).
 
-AStack ports Lauren Tan's engineering environment, including verification skills ("Control Glass"), materialized feature maps, engineering playbooks, and anti-slop discipline, into **Google Antigravity**, pairing it natively with **Orchestrator** (dynamic bidirectional model routing), `Subagents`, all 16 native Antigravity slash commands ([`native-commands.md`](../skills/astack-mode/references/native-commands.md), including `/plan`, `/grill-me`, `/learn`, `/boost`, `/swarm`, `/teamwork`, `/run-workflow`, `/goal`, `/schedule`, `/automation`, `/browser`), and opt-in lifecycle hooks.
+AStack provides a verification-first engineering environment (Control Glass verification skills, materialized feature maps, engineering playbooks, and anti-slop discipline) built natively for **Google Antigravity**, pairing it with **Orchestrator** (dynamic bidirectional model routing), `Subagents`, all 16 native Antigravity slash commands ([`native-commands.md`](../skills/astack-mode/references/native-commands.md), including `/plan`, `/grill-me`, `/learn`, `/boost`, `/swarm`, `/teamwork`, `/run-workflow`, `/goal`, `/schedule`, `/automation`, `/browser`), and opt-in lifecycle hooks.
 
 ## Core Thesis: Trust Through the Environment
 
@@ -19,7 +19,7 @@ When agents repeat a mistake, push the fix as high up this hierarchy as possible
 | 2. Static Analysis & Tests | Strong | TypeScript strictness, linters, CI checks whose error names the fix, TLA+ models (`/statechart`, `/create-formal-verification-skill`), `/tdd`. |
 | 3. Rules & Lifecycle Hooks | Medium | Always-on/triggered rules ([`rules/astack-orchestration.md`](../rules/astack-orchestration.md)) and opt-in [`hooks.json`](../hooks.json) (`PreToolUse` destructive command gate, `Stop` verify reminder). |
 | 4. Skills & Playbooks | Situational | `/astack-mode` router, 23 playbooks, 24 named principles, `/how`, `/why`, `/architect`, `/arena`, `/interrogate`, `/deslop`, `/no-comments`. |
-| 5. Human Review | Weakest | Reserved for design taste, product tradeoffs, and high-risk irreversible actions — assisted by `/teach`, `/ketchup`, and `/show-me-your-work`. |
+| 5. Human Review | Weakest | Reserved for design taste, product tradeoffs, and high-risk irreversible actions, assisted by `/teach`, `/ketchup`, and `/show-me-your-work`. |
 
 ## Control Glass & Verification Infrastructure
 
@@ -89,13 +89,13 @@ flowchart TD
 
 ### Customization Precedence, Namespacing & Why `/fanout` Replaces `/swarm`
 
-In Antigravity's customization discovery and precedence order (**Workspace Project** -> **Declared Configurations** -> **Global `~/.gemini/config/`** -> **Built-in Customizations** -> **Global Declared Configurations**), installed plugin skills take precedence over built-in skills of the same bare name. Explicitly referencing a plugin skill uses `<plugin>:<skill>` namespacing (for example `astack:tdd`), while plugin MCP servers are namespaced as `<plugin>_<server>`.
+In Antigravity's customization discovery and precedence order (**Workspace Project** > **Declared Configurations** > **Global `~/.gemini/config/`** > **Built-in Customizations** > **Global Declared Configurations**), installed plugin customizations follow declared-configuration priority and collide cleanly via `<plugin>:<skill>` namespacing (for example `astack:tdd`), while plugin MCP servers are namespaced as `<plugin>_<server>`.
 
 To avoid ever shadowing a native slash command or built-in skill:
 
-- AStack renames upstream `pstack`'s `skills/swarm` slice runner to **`skills/fanout`** (`/fanout`), letting `/fanout` handle lightweight `invoke_subagent` fan-out matrices and escalate cleanly to native `/swarm` when workers need a shared message board or dedicated `@verifier`.
-- [`validate-astack.mjs`](../scripts/validate-astack.mjs) and [`sync-upstream.mjs`](../scripts/sync-upstream.mjs) enforce `RESERVED_SKILL_NAMES` against all 16 native slash commands and the 4 built-in skills (`antigravity_guide`, `native_swarm`, `swarm_monitor`, `swarm_narrator`).
-- **Context budget (`disable-model-invocation: true`)**: Antigravity preloads only `name` and `description` for auto-invocable skills. AStack sets `disable-model-invocation: true` on `33` manual-only/reference skills (`24` `principle-*` skills plus `9` explicit slash entrypoints), keeping `28` auto-invocable workflow skills lean in the session index.
+- AStack keeps slice fan-out under **`skills/fanout`** (`/fanout`), letting `/fanout` handle lightweight `invoke_subagent` fan-out matrices and escalate cleanly to native `/swarm` when workers need a shared message board or dedicated `@verifier`.
+- [`validate-astack.mjs`](../scripts/validate-astack.mjs) and [`catalog.mjs`](../scripts/catalog.mjs) enforce `RESERVED_SKILL_NAMES` against all 16 native slash commands and the 15 built-in reserved names.
+- **Context budget (`disable-model-invocation: true`)**: Antigravity preloads only `name` and `description` for auto-invocable skills. AStack sets `disable-model-invocation: true` on `33` manual-only/reference skills (`24` `principle-*` skills plus `9` explicit slash entrypoints listed in [`catalog.json`](../scripts/catalog.json)), keeping `28` auto-invocable workflow skills lean in the session index.
 
 See [`skills/astack-mode/references/swarm-coordination.md`](../skills/astack-mode/references/swarm-coordination.md) for concrete `swarm` (`title`, `add`, `workspace`, `@verifier`, `@monitor`, cleanup) patterns.
 
@@ -103,22 +103,22 @@ See [`skills/astack-mode/references/swarm-coordination.md`](../skills/astack-mod
 
 [`hooks.json`](../hooks.json) ships two lightweight Node 22+ lifecycle hooks **disabled by default (`"enabled": false`)** so installing AStack introduces zero unexpected friction:
 
-1. **`astack-irreversible-guard` (`PreToolUse` on `run_command`)**: Intercepts potentially irreversible commands (`git push --force`, `git reset --hard`, recursive root deletes, `DROP TABLE`/`DATABASE`, prod destroys/deploys) with `{"decision": "force_ask"}` so confirmation ignores cached "Always Allow" approvals. Implemented in [`scripts/hooks/irreversible-guard.mjs`](../scripts/hooks/irreversible-guard.mjs).
+1. **`astack-irreversible-guard` (`PreToolUse` on `run_command`)**: Inspects shell strings (including unwrapped nested `sh -c`, `bash -c`, `pwsh -Command`, `cmd /c`, and `eval` calls, scoped SQL DB execution vs read-only searches, and trunk refspec pushes such as `+main`, `:main`, and `--delete main`). Returns `{"decision": "force_ask"}` interactively or `{"decision": "deny"}` under `CI=true` / `NON_INTERACTIVE=1`. Implemented in [`scripts/hooks/irreversible-guard.mjs`](../scripts/hooks/irreversible-guard.mjs).
 2. **`astack-verify-reminder` (`Stop`)**: When enabled and `ASTACK_REQUIRE_VERIFY=1` is set in the environment, nudges once (`{"decision": "continue"}`) if uncommitted non-markdown changes exist on a normal `NO_TOOL_CALL` stop, strictly honoring `continuationActive` to prevent loops. Implemented in [`scripts/hooks/verify-reminder.mjs`](../scripts/hooks/verify-reminder.mjs).
 
 ## Outer Loop Automations (`benny`)
 
 AStack includes [`docs/automations/benny/`](./automations/benny/README.md), a dormant two-stage automation pack (triage plus reproduce-and-fix) adapted to `.agents/automations/benny/`, Antigravity `/automation` (`sidecar.json` + `CRON_TZ=`), **Remote Agents** (`agy --remote-agent`), headless `agy -p` runners, `/schedule`, `control-ui` and `control-cli`, and fail-closed Slack thread invariants.
 
-## Upstream pstack to AStack Port Map
+## Lineage: What AStack Kept, Adapted, and Built Natively
 
-| Upstream pstack Concept | AStack Antigravity Equivalent | Notes |
+| Lineage / Concept | AStack Antigravity Equivalent | Notes |
 |---|---|---|
 | Plugin manifest and lifecycle hooks | [`plugin.json`](../plugin.json) + opt-in [`hooks.json`](../hooks.json) | Verified by [`validate-astack.mjs`](../scripts/validate-astack.mjs) and `agy plugin validate --strict` |
-| Mode router, help, and repo setup | [`/astack-mode`](../skills/astack-mode/SKILL.md), [`/astack-help`](../skills/astack-help/SKILL.md), [`/setup-astack`](../skills/setup-astack/SKILL.md) | `SKILL.md` allows `name`, `description`, `disable-model-invocation` (`33` manual-only / `28` auto-invocable), `license`, `compatibility`; body `<= 24,000` bytes; agents (`astack-agent`, `comment-sicko`) declare `mainAgent: false`, `subagent: true`, `model: inherit` |
-| Slice fan-out vs coordinated board | [`/fanout`](../skills/fanout/SKILL.md) (`invoke_subagent`) + built-in `/swarm` (`swarm`, `post_message`, `read_board`, `swarm_wait`) | Renaming `skills/swarm` to `skills/fanout` prevents Plugin priority from shadowing Built-in `/swarm` |
+| Mode router, help, and repo setup | [`/astack-mode`](../skills/astack-mode/SKILL.md), [`/astack-help`](../skills/astack-help/SKILL.md), [`/setup-astack`](../skills/setup-astack/SKILL.md) | `SKILL.md` allows `name`, `description`, `disable-model-invocation` (`33` manual-only / `28` auto-invocable), `license`, `compatibility`; body `<= 24,000` bytes; `astack-agent` inherits context and `comment-sicko` sets `inheritCustomizations: false` |
+| Slice fan-out vs coordinated board | [`/fanout`](../skills/fanout/SKILL.md) (`invoke_subagent`) + built-in `/swarm` (`swarm`, `post_message`, `read_board`, `swarm_wait`) | Dedicated `/fanout` skill prevents shadowing Antigravity's built-in `/swarm` |
 | Model routing and cross-family diversity | `Model: "inherit"` default (UI picker and **Orchestrator** bidirectional routing), `Model: "flash"` for broad `research`/`browser` sweeps, live `swarm{action: "models", all: true}` discovery, optional `astack-models.md` | Cross-family `/arena` and `/interrogate` discover healthy `quota_remaining` live |
 | Workspace and global customizations | `.agents/skills/` and `~/.gemini/config/skills/`; `.agents/rules/` and `~/.gemini/config/rules/` | Global skills live under `~/.gemini/config/skills/` |
-| Structured multi-choice prompts | `ask_question` (`is_multi_select: true`, `(Recommended)` prefix on default option) | Used by [`/automate-me`](../skills/automate-me/SKILL.md) and [`/setup-astack`](../skills/setup-astack/SKILL.md) |
+| Structured multi-choice prompts & `/plan` | `ask_question` (`is_multi_select: true`, unnumbered options, `(Recommended)` first, built-in `"Other (write your answer)"`) + [`plan-contract.md`](../skills/astack-mode/references/plan-contract.md) | Supports both direct `implementation_plan.md` writes and Orchestrator Plan Mode handoffs with inline comments and **Proceed** |
 | Conversation transcripts | `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` | Paired with `transcript_full.jsonl` when `truncated_fields` is present |
-| Verification harnesses and outer loop | [`/control-ui`](../skills/control-ui/SKILL.md), [`/control-cli`](../skills/control-cli/SKILL.md), [`/deslop`](../skills/deslop/SKILL.md), repo `.agents/skills/verify-<app>/`, [`docs/automations/benny/`](./automations/benny/README.md) | Concrete runtime proof before reporting done |
+| Verification harnesses, watch & outer loop | [`/control-ui`](../skills/control-ui/SKILL.md), [`/control-cli`](../skills/control-cli/SKILL.md), [`/deslop`](../skills/deslop/SKILL.md), repo `.agents/skills/verify-<app>/`, [`upstream-watch.mjs`](../scripts/upstream-watch.mjs), [`docs/automations/benny/`](./automations/benny/README.md) | Concrete runtime proof before reporting done |

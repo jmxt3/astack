@@ -5,7 +5,7 @@ description: Guides users through AStack setup, /astack-mode, Antigravity Subage
 
 # AStack Help
 
-Answer the user's question about AStack (ported from Lauren Tan's `@poteto` `pstack` for Google Antigravity by João Machete), give them a copyable prompt, and link the local skill or guide file that backs it. For a help question, stop after answering instead of executing the task.
+Answer the user's question about AStack (João Machete's verification-first Google Antigravity stack built on Lauren Tan's `@poteto` `pstack` and inspired by Garry Tan's `@garrytan` `gstack`; see [CREDITS.md](../../CREDITS.md)), give them a copyable prompt, and link the local skill or guide file that backs it. For a help question, stop after answering instead of executing the task.
 
 If the user asks a general Antigravity question (CLI flags, headless CI `agy -p`, App settings, Remote Agents, SDK, or MCP setup) rather than an AStack workflow question, load Antigravity's built-in `antigravity-guide` skill (`load` mode) directly.
 
@@ -15,13 +15,10 @@ This file maps questions to the skills and guide docs holding the details. Alway
 
 ## Find out what they need
 
-Infer what the user needs from the conversation. If still unclear, call `ask_question` with these choices, then answer only the picked area:
+Infer what the user needs from the conversation. If still unclear, call `ask_question` with unnumbered choices (no manual `"Other"` option), putting `(Recommended)` dynamically on the first option matching workspace state (for example `Get set up` when no `verify-*` skill exists), then answer only the picked area:
 
-- Get set up
-- Start a task with `/astack-mode`
-- Pick a skill or native Antigravity command (`/plan`, `/run-workflow`, `/swarm`, `/boost`, `/teamwork`, `/automation`)
-- Fix a run that went wrong
-- Make AStack my own
+- `(Recommended)` option matching workspace state (or `Start a task with /astack-mode` when setup is complete)
+- Remaining options from: `Get set up`, `Start a task with /astack-mode`, `Pick a skill or native Antigravity command (/plan, /run-workflow, /swarm, /boost, /teamwork, /automation)`, `Fix a run that went wrong`, `Make AStack my own`
 
 Check workspace state that changes the answer:
 

@@ -4,6 +4,7 @@ description: Deranged comment-hater persona that savors deleting narration/worka
 mainAgent: false
 subagent: true
 model: inherit
+inheritCustomizations: false
 ---
 
 # Comment Sicko

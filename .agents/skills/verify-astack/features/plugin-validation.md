@@ -4,10 +4,10 @@ Maintainers and contributors validate the entire AStack plugin repository before
 
 ## Sub-features
 
-- Full-repo and custom-root validation (`node scripts/validate-astack.mjs [--no-agy] [--json] [--write-native-commands] [-h|--help] [rootDir]`)
-- `plugin.json` and `LICENSE` presence and JSON validity checks
-- Skill contract enforcement (`skills/*/SKILL.md` frontmatter allowing only `name`, `description`, boolean `disable-model-invocation`, `license`, and `compatibility`; `33` manual-only vs `28` auto-invocable `manualOnlySkills` partition; body byte size `<= 24000`; `RESERVED_SKILL_NAMES` collision guard across the 16 `EXPECTED_NATIVE_COMMANDS` plus 15 `BUILTIN_RESERVED_SKILL_NAMES`, 25 unique reserved names after overlap)
-- Official agent (`agents/*.md`) frontmatter enforcement (`name`, `description`, boolean `mainAgent`/`subagent`/`inheritMcp`/`inheritCustomizations`, `model`, `tools`, `commandExecutionPolicy`, `skills`) and rule (`rules/*.md`) validation
+- Full-repo and custom-root validation (`node scripts/validate-astack.mjs [--no-agy] [--json] [--write-native-commands] [--apply-frontmatter-policy] [-h|--help] [rootDir]`)
+- `plugin.json`, `CREDITS.md` relative link scan, and `LICENSE` presence and JSON validity checks
+- Skill contract enforcement (`skills/*/SKILL.md` frontmatter allowing only `name`, `description`, boolean `disable-model-invocation`, `license`, and `compatibility`; `33` manual-only vs `28` auto-invocable `manualOnlySkills` partition in `scripts/catalog.json`; body byte size `<= 24000`; `RESERVED_SKILL_NAMES` collision guard across the 16 `EXPECTED_NATIVE_COMMANDS` plus 15 `BUILTIN_RESERVED_SKILL_NAMES`, 25 unique reserved names after overlap)
+- Official agent (`agents/*.md`) frontmatter enforcement (`name`, `description`, boolean `mainAgent`/`subagent`/`inheritMcp`/`inheritCustomizations`, `model`, `tools`, `commandExecutionPolicy`, `skills`) and rule (`rules/*.md`) validation, including `comment-sicko.md` setting `inheritCustomizations: false`
 - Native command registry (`native-commands.json` / `native-commands.md`) 16-command completeness, valid engagement modes, resolving companion paths, and zero table drift (`--write-native-commands`)
 - Cross-repo markdown relative-link verification, Cursor-leak detection (`CURSOR_LEAK_PATTERNS` including invalid global skill paths and wrong `ask_question` keys), and `principle-*` skill resolution checks
 - Live Antigravity CLI strict validation (`agy plugin validate --strict --json <rootDir>`)
