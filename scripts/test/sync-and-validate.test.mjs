@@ -185,6 +185,8 @@ test("live AStack repo validates cleanly and defaults to UI/Orchestrator inherit
   const setupSkill = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "skills", "setup-astack", "SKILL.md"), "utf8");
   assert.match(setupSkill, /Orchestrator/);
   assert.match(setupSkill, /\/create-verification-skill/);
+  assert.match(setupSkill, /█████╗/);
+  assert.match(setupSkill, /setup-banner\.mjs/);
   assert.doesNotMatch(setupSkill, /Reasoning budget & subagent tier preset/i);
 
   const helpSkill = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "skills", "astack-help", "SKILL.md"), "utf8");

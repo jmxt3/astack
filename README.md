@@ -35,11 +35,11 @@
 
 ## Feature highlights
 
-- **Playbook routing** — [`/astack-mode`](./skills/astack-mode/SKILL.md) matches your goal to 23 engineering playbooks (`bug-fix`, `feature`, `refactoring`, `perf-issue`, `shipping`, and more).
-- **Live verification ("Control Glass")** — Proves changes against running apps and CLIs via [`/control-ui`](./skills/control-ui/SKILL.md), [`/control-cli`](./skills/control-cli/SKILL.md), and repo-local `verify-<app>` skills.
-- **Parallel design & bakeoffs** — Stress-tests specs and compares competing implementations in isolated workspaces with [`/interrogate`](./skills/interrogate/SKILL.md), [`/architect`](./skills/architect/SKILL.md), and [`/arena`](./skills/arena/SKILL.md).
-- **Native Antigravity orchestration** — Coordinates subagents ([`/fanout`](./skills/fanout/SKILL.md)), `/boost`, `/swarm`, `/teamwork`, and `/goal` with zero model lock-in.
-- **Anti-slop cleanup** — Strips dead wrappers, narrating comments, and AI filler before review with [`/deslop`](./skills/deslop/SKILL.md), [`/no-comments`](./skills/no-comments/SKILL.md), and [`/unslop`](./skills/unslop/SKILL.md).
+- **Start from one command.** Give [`/astack-mode`](./skills/astack-mode/SKILL.md) a goal, and it picks from 23 playbooks for bugs, features, refactors, and releases.
+- **Verify on the running app.** [`/control-ui`](./skills/control-ui/SKILL.md), [`/control-cli`](./skills/control-cli/SKILL.md), and `verify-<app>` check behavior in a real browser or terminal.
+- **Test designs before coding.** [`/interrogate`](./skills/interrogate/SKILL.md), [`/architect`](./skills/architect/SKILL.md), and [`/arena`](./skills/arena/SKILL.md) find edge cases and compare approaches in isolated branches.
+- **Scale across agents.** AStack works with Antigravity subagents, [`/fanout`](./skills/fanout/SKILL.md), `/boost`, `/swarm`, `/teamwork`, and `/goal` on any model.
+- **Clean diffs before review.** [`/deslop`](./skills/deslop/SKILL.md), [`/no-comments`](./skills/no-comments/SKILL.md), and [`/unslop`](./skills/unslop/SKILL.md) remove dead code, noisy comments, and AI filler.
 
 ## Install
 
@@ -75,23 +75,34 @@ Most work flows through five stages. You do not need to chain commands manually 
 
 ```mermaid
 flowchart LR
-    S1["`**1. Understand**
+    subgraph Router["/astack-mode · auto-routes stages, or invoke any stage directly"]
+        direction LR
+        S1["`**1. Understand**
 /how · /why
 /teach · /recall`"]
-    S2["`**2. Design**
+        S2["`**2. Design**
 /architect · /arena
 /interrogate`"]
-    S3["`**3. Build**
+        S3["`**3. Build**
 /astack-mode
-playbooks + /tdd`"]
-    S4["`**4. Clean**
+playbooks · /tdd`"]
+        S4["`**4. Clean**
 /deslop · /no-comments
 /unslop`"]
-    S5["`**5. Verify & ship**
+        S5["`**5. Verify & ship**
 /control-ui · /control-cli
-verify-app · /blast-radius`"]
+verify-{app} · /blast-radius`"]
 
-    S1 --> S2 --> S3 --> S4 --> S5
+        S1 --> S2 --> S3 --> S4 --> S5
+    end
+
+    style Router fill:transparent,stroke:#eab308,stroke-width:1.5px,stroke-dasharray:5 5
+    classDef stage fill:#111827,stroke:#38bdf8,stroke-width:1.5px,color:#f9fafb
+    classDef build fill:#111827,stroke:#eab308,stroke-width:2px,color:#f9fafb
+    classDef verify fill:#111827,stroke:#22c55e,stroke-width:2px,color:#f9fafb
+    class S1,S2,S4 stage
+    class S3 build
+    class S5 verify
 ```
 
 [`rules/astack-orchestration.md`](./rules/astack-orchestration.md) also guides model-decision routing across Antigravity's native execution modes (explained in full in [`docs/architecture-and-swarm.md`](./docs/architecture-and-swarm.md)):

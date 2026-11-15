@@ -9,17 +9,40 @@ Interactive workspace onboarding for AStack (`astack`), Lauren Tan's (`@poteto`)
 
 AStack is zero-config for models by default: subagents (`invoke_subagent`) and `/swarm` workers omit model overrides so they inherit whatever model you picked in Antigravity's UI selector—including **Orchestrator**, effort controls, and newly launched weekly models—and `/arena` discovers cross-family models live at runtime via `swarm{action: "models", all: true}`. Setup focuses on giving agents empirical verification and safety guardrails for this repository.
 
-## 1. Inspect Current Environment
+## 1. Initiate Setup & Inspect Environment
 
-Before asking questions, inspect the workspace quickly:
+First, run [`scripts/setup-banner.mjs`](./scripts/setup-banner.mjs) from the active workspace root (where `<skill-dir>` is the directory containing this `SKILL.md`):
 
-1. Check whether the active repository already has `.agents/skills/verify-*/SKILL.md` (runtime Control Glass verification) and/or formal TLA+ verification skills or specs (`*.tla`).
-2. Check [`hooks.json`](../../hooks.json) at the plugin root (ships `"enabled": false` by default).
-3. Check whether an existing `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` rule is already present on this machine or repo.
+```bash
+node "<skill-dir>/scripts/setup-banner.mjs"
+```
 
-## 2. Explain Zero-Config Model Routing & Collect Repo Choices
+This prints the `ASTACK` ASCII initiation banner and inspects the workspace read-only for:
 
-Briefly tell the user (1–2 sentences—do **not** ask model-pinning questions by default) that AStack inherits their Antigravity UI model picker automatically (including **Orchestrator**, which pairs a frontier planner model with a fast implementation model inside one session) and resolves cross-family models live during `/arena` bakeoffs, so new weekly Antigravity models work immediately with zero config and no chat restart.
+1. `.agents/skills/verify-*/SKILL.md` (runtime Control Glass verification) and formal TLA+ verification skills or `*.tla` specs.
+2. [`hooks.json`](../../hooks.json) at the plugin root (ships `"enabled": false` by default).
+3. Any existing `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` rule on this machine or repo.
+
+## 2. Display the ASCII Banner & Collect Repo Choices
+
+Always open your first visible chat message to the user with the `ASTACK` initiation banner inside a fenced ```` ```text ```` code block (verbatim from `setup-banner.mjs` stdout; if Node cannot run, render the same layout below):
+
+```text
+ █████╗ ███████╗████████╗ █████╗  ██████╗██╗  ██╗
+██╔══██╗██╔════╝╚══██╔══╝██╔══██╗██╔════╝██║ ██╔╝
+███████║███████╗   ██║   ███████║██║     █████╔╝
+██╔══██║╚════██║   ██║   ██╔══██║██║     ██╔═██╗
+██║  ██║███████║   ██║   ██║  ██║╚██████╗██║  ██╗
+╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝
+GOOGLE ANTIGRAVITY · PLAN · BUILD · PROVE IT WORKS
+> /setup-astack initiated · workspace: <name>
+  verify skills : <detected or none>
+  formal verify : <detected or none>
+  safety hooks  : <detected status>
+  model routing : <detected status>
+```
+
+Right below the banner, briefly tell the user (1–2 sentences—do **not** ask model-pinning questions by default) that AStack inherits their Antigravity UI model picker automatically (including **Orchestrator**, which pairs a frontier planner model with a fast implementation model inside one session) and resolves cross-family models live during `/arena` bakeoffs, so new weekly Antigravity models work immediately with zero config and no chat restart.
 
 Then ask concisely with `ask_question`:
 

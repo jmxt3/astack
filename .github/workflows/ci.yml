@@ -30,4 +30,4 @@ jobs:
         run: node --test scripts/test/*.test.mjs
 
       - name: Run workflow helper tests
-        run: node --experimental-strip-types --test skills/astack-mode/scripts/check-plan.test.ts skills/astack-mode/scripts/worktree-audit.test.mjs skills/show-me-your-work/scripts/log.test.mjs
+        run: node --experimental-strip-types --test skills/astack-mode/scripts/check-plan.test.ts skills/astack-mode/scripts/worktree-audit.test.mjs skills/show-me-your-work/scripts/log.test.mjs skills/setup-astack/scripts/setup-banner.test.mjs
