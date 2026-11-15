@@ -15,7 +15,7 @@
 
 **AStack** (`astack`) is a native **Google Antigravity** plugin bundling **61 skills**, **23 playbooks**, **24 engineering principles**, **2 custom agents**, **1 orchestration rule**, and **2 opt-in lifecycle hooks**. State the outcome you want and how to verify it works, and `/astack-mode` selects the matching playbook, coordinates Antigravity's subagents and multi-agent modes, cleans the diff, and proves behavior against the running UI or CLI before reporting done.
 
-**Local-first, with zero model lock-in.** AStack installs as static markdown skills and local Node.js 22+ scripts with no hosted backend, no telemetry, and no model-pinning config. It inherits whatever model or plan you already run in Antigravity (including `Orchestrator` where supported).
+**Local-first, with zero model lock-in.** AStack installs as static markdown skills and local Node.js 22+ scripts with no hosted backend, no telemetry, and no model-pinning config. It inherits whatever model or plan you select in Antigravity and pairs natively with **Orchestrator** for dynamic bidirectional model routing between frontier models such as [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/).
 
 > **Credits & Attribution**  
 > **Original Plugin (`pstack`):** Created by **Lauren Tan** (`@poteto`) in [`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack) (MIT License, baseline `v0.15.36`), grounded in her SpaceX AI / Cursor workflow architecture.  
@@ -26,6 +26,7 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="./docs/user-guide.md">User guide</a> ·
   <a href="./docs/guide/README.md">10-part tutorial</a> ·
+  <a href="#dynamic-bidirectional-model-routing">Model routing</a> ·
   <a href="./docs/architecture-and-swarm.md">Architecture &amp; Swarm</a> ·
   <a href="#documentation">Documentation</a> ·
   <a href="#skill-catalog">61 skills</a> ·
@@ -38,6 +39,7 @@
 - **Start from one command.** Give [`/astack-mode`](./skills/astack-mode/SKILL.md) a goal, and it picks from 23 playbooks for bugs, features, refactors, and releases.
 - **Verify on the running app.** [`/control-ui`](./skills/control-ui/SKILL.md), [`/control-cli`](./skills/control-cli/SKILL.md), and `verify-<app>` check behavior in a real browser or terminal.
 - **Test designs before coding.** [`/interrogate`](./skills/interrogate/SKILL.md), [`/architect`](./skills/architect/SKILL.md), and [`/arena`](./skills/arena/SKILL.md) find edge cases and compare approaches in isolated branches.
+- **Built for dynamic bidirectional model routing.** Zero static model slugs lets Antigravity's **Orchestrator** hand control dynamically between frontier planning ([Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity)) and fast execution ([Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/)) inside one session.
 - **Scale across agents.** AStack works with Antigravity subagents, [`/fanout`](./skills/fanout/SKILL.md), `/boost`, `/swarm`, `/teamwork`, and `/goal` on any model.
 - **Clean diffs before review.** [`/deslop`](./skills/deslop/SKILL.md), [`/no-comments`](./skills/no-comments/SKILL.md), and [`/unslop`](./skills/unslop/SKILL.md) remove dead code, noisy comments, and AI filler.
 
@@ -104,6 +106,18 @@ verify-{app} · /blast-radius`"]
     class S3 build
     class S5 verify
 ```
+
+### Dynamic bidirectional model routing
+
+Traditional static model routers guess task difficulty from the first prompt and lock into a single model. Antigravity's **Orchestrator** routes dynamically between a frontier model such as [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-hydrogen/) ([Gemini 4 Hydrogen in Google Antigravity](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/)) as a single session or trajectory evolves.
+
+AStack strengthens all three cooperative role hand-offs without overriding the router:
+
+1. **Read-only planning on a frontier model (such as Carbon).** Starts in a read-only phase to explore dependencies, resolve ambiguities with [`/how`](./skills/how/SKILL.md), [`/why`](./skills/why/SKILL.md), [`/interrogate`](./skills/interrogate/SKILL.md), and [`/architect`](./skills/architect/SKILL.md), and build an explicit plan with re-planning triggers before editing files.
+2. **Execution and verification on Hydrogen.** Takes over to write edits, update packages, run tests, clean the diff with [`/deslop`](./skills/deslop/SKILL.md) and [`/no-comments`](./skills/no-comments/SKILL.md), and run [`/control-ui`](./skills/control-ui/SKILL.md), [`/control-cli`](./skills/control-cli/SKILL.md), or `verify-<app>`.
+3. **Automatic hand-back on friction.** If Hydrogen hits failing verification checks or broken plan assumptions, control hands back to Carbon (paired with [`principle-attack-the-premise`](./skills/principle-attack-the-premise/SKILL.md) instead of blind retry loops) to inspect the workspace state, repair the plan, and resume execution.
+
+Because AStack leaves subagent and `/swarm` worker models unset (`Model: "inherit"` by default), pinning static model slugs never locks turns to one model or blocks bidirectional hand-offs. AStack inherits your active UI model or **Orchestrator** automatically, uses evergreen `flash` aliases only for broad `research` and `browser` sweeps, and queries `swarm{action: "models"}` live during [`/arena`](./skills/arena/SKILL.md) bakeoffs.
 
 [`rules/astack-orchestration.md`](./rules/astack-orchestration.md) also guides model-decision routing across Antigravity's native execution modes (explained in full in [`docs/architecture-and-swarm.md`](./docs/architecture-and-swarm.md)):
 
@@ -263,7 +277,7 @@ AStack ships **61 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 |---|---|
 | Single-page quickstart, plan-approve-execute workflow, 5-stage guide, and power moves | [AStack User Guide](./docs/user-guide.md) · [Plan-First Workflow](./docs/user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute) |
 | Step-by-step 10-chapter onboarding course | [The AStack Guide](./docs/guide/README.md) |
-| 5-layer enforcement model, Control Glass, and Antigravity mode matrix | [Architecture & Swarm](./docs/architecture-and-swarm.md) · [Swarm Coordination Reference](./skills/astack-mode/references/swarm-coordination.md) |
+| 5-layer enforcement model, dynamic bidirectional model routing, Control Glass, and Antigravity mode matrix | [Architecture & Swarm](./docs/architecture-and-swarm.md) · [Swarm Coordination Reference](./skills/astack-mode/references/swarm-coordination.md) |
 | Prompting patterns, copy-paste recipes, and review checklists | [Prompting Guide](./skills/astack-help/references/prompting.md) · [Prompt Recipes](./skills/astack-help/references/recipes.md) · [Bugbot & Review Triage](./skills/astack-mode/references/bugbot-triage.md) · [DevTools Evidence Checklist](./skills/control-ui/references/devtools-evidence-checklist.md) · [Design Red Flags](./skills/architect/references/design-red-flags.md) · [TypeScript Patterns](./skills/typescript-best-practices/references/patterns.md) |
 | Outer-loop Slack issue triage and reproduction automation | [Benny Automation Overview](./docs/automations/benny/README.md) · [Benny Agent Setup Runbook](./docs/automations/benny/FOR_AGENTS.md) |
 | Verify AStack's own CLIs, hooks, and sync tooling | [Verify AStack (`verify-astack`)](./.agents/skills/verify-astack/SKILL.md) · [Verification Feature Map](./.agents/skills/verify-astack/features/README.md) |

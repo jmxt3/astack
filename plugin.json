@@ -27,6 +27,7 @@
     "subagents",
     "engineering",
     "principles",
-    "tdd"
+    "tdd",
+    "orchestrator"
   ]
 }

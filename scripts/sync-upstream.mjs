@@ -90,8 +90,8 @@ const REGEX_REPLACEMENTS = [
   [/~\/\.cursor\/plugins\/cache\//g, "~/.gemini/config/plugins/"],
   [/~\/\.cursor\/plugins\//g, "~/.gemini/config/plugins/"],
   [/\bplugins\/cache\//g, "~/.gemini/config/plugins/"],
-  [/~\/\.cursor\/skills\//g, "~/.agents/skills/"],
-  [/~\/\.cursor\/skills\b/g, "~/.agents/skills"],
+  [/~\/\.cursor\/skills\//g, "~/.gemini/config/skills/"],
+  [/~\/\.cursor\/skills\b/g, "~/.gemini/config/skills"],
   [/\.cursor\/skills\//g, ".agents/skills/"],
   [/\.cursor\/skills\b/g, ".agents/skills"],
 
@@ -309,6 +309,7 @@ export function syncUpstream({
     updated: [],
     unchanged: [],
     skippedOverlays: [],
+    overlayChanged: [],
     ignored: [],
   };
 
@@ -325,11 +326,6 @@ export function syncUpstream({
       throw new Error(`Refusing path traversal outside rootDir: ${destRel}`);
     }
     const exists = fs.existsSync(destFull);
-    if (exists && isOverlayPath(destRel, manifest) && !forceOverlays) {
-      report.skippedOverlays.push(destRel);
-      continue;
-    }
-
     const isTextTransformTarget =
       destRel.endsWith(".md") && !destRel.startsWith("docs/guide/images/");
 
@@ -351,6 +347,14 @@ export function syncUpstream({
       nextBytes = Buffer.from(transformed, "utf8");
     } else {
       nextBytes = readNormalizedBytes(full, destRel);
+    }
+
+    if (exists && isOverlayPath(destRel, manifest) && !forceOverlays) {
+      report.skippedOverlays.push(destRel);
+      if (Buffer.compare(fs.readFileSync(destFull), nextBytes) !== 0) {
+        report.overlayChanged.push(destRel);
+      }
+      continue;
     }
 
     if (exists) {
@@ -379,6 +383,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       source: { type: "string" },
       "dry-run": { type: "boolean", default: false },
       "force-overlays": { type: "boolean", default: false },
+      "diff-overlays": { type: "boolean", default: false },
       fetch: { type: "boolean", default: false },
       json: { type: "boolean", default: false },
     },
@@ -405,7 +410,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(JSON.stringify(report, null, 2));
   } else {
     console.log(
-      `[sync-upstream] source=${report.sourceDir} dryRun=${values["dry-run"]} added=${report.added.length} updated=${report.updated.length} skippedOverlays=${report.skippedOverlays.length} unchanged=${report.unchanged.length} ignored=${report.ignored.length}`,
+      `[sync-upstream] source=${report.sourceDir} dryRun=${values["dry-run"]} added=${report.added.length} updated=${report.updated.length} skippedOverlays=${report.skippedOverlays.length} overlayChanged=${report.overlayChanged.length} unchanged=${report.unchanged.length} ignored=${report.ignored.length}`,
     );
+    if (values["diff-overlays"]) {
+      for (const relPath of report.overlayChanged) {
+        console.log(`OVERLAY_CHANGED ${relPath}`);
+      }
+    }
   }
 }

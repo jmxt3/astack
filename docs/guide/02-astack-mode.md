@@ -100,7 +100,7 @@ If you want to review and approve every plan before any file changes, pair Antig
 /plan /astack-mode users get duplicate invoices on retry. investigate the cause, write a fix and verification plan, and stop for my approval before editing any files.
 ```
 
-Both `/plan` (along with **Orchestrator**) and `/astack-mode`'s read-only investigation path stop as soon as the plan is written. Review the steps, ask for edits if anything looks wrong, and run the approved plan through AStack while keeping final push control:
+On normal `/astack-mode` runs under **Orchestrator**, a frontier model such as Carbon plans in a read-only phase and hands off immediately to Hydrogen for edits and tests, taking control back automatically if Hydrogen hits friction. Adding `/plan` or `"stop for my approval"` pauses right after the plan is written so you can inspect the steps before any files change. Review the steps, ask for edits if anything looks wrong, and run the approved plan through AStack while keeping final push control:
 
 ```text
 /astack-mode approved. execute the plan, verify end-to-end, run /deslop and /no-comments, and stop before git push.

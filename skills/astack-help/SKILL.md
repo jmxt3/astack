@@ -35,7 +35,7 @@ Check workspace state that changes the answer:
 
 See [README](../../README.md), [User Guide](../../docs/user-guide.md), [Architecture & Swarm Guide](../../docs/architecture-and-swarm.md), and [Guide 01: Setup](../../docs/guide/01-setup.md). For crafting your first prompt, follow [`references/prompting.md`](references/prompting.md).
 
-**Cost control:** AStack uses subagents, panels (`/arena`, `/interrogate`), and `@verifier` workers intentionally. Selecting **Orchestrator** in Antigravity's model picker pairs a frontier planner with a fast implementation model automatically, read-only search/browser sweeps use evergreen `flash` aliases, and saving `/astack-mode` for nontrivial engineering tasks keeps casual chats light while `rules/astack-orchestration.md` (`trigger: model_decision`) stays idle.
+**Cost control.** AStack uses subagents, panels (`/arena`, `/interrogate`), and `@verifier` workers intentionally. Selecting **Orchestrator** in Antigravity's model picker enables dynamic bidirectional routing between a read-only frontier planner (such as Gemini 4 Carbon) and a fast executor (Gemini 4 Hydrogen) with automatic hand-back on friction. Read-only search and browser sweeps use evergreen `flash` aliases, and saving `/astack-mode` for nontrivial engineering tasks keeps casual chats light while `rules/astack-orchestration.md` (`trigger: model_decision`) stays idle.
 
 ## Antigravity Multi-Agent Tiers
 

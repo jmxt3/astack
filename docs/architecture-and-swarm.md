@@ -3,7 +3,7 @@
 **Original `pstack` & Michelin Kitchen thesis:** **Lauren Tan (`@poteto`)** ([`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack), MIT License).  
 **Native Antigravity port (`astack`):** **João Machete**.
 
-AStack ports Lauren Tan's engineering environment — verification skills ("Control Glass"), materialized feature maps, engineering playbooks, and anti-slop discipline — into **Google Antigravity**, pairing it natively with `Subagents`, `/boost`, `/swarm`, `/teamwork`, `/goal`, `/schedule`, and opt-in lifecycle hooks.
+AStack ports Lauren Tan's engineering environment, including verification skills ("Control Glass"), materialized feature maps, engineering playbooks, and anti-slop discipline, into **Google Antigravity**, pairing it natively with **Orchestrator** (dynamic bidirectional model routing), `Subagents`, `/boost`, `/swarm`, `/teamwork`, `/goal`, `/schedule`, and opt-in lifecycle hooks.
 
 ## Core Thesis: Trust Through the Environment
 
@@ -30,6 +30,33 @@ AStack bundles ready-to-use verification skills plus repo-specific generators:
 - **Materialized Memory (`verify-<app>` + `features/`)**: [`/create-verification-skill`](../skills/create-verification-skill/SKILL.md) interviews the repository and generates `.agents/skills/verify-<app>/` with a `features/` sitemap so any future agent can map vague bug reports to exact user flows and proof checks. [`/maintain-verification-skill`](../skills/maintain-verification-skill/SKILL.md) keeps it accurate as the app evolves.
 - **Post-Cleanup Hygiene ([`deslop`](../skills/deslop/SKILL.md) + [`no-comments`](../skills/no-comments/SKILL.md))**: Inlines single-caller indirection, removes narrating comments and unsupported defensive guards, runs adversarial comment review via `comment-sicko`, and re-verifies afterward.
 - **Formal & Statechart Verification ([`statechart`](../skills/statechart/SKILL.md))**: Cross-platform Node 22+ TypeScript runner (`statechart.mjs`) converting TLA+ / TLC checks into Mermaid statecharts and bug-path traces.
+
+## Dynamic Bidirectional Model Routing (Orchestrator)
+
+Traditional static model routers guess task difficulty from the first prompt and lock the entire session onto one model. Antigravity's **Orchestrator** routes dynamically within a single session or trajectory between a frontier reasoning model such as [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and a fast execution model such as [Gemini 4 Hydrogen](https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-hydrogen/) ([Gemini 4 Hydrogen in Google Antigravity](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/)).
+
+```mermaid
+flowchart LR
+    Plan["`**Read-only plan (Carbon)**
+Explore dependencies via /how, /why, /interrogate, /architect
+Write explicit plan and Re-plan if triggers`"] -->|"Hand off to executor"| Exec["`**Execute and check (Hydrogen)**
+Write edits, update packages, run tests
+Clean diff (/deslop, /no-comments) and run verify-{app}, /control-ui, /control-cli`"]
+    Exec --> Gate{"Runtime check?"}
+    Gate -->|"Verified"| Done["`Report empirical evidence`"]
+    Gate -->|"Friction or broken premise"| Recover["`**Hand back to Carbon**
+Apply principle-attack-the-premise
+Inspect live state and repair plan`"]
+    Recover -->|"Resume execution"| Exec
+```
+
+| Orchestrator phase | What Antigravity does | How AStack strengthens the hand-off |
+|---|---|---|
+| **Read-only frontier planning (Carbon)** | Explores dependencies, resolves ambiguities, and writes an explicit plan with re-planning triggers | [`/how`](../skills/how/SKILL.md), [`/why`](../skills/why/SKILL.md), [`/interrogate`](../skills/interrogate/SKILL.md), [`/architect`](../skills/architect/SKILL.md), and `principle-model-the-domain` settle boundaries and data shapes upfront so the executor never guesses architecture mid-edit. |
+| **High-speed execution (Hydrogen)** | Writes code edits, updates packages, and runs builds and tests | Playbook checklists, [`/tdd`](../skills/tdd/SKILL.md), [`/deslop`](../skills/deslop/SKILL.md), [`/no-comments`](../skills/no-comments/SKILL.md), [`/control-ui`](../skills/control-ui/SKILL.md), [`/control-cli`](../skills/control-cli/SKILL.md), and `verify-<app>` turn "done" into a deterministic runtime check. |
+| **Bidirectional friction recovery (Hydrogen back to Carbon)** | Hands control back to the frontier planner when execution hits roadblocks | Objective Control Glass failures and [`principle-attack-the-premise`](../skills/principle-attack-the-premise/SKILL.md) halt blind retry loops after repeated gate failures so Carbon inspects live state and repairs the plan. |
+
+AStack preserves bidirectional routing by omitting hardcoded model overrides (`Model: "inherit"` by default on `invoke_subagent` and unset `model` on `swarm{action: "add"}`). AStack reserves evergreen `flash` aliases for high-volume read-only sweeps and uses `swarm{action: "models"}` to discover distinct live model families only when [`/arena`](../skills/arena/SKILL.md) runs cross-family bakeoffs.
 
 ## Antigravity 5-Mode Decision Matrix
 

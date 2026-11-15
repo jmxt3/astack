@@ -17,7 +17,9 @@ agy plugin list --json
 
 AStack works out of the box with **any model on any Antigravity plan** without pinning static model IDs upfront.
 
-By defaulting to `inherit` (omitting explicit model overrides), `/astack-mode`, `invoke_subagent`, and `/swarm` automatically follow whatever model you already have selected in Antigravity's UI picker with zero stale IDs and no chat restart. High-volume read-only sweeps (`research` / `browser`) automatically use `flash`, `/arena` discovers only the models and quota available on your account live at runtime via `swarm{action: "models"}`, standard-plan users who want custom `flash`/`pro` role splits can use [Make it yours](./09-make-it-yours.md#optional-override-subagent-tiers-with-astack-modelsmd), and if your plan includes **Orchestrator** (Ultra), AStack inherits its planner/executor split automatically too.
+By defaulting to `inherit` (omitting explicit model overrides), `/astack-mode`, `invoke_subagent`, and `/swarm` follow whatever model you pick in Antigravity's UI selector with zero stale IDs and no chat restart. Broad read-only sweeps (`research` and `browser`) use `flash` automatically, `/arena` discovers live models and quota via `swarm{action: "models"}`, and optional tier aliases live in [Make it yours](./09-make-it-yours.md#optional-override-subagent-tiers-with-astack-modelsmd).
+
+**Dynamic bidirectional model routing (`Orchestrator`).** Unlike traditional static model routers that guess task difficulty from the first prompt and lock into one model, **Orchestrator** coordinates cooperative role hand-offs inside a single session or trajectory between a frontier model like [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-hydrogen/) ([Gemini 4 Hydrogen in Google Antigravity](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/)). Carbon starts in a read-only phase to explore dependencies, resolve ambiguities, and write an explicit plan with re-planning triggers. Hydrogen takes over to write edits, update packages, and run tests and verification checks. If Hydrogen hits friction, control hands back to Carbon automatically to inspect state, repair the plan, and resume execution.
 
 ## Onboard your repo with `/setup-astack`
 
@@ -39,7 +41,7 @@ No chat restart is needed after `/setup-astack`.
 
 astack spends extra tokens on subagents and review panels. That's the price of the rigor. To spend fewer:
 
-- Let AStack route high-volume read-only sweeps to `flash` automatically (and optionally set `flash`/`pro` role tiers in `astack-models.md`, or select **Orchestrator** if your plan includes it).
+- Let AStack route high-volume read-only sweeps to `flash` automatically, select **Orchestrator** to shift edits and test loops onto Hydrogen while keeping frontier planning and friction recovery on Carbon, or set optional `flash` and `pro` role tiers in `astack-models.md`.
 - Save `/astack-mode` for work that needs rigor. A small, obvious edit doesn't.
 - Right-size `/arena` and `/fanout` candidate counts for the stakes of the decision.
 

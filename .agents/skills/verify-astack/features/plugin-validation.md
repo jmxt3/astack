@@ -8,7 +8,7 @@ Maintainers and contributors validate the entire AStack plugin repository before
 - `plugin.json` and `LICENSE` presence and JSON validity checks
 - Skill contract enforcement (`skills/*/SKILL.md` frontmatter restricted to `name` and `description`, body byte size `<= 24000`, and forbidden `skills/swarm` path guard)
 - Agent (`agents/*.md`) and rule (`rules/*.md`) validation
-- Cross-repo markdown relative-link verification and Cursor-leak detection (`CURSOR_LEAK_PATTERNS`)
+- Cross-repo markdown relative-link verification, Cursor-leak detection (`CURSOR_LEAK_PATTERNS` including invalid global skill paths and wrong `ask_question` keys), and `principle-*` skill resolution checks
 - Live Antigravity CLI strict validation (`agy plugin validate --strict --json <rootDir>`)
 
 ## How to get to it (user POV)
@@ -20,7 +20,7 @@ Run `node scripts/validate-astack.mjs` from the workspace root to validate the l
 Preconditions: `$ScratchDir` and `$EvidenceDir` exist from `Launch`; `node` and `agy` passed `Doctor`.
 
 - **Live repository baseline pass**: Run `node scripts/validate-astack.mjs` and `node scripts/validate-astack.mjs --json`, redirecting output to `$EvidenceDir/validate-live.txt` and `$EvidenceDir/validate-live.json`. Expect exit code `0`, `errors=0`, `warnings=0`, and summary line `[validate-astack] skills=... agents=... rules=... md=... errors=0 warnings=0`.
-- **Negative fixture rejection (broken link + forbidden `skills/swarm` + extra frontmatter)**: Create a minimal plugin directory under `$ScratchDir/broken-plugin` with a valid root `plugin.json` (`"name": "astack"`, `"author": { "name": "João Machete" }`) and `LICENSE` crediting `"Lauren Tan"` and `"João Machete"`, plus a forbidden `skills/swarm/SKILL.md` and a `skills/sample/SKILL.md` containing an extra frontmatter key plus a broken relative link `./missing.md`. Run `node scripts/validate-astack.mjs --no-agy --json "$ScratchDir/broken-plugin"`. Expect non-zero exit code `1` and JSON diagnostics explicitly flagging the `skills/swarm` restriction, extra frontmatter field, and missing relative link; save JSON output to `$EvidenceDir/broken-fixture.json`.
+- **Negative fixture rejection (broken link + forbidden `skills/swarm` + extra frontmatter + unknown principle + wrong global path/schema)**: Create a minimal plugin directory under `$ScratchDir/broken-plugin` with a valid root `plugin.json` (`"name": "astack"`, `"author": { "name": "João Machete" }`) and `LICENSE` crediting `"Lauren Tan"` and `"João Machete"`, plus a forbidden `skills/swarm/SKILL.md` and a `skills/sample/SKILL.md` containing an extra frontmatter key, a broken relative link `./missing.md`, an unknown `principle-nonexistent` reference, a wrong global skills path, and Cursor's multi-select flag name. Run `node scripts/validate-astack.mjs --no-agy --json "$ScratchDir/broken-plugin"`. Expect non-zero exit code `1` and JSON diagnostics explicitly flagging the `skills/swarm` restriction, extra frontmatter field, missing relative link, unknown principle skill reference, and Cursor leak patterns; save JSON output to `$EvidenceDir/broken-fixture.json`.
 - **Standalone `--no-agy` structural check on live repo**: Run `node scripts/validate-astack.mjs --no-agy --json` to verify Node-side structural, link, and leak checks independently of `agy`. Expect exit `0` and save stdout to `$EvidenceDir/validate-no-agy.json`.
 
 ## Gotchas

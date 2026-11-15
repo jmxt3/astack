@@ -32,7 +32,11 @@ const CURSOR_LEAK_PATTERNS = [
   { id: "cursor-webhook-api", regex: /api2\.cursor\.sh/g },
   { id: "cursor-subagent-type", regex: /\bsubagent_type\b/g },
   { id: "author-typo", regex: /\bMaschi[t]\b/g },
+  { id: "invalid-global-skills-dir", regex: /~\/\.agents\/skills\b/g },
+  { id: "cursor-ask-allow-multiple", regex: /\ballow_multiple\b/g },
 ];
+
+const PRINCIPLE_REF_REGEX = /\b(principle-[a-z0-9][a-z0-9-]*)\b/g;
 
 function stripFencedCodeBlocks(markdown) {
   return markdown.replace(/```[\s\S]*?```/g, "");
@@ -151,6 +155,7 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
 
   // Validate skills
   const skillsRoot = path.join(rootDir, "skills");
+  const validSkillNames = new Set();
   let skillCount = 0;
   if (fs.existsSync(skillsRoot)) {
     for (const entry of fs.readdirSync(skillsRoot, { withFileTypes: true })) {
@@ -161,6 +166,7 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
         errors.push({ file: `skills/${entry.name}`, message: "Skill directory missing SKILL.md" });
         continue;
       }
+      validSkillNames.add(entry.name);
       skillCount++;
       const content = fs.readFileSync(skillFile, "utf8");
       const { hasFrontmatter, entries, body } = parseFrontmatter(content);
@@ -278,6 +284,17 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
       regex.lastIndex = 0;
       if (regex.test(sanitizedForLeakCheck)) {
         errors.push({ file: rel, message: `Cursor runtime leak matched (${id})` });
+      }
+    }
+
+    const seenUnknownPrinciples = new Set();
+    PRINCIPLE_REF_REGEX.lastIndex = 0;
+    let principleMatch;
+    while ((principleMatch = PRINCIPLE_REF_REGEX.exec(sanitizedForLeakCheck)) !== null) {
+      const slug = principleMatch[1];
+      if (!validSkillNames.has(slug) && !seenUnknownPrinciples.has(slug)) {
+        seenUnknownPrinciples.add(slug);
+        errors.push({ file: rel, message: `Unknown principle skill reference: ${slug}` });
       }
     }
   }

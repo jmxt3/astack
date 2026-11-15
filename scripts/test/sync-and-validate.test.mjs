@@ -31,7 +31,7 @@ test("transformPortedMarkdown strips Cursor frontmatter keys and preserves upstr
     "",
     "# Body",
     "See https://github.com/cursor/plugins/tree/main/pstack for original pstack.",
-    "Use `Read` and `StrReplace` and `TodoWrite`, spawn `subagent_type: \"generalPurpose\"`, and avoid /swarm conflicts.",
+    "Check ~/.cursor/skills/custom-mode/SKILL.md and use `Read` and `StrReplace` and `TodoWrite`, spawn `subagent_type: \"generalPurpose\"`, and avoid /swarm conflicts.",
     "",
   ].join("\n");
 
@@ -41,6 +41,7 @@ test("transformPortedMarkdown strips Cursor frontmatter keys and preserves upstr
   assert.doesNotMatch(output, /^icon:/m);
   assert.doesNotMatch(output, /^color:/m);
   assert.match(output, /~\/\.gemini\/config\/rules\/astack-models\.md/);
+  assert.match(output, /~\/\.gemini\/config\/skills\/custom-mode\/SKILL\.md/);
   assert.match(output, /\/astack-mode/);
   assert.match(output, /https:\/\/github\.com\/cursor\/plugins\/tree\/main\/pstack/);
   assert.match(output, /`read_file` and `edit_file`/);
@@ -95,6 +96,11 @@ test("syncUpstream populates baseline and protects existing overlay files on sub
 
     const first = syncUpstream({ rootDir: fakeDest, sourceDir: fakeUpstream });
     assert.deepEqual(first.added.sort(), ["skills/astack-mode/SKILL.md", "skills/tdd/SKILL.md"]);
+    assert.deepEqual(first.overlayChanged, []);
+
+    const identicalOverlay = syncUpstream({ rootDir: fakeDest, sourceDir: fakeUpstream });
+    assert.deepEqual(identicalOverlay.skippedOverlays, ["skills/astack-mode/SKILL.md"]);
+    assert.deepEqual(identicalOverlay.overlayChanged, []);
 
     // Customize overlay + update upstream
     const overlayFile = path.join(fakeDest, "skills", "astack-mode", "SKILL.md");
@@ -106,6 +112,7 @@ test("syncUpstream populates baseline and protects existing overlay files on sub
 
     const second = syncUpstream({ rootDir: fakeDest, sourceDir: fakeUpstream });
     assert.deepEqual(second.skippedOverlays, ["skills/astack-mode/SKILL.md"]);
+    assert.deepEqual(second.overlayChanged, ["skills/astack-mode/SKILL.md"]);
     assert.deepEqual(second.updated, ["skills/tdd/SKILL.md"]);
     assert.match(fs.readFileSync(overlayFile, "utf8"), /Custom Antigravity Swarm/);
     assert.match(fs.readFileSync(path.join(fakeDest, "skills", "tdd", "SKILL.md"), "utf8"), /Updated TDD/);
@@ -133,8 +140,12 @@ test("validateAStack rejects collisions, frontmatter errors, oversized skills, b
     writeFile(path.join(tmp, "assets", "banner test@1x.png"), "png");
     writeFile(path.join(tmp, "README.md"), '<p><img src="./assets/banner%20test@1x.png" alt="Banner"></p>\n');
     writeFile(
+      path.join(tmp, "skills", "principle-real", "SKILL.md"),
+      "---\nname: principle-real\ndescription: valid principle\n---\n\n# Principle Real\n",
+    );
+    writeFile(
       path.join(tmp, "skills", "alpha", "SKILL.md"),
-      "---\nname: alpha\ndescription: ok\n---\n\nSee [ref](./references/doc.md).\n",
+      "---\nname: alpha\ndescription: ok\n---\n\nSee [ref](./references/doc.md) and `principle-real`.\n",
     );
     writeFile(path.join(tmp, "skills", "alpha", "references", "doc.md"), "# Doc\n");
     writeFile(
@@ -154,7 +165,7 @@ test("validateAStack rejects collisions, frontmatter errors, oversized skills, b
     writeFile(path.join(tmp, "skills", "swarm", "SKILL.md"), "---\nname: swarm\ndescription: bad\n---\n\nBad.\n");
     writeFile(
       path.join(tmp, "skills", "beta", "SKILL.md"),
-      "---\nname: wrong-name\ndescription: bad\ndisable-model-invocation: true\n---\n\nBroken [link](./missing.md) and ~/.cursor/skills/x and `TodoWrite`.\n" +
+      "---\nname: wrong-name\ndescription: bad\ndisable-model-invocation: true\n---\n\nBroken [link](./missing.md), ~/.cursor/skills/x, ~/.agents/skills/x, `allow_multiple: true`, `principle-does-not-exist`, and `TodoWrite`.\n" +
         "x".repeat(24500),
     );
 
@@ -171,6 +182,9 @@ test("validateAStack rejects collisions, frontmatter errors, oversized skills, b
     assert.match(messages, /Broken relative link target: \.\/missing\.md/);
     assert.match(messages, /Cursor runtime leak matched \(cursor-dir\)/);
     assert.match(messages, /Cursor runtime leak matched \(cursor-tool-todowrite\)/);
+    assert.match(messages, /Cursor runtime leak matched \(invalid-global-skills-dir\)/);
+    assert.match(messages, /Cursor runtime leak matched \(cursor-ask-allow-multiple\)/);
+    assert.match(messages, /Unknown principle skill reference: principle-does-not-exist/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -197,4 +211,18 @@ test("live AStack repo validates cleanly and defaults to UI/Orchestrator inherit
   assert.doesNotMatch(whySkill, /claude-opus-5-5-xhigh/);
   assert.doesNotMatch(whySkill, /generalPurpose/);
   assert.doesNotMatch(whySkill, /Cursor environment/);
+
+  const readme = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "README.md"), "utf8");
+  const archDoc = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "docs", "architecture-and-swarm.md"), "utf8");
+  for (const doc of [readme, archDoc]) {
+    assert.match(doc, /dynamic bidirectional model routing/i);
+    assert.match(doc, /gemini-4-carbon-in-google-antigravity/);
+    assert.match(doc, /introducing-gemini-4-hydrogen/);
+    assert.match(doc, /gemini-4-hydrogen-in-google-antigravity/);
+  }
+
+  const userGuide = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "docs", "user-guide.md"), "utf8");
+  const setupGuide = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "docs", "guide", "01-setup.md"), "utf8");
+  assert.doesNotMatch(userGuide, /Orchestrator \(Ultra\)/);
+  assert.doesNotMatch(setupGuide, /Orchestrator \(Ultra\)/);
 });

@@ -7,7 +7,7 @@ description: "Onboard a repository to AStack: scaffold runtime verification skil
 
 Interactive workspace onboarding for AStack (`astack`), Lauren Tan's (`@poteto`) `pstack` workflows adapted for Google Antigravity (`invoke_subagent`, `/boost`, `/swarm`, `/teamwork`, `/goal`, and `/schedule`), maintained by João Machete.
 
-AStack is zero-config for models by default: subagents (`invoke_subagent`) and `/swarm` workers omit model overrides so they inherit whatever model you picked in Antigravity's UI selector—including **Orchestrator**, effort controls, and newly launched weekly models—and `/arena` discovers cross-family models live at runtime via `swarm{action: "models", all: true}`. Setup focuses on giving agents empirical verification and safety guardrails for this repository.
+AStack is zero-config for models by default. Subagents (`invoke_subagent`) and `/swarm` workers omit model overrides so they inherit whatever model you picked in Antigravity's UI selector, including **Orchestrator**, effort controls, and newly launched weekly models, while `/arena` discovers cross-family models live at runtime via `swarm{action: "models", all: true}`. Setup focuses on giving agents empirical verification and safety guardrails for this repository.
 
 ## 1. Initiate Setup & Inspect Environment
 
@@ -42,7 +42,7 @@ GOOGLE ANTIGRAVITY · PLAN · BUILD · PROVE IT WORKS
   model routing : <detected status>
 ```
 
-Right below the banner, briefly tell the user (1–2 sentences—do **not** ask model-pinning questions by default) that AStack inherits their Antigravity UI model picker automatically (including **Orchestrator**, which pairs a frontier planner model with a fast implementation model inside one session) and resolves cross-family models live during `/arena` bakeoffs, so new weekly Antigravity models work immediately with zero config and no chat restart.
+Right below the banner, briefly tell the user (one or two sentences, and do **not** ask model-pinning questions by default) that AStack inherits their Antigravity UI model picker automatically, including **Orchestrator**'s dynamic bidirectional model routing (a frontier model such as Gemini 4 Carbon plans read-only with re-planning triggers, Gemini 4 Hydrogen handles fast edits and tests, and friction hands control back to Carbon automatically), and resolves cross-family models live during `/arena` bakeoffs so new weekly Antigravity models work immediately with zero config and no chat restart.
 
 Then ask concisely with `ask_question`:
 

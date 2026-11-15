@@ -38,7 +38,7 @@ Open your project workspace and run:
 Select the **`(Recommended)`** option when prompted so [`/setup-astack`](../skills/setup-astack/SKILL.md) teaches agents how to launch and verify your app automatically.
 
 > [!TIP]
-> AStack works out of the box with **any model on any Antigravity plan**—no model config or chat restart needed. Broad read-only sweeps use `flash` automatically, `/arena` checks the models available on your account live, optional `flash`/`pro` role overrides are available in [Make it yours](./guide/09-make-it-yours.md), and if your plan includes `Orchestrator` (Ultra), AStack inherits it automatically too.
+> AStack works out of the box with **any model on any Antigravity plan**, with no model config or chat restart needed. Broad read-only sweeps use `flash` automatically, `/arena` checks the models available on your account live, optional `flash` and `pro` role overrides live in [Make it yours](./guide/09-make-it-yours.md), and selecting `Orchestrator` activates dynamic bidirectional model routing between a frontier planner such as [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/) automatically.
 
 ### Step 3: Run Tasks With `/astack-mode`
 
@@ -60,7 +60,7 @@ Unsure which skill fits? Ask [`/astack-help`](../skills/astack-help/SKILL.md) wi
 
 ## Part 2: Plan-first workflow (write a plan, approve, then execute)
 
-Both Antigravity (`/plan` and **Orchestrator**) and AStack pause before touching project files whenever your prompt asks for plan approval first or runs a plan-only playbook:
+Under **Orchestrator**, a frontier model like Carbon already runs a read-only planning phase before handing edits and tests to Hydrogen, and takes control back automatically if Hydrogen hits friction. When you also want manual sign-off before any file changes, `/plan` or an explicit stop instruction pauses right after the plan is written:
 
 ```mermaid
 flowchart LR
@@ -266,7 +266,7 @@ Instead of writing paragraphs of correction, drop a principle name or slash shor
 |---|---|
 | State **goal + empirical done check** and let `/astack-mode` pick the playbook. | Micromanaging skill chains (`"use /how then /architect then /arena..."`). |
 | State **symptoms and artifacts first**; let the agent restate the problem before sharing your hunch. | Leading with your own guess so the agent only searches where you pointed. |
-| Keep default **UI model inheritance**—works on any model and plan, with live model discovery in `/arena`. | Pinning dated model version slugs in config files (breaks when new models ship or quota runs out). |
+| Keep default **UI model inheritance**. Works on any model and plan, preserves Orchestrator's bidirectional planner and executor hand-offs, and discovers live models in `/arena`. | Pinning dated model version slugs in config files, which locks turns to one model and breaks when new models ship or quota runs out. |
 | Give parallel writers isolated workspaces when running swarms. | Letting two concurrent writers edit the same working tree. |
 | Save `/astack-mode` for real features, bugs, refactors, and investigations. | Running full `/astack-mode` playbooks for a trivial one-line typo edit. |
 | Demand real artifacts (failing->passing output, screenshots, `decisions.tsv`, vetted medians). | Trusting `"all tests pass"` or unvetted benchmark speedups without [`/benchmark-checklist`](../skills/benchmark-checklist/SKILL.md). |
