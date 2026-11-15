@@ -1,34 +1,49 @@
 ---
 name: interrogate
-description: "Pre-flight stress-test and ambiguity discovery before building: inspect real code empirically, challenge unexamined assumptions, smoke out failure/concurrency/UX edge cases, and align with the user before writing code. Use for /interrogate or vague high-stakes asks."
+description: "Adversarial multi-agent code and design review: give a change and its intent to independent adversaries in isolated workspaces, require each finding to be proven with a run against real code, rerun every finding in the parent to verify, and report verified breaks plus dropped noise without applying fixes. Use for /interrogate or skeptical branch review."
 ---
 
 # Interrogate
 
-Ambiguous assumptions written into code become 1,000-line rewrites later. Spend 5 minutes aggressively verifying reality and cornering every underspecified decision before committing to implementation (`principle-interrogate-the-premises`).
+Give a built change and its stated intent to independent adversaries, require every claim to run and fail against real code, and report verified breaks alongside what got dropped.
 
-## 1. Interrogate the Codebase First (Never Ask What Code Can Answer)
+`/interrogate` tests concrete code, diffs, branches, or prototypes. When scoping an unbuilt idea with no code yet, settle empirical forks via [`playbooks/prototype.md`](../astack-mode/playbooks/prototype.md) or run Antigravity's `/grill-me` for product alignment instead.
 
-Run parallel read-only checks (`invoke_subagent` with `TypeName: "self"` when MCP/command probes are needed or `"research"` for wide read-only sweeps; default `Model: "inherit"` to follow your active UI model / **Orchestrator**, or `"flash"` for wide `research` sweeps, honoring optional `astack-models.md` if present; escalate to `/swarm` with live `swarm{action: "models"}` discovery when cross-family adversarial review is requested) to uncover:
+## 1. Frame
 
-- **Existing truth vs comments/docs**: Trace real callers, schemas, configs, and entry points (`principle-evidence-over-inference`).
-- **Concurrency & failure modes**: What happens when two actors run simultaneously, a step retries halfway, or an upstream dependency fails (`principle-make-operations-idempotent`, `principle-separate-before-serializing-shared-state`)?
-- **Verification gaps**: Does this project already have `.agents/skills/verify-*/` or tests covering this flow, or will you need to prove it manually with `control-ui` / `control-cli` / `/create-verification-skill`?
+- **Scope.** Inspect the files or diff named by the user. When unnamed, scope to the current branch diff from merge-base (`git merge-base origin/main HEAD` or `HEAD`) through any uncommitted working-tree changes.
+- **Intent.** State what the change intends to accomplish in your own words via [`in-your-own-words`](../in-your-own-words/SKILL.md), synthesized from the user's prompt, commit messages, and open PR body when present. If two engineers could reasonably disagree on what constitutes breakage and neither prompt nor repo context settles it, ask the user via `ask_question` before fanning out.
 
-> [!TIP]
-> If the task spans a multi-milestone migration or repository-wide system simulation needing structured milestone gates, pair `/interrogate` with Antigravity **`/teamwork`** (or recommend `/grill-me` when a deep interactive alignment interview is warranted before committing to a long run). If the unknown is a narrow coupled runtime mystery, pair with **`/boost`**.
+## 2. Fan out
 
-## 2. Interrogate the Spec & Assumptions
+Follow [`arena`](../arena/SKILL.md) Phase A isolation and runner rules (`principle-separate-before-serializing-shared-state`):
 
-List every hidden premise where two engineers could reasonably do different things:
+- **Default harness.** Launch 2 to 3 parallel `invoke_subagent` calls (`TypeName: "self"`, `Workspace: "branch"`), omitting `Model` (`"inherit"`) so adversaries inherit your active UI model or **Orchestrator** unless `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` overrides them. Differentiate adversaries by attack angle (for example boundary and malformed inputs, concurrency and state races, caller contract regressions).
+- **Cross-family harness.** When distinct model families are requested or under native `/swarm`, call `swarm{action: "models", all: true}` live, filter to models with healthy `quota_remaining`, and spawn 2 to 3 adversaries across distinct families with `workspace: "branch"`.
+- **Uncommitted changes.** Ensure working-tree edits are present inside each isolated branch (for example applying `git diff HEAD` inside the branch workspace without mutating the parent copy).
 
-- Scope boundaries & non-goals ("what do we explicitly break or leave untouched?").
-- Source of truth when state lives in two places.
-- UX / CLI failure ergonomics (silent skip vs hard error vs retry; backward-compatibility contract).
-- Performance targets & realistic scale bounds (and whether [`benchmark-checklist`](../benchmark-checklist/SKILL.md) applies).
+Pass every adversary the scope, stated intent, `agents/astack-agent.md` plus `skills/astack-mode/SKILL.md`, and this breaker brief verbatim:
 
-## 3. Ask Sharp Questions — Only What Code Could Not Decide
+```text
+Break this change. Prove each finding with a run against the real code: a failing input, a reproduction script, a test, or a caller trace that hits the broken path. Report only what ran and failed: the command, its output, and how it breaks the stated intent. Drop anything you didn't run, anything hypothetical, and style opinions.
+```
 
-- Present crisp, opinionated options using `ask_question` (for structured multi-choice architectural forks, putting the recommended option first) or concise numbered questions when open-ended input is needed.
-- Never ask generic filler ("what language is this?", "what tests do you want?") that you can see in the repo.
-- Once answers land, feed the locked decisions directly into [`/architect`](../architect/SKILL.md), `/astack-mode` implementation, or a `/swarm` coordinator brief.
+Wait reactively without polling (`invoke_subagent` wakes on completion; `/swarm` uses `swarm_wait`).
+
+## 3. Verify
+
+Skip [`arena`](../arena/SKILL.md) Phases C through E so every verified defect across all adversaries survives rather than choosing one winning reviewer.
+
+1. Rerun each reported finding's exact command in the parent workspace (staging any reproduction harness in an isolated scratch directory so the repo stays clean) per `principle-prove-it-works`.
+2. Keep only findings whose rerun reproduces the failure AND violates the stated intent.
+3. Merge duplicates sharing the same underlying cause (`principle-fix-root-causes`), crediting every adversary that surfaced them.
+4. Record every dropped claim (did not run, did not reproduce, failed before the change too, or did not break intent) with counts and reasons per adversary.
+5. Apply zero fixes during `/interrogate`, and clean up temporary branch workspaces (`manage_subagents` `kill` or `swarm{action: "kill"}`) after verification finishes.
+
+## 4. Output
+
+Return three sections:
+
+- **Intent.** 1 to 2 sentences stating what the change is supposed to do.
+- **Findings.** For each verified break, include the exact command run, observed failing output, how it breaks the stated intent, and which adversaries found it (or state `no verified findings`).
+- **Dropped.** Per-adversary count and concrete drop reasons so the human can review or override any cut.

@@ -44,7 +44,7 @@ See [README](../../README.md), [User Guide](../../docs/user-guide.md), [Architec
 | Focused side task (research, UI check, test run) | `invoke_subagent` | Built into `/astack-mode`: `research`, `browser`, or `self` (`astack-agent`). |
 | Hard, coupled bug, race, or optimization | `/boost` | Multi-round challenge -> fix -> verify alongside `astack-mode` playbooks. |
 | Broad parallel sweep across files or PRs | Native `/swarm` | Live message board, `workspace: "share"`, and independent `@verifier` gates. (`/fanout` handles quick subagent sweeps without colliding with `/swarm`.) |
-| Multi-milestone project or overnight drive | `/teamwork` + `/goal` | Scoped milestones (`/interrogate`), audit gates, `show-me-your-work` logs, persistent drive. |
+| Multi-milestone project or overnight drive | `/teamwork` + `/goal` | Scoped milestones (`/grill-me`, `/architect`), audit gates, `show-me-your-work` logs, persistent drive. |
 
 ## Start a task with `/astack-mode`
 

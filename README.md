@@ -38,7 +38,7 @@
 
 - **Start from one command.** Give [`/astack-mode`](./skills/astack-mode/SKILL.md) a goal, and it picks from 23 playbooks for bugs, features, refactors, and releases.
 - **Verify on the running app.** [`/control-ui`](./skills/control-ui/SKILL.md), [`/control-cli`](./skills/control-cli/SKILL.md), and `verify-<app>` check behavior in a real browser or terminal.
-- **Test designs before coding.** [`/interrogate`](./skills/interrogate/SKILL.md), [`/architect`](./skills/architect/SKILL.md), and [`/arena`](./skills/arena/SKILL.md) find edge cases and compare approaches in isolated branches.
+- **Test designs and break diffs.** [`/architect`](./skills/architect/SKILL.md) and [`/arena`](./skills/arena/SKILL.md) compare candidate designs in isolated branches, while [`/interrogate`](./skills/interrogate/SKILL.md) stress-tests built prototypes and branches with empirical reproduction.
 - **Built for dynamic bidirectional model routing.** Zero static model slugs lets Antigravity's **Orchestrator** hand control dynamically between frontier planning ([Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity)) and fast execution ([Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/)) inside one session.
 - **Scale across agents.** AStack works with Antigravity subagents, [`/fanout`](./skills/fanout/SKILL.md), `/boost`, `/swarm`, `/teamwork`, and `/goal` on any model.
 - **Clean diffs before review.** [`/deslop`](./skills/deslop/SKILL.md), [`/no-comments`](./skills/no-comments/SKILL.md), and [`/unslop`](./skills/unslop/SKILL.md) remove dead code, noisy comments, and AI filler.
@@ -113,8 +113,8 @@ Traditional static model routers guess task difficulty from the first prompt and
 
 AStack strengthens all three cooperative role hand-offs without overriding the router:
 
-1. **Read-only planning on a frontier model (such as Carbon).** Starts in a read-only phase to explore dependencies, resolve ambiguities with [`/how`](./skills/how/SKILL.md), [`/why`](./skills/why/SKILL.md), [`/interrogate`](./skills/interrogate/SKILL.md), and [`/architect`](./skills/architect/SKILL.md), and build an explicit plan with re-planning triggers before editing files.
-2. **Execution and verification on Hydrogen.** Takes over to write edits, update packages, run tests, clean the diff with [`/deslop`](./skills/deslop/SKILL.md) and [`/no-comments`](./skills/no-comments/SKILL.md), and run [`/control-ui`](./skills/control-ui/SKILL.md), [`/control-cli`](./skills/control-cli/SKILL.md), or `verify-<app>`.
+1. **Read-only planning on a frontier model (such as Carbon).** Starts in a read-only phase to explore dependencies, resolve ambiguities with [`/how`](./skills/how/SKILL.md), [`/why`](./skills/why/SKILL.md), prototypes, and [`/architect`](./skills/architect/SKILL.md), and build an explicit plan with re-planning triggers before editing files.
+2. **Execution and verification on Hydrogen.** Takes over to write edits, update packages, run tests, clean the diff with [`/deslop`](./skills/deslop/SKILL.md) and [`/no-comments`](./skills/no-comments/SKILL.md), red-team with [`/interrogate`](./skills/interrogate/SKILL.md), and run [`/control-ui`](./skills/control-ui/SKILL.md), [`/control-cli`](./skills/control-cli/SKILL.md), or `verify-<app>`.
 3. **Automatic hand-back on friction.** If Hydrogen hits failing verification checks or broken plan assumptions, control hands back to Carbon (paired with [`principle-attack-the-premise`](./skills/principle-attack-the-premise/SKILL.md) instead of blind retry loops) to inspect the workspace state, repair the plan, and resume execution.
 
 Because AStack leaves subagent and `/swarm` worker models unset (`Model: "inherit"` by default), pinning static model slugs never locks turns to one model or blocks bidirectional hand-offs. AStack inherits your active UI model or **Orchestrator** automatically, uses evergreen `flash` aliases only for broad `research` and `browser` sweeps, and queries `swarm{action: "models"}` live during [`/arena`](./skills/arena/SKILL.md) bakeoffs.
@@ -191,7 +191,7 @@ AStack ships **61 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 | [`/architect`](./skills/architect/SKILL.md) | Explores competing architectures in parallel, checks design red flags, and writes a type sketch |
 | [`/arena`](./skills/arena/SKILL.md) | Runs 2 to 3 isolated candidate implementations against the same check and grafts winning pieces |
 | [`/fanout`](./skills/fanout/SKILL.md) | Fans out independent read-only sweeps, test matrices, or file-disjoint tasks to subagents |
-| [`/interrogate`](./skills/interrogate/SKILL.md) | Stress-tests plans and diffs with adversarial review backed by empirical reproduction |
+| [`/interrogate`](./skills/interrogate/SKILL.md) | Stress-tests built prototypes, contested designs, and branch diffs with adversarial runs |
 | [`/sharpen`](./skills/sharpen/SKILL.md) | Refines a task to be deeper rather than broader and rewrites the prompt |
 | [`/figure-it-out`](./skills/figure-it-out/SKILL.md) | Designs an auditable hypothesis loop for open-ended migrations and multi-part changes |
 

@@ -9,7 +9,7 @@ AStack adapts Lauren Tan's (`@poteto`) high-trust `pstack` workflows natively to
 | Focused, self-contained side task (seconds to minutes) | `invoke_subagent` (`TypeName: "research" \| "browser" \| "self"`) | Codebase exploration, UI flow check, targeted test run, `/how`, `/why`, `/no-comments` (`comment-sicko`). Keeps main context clean (**principle-guard-the-context-window**). |
 | Hard, coupled problem across shared code | `/boost` | Race conditions, flaky tests, perf optimization, algorithmic work, or coupled refactors where an initial hypothesis should be challenged, fixed, and re-verified across rounds. |
 | Broad, cleanly divisible work across files, packages, PRs, or test suites | Native Antigravity `/swarm` (`swarm`, `post_message`, `read_board`, `swarm_wait`) | Parallel implementation across separate modules, N-lane verification gauntlets, PR autopilot queues, and multi-worker audits with an independent `@verifier` on a live message board. |
-| Long-horizon, multi-milestone program (hours to days) | `/teamwork` + `/goal` | Repository-wide migrations, formal proofs, or multi-PR programs needing upfront `/interrogate` scoping, milestone audit gates, and persistent `show-me-your-work` decision logs until completion. |
+| Long-horizon, multi-milestone program (hours to days) | `/teamwork` + `/goal` | Repository-wide migrations, formal proofs, or multi-PR programs needing upfront `/grill-me` scoping, `/architect` type sketches, milestone audit gates, and persistent `show-me-your-work` decision logs until completion. |
 
 ## 2. Subagent Contract (`invoke_subagent`)
 

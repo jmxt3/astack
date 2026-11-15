@@ -81,9 +81,9 @@ Pick the prompt that matches the size of the work:
    ```text
    /plan /astack-mode <task or bug>. Investigate the codebase, write a step-by-step implementation and verification plan, and stop for my approval before editing any files.
    ```
-2. **Unclear requirements or edge cases ([`/interrogate`](../skills/interrogate/SKILL.md) or `/grill-me`):** Audits real callers and failure cases first, then asks only what code could not settle (pair with Antigravity's `/grill-me` for a structured alignment interview):
+2. **Unclear requirements or product forks (`/grill-me` or [`prototype.md`](../skills/astack-mode/playbooks/prototype.md)):** Use Antigravity's `/grill-me` for an interactive alignment interview on product choices, or `/astack-mode` prototype when running code can settle the fork empirically; save [`/interrogate`](../skills/interrogate/SKILL.md) for breaking a built prototype or branch before shipping:
    ```text
-   /interrogate <idea>. Check the codebase first, surface hidden assumptions and edge cases, and align with me before writing a plan or changing code.
+   /grill-me <idea>. Align on scope, tradeoffs, and edge cases before writing a plan or changing code.
    ```
 3. **API, module boundary, or architecture change ([`/architect`](../skills/architect/SKILL.md) with checkpoint):** By default `/architect` moves straight from design into code unless you pass `with checkpoint`:
    ```text

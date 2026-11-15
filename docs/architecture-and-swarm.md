@@ -38,10 +38,10 @@ Traditional static model routers guess task difficulty from the first prompt and
 ```mermaid
 flowchart LR
     Plan["`**Read-only plan (Carbon)**
-Explore dependencies via /how, /why, /interrogate, /architect
+Explore dependencies via /how, /why, /architect
 Write explicit plan and Re-plan if triggers`"] -->|"Hand off to executor"| Exec["`**Execute and check (Hydrogen)**
 Write edits, update packages, run tests
-Clean diff (/deslop, /no-comments) and run verify-{app}, /control-ui, /control-cli`"]
+Clean diff (/deslop, /no-comments) and run verify-{app}, /control-ui, /control-cli, /interrogate`"]
     Exec --> Gate{"Runtime check?"}
     Gate -->|"Verified"| Done["`Report empirical evidence`"]
     Gate -->|"Friction or broken premise"| Recover["`**Hand back to Carbon**
@@ -52,8 +52,8 @@ Inspect live state and repair plan`"]
 
 | Orchestrator phase | What Antigravity does | How AStack strengthens the hand-off |
 |---|---|---|
-| **Read-only frontier planning (Carbon)** | Explores dependencies, resolves ambiguities, and writes an explicit plan with re-planning triggers | [`/how`](../skills/how/SKILL.md), [`/why`](../skills/why/SKILL.md), [`/interrogate`](../skills/interrogate/SKILL.md), [`/architect`](../skills/architect/SKILL.md), and `principle-model-the-domain` settle boundaries and data shapes upfront so the executor never guesses architecture mid-edit. |
-| **High-speed execution (Hydrogen)** | Writes code edits, updates packages, and runs builds and tests | Playbook checklists, [`/tdd`](../skills/tdd/SKILL.md), [`/deslop`](../skills/deslop/SKILL.md), [`/no-comments`](../skills/no-comments/SKILL.md), [`/control-ui`](../skills/control-ui/SKILL.md), [`/control-cli`](../skills/control-cli/SKILL.md), and `verify-<app>` turn "done" into a deterministic runtime check. |
+| **Read-only frontier planning (Carbon)** | Explores dependencies, resolves ambiguities, and writes an explicit plan with re-planning triggers | [`/how`](../skills/how/SKILL.md), [`/why`](../skills/why/SKILL.md), `/grill-me`, [`/architect`](../skills/architect/SKILL.md), and `principle-model-the-domain` settle boundaries and data shapes upfront so the executor never guesses architecture mid-edit. |
+| **High-speed execution (Hydrogen)** | Writes code edits, updates packages, and runs builds and tests | Playbook checklists, [`/tdd`](../skills/tdd/SKILL.md), [`/deslop`](../skills/deslop/SKILL.md), [`/no-comments`](../skills/no-comments/SKILL.md), [`/interrogate`](../skills/interrogate/SKILL.md), [`/control-ui`](../skills/control-ui/SKILL.md), [`/control-cli`](../skills/control-cli/SKILL.md), and `verify-<app>` turn "done" into a deterministic runtime check. |
 | **Bidirectional friction recovery (Hydrogen back to Carbon)** | Hands control back to the frontier planner when execution hits roadblocks | Objective Control Glass failures and [`principle-attack-the-premise`](../skills/principle-attack-the-premise/SKILL.md) halt blind retry loops after repeated gate failures so Carbon inspects live state and repairs the plan. |
 
 AStack preserves bidirectional routing by omitting hardcoded model overrides (`Model: "inherit"` by default on `invoke_subagent` and unset `model` on `swarm{action: "add"}`). AStack reserves evergreen `flash` aliases for high-volume read-only sweeps and uses `swarm{action: "models"}` to discover distinct live model families only when [`/arena`](../skills/arena/SKILL.md) runs cross-family bakeoffs.
@@ -77,7 +77,7 @@ flowchart TD
 | **Subagents** (`invoke_subagent` / `/fanout`) | Self-contained research, browser check, test slice, independent check matrix, or declared race arms | `/how`, `/why`, `/fanout`, `/arena`, `/interrogate`, `/reflect`, `/recall` | `Workspace: "inherit"` for readers; `"share"` or `"branch"` for writers |
 | **`/boost`** | Problem is **hard rather than broad**: root-cause debugging, race conditions, algorithmic perf, tightly coupled refactors | `bug-fix`, `perf-issue`, `hillclimb`, `runtime-forensics`, `/tdd`, `/benchmark-checklist`, `/statechart` | Single focused thread with multi-round challenge/fix/verify |
 | **`/swarm`** | Work is **broad and divides cleanly** across files, packages, test suites, or research lenses needing live coordination | `autopilot-full`, `autopilot-stack`, [`swarm-coordination.md`](../skills/astack-mode/references/swarm-coordination.md) | `workspace: "share"` for concurrent writers, `inherit` for `@verifier` (`control-ui`/`control-cli` + `deslop`) and optional `@monitor` |
-| **`/teamwork`** | **Long-horizon, multi-milestone** migrations, rewrites, or simulations spanning hours/days | `orchestrate`, `multi-phase-plan`, `/interrogate`, `/architect`, `/show-me-your-work` | Dedicated project directory + milestone audit gates |
+| **`/teamwork`** | **Long-horizon, multi-milestone** migrations, rewrites, or simulations spanning hours/days | `orchestrate`, `multi-phase-plan`, `/architect`, `/interrogate`, `/show-me-your-work` | Dedicated project directory + milestone audit gates |
 | **`/goal` (+ `/schedule`)** | Sustained autonomous iteration until a concrete checkable finish predicate holds | `autonomous-run`, `/figure-it-out`, `/show-me-your-work` (`decisions.tsv`), `/ketchup` | Isolated git worktree; pause safely on interruption (`pause-safely`) |
 
 ### Why `/fanout` Instead of `/swarm`?

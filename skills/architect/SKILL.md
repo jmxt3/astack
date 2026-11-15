@@ -5,52 +5,55 @@ description: "Explore an engineering or API design across competing candidate ar
 
 # Architect
 
-Stop converging on the first plausible shape. Ground the constraints in real code, send multiple candidates into parallel design exploration with caller usage first, screen against structural red flags, synthesize one base architecture via [`/arena`](../arena/SKILL.md), and leave a crisp one-page rationale + type sketch.
+Avoid converging on the first plausible abstraction. Ground constraints in real callers and boundaries, run parallel candidates starting from caller usage and core data structures, screen for design red flags, synthesize one coherent shape via [`arena`](../arena/SKILL.md), and scrap the sketch cleanly whenever implementation proves it wrong.
 
-## Phase A: Ground the problem
+## Phase A. Ground the problem
 
-Read before designing (`principle-verify-before-reporting`):
+Read before proposing structure (`principle-prove-it-works`):
 
-1. Inspect existing entry points, callers, storage/wire types, invariants, and boundaries that this design touches. Cite exact file paths and symbol names you actually read.
-2. Capture a short **grounding brief** (under one page):
-   - Problem statement and what must get simpler or become structurally impossible (`principle-encode-lessons-in-structure`).
-   - Hard constraints from existing callers, schemas, performance limits, or concurrency boundaries (`principle-boundary-discipline`).
-   - Ambiguities best settled *before* branching candidates (if any high-cost requirement is genuinely unknown, clarify with `/interrogate` or `ask_question` first).
+1. Run [`how`](../how/SKILL.md) over the subsystems, callers, wire schemas, and state ownership this design touches. Cite real files and symbols you read.
+2. Run [`why`](../why/SKILL.md) whenever the change moves ownership, alters layer boundaries, or replaces an existing abstraction so past constraints are not silently broken.
+3. Capture a crisp grounding brief (under one page) stating:
+   - Core problem and domain invariants (`principle-model-the-domain`, `principle-foundational-thinking`).
+   - External boundary constraints and what illegal states types should exclude (`principle-boundary-discipline`, `principle-type-system-discipline`, `principle-encode-lessons-in-structure`).
+   - Empirical forks settled via throwaway experiments (`playbooks/prototype.md`), reserving `ask_question` or `/grill-me` strictly for genuine product decisions code cannot decide.
 
-## Phase B: Parallel candidate exploration
+## Phase B. Sketch
 
-Spin up **2–4 independent design runners** in parallel in an isolated scratch workspace directory (one subfolder per candidate, e.g. `<scratch>/architect-<slug>/candidate-a`, `candidate-b`, `candidate-c`, or isolated subagent workspaces if prototyping interfaces in code):
+Explore at least 2 structurally distinct candidate architectures via [`arena`](../arena/SKILL.md) (`principle-exhaust-the-design-space`):
 
-- **Execution mechanism**:
-  - For quick design sketches: `invoke_subagent` (`TypeName: "self"`, `Workspace: "inherit"` writing strictly to its own assigned `<scratch>/candidate-<x>/` directory), defaulting to `Model: "inherit"` (following your active UI model / **Orchestrator**) with distinct architectural lenses such as "minimal functional core" vs "state-machine explicit" vs "zero-allocation hot path" (honoring optional `astack-models.md` if present).
-  - For distinct LLM family diversity or large interface prototypes: Native `/swarm` workers discovered live via `swarm{action: "models", all: true}` (checking `quota_remaining`) with `workspace: "branch"` or disjoint sketch subfolders, plus an independent judge.
-- Pass every runner:
-  1. [`references/runner-prompt.md`](references/runner-prompt.md) (verbatim core discipline: **Usage (caller's view) first**, **data structures first**, **interface depth**, **separate-before-serializing-shared-state**, `not implemented` boundaries).
-  2. [`references/rationale-template.md`](references/rationale-template.md) as the mandatory output shape.
-  3. Phase A's grounding brief and its isolated output path.
+1. Launch 2 to 4 runners in parallel using isolated subdirectories (`<scratch>/architect-<slug>/candidate-<x>/`) via `invoke_subagent` (`TypeName: "self"`, omitting `Model` to inherit UI or **Orchestrator**, or honoring `astack-models.md` if present) or native `/swarm` (`swarm{action: "models", all: true}`) when distinct model families are desired.
+2. Pass every runner:
+   - [`references/runner-prompt.md`](references/runner-prompt.md) (caller usage first, data structures before methods, deep interfaces, `principle-separate-before-serializing-shared-state`, `not implemented` stubs).
+   - [`references/rationale-template.md`](references/rationale-template.md) for its output document.
+   - Phase A's grounding brief plus its isolated output directory.
+3. Screen every candidate end to end against [`references/design-red-flags.md`](references/design-red-flags.md) (`shallow module`, `information leakage`, `temporal decomposition`, `pass-through method`, `split ownership`, `two ways to do one task`, `importable internals`, `hand-synced list`).
+4. Run `arena` synthesis to choose one cleanest base, reconcile types back to caller usage whenever signatures drifted (usage is the spec), graft discrete localized strengths cleanly (`principle-redesign-from-first-principles`), and fill `Synthesis decision` in the final `rationale.md` alongside `# Shape`, `Tradeoffs accepted`, `Alternatives considered`, `Open questions and risks`, and `Next implementation step`.
 
-Wait reactively — never poll.
+## Phase C. Agree (opt-in)
 
-## Phase C: Screen and synthesize
+**Default is zero checkpoint.** Proceed straight from Phase B synthesis into Phase D implementation (`principle-never-block-on-the-human`).
 
-Read every candidate's usage + type sketch + `rationale.md` completely:
+Pause before writing implementation code **only** when:
 
-1. **Red-flag screen**: Run every candidate through [`references/design-red-flags.md`](references/design-red-flags.md):
-   - Shallow module
-   - Information leakage (wire/transport types on public surface)
-   - Temporal decomposition
-   - Pass-through method
-   - Split ownership
-   - Two ways to do one task
-   - Importable internals
-   - Hand-synced list
-2. **Synthesize with [`arena`](../arena/SKILL.md)**:
-   - Pick ONE base candidate that best hides complexity behind clear caller usage (`# Shape`).
-   - Reconcile types back to caller usage whenever they drifted — usage is the spec.
-   - Graft concrete localized wins from the other candidates without blurring module boundaries.
-   - Fill `Synthesis decision` in the final rationale artifact (`rationale.md`) alongside `# Shape`, `Tradeoffs accepted`, `Alternatives considered`, `Open questions and risks`, and `Next implementation step`.
+- The user explicitly asked for design review first (`"with checkpoint"`, `"design only"`, `"show me before implementing"`).
+- Synthesis uncovered an unresolved product tradeoff that alters external caller behavior or irreversible schemas.
 
-## Phase D: Sign-off or build
+When pausing, present `# Shape`, `Tradeoffs accepted`, and explicit `Open questions and risks` framed as decisions for the user, then wait for approval.
 
-- If the user asked only for design, open questions remain that change public behavior, or you hit a checkpoint gate: present the concise artifact / `# Shape` summary, surface open questions explicitly as questions for decision, and pause for sign-off.
-- If the design resolves every constraint cleanly and the user asked to build end-to-end: proceed immediately to the `Next implementation step` using `astack-mode`'s build & verification flow (`tdd`, `deslop`, `control-ui`/`control-cli`).
+## Phase D. Implement against the sketch
+
+Build starting from `# Shape` and `Next implementation step` using `astack-mode`'s build and verification playbooks (`feature.md`, `tdd`, `deslop`, `control-ui`, `control-cli`). Treat `# Shape` as a living contract: whenever concrete types or runtime checks force a local adjustment, update the sketch and rationale in the same change so design docs never drift from code.
+
+## Phase E. Scrap when the architecture is wrong
+
+Treat the sketch as disposable scaffolding once real code pushes back (`principle-outcome-oriented-execution`). Stop patching and scrap the design immediately if implementation surfaces any of these tells:
+
+1. Callers must inspect or pass hidden internal representation details (`information leakage`).
+2. The same workaround, coercion, or adapter glue repeats across two or more unrelated call sites (`principle-minimize-reader-load`).
+3. Types only compile with `any`, forced `unknown` casts, or non-null assertions across module boundaries.
+4. Adding a second caller or edge case forces mode flags onto core signatures instead of fitting the model cleanly.
+5. Tests have to mock private wiring instead of driving public caller behavior (`principle-test-behavior-not-implementation`).
+6. Two state owners drift out of sync or need ad-hoc reconciliation logic (`split ownership`).
+
+When those tells appear, halt incremental patching: re-ground via [`how`](../how/SKILL.md) against what code just proved, strip the broken scaffolding via `principle-subtract-before-you-add` and `principle-redesign-from-first-principles`, and rerun [`arena`](../arena/SKILL.md) with the newly surfaced constraint before writing more code.

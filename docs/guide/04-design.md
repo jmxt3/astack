@@ -100,7 +100,7 @@ Writing the tutorial first forces the caller's view. You describe the API to a h
 
 ## Plan after the design settles
 
-astack has no separate planning skill, on purpose. Ambiguous specs belong in [`/interrogate`](../../skills/interrogate/SKILL.md) (or Antigravity's `/grill-me`), cross-boundary designs can pause at [`/architect`](../../skills/architect/SKILL.md) with `with checkpoint`, and written plans come once open questions are settled:
+astack has no separate planning skill, on purpose. Ambiguous specs get settled with prototypes (or Antigravity's `/grill-me` for product forks), cross-boundary designs can pause at [`/architect`](../../skills/architect/SKILL.md) with `with checkpoint`, and written plans come once open questions are settled:
 
 ```text
 /astack-mode turn this design into a plan in docs/<name>-plan.md. small verifiable PRs, each with its own live verification steps. do not implement. stop for my approval.

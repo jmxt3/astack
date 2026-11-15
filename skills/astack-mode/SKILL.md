@@ -24,7 +24,7 @@ Remaining triggers:
   - Broad multi-file / multi-PR implementation with peer handoffs & `@verifier` gates -> native Antigravity `/swarm` (`swarm`, `post_message`, `read_board`, `swarm_wait`) per [`references/swarm-coordination.md`](./references/swarm-coordination.md).
   - Hard coupled debugging, races, or algorithmic optimization -> recommend `/boost`.
   - Multi-day / multi-milestone programs -> recommend `/teamwork` + `/goal`.
-- Contested design -> run [`interrogate`](../interrogate/SKILL.md) (diverse-model adversarial review) before shipping.
+- Contested design -> run [`interrogate`](../interrogate/SKILL.md) (adversarial empirical review) before shipping. Settle unbuilt product forks via `/grill-me` or `playbooks/prototype.md`.
 - Nontrivial multi-step feature -> write a throughput checkpoint (`playbooks/feature.md` step 3).
 - Any prose surface, your reply to the user included -> apply [`unslop`](../unslop/SKILL.md) and write per **Writing the reply**. Keep any new or edited `SKILL.md` body `<= 24,000` bytes.
 - Docs, RFCs, READMEs, PR descriptions, or commit messages -> [`technical-writing`](../technical-writing/SKILL.md).
@@ -109,6 +109,7 @@ Write clean prose as you draft:
 - **No mid-sentence colons** joining clauses (`unslop` rule). Colons before lists are fine.
 - **Preserve substance.** Short sentences must still include every tradeoff, open choice, measured number, and consumer/maintainer impact the playbook requires.
 - **Never fabricate files, symbols, counts, or transcript citations.** State only directly observed facts from this session; label inferences explicitly.
+- **Label every claim.** Attach concrete observed evidence or an explicit label (`measured`, `inferred`, or `guess`) in the same sentence. A prediction or an unseen cause is a guess. Never hand the human a check you could run yourself.
 
 ## Comments
 
