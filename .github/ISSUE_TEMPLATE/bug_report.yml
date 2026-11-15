@@ -1,0 +1,53 @@
+name: Bug report
+description: Report broken skill behavior, CLI errors, hook issues, or broken documentation
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug in AStack. Please include the exact command or prompt and the output you observed.
+
+  - type: input
+    id: summary
+    attributes:
+      label: What happened?
+      description: A short description of the failure or unexpected behavior.
+      placeholder: "validate-astack.mjs exits with code 1 when..."
+    validations:
+      required: true
+
+  - type: input
+    id: component
+    attributes:
+      label: Affected skill, hook, or script
+      description: Name the skill (`/astack-mode`, `/statechart`, etc.), hook, or script path.
+      placeholder: "skills/astack-mode/scripts/watch-pr.mjs"
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact prompt, command, or input fixture that triggers the bug.
+      placeholder: |
+        1. Run `...`
+        2. Observe output `...`
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs actual output
+      description: Paste relevant stdout/stderr logs or error messages (redact any secrets).
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, `node -v`, and `agy --version` (if available).
+      placeholder: "Windows 11, Node v22.12.0, agy 1.5.7"
+    validations:
+      required: true

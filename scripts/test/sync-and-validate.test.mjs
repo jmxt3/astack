@@ -144,6 +144,11 @@ test("validateAStack rejects collisions, frontmatter errors, oversized skills, b
     assert.equal(clean.ok, true, JSON.stringify(clean.errors));
 
     // Introduce failures across categories
+    writeFile(
+      path.join(tmp, "README.md"),
+      '<picture><source srcset="./missing-light.png"><img src="./missing-banner.png"></picture>\n',
+    );
+    writeFile(path.join(tmp, "CONTRIBUTING.md"), "Broken [guide](./missing-doc.md).\n");
     writeFile(path.join(tmp, "skills", "swarm", "SKILL.md"), "---\nname: swarm\ndescription: bad\n---\n\nBad.\n");
     writeFile(
       path.join(tmp, "skills", "beta", "SKILL.md"),
@@ -154,6 +159,9 @@ test("validateAStack rejects collisions, frontmatter errors, oversized skills, b
     const broken = validateAStack(tmp, { withAgy: false });
     assert.equal(broken.ok, false);
     const messages = broken.errors.map((e) => e.message).join("\n");
+    assert.match(messages, /Broken relative link target: \.\/missing-light\.png/);
+    assert.match(messages, /Broken relative link target: \.\/missing-banner\.png/);
+    assert.match(messages, /Broken relative link target: \.\/missing-doc\.md/);
     assert.match(messages, /skills\/swarm must not exist/);
     assert.match(messages, /Unsupported frontmatter key "disable-model-invocation"/);
     assert.match(messages, /does not match folder "beta"/);

@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose a new skill improvement, CLI helper, or Antigravity integration
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suggest an improvement to AStack's skills, verification workflows, or Antigravity integrations.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow gap
+      description: What engineering or verification task is missing or painful today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the skill, playbook, hook, or CLI behavior you would like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: How would we verify it works?
+      description: What empirical check, fixture, or command output would prove the change works?

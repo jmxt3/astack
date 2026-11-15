@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: AStack User Guide
+    url: https://github.com/jmxt3/astack/blob/main/docs/user-guide.md
+    about: Read the quickstart, 5-stage daily workflow, and Antigravity mode guide.
+  - name: Report a Security Vulnerability
+    url: https://github.com/jmxt3/astack/security/advisories/new
+    about: Report security flaws or hook guard bypasses privately (do not open a public issue).

@@ -42,28 +42,45 @@ function stripUrls(text) {
   return text.replace(/https?:\/\/[^\s)\]>'"]+/g, "");
 }
 
+function addRelativeTarget(rawTarget, links) {
+  const trimmed = rawTarget?.trim();
+  if (
+    !trimmed ||
+    trimmed === "url" ||
+    trimmed.startsWith("#") ||
+    /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) ||
+    trimmed.includes("<") ||
+    trimmed.includes(">") ||
+    trimmed.includes("${") ||
+    trimmed.startsWith("$")
+  ) {
+    return;
+  }
+  const cleanTarget = trimmed.split("#")[0].split("?")[0];
+  if (cleanTarget) {
+    links.push(cleanTarget);
+  }
+}
+
 function extractRelativeLinks(markdown) {
   const withoutCode = stripFencedCodeBlocks(markdown).replace(/`[^`]*`/g, "");
   const links = [];
-  const regex = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+  const mdRegex = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
   let match;
-  while ((match = regex.exec(withoutCode)) !== null) {
-    const rawTarget = match[1];
-    if (
-      !rawTarget ||
-      rawTarget === "url" ||
-      rawTarget.startsWith("#") ||
-      /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(rawTarget) ||
-      rawTarget.includes("<") ||
-      rawTarget.includes(">") ||
-      rawTarget.includes("${") ||
-      rawTarget.startsWith("$")
-    ) {
-      continue;
-    }
-    const cleanTarget = rawTarget.split("#")[0].split("?")[0];
-    if (cleanTarget) {
-      links.push(cleanTarget);
+  while ((match = mdRegex.exec(withoutCode)) !== null) {
+    addRelativeTarget(match[1], links);
+  }
+  const htmlRegex = /\b(href|src|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+  while ((match = htmlRegex.exec(withoutCode)) !== null) {
+    const attr = match[1].toLowerCase();
+    const rawValue = match[2] ?? match[3] ?? "";
+    if (attr === "srcset") {
+      for (const candidate of rawValue.split(",")) {
+        const urlPart = candidate.trim().split(/\s+/)[0];
+        addRelativeTarget(urlPart, links);
+      }
+    } else {
+      addRelativeTarget(rawValue, links);
     }
   }
   return links;
@@ -230,7 +247,9 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
 
   // Check markdown relative links + Cursor runtime leaks across markdown content
   const mdScanTargets = [
-    ...["README.md"].map((f) => path.join(rootDir, f)).filter((p) => fs.existsSync(p)),
+    ...["README.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md", "SECURITY.md"]
+      .map((f) => path.join(rootDir, f))
+      .filter((p) => fs.existsSync(p)),
     ...collectFiles(path.join(rootDir, "rules"), [".md"]),
     ...collectFiles(path.join(rootDir, "agents"), [".md"]),
     ...collectFiles(path.join(rootDir, "skills"), [".md"]),
