@@ -15,7 +15,11 @@
 
 **AStack** (`astack`) is a native **Google Antigravity** plugin bundling **61 skills**, **23 playbooks**, **24 engineering principles**, **2 custom agents**, **1 orchestration rule**, and **2 opt-in lifecycle hooks**. State the outcome you want and how to verify it works, and `/astack-mode` selects the matching playbook, coordinates Antigravity's subagents and multi-agent modes, cleans the diff, and proves behavior against the running UI or CLI before reporting done.
 
-**Local-first, with zero model lock-in.** AStack installs as static markdown skills and local Node.js 22+ scripts with no hosted backend, no telemetry, and no model-pinning config. It inherits whatever model or plan you already run in Antigravity (including `Orchestrator` where supported). Adapted and engineered for Google Antigravity by **João Machete** ([`jmxt3/astack`](https://github.com/jmxt3/astack)) from **Lauren Tan (`@poteto`)**'s [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) (MIT License, baseline `v0.15.36`).
+**Local-first, with zero model lock-in.** AStack installs as static markdown skills and local Node.js 22+ scripts with no hosted backend, no telemetry, and no model-pinning config. It inherits whatever model or plan you already run in Antigravity (including `Orchestrator` where supported).
+
+> **Credits & Attribution**  
+> **Original Plugin (`pstack`):** Created by **Lauren Tan** (`@poteto`) in [`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack) (MIT License, baseline `v0.15.36`), grounded in her SpaceX AI / Cursor workflow architecture.  
+> **Antigravity Port (`astack`):** Adapted and engineered for Google Antigravity by **João Machete** ([`jmxt3/astack`](https://github.com/jmxt3/astack)), integrating AStack natively with Antigravity's `Subagents`, `/boost`, `/swarm`, `/teamwork`, `/goal`, `/schedule`, and lifecycle hooks.
 
 <p align="center">
   <a href="#install">Install</a> ·
@@ -295,10 +299,7 @@ Preview changes from an upstream `pstack` checkout while protecting Antigravity 
 node scripts/sync-upstream.mjs --source <path-to-pstack> --dry-run
 ```
 
-## Community, credits & license
+## Community & license
 
-- **Original `pstack` plugin**: Created by **Lauren Tan (`@poteto`)** in [`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack) (MIT License, baseline `v0.15.36`).
-- **Google Antigravity port (`astack`)**: Adapted and maintained by **João Machete** ([`@jmxt3`](https://github.com/jmxt3)).
 - **Contribute and report issues**: Read [CONTRIBUTING.md](./CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md), or open a report using the [GitHub issue chooser](https://github.com/jmxt3/astack/issues/new/choose).
-
-Licensed under the [MIT License](./LICENSE).
+- **License**: Released under the [MIT License](./LICENSE) — copyright **Lauren Tan** (`@poteto`) and **João Machete** ([`@jmxt3`](https://github.com/jmxt3)).

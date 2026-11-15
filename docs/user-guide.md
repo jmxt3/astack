@@ -2,6 +2,10 @@
 
 **AStack** (`astack`) adapts Lauren Tan's (`@poteto`) verification-first `pstack` workflows natively for **Google Antigravity**. Instead of reviewing long unverified diffs by hand, you state **what outcome you want and how to prove it works**, while AStack matches a rigorous playbook, coordinates Antigravity's subagents and multi-agent modes, cleans the diff, and proves behavior on the running app before reporting done.
 
+> **Credits & Attribution**  
+> **Original Plugin (`pstack`):** Created by **Lauren Tan** (`@poteto`) in [`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack) (MIT License, baseline `v0.15.36`).  
+> **Antigravity Port (`astack`):** Adapted and engineered for Google Antigravity by **João Machete** ([`jmxt3/astack`](https://github.com/jmxt3/astack)).
+
 **Contents:**
 - [Part 1: Start using AStack in 1 minute](#part-1-start-using-astack-in-1-minute)
 - [Part 2: Plan-first workflow (write a plan, approve, then execute)](#part-2-plan-first-workflow-write-a-plan-approve-then-execute)
