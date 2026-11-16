@@ -3,7 +3,7 @@
 > **Don't trust the agent. Trust the evidence.**
 
 <p align="center">
-  <img src="./assets/banner_ASCII%20terminal@1x.png" alt="AStack: Verification-first engineering skills and multi-agent workflows for Google Antigravity" width="100%">
+  <img src="./assets/banner_ASCII%20terminal@1x.png" alt="AStack: Make AI agents prove their work on your running app in Google Antigravity" width="100%">
 </p>
 
 <p align="center">
