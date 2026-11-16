@@ -225,6 +225,32 @@ test("live AStack repo validates cleanly and enforces UI/Orchestrator and agent 
   assert.doesNotMatch(userGuide, /Orchestrator \(Ultra\)/);
   assert.doesNotMatch(setupGuide, /Orchestrator \(Ultra\)/);
 
+  const planContract = fs.readFileSync(
+    path.join(DEFAULT_ROOT_DIR, "skills", "astack-mode", "references", "plan-contract.md"),
+    "utf8",
+  );
+  assert.match(planContract, /Post-Approval Finish Gates/i);
+  assert.match(planContract, /Proceed/);
+  assert.match(planContract, /stop before `git push`/i);
+
+  const orchRule = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "rules", "astack-orchestration.md"), "utf8");
+  assert.match(orchRule, /Proceed/);
+
+  for (const rel of [
+    "docs/user-guide.md",
+    "docs/guide/02-astack-mode.md",
+    "docs/guide/10-recipes-and-pitfalls.md",
+    "skills/astack-help/references/recipes.md",
+    "docs/tutorials/03-new-feature-workflows.md",
+  ]) {
+    const text = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, ...rel.split("/")), "utf8");
+    assert.doesNotMatch(
+      text,
+      /\/astack-mode approved\.\s*execute the plan/i,
+      `Legacy manual post-plan prompt still present in ${rel}`,
+    );
+  }
+
   const stack = [DEFAULT_ROOT_DIR];
   while (stack.length > 0) {
     const dir = stack.pop();

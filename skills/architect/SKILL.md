@@ -43,7 +43,7 @@ When pausing, present `# Shape`, `Tradeoffs accepted`, and explicit `Open questi
 
 ## Phase D. Implement against the sketch
 
-Build starting from `# Shape` and `Next implementation step` using `astack-mode`'s build and verification playbooks (`feature.md`, `tdd`, `deslop`, `control-ui`, `control-cli`). Treat `# Shape` as a living contract: whenever concrete types or runtime checks force a local adjustment, update the sketch and rationale in the same change so design docs never drift from code.
+Build starting from `# Shape` and `Next implementation step` using `astack-mode`'s build and verification playbooks (`feature.md`, `tdd`, `deslop`, `control-ui`, `control-cli`). Treat `# Shape` as a living contract: whenever concrete types or runtime checks force a local adjustment, update the sketch and rationale in the same change so design docs never drift from code. When resuming after a Phase C checkpoint (`"approved"` or `"do it"`), run the full `astack-mode` verification and cleanup sequence (`deslop`, `no-comments` on code diffs) automatically and stop at clean local commits before `git push` unless the user asked to push or open a PR.
 
 ## Phase E. Scrap when the architecture is wrong
 

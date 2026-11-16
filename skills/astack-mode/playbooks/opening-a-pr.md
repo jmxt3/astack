@@ -1,6 +1,6 @@
 ### Opening a PR
 
-Invoked at the end of every other playbook.
+Invoked at the end of build playbooks. Prepare small ordered local commits and run `/deslop` and `/no-comments` on code diffs. After an interactive `/plan`, `/grill-me`, or `/architect` checkpoint (or whenever the user asked to stop before `git push`), stop at verified local commits before `git push` or `gh pr create` unless the user asked to push or open a PR. Push and open the PR immediately when requested or under `autopilot-*` and `shipping` playbooks.
 
 **Worktree.** Work from a git worktree (or `Workspace: "share"` / `"branch"`) off main. Subagents inherit it unless isolated. Multiple parallel writers on the same branch each take their own `Workspace: "share"` / `"branch"` checkout so writes never race. Dirty branch with unrelated work: patch out, fresh worktree, apply. Snarled worktree: reset from main, redo minimally.
 

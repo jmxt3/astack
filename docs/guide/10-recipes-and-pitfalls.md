@@ -48,13 +48,9 @@ Build `<artifact-dir>/implementation_plan.md` with zero workspace edits until yo
 /plan /grill-me <idea or ambiguous feature>
 ```
 
-Once you review and approve the plan artifact, execute through AStack (and write `docs/<name>-plan.md` only after approval when a multi-PR plan needs a repo copy) without auto-merging:
+Once you review and approve `implementation_plan.md`, click **Proceed** (or send `approved`) to execute through AStack, verify live, run `/deslop` and `/no-comments`, write `walkthrough.md`, and stop at local commits before `git push` (writing `docs/<name>-plan.md` only after approval when a multi-PR plan needs a repo copy). Send `approved, open the PR` to push and open the PR too.
 
-```text
-/astack-mode approved. execute the plan, prove it works live, run /deslop and /no-comments, and stop before git push.
-```
-
-For multi-PR plans, replace `/astack-mode` execution with `/swarm /astack-mode approved. execute docs/<name>-plan.md with autopilot-stack.`. The plan artifact is the gate first, and execution waits for your go.
+For multi-PR plans, run `/swarm /astack-mode execute docs/<name>-plan.md with autopilot-stack.`. The plan artifact is the gate first, and execution waits for your go.
 
 ## Get a second opinion on a design
 

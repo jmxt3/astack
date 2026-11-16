@@ -109,15 +109,21 @@ Three zero-execution skills help refine prompts and check understanding before y
 
 ### Step 3: Execute the approved plan through AStack
 
-Once you approve the plan, execute it through AStack while keeping final git push and merge decisions in your hands:
+Clicking **Proceed** on `implementation_plan.md` (or replying `approved`) runs the embedded post-approval finish gates automatically through `/astack-mode`: AStack executes the plan, proves behavior live, runs `/deslop` and `/no-comments` on code diffs, writes `walkthrough.md`, and stops at verified local commits before `git push` so you can inspect the diff.
 
-- **Single-branch execution** (prepend `/boost` for hard race conditions or coupled defects):
+Use short overrides only when you want different behavior:
+
+- **Push and open a PR right away:**
   ```text
-  /astack-mode Approved. Execute the plan above, prove it works end-to-end, run /deslop and /no-comments, and stop before git push so I can review the diff.
+  approved, open the PR
   ```
-- **Parallel or stacked multi-PR execution from a saved plan file:** Use [`autopilot-stack.md`](../skills/astack-mode/playbooks/autopilot-stack.md) instead of [`autopilot-full.md`](../skills/astack-mode/playbooks/autopilot-full.md). `autopilot-stack` builds and verifies every PR in the plan, then stops and hands them back without merging:
+- **Hard race condition or coupled defect:**
   ```text
-  /swarm /astack-mode Approved. Execute docs/<name>-plan.md with the autopilot-stack playbook. Stop once every unit is verified and wait for my review before pushing or merging.
+  /boost approved
+  ```
+- **Multi-PR saved plan file (`docs/<name>-plan.md`):** Use [`autopilot-stack.md`](../skills/astack-mode/playbooks/autopilot-stack.md) instead of [`autopilot-full.md`](../skills/astack-mode/playbooks/autopilot-full.md). `autopilot-stack` builds and verifies every PR in the plan, then stops and hands them back without merging:
+  ```text
+  /swarm /astack-mode execute docs/<name>-plan.md with autopilot-stack.
   ```
 
 ---
@@ -277,5 +283,6 @@ Instead of writing paragraphs of correction, drop a principle name or slash shor
 
 ## Further Reading
 
+- [Hands-On Daily Tutorials](./tutorials/README.md)
 - [10-Part Step-by-Step Guide](./guide/README.md)
 - [Architecture & Swarm Reference](./architecture-and-swarm.md)

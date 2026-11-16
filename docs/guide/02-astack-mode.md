@@ -100,11 +100,7 @@ Whenever you ask for a plan or pair Antigravity's `/plan` command, AStack's [`pl
 /plan /astack-mode users get duplicate invoices on retry
 ```
 
-On bug fixes, reproduce the symptom live first (`control-ui` or `control-cli`) before locking the plan steps. On normal `/astack-mode` runs under **Orchestrator** (**Carbon** or **Argon**), a frontier planner plans read-only and hands edits off to Hydrogen automatically, while `/plan` (or `"stop for my approval"`) pauses for your sign-off before any file changes. Review the plan artifact, ask for revisions, and run the approved plan through AStack while keeping final push control:
-
-```text
-/astack-mode approved. execute the plan, verify end-to-end, run /deslop and /no-comments, and stop before git push.
-```
+On bug fixes, reproduce the symptom live first (`control-ui` or `control-cli`) before locking the plan steps. On normal `/astack-mode` runs under **Orchestrator** (**Carbon** or **Argon**), a frontier planner plans read-only and hands edits off to Hydrogen automatically, while `/plan` (or `"stop for my approval"`) pauses for your sign-off before any file changes. Review the plan artifact, leave inline comments if anything needs adjusting, and click **Proceed** (or send `approved`): AStack automatically executes the plan, verifies end-to-end, runs `/deslop` and `/no-comments` on code changes, writes `walkthrough.md`, and pauses at local commits before `git push`. Send `approved, open the PR` when you want it to push and open the PR as well.
 
 For architectural design checkpoints (`/architect with checkpoint`) and multi-PR written plans (`multi-phase-plan`), see [Plan after the design settles](./04-design.md#plan-after-the-design-settles) and the [Plan-first workflow in the User Guide](../user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute).
 

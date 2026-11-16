@@ -87,7 +87,7 @@ Read the leaf `../principle-<title>/SKILL.md` in full for any principle you appl
 
 **Just do it.** Reversible local work, inspections, tests, and read-only MCP calls proceed without asking.
 
-**Always pause** for irreversible external actions: force-pushing shared branches, production deploys, destructive data deletion, or sending external messages on the user's behalf unless explicitly authorized.
+**Always pause** for irreversible external actions: force-pushing shared branches, production deploys, destructive data deletion, or sending external messages on the user's behalf unless explicitly authorized. After an interactive `/plan`, `/grill-me`, or `/architect` checkpoint approval, stop at verified local commits before `git push` or `gh pr create` unless the user explicitly asked to push or open a PR, or invoked `autopilot-*` or `shipping`.
 
 **Session overrides:** `/goal`, "don't stop", "going to bed", "run until done", or "be fully autonomous" keeps driving to the checkable predicate.
 
@@ -123,7 +123,7 @@ Before matching a playbook, check user intent against [`references/native-comman
 
 - **run**: Call the native tool directly (`swarm`, `run_workflow`, `schedule`, `invoke_subagent` with `TypeName: "browser"`), loading its built-in skill first when one exists.
 - **load**: Read the built-in Antigravity skill (`automation`, `plugin`, `agy-customizations`, `generative_ui`, `antigravity-guide`) and follow it.
-- **contract**: Follow [`references/plan-contract.md`](./references/plan-contract.md) for `/plan`, `/grill-me`, and `/learn`. Any request to plan work writes `<artifact-dir>/implementation_plan.md` (`RequestFeedback: true`, `UserFacing: true`) and stops with zero workspace edits until approved.
+- **contract**: Follow [`references/plan-contract.md`](./references/plan-contract.md) for `/plan`, `/grill-me`, and `/learn`. Any request to plan work writes `<artifact-dir>/implementation_plan.md` (`RequestFeedback: true`, `UserFacing: true`) and stops with zero workspace edits until approved. Clicking **Proceed** or replying `"approved"` runs the embedded post-approval finish gates automatically: live verification, `/deslop` and `/no-comments` on code diffs, `walkthrough.md`, and stopping before `git push` unless push or PR creation was requested.
 - **recommend**: Print a copy-ready command line for `/goal`, `/boost`, `/teamwork`, or `/btw`, state what it adds, and use in-turn fallback only if the user declines.
 
 An explicit slash command in the prompt wins over any inferred match. Stacked commands (`/plan /grill-me`, `/plan /astack-mode`) execute in order: interview, then plan artifact, then stop.

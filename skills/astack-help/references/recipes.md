@@ -18,7 +18,7 @@ Swap in real paths, PR numbers, and done checks.
 - Ambiguous requirements interview first: `/plan /grill-me <task>`
 - Architecture gate: `/architect <feature>. with checkpoint. compare designs, write the type sketch and rationale, and wait for sign-off before coding.`
 - Multi-PR written plan (writes `implementation_plan.md` artifact first, repo `docs/<name>-plan.md` after approval): `/plan /astack-mode build a multi-PR plan for <goal> with small verifiable units and live proof steps.`
-- Execute after approval: `/astack-mode approved. execute the plan, prove it works live, run /deslop and /no-comments, and stop before git push.` (Multi-PR plans: `/swarm /astack-mode approved. execute docs/<name>-plan.md with autopilot-stack.`)
+- Execute after approval: click **Proceed** on `implementation_plan.md` (or send `approved`), which runs live verification, `/deslop`, and `/no-comments` automatically and stops at local commits before `git push`. Send `approved, open the PR` to push and open the PR, or `/swarm /astack-mode execute docs/<name>-plan.md with autopilot-stack` for multi-PR plans.
 
 ## Build
 

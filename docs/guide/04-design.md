@@ -116,13 +116,13 @@ The [Multi-phase plan playbook](../../skills/astack-mode/playbooks/multi-phase-p
 
 Once you review and approve the plan, execute it through AStack without auto-merging:
 
-- **One unit or single branch at a time:**
+- **Single-branch `implementation_plan.md` or one unit at a time:** Click **Proceed** to execute a single-branch `implementation_plan.md` automatically and stop at local commits before `git push`. To run one unit from a saved multi-PR file:
   ```text
-  /astack-mode approved. execute unit 1 from docs/<name>-plan.md, verify live, run /deslop and /no-comments, and stop before git push.
+  /astack-mode execute unit 1 from docs/<name>-plan.md
   ```
 - **Multi-PR stack with manual merge sign-off:** Pair `/swarm` with the [Autopilot-stack playbook](../../skills/astack-mode/playbooks/autopilot-stack.md) instead of [Autopilot-full](../../skills/astack-mode/playbooks/autopilot-full.md). `autopilot-stack` builds and verifies every PR in the plan, then stops and hands the verified PRs to you before pushing or merging:
   ```text
-  /swarm /astack-mode approved. execute docs/<name>-plan.md with autopilot-stack. stop once every unit is verified and wait for my review before pushing or merging.
+  /swarm /astack-mode execute docs/<name>-plan.md with autopilot-stack.
   ```
 
 ## How much design work does a task deserve?
