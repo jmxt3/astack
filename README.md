@@ -41,14 +41,37 @@ fork it. improve it. make it yours. PRs are welcome!
 
 An agent writes code fast. Reviewing code that nobody ran is slow. If the agent says "all tests pass" without running your app, the checking still falls on you.
 
-AStack makes the agent do the checking:
+With AStack, you only need two commands, and [`/astack-mode`](./skills/astack-mode/SKILL.md) handles the live testing behind the scenes:
 
-1. **Understand.** The agent reads the code and its history before it changes anything.
-2. **Build a verifier.** [`/setup-astack`](./skills/setup-astack/SKILL.md) creates `.agents/skills/verify-<app>/`, which tells every agent how to start and test your app.
-3. **Prove it.** [`/control-ui`](./skills/control-ui/SKILL.md) and [`/control-cli`](./skills/control-cli/SKILL.md) run the real browser or terminal and capture the output.
-4. **Scale out.** Add more agents only after the check is reliable.
+```mermaid
+flowchart LR
+    Setup["`**1. Once per repo**
+Run /setup-astack`"]
+    Goal["`**2. State your goal**
+Run /astack-mode
+(add /plan to review first)`"]
+    Auto["`**3. AStack runs automatically**
+Reads code · Writes & cleans diff
+Tests your live app in browser or CLI`"]
+    Done["`**4. Review with proof**
+Verified local commits
++ captured output`"]
 
-AStack fits nontrivial features, root-cause bug fixes, refactors, and long runs. For a one-line typo fix, ask the agent directly.
+    Setup --> Goal --> Auto --> Done
+
+    classDef userStep fill:#111827,stroke:#38bdf8,stroke-width:1.5px,color:#f9fafb
+    classDef autoStep fill:#111827,stroke:#eab308,stroke-width:2px,color:#f9fafb
+    classDef doneStep fill:#111827,stroke:#22c55e,stroke-width:2px,color:#f9fafb
+    class Setup,Goal userStep
+    class Auto autoStep
+    class Done doneStep
+```
+
+1. **Set up once ([`/setup-astack`](./skills/setup-astack/SKILL.md)).** Teaches AStack how to start and check your project.
+2. **Give a goal ([`/astack-mode`](./skills/astack-mode/SKILL.md)).** Add `/plan` in front whenever you want to approve the plan before any files change.
+3. **Review the proof, not guesses.** `/astack-mode` automatically reads your codebase, writes and cleans the diff, runs your real app in the browser or terminal, and hands back captured output.
+
+AStack fits nontrivial features, root-cause bug fixes, refactors, and PR reviews. For a one-line typo fix, ask the agent directly.
 
 ## Install
 
