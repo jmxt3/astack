@@ -16,7 +16,7 @@ node_modules/
 secrets/
 
 # Local automation runtime state
-.agents/benny/
+.agents/beacon/
 
 # Local reference dumps and ecosystem snapshots
 refs/

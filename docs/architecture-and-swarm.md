@@ -106,9 +106,9 @@ See [`skills/astack-mode/references/swarm-coordination.md`](../skills/astack-mod
 1. **`astack-irreversible-guard` (`PreToolUse` on `run_command`)**: Inspects shell strings (including unwrapped nested `sh -c`, `bash -c`, `pwsh -Command`, `cmd /c`, and `eval` calls, scoped SQL DB execution vs read-only searches, and trunk refspec pushes such as `+main`, `:main`, and `--delete main`). Returns `{"decision": "force_ask"}` interactively or `{"decision": "deny"}` under `CI=true` / `NON_INTERACTIVE=1`. Implemented in [`scripts/hooks/irreversible-guard.mjs`](../scripts/hooks/irreversible-guard.mjs).
 2. **`astack-verify-reminder` (`Stop`)**: When enabled and `ASTACK_REQUIRE_VERIFY=1` is set in the environment, nudges once (`{"decision": "continue"}`) if uncommitted non-markdown changes exist on a normal `NO_TOOL_CALL` stop, strictly honoring `continuationActive` to prevent loops. Implemented in [`scripts/hooks/verify-reminder.mjs`](../scripts/hooks/verify-reminder.mjs).
 
-## Outer Loop Automations (`benny`)
+## Outer Loop Automations (`beacon`)
 
-AStack includes [`docs/automations/benny/`](./automations/benny/README.md), a dormant two-stage automation pack (triage plus reproduce-and-fix) adapted to `.agents/automations/benny/`, Antigravity `/automation` (`sidecar.json` + `CRON_TZ=`), **Remote Agents** (`agy --remote-agent`), headless `agy -p` runners, `/schedule`, `control-ui` and `control-cli`, and fail-closed Slack thread invariants.
+AStack includes [`docs/automations/beacon/`](./automations/beacon/README.md), a dormant two-stage automation pack (triage plus reproduce-and-fix) adapted to `.agents/automations/beacon/`, Antigravity `/automation` (`sidecar.json` + `CRON_TZ=`), **Remote Agents** (`agy --remote-agent`), headless `agy -p` runners, `/schedule`, `control-ui` and `control-cli`, and fail-closed Slack thread invariants.
 
 ## Lineage: What AStack Kept, Adapted, and Built Natively
 
@@ -121,4 +121,4 @@ AStack includes [`docs/automations/benny/`](./automations/benny/README.md), a do
 | Workspace and global customizations | `.agents/skills/` and `~/.gemini/config/skills/`; `.agents/rules/` and `~/.gemini/config/rules/` | Global skills live under `~/.gemini/config/skills/` |
 | Structured multi-choice prompts & `/plan` | `ask_question` (`is_multi_select: true`, unnumbered options, `(Recommended)` first, built-in `"Other (write your answer)"`) + [`plan-contract.md`](../skills/astack-mode/references/plan-contract.md) | Supports both direct `implementation_plan.md` writes and Orchestrator Plan Mode handoffs with inline comments and **Proceed** |
 | Conversation transcripts | `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` | Paired with `transcript_full.jsonl` when `truncated_fields` is present |
-| Verification harnesses, watch & outer loop | [`/control-ui`](../skills/control-ui/SKILL.md), [`/control-cli`](../skills/control-cli/SKILL.md), [`/deslop`](../skills/deslop/SKILL.md), repo `.agents/skills/verify-<app>/`, [`upstream-watch.mjs`](../scripts/upstream-watch.mjs), [`docs/automations/benny/`](./automations/benny/README.md) | Concrete runtime proof before reporting done |
+| Verification harnesses, watch & outer loop | [`/control-ui`](../skills/control-ui/SKILL.md), [`/control-cli`](../skills/control-cli/SKILL.md), [`/deslop`](../skills/deslop/SKILL.md), repo `.agents/skills/verify-<app>/`, [`upstream-watch.mjs`](../scripts/upstream-watch.mjs), [`docs/automations/beacon/`](./automations/beacon/README.md) | Concrete runtime proof before reporting done |

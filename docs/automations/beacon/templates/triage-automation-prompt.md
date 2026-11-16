@@ -2,12 +2,12 @@
 
 > Source material for the copied setup workflow. Paraphrase this intent into a Antigravity `/schedule` daemon, `agy -p` webhook runner, or CI workflow after confirming that the copied pack is committed in the repository where the automation will run.
 
-Read and follow `.agents/automations/benny/skills/triage-issue-reports/SKILL.md` for this run.
+Read and follow `.agents/automations/beacon/skills/triage-issue-reports/SKILL.md` for this run.
 
 Configuration source. Include this repository-relative path only when it is committed in the same target repository. Otherwise paraphrase the configured values. Never use a plugin source or cache path:
 
 ```text
-{{BENNY_CONFIG_PATH}}
+{{BEACON_CONFIG_PATH}}
 ```
 
 Trigger:
@@ -31,9 +31,9 @@ The coordinator is the only Slack poster. Any delegated worker must be read-only
 End the single verdict with exactly one configured marker:
 
 ```text
-[benny:bug]
-[benny:performance]
-[benny:other]
+[beacon:bug]
+[beacon:performance]
+[beacon:other]
 ```
 
 A bug or performance marker may add `tracker=<URL>`.

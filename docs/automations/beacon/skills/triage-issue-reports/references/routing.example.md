@@ -1,6 +1,6 @@
 # Routing map example
 
-Copy this file outside `.agents/automations/benny/`, for example to `.agents/benny/routing.md`, and replace every placeholder. Point `routing.map_path` at the copy. Pack refreshes must not overwrite it.
+Copy this file outside `.agents/automations/beacon/`, for example to `.agents/beacon/routing.md`, and replace every placeholder. Point `routing.map_path` at the copy. Pack refreshes must not overwrite it.
 
 The triage skill treats this as data. A route needs evidence from the report or cause trace. A keyword match alone is not enough.
 

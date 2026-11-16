@@ -74,6 +74,7 @@ const CURSOR_LEAK_PATTERNS = [
   { id: "cursor-slash-visualize", regex: /(?:^|[\s`])\/visualize\b/gm },
   { id: "cursor-package-scope", regex: /@cursor-skill\//g },
   { id: "bun-types-leak", regex: /\bbun-types\b/g },
+  { id: "legacy-automation-name", regex: /\bbenn[y]\b/gi },
 ];
 
 const PRINCIPLE_REF_REGEX = /\b(principle-[a-z0-9][a-z0-9-]*)\b/g;

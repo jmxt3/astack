@@ -1,23 +1,23 @@
 ---
-name: setup-benny
-description: Configure Benny and prepare its triage and repro automations. Use when installing Benny or changing its Slack, tracker, repository, routing, control, model, or budget settings.
+name: setup-beacon
+description: Configure Beacon and prepare its triage and repro automations. Use when installing Beacon or changing its Slack, tracker, repository, routing, control, model, or budget settings.
 ---
 
-# Set up Benny
+# Set up Beacon
 
-Benny ships as a dormant automation pack inside astack. The plugin manifest exposes only astack's normal skill root; this file and the two operational files are not slash skills.
+Beacon ships as a dormant automation pack inside astack. The plugin manifest exposes only astack's normal skill root; this file and the two operational files are not slash skills.
 
-The human enters setup by pointing Antigravity at the pack's `FOR_AGENTS.md`. The bootstrap flow copies the whole pack into the target repository, then reads this file directly at `.agents/automations/benny/skills/setup-benny/SKILL.md`.
+The human enters setup by pointing Antigravity at the pack's `FOR_AGENTS.md`. The bootstrap flow copies the whole pack into the target repository, then reads this file directly at `.agents/automations/beacon/skills/setup-beacon/SKILL.md`.
 
-Benny needs external configuration and two live Antigravity automations.
+Beacon needs external configuration and two live Antigravity automations.
 
 Do not create or update an automation until the user explicitly asks. Never put a secret value in plugin files, prompts, or committed configuration.
 
 ## 1. Copy the pack and verify shared astack skills
 
-Do this before asking for Benny configuration and before wiring live triggers.
+Do this before asking for Beacon configuration and before wiring live triggers.
 
-Ask which repository will run the automations. The source pack is the directory containing `FOR_AGENTS.md`. The destination is `<target-repository>/.agents/automations/benny/`.
+Ask which repository will run the automations. The source pack is the directory containing `FOR_AGENTS.md`. The destination is `<target-repository>/.agents/automations/beacon/`.
 
 Merge the entire source pack into the destination:
 
@@ -47,9 +47,9 @@ Confirm that **astack** is installed and enabled (`agy plugin list --json`; if m
 
 If astack is unavailable or any shared dependency does not resolve, stop and explain the failure.
 
-The Benny files are read directly from `.agents/automations/benny/`. Do not add that directory to a plugin manifest or expect its `SKILL.md` files to appear in the slash-skill list.
+The Beacon files are read directly from `.agents/automations/beacon/`. Do not add that directory to a plugin manifest or expect its `SKILL.md` files to appear in the slash-skill list.
 
-Tell the user that `.agents/automations/benny/` and any referenced secret-free configuration must be committed before either automation is enabled. Do not commit them unless the user asks.
+Tell the user that `.agents/automations/beacon/` and any referenced secret-free configuration must be committed before either automation is enabled. Do not commit them unless the user asks.
 
 Once this check passes, live automation prompts may read the committed operational files by their stable repository-relative paths. They must not embed a plugin cache path or copy the file contents.
 
@@ -60,13 +60,13 @@ Open these copied examples:
 - `../../templates/configuration.example.yaml`
 - `../reproduce-and-fix-issues/references/feature-map.example.md`
 
-Create user-owned copies outside `.agents/automations/benny/`. These are configuration files, not pack files. Example locations:
+Create user-owned copies outside `.agents/automations/beacon/`. These are configuration files, not pack files. Example locations:
 
-- Project config, such as `.agents/benny/configuration.yaml`
-- Project feature map, such as `.agents/benny/feature-map.md`
-- Project routing map, such as `.agents/benny/routing.md`
-- User config, such as `~/.config/benny/configuration.yaml`
-- User feature map, such as `~/.config/benny/feature-map.md`
+- Project config, such as `.agents/beacon/configuration.yaml`
+- Project feature map, such as `.agents/beacon/feature-map.md`
+- Project routing map, such as `.agents/beacon/routing.md`
+- User config, such as `~/.config/beacon/configuration.yaml`
+- User feature map, such as `~/.config/beacon/feature-map.md`
 
 Fill one feature-map section for every user-facing feature the automation may reproduce. Keep it at the user point of view. Do not freeze implementation details or current code paths in the map.
 
@@ -118,7 +118,7 @@ The repro automation needs:
 - A pull request action that can open a draft pull request
 - The configured control-adapter skill (`control-ui`, `control-cli`, or custom adapter)
 
-Prefer configured MCP/plugin Slack actions for reads and posts. The optional `BENNY_SLACK_BOT_TOKEN` may fill a narrow gap such as editing one operations status message or downloading an attachment. Store the value in a secret manager or environment, not in YAML.
+Prefer configured MCP/plugin Slack actions for reads and posts. The optional `BEACON_SLACK_BOT_TOKEN` may fill a narrow gap such as editing one operations status message or downloading an attachment. Store the value in a secret manager or environment, not in YAML.
 
 Do not use undocumented integration endpoints.
 
@@ -126,7 +126,7 @@ Do not use undocumented integration endpoints.
 
 If the user wants reroutes or owner pings:
 
-1. Copy `../triage-issue-reports/references/routing.example.md` outside `.agents/automations/benny/`.
+1. Copy `../triage-issue-reports/references/routing.example.md` outside `.agents/automations/beacon/`.
 2. Replace every placeholder with public or organization-local values.
 3. Keep owner pings off by default.
 4. Allow a ping only for a configured feature owner or a confirmed likely regression author.
@@ -162,8 +162,8 @@ Create one automation trigger at a time.
 For each automation:
 
 1. Read the matching copied prompt template as secondary internal source material.
-2. Turn `FOR_AGENTS.md`, the finished Benny configuration, and the template intent into a complete natural-language runner prompt.
-3. Tell the live prompt to read and follow its exact committed operational file under `.agents/automations/benny/`.
+2. Turn `FOR_AGENTS.md`, the finished Beacon configuration, and the template intent into a complete natural-language runner prompt.
+3. Tell the live prompt to read and follow its exact committed operational file under `.agents/automations/beacon/`.
 4. Use the stable repository-relative path, not a plugin source or cache path. Do not copy the operational file contents into the live prompt.
 5. Confirm that the copied pack and any referenced configuration files are committed on the target branch where the runner executes.
 6. Wire the reviewed runner prompt into your Antigravity trigger mechanism (scheduled `/schedule` daemon polling safe queues, local `agy -p` webhook bridge, or CI workflow) and wait for explicit user approval before enabling.
@@ -171,19 +171,19 @@ For each automation:
 
 Use this complete triage intent, filled from configuration:
 
-- Name `benny-triage`.
-- Read and follow `.agents/automations/benny/skills/triage-issue-reports/SKILL.md` for every run.
+- Name `beacon-triage`.
+- Read and follow `.agents/automations/beacon/skills/triage-issue-reports/SKILL.md` for every run.
 - Trigger on each new top-level report in the configured source Slack channel.
 - Read the triggering thread and reply only inside it.
 - Use the configured issue-tracker integration.
 - Classify, inspect evidence, trace cause, dedupe, and create only clear new bugs.
-- End one thread-only verdict with the configured `[benny:bug]`, `[benny:performance]`, or `[benny:other]` marker and optional tracker URL.
+- End one thread-only verdict with the configured `[beacon:bug]`, `[beacon:performance]`, or `[beacon:other]` marker and optional tracker URL.
 - Never post a source-channel root message.
 
 After triage configuration is complete, use this complete repro and fix intent:
 
-- Name `benny-reproduce`.
-- Read and follow `.agents/automations/benny/skills/reproduce-and-fix-issues/SKILL.md` for every run.
+- Name `beacon-reproduce`.
+- Read and follow `.agents/automations/beacon/skills/reproduce-and-fix-issues/SKILL.md` for every run.
 - Trigger on the same new top-level reports in the configured source Slack channel.
 - Use the configured repository and default branch.
 - Read the source thread and reply only inside it.
@@ -201,16 +201,16 @@ Inspect and validate the configuration, routing, control-adapter, and feature-ma
 For the existing triage automation, update:
 
 - Name and description
-- Direct instruction to read `.agents/automations/benny/skills/triage-issue-reports/SKILL.md`
+- Direct instruction to read `.agents/automations/beacon/skills/triage-issue-reports/SKILL.md`
 - New top-level Slack report trigger and source channel
 - Slack thread read and reply capabilities
 - Issue-tracker integration
-- Paraphrased triage instructions, thread-only rule, and Benny verdict markers
+- Paraphrased triage instructions, thread-only rule, and Beacon verdict markers
 
 For the existing repro automation, update:
 
 - Name and description
-- Direct instruction to read `.agents/automations/benny/skills/reproduce-and-fix-issues/SKILL.md`
+- Direct instruction to read `.agents/automations/beacon/skills/reproduce-and-fix-issues/SKILL.md`
 - Matching Slack trigger and source channel
 - Repository and default branch
 - Slack thread read and reply capabilities
@@ -228,7 +228,7 @@ Never invent undocumented webhook URLs, send tokens through browser pages, or by
 
 Use a test channel or a harmless test report.
 
-Before testing, confirm that the target repository's `.agents/automations/benny/` and every referenced secret-free configuration file are committed on the branch used by the automation checkout. Confirm that both live prompts point at their exact committed operational files. If any check fails, stop. Tell the user that the automation cannot be enabled yet.
+Before testing, confirm that the target repository's `.agents/automations/beacon/` and every referenced secret-free configuration file are committed on the branch used by the automation checkout. Confirm that both live prompts point at their exact committed operational files. If any check fails, stop. Tell the user that the automation cannot be enabled yet.
 
 Verify:
 

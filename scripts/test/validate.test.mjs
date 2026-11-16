@@ -224,6 +224,22 @@ test("live AStack repo validates cleanly and enforces UI/Orchestrator and agent 
   const setupGuide = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "docs", "guide", "01-setup.md"), "utf8");
   assert.doesNotMatch(userGuide, /Orchestrator \(Ultra\)/);
   assert.doesNotMatch(setupGuide, /Orchestrator \(Ultra\)/);
+
+  const stack = [DEFAULT_ROOT_DIR];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === ".git" || entry.name === ".tmp") continue;
+      const full = path.join(dir, entry.name);
+      assert.doesNotMatch(entry.name, /benn[y]/i, `Legacy name in path: ${full}`);
+      if (entry.isDirectory()) {
+        stack.push(full);
+      } else if (entry.isFile()) {
+        const text = fs.readFileSync(full, "utf8");
+        assert.doesNotMatch(text, /benn[y]/i, `Legacy name in file: ${full}`);
+      }
+    }
+  }
 });
 
 test("live repo matches scripts/catalog.json manualOnlySkills (33 manual-only, 28 auto-invocable)", () => {

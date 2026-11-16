@@ -17,6 +17,8 @@
 
 AStack is a Google Antigravity plugin that makes the agent prove its work. You give [`/astack-mode`](./skills/astack-mode/SKILL.md) a goal. It picks a playbook, runs the skills that playbook needs, cleans the diff, and checks the result on your running app before it reports done.
 
+AStack takes inspiration from Lauren Tan's [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) for empirical verification playbooks and Garry Tan's [`gstack`](https://github.com/garrytan/gstack) for structured review gates, and builds those ideas natively for Google Antigravity.
+
 AStack has 61 skills, 23 playbooks, 24 engineering principles, 2 subagents, 1 routing rule, and 2 opt-in hooks. It runs locally as markdown skills and Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
 
 fork it. improve it. make it yours. PRs are welcome!
@@ -66,7 +68,7 @@ To install from a local clone instead, run `agy plugin install ./astack` (or `ag
 2. **Run a task with `/astack-mode`** by stating what you want and how to check it works:
 
    ```text
-   /astack-mode add a --json flag to the export command. keep plain text output byte-identical, prove both outputs on the sample fixture, and don't push yet.
+   /astack-mode clicking Save twice on the profile form creates duplicate records. reproduce it in the browser first, fix the root cause, and prove double-clicking saves only once.
    ```
 
 3. **Ask `/astack-help` when unsure** to get a recommended skill, reasoning, and copy-ready prompt without spending execution turns:
@@ -273,7 +275,7 @@ AStack ships **61 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 | Step-by-step 10-chapter onboarding course | [The AStack Guide](./docs/guide/README.md) |
 | 5-layer enforcement model, dynamic bidirectional model routing, Control Glass, and Antigravity mode matrix | [Architecture & Swarm](./docs/architecture-and-swarm.md) · [Swarm Coordination Reference](./skills/astack-mode/references/swarm-coordination.md) |
 | Prompting patterns, copy-paste recipes, and review checklists | [Prompting Guide](./skills/astack-help/references/prompting.md) · [Prompt Recipes](./skills/astack-help/references/recipes.md) · [Bugbot & Review Triage](./skills/astack-mode/references/bugbot-triage.md) · [DevTools Evidence Checklist](./skills/control-ui/references/devtools-evidence-checklist.md) · [Design Red Flags](./skills/architect/references/design-red-flags.md) · [TypeScript Patterns](./skills/typescript-best-practices/references/patterns.md) |
-| Outer-loop Slack issue triage and reproduction automation | [Benny Automation Overview](./docs/automations/benny/README.md) · [Benny Agent Setup Runbook](./docs/automations/benny/FOR_AGENTS.md) |
+| Outer-loop Slack issue triage and reproduction automation | [Beacon Automation Overview](./docs/automations/beacon/README.md) · [Beacon Agent Setup Runbook](./docs/automations/beacon/FOR_AGENTS.md) |
 | Verify AStack's own CLIs, hooks, and read-only watch tooling | [Verify AStack (`verify-astack`)](./.agents/skills/verify-astack/SKILL.md) · [Verification Feature Map](./.agents/skills/verify-astack/features/README.md) · [Upstream Watch Feature](./.agents/skills/verify-astack/features/upstream-watch.md) |
 | Lineage, open-source credits, community standards, security policy, and license | [Credits & Lineage](./CREDITS.md) · [Contributing Guide](./CONTRIBUTING.md) · [Code of Conduct](./CODE_OF_CONDUCT.md) · [Security Policy](./SECURITY.md) · [MIT License](./LICENSE) |
 

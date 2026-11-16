@@ -1,13 +1,13 @@
 ---
 name: reproduce-and-fix-issues
-description: Reproduce triaged Slack bugs through a configured app-control adapter, verify existing fixes, and open a bounded draft pull request only after before-and-after proof. Use only from the configured Benny repro automation.
+description: Reproduce triaged Slack bugs through a configured app-control adapter, verify existing fixes, and open a bounded draft pull request only after before-and-after proof. Use only from the configured Beacon repro automation.
 ---
 
 # Reproduce and fix issues
 
 Wait for a trusted triage marker in the source thread. Reproduce the exact symptom through the target app's real UI. Verify an existing fix when one exists. Attempt a bounded fix only after a confirmed repro.
 
-Load the external Benny configuration supplied by the automation. If the config, required actions, control adapter, or completed feature map is missing, fail closed.
+Load the external Beacon configuration supplied by the automation. If the config, required actions, control adapter, or completed feature map is missing, fail closed.
 
 ## Hard safety rules
 
@@ -65,11 +65,11 @@ Accept a verdict only when:
 Public marker forms:
 
 ```text
-[benny:bug]
-[benny:bug] tracker=https://tracker.example/issue/123
-[benny:performance]
-[benny:performance] tracker=https://tracker.example/issue/123
-[benny:other]
+[beacon:bug]
+[beacon:bug] tracker=https://tracker.example/issue/123
+[beacon:performance]
+[beacon:performance] tracker=https://tracker.example/issue/123
+[beacon:other]
 ```
 
 Proceed only for `bug` or `performance`. Capture the optional tracker URL. Stop silently for `other`, a missing verdict, an untrusted author, conflicting markers, or a timeout.
@@ -118,7 +118,7 @@ Use the configured plain Unicode status strings. Keep status text short:
 - Draft pull request opened
 - Fix did not land
 
-Prefer configured MCP/plugin Slack actions. Use `BENNY_SLACK_BOT_TOKEN` only when the user configured it for a narrow missing capability such as editing this one status message. Never expose the token to a worker.
+Prefer configured MCP/plugin Slack actions. Use `BEACON_SLACK_BOT_TOKEN` only when the user configured it for a narrow missing capability such as editing this one status message. Never expose the token to a worker.
 
 If no operations channel is configured, keep detailed status in the automation run output. Do not substitute a source-channel root message.
 

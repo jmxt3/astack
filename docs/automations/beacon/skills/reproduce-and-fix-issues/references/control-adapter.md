@@ -1,10 +1,10 @@
 # Control-adapter contract
 
-Benny does not know how to start or drive every app. The user must configure one control skill or adapter that implements this contract for the target app.
+Beacon does not know how to start or drive every app. The user must configure one control skill or adapter that implements this contract for the target app.
 
 Set its skill name in `control.skill_name`.
 
-Set the completed user-facing feature map path in `control.feature_map_path`. Copy and fill [`feature-map.example.md`](./feature-map.example.md) outside `.agents/automations/benny/` instead of editing the copied example.
+Set the completed user-facing feature map path in `control.feature_map_path`. Copy and fill [`feature-map.example.md`](./feature-map.example.md) outside `.agents/automations/beacon/` instead of editing the copied example.
 
 If the skill, feature map, or a required capability is absent, ambiguous, or incomplete, repro and fix work must fail closed.
 

@@ -1,13 +1,13 @@
 ---
 name: triage-issue-reports
-description: Triage Slack issue reports with one thread-only verdict, evidence review, cause-aware routing, tracker dedupe, and fail-closed ticket creation. Use only from the configured Benny triage automation.
+description: Triage Slack issue reports with one thread-only verdict, evidence review, cause-aware routing, tracker dedupe, and fail-closed ticket creation. Use only from the configured Beacon triage automation.
 ---
 
 # Triage issue reports
 
 Classify one Slack report and post one useful verdict in its source thread. Create a tracker issue only for a clear, new bug. Do not reproduce or fix it here.
 
-Load the external Benny configuration supplied by the automation. If the config is missing, malformed, or incomplete, stop without posting or writing to the tracker.
+Load the external Beacon configuration supplied by the automation. If the config is missing, malformed, or incomplete, stop without posting or writing to the tracker.
 
 ## Hard safety rules
 
@@ -213,11 +213,11 @@ Keep the reply short:
 Marker contract:
 
 ```text
-[benny:bug]
-[benny:bug] tracker=https://tracker.example/issue/123
-[benny:performance]
-[benny:performance] tracker=https://tracker.example/issue/123
-[benny:other]
+[beacon:bug]
+[beacon:bug] tracker=https://tracker.example/issue/123
+[beacon:performance]
+[beacon:performance] tracker=https://tracker.example/issue/123
+[beacon:other]
 ```
 
 Use only the configured marker strings. The repro automation trusts the marker only when it comes from the configured triage identity in this source thread.

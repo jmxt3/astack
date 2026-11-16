@@ -114,7 +114,7 @@
       ],
       "astackCompanion": [
         "skills/astack-mode/playbooks/autonomous-run.md",
-        "docs/automations/benny/README.md"
+        "docs/automations/beacon/README.md"
       ],
       "surfaces": [
         "app"

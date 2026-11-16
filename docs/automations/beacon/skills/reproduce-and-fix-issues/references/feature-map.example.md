@@ -1,8 +1,8 @@
 # Feature-map example
 
-Map every user-facing feature Benny may reproduce. Read the relevant section before driving the app. Keep this map at the user point of view. Discover internals and current code paths at runtime instead of freezing them here.
+Map every user-facing feature Beacon may reproduce. Read the relevant section before driving the app. Keep this map at the user point of view. Discover internals and current code paths at runtime instead of freezing them here.
 
-Copy this file outside `.agents/automations/benny/`, for example to `.agents/benny/feature-map.md`, and set `control.feature_map_path` to the copy. Pack refreshes must not overwrite it.
+Copy this file outside `.agents/automations/beacon/`, for example to `.agents/beacon/feature-map.md`, and set `control.feature_map_path` to the copy. Pack refreshes must not overwrite it.
 
 ## Per-feature template
 
@@ -58,7 +58,7 @@ Mark states that do not apply.
 
 ## Fictional example
 
-These features belong to a fictional task app. They are examples, not required Benny features.
+These features belong to a fictional task app. They are examples, not required Beacon features.
 
 ### Sign in
 

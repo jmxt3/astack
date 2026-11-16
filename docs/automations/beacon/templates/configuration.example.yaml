@@ -1,8 +1,8 @@
 schema_version: 1
 
 automations:
-  triage_name: "benny-triage"
-  reproduce_name: "benny-reproduce"
+  triage_name: "beacon-triage"
+  reproduce_name: "beacon-reproduce"
 
 slack:
   source_channel_id: "SOURCE_CHANNEL_ID"
@@ -13,7 +13,7 @@ slack:
   file_download_action: "configured-slack-file-download-action"
   operations_edit_action: "configured-slack-edit-action"
   prefer_native_actions: true
-  optional_bot_token_env: "BENNY_SLACK_BOT_TOKEN"
+  optional_bot_token_env: "BEACON_SLACK_BOT_TOKEN"
   allow_source_root_posts: false
   allow_worker_slack_writes: false
 
@@ -39,22 +39,22 @@ tracker:
   require_compensation_action: true
 
 routing:
-  map_path: ".agents/benny/routing.md"
+  map_path: ".agents/beacon/routing.md"
   owner_pings_default: false
   allow_feature_owner_ping: false
   allow_confirmed_regression_author_ping: false
 
 control:
   skill_name: "control-target-app"
-  feature_map_path: ".agents/benny/feature-map.md"
+  feature_map_path: ".agents/beacon/feature-map.md"
   environment: "safe-test-environment-placeholder"
-  artifact_directory: "/tmp/benny-artifacts"
+  artifact_directory: "/tmp/beacon-artifacts"
   artifact_retention_hours: 24
 
 verdict_markers:
-  bug: "[benny:bug]"
-  performance: "[benny:performance]"
-  other: "[benny:other]"
+  bug: "[beacon:bug]"
+  performance: "[beacon:performance]"
+  other: "[beacon:other]"
   tracker_attribute: "tracker"
 
 status_emoji:
