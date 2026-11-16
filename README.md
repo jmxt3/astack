@@ -1,4 +1,4 @@
-# AStack: Verification-First Engineering for Google Antigravity
+# AStack: Make AI agents prove their work on your running app
 
 > **Don't trust the agent. Trust the evidence.**
 
