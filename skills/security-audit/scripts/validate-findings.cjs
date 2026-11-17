@@ -3,9 +3,6 @@
 /**
  * Validates findings.json against report-schema.json.
  * Usage: node validate-findings.cjs <path-to-findings.json>
- *
- * This is a dependency-free interpreter for the JSON Schema keywords used by
- * report-schema.json, plus finding-specific checks that are clearer in code.
  */
 
 const fs = require("fs");
@@ -602,10 +599,6 @@ function loadSchema(schemaPath) {
   return schema;
 }
 
-function readFileWithinLimit(file) {
-  return sharedReadFileWithinLimit(file, LIMITS.inputBytes);
-}
-
 function enforceJsonTextLimits(contents) {
   const containers = [];
   let inString = false;
@@ -678,7 +671,7 @@ function run(file) {
 
   let contents;
   try {
-    contents = readFileWithinLimit(file);
+    contents = sharedReadFileWithinLimit(file, LIMITS.inputBytes);
   } catch (error) {
     const reason = error instanceof SafeInputError ? error.message : "input could not be opened or read safely";
     console.error(`Failed to read findings JSON: ${reason}`);

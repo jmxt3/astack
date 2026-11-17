@@ -1,21 +1,10 @@
 #!/usr/bin/env node
-/**
- * Comprehensive structural and Antigravity compliance validator for AStack.
- *
- * Checks `plugin.json`, `skills/` frontmatter & 24KB loader limits, native
- * Antigravity slash-command & built-in skill collision avoidance, registry parity
- * (`native-commands.json` <-> `native-commands.md`), `agents/` & `rules/`
- * schemas, relative markdown links, Cursor/Bun leak regressions, and optionally
- * runs `agy plugin validate --strict`.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
-  BUILTIN_RESERVED_SKILL_NAMES,
   EXPECTED_NATIVE_COMMANDS,
   MAX_ANTIGRAVITY_BYTES,
   RESERVED_SKILL_NAMES,
@@ -23,14 +12,6 @@ import {
   loadCatalog,
   parseFrontmatter,
 } from "./catalog.mjs";
-
-export {
-  BUILTIN_RESERVED_SKILL_NAMES,
-  EXPECTED_NATIVE_COMMANDS,
-  RESERVED_SKILL_NAMES,
-  applyFrontmatterPolicy,
-  parseFrontmatter,
-};
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_ROOT_DIR = path.resolve(__dirname, "..");
@@ -80,10 +61,6 @@ const CURSOR_LEAK_PATTERNS = [
 
 const PRINCIPLE_REF_REGEX = /\b(principle-[a-z0-9][a-z0-9-]*)\b/g;
 
-function stripFencedCodeBlocks(markdown) {
-  return markdown.replace(/```[\s\S]*?```/g, "");
-}
-
 function stripUrls(text) {
   return text.replace(/https?:\/\/[^\s)\]>'"]+/g, "");
 }
@@ -109,7 +86,7 @@ function addRelativeTarget(rawTarget, links) {
 }
 
 function extractRelativeLinks(markdown) {
-  const withoutCode = stripFencedCodeBlocks(markdown).replace(/`[^`]*`/g, "");
+  const withoutCode = markdown.replace(/```[\s\S]*?```/g, "").replace(/`[^`]*`/g, "");
   const links = [];
   const mdRegex = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
   let match;
@@ -180,9 +157,6 @@ function formatBackingCell(entry) {
   return `recommend \`${b.exampleLine}\``;
 }
 
-/**
- * Generates deterministic markdown reference documentation from `native-commands.json`.
- */
 export function renderNativeCommandsMarkdown(registry) {
   const lines = [
     "# Native Antigravity Slash Commands",
@@ -363,7 +337,6 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
     }
   }
 
-  // Guard against shadowing native Antigravity slash commands or built-in skills
   const skillsRoot = path.join(rootDir, "skills");
   if (fs.existsSync(skillsRoot)) {
     for (const entry of fs.readdirSync(skillsRoot, { withFileTypes: true })) {
@@ -378,7 +351,6 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
 
   validateNativeCommandsRegistry(rootDir, errors);
 
-  // Validate skills
   const validSkillNames = new Set();
   const autoInvokeSkills = [];
   const manualOnlySkillCount = [];
@@ -489,7 +461,6 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
     }
   }
 
-  // Validate agents
   const agentsRoot = path.join(rootDir, "agents");
   let agentCount = 0;
   if (fs.existsSync(agentsRoot)) {
@@ -527,7 +498,6 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
     }
   }
 
-  // Validate rules
   const rulesRoot = path.join(rootDir, "rules");
   let ruleCount = 0;
   if (fs.existsSync(rulesRoot)) {
@@ -550,7 +520,6 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
     }
   }
 
-  // Check markdown relative links + Cursor runtime leaks across markdown content
   const mdScanTargets = [
     ...["README.md", "CREDITS.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md", "SECURITY.md"]
       .map((f) => path.join(rootDir, f))
@@ -570,7 +539,8 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
       try {
         decodedTarget = decodeURIComponent(target);
       } catch {
-        // Keep raw target if malformed percent-encoding
+        errors.push({ file: rel, message: `Malformed percent-encoding in relative link target: ${target}` });
+        continue;
       }
       const resolved = path.resolve(path.dirname(mdFile), ...decodedTarget.split("/"));
       if (!fs.existsSync(resolved)) {

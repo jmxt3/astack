@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-/**
- * Deterministic routing and structural contract eval runner for AStack.
- */
-
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
@@ -125,7 +121,7 @@ export function runEvalSuite({ rootDir = DEFAULT_ROOT_DIR } = {}) {
     trace: [{ kind: "entrypoint", file: "src/auth.ts", line: 12, scope: "auth", description: "Reads header." }],
     evidence: [{ file: "src/auth.ts", line: 12, description: "Header read without local proxy config." }],
     blockers: ["Reverse proxy configuration is outside repo."],
-    validation_plan: { deployment: ["Inspect edge proxy header stripping policy."] },
+    validation_plan: { deployment: "Inspect edge proxy header stripping policy." },
     severity: {
       likelihood: { score: "high", reason: "Guess" },
       impact: { score: "high", reason: "Guess" },

@@ -83,6 +83,7 @@ export function inspectWorkspace({
 
   let totalHooks = 0;
   let enabledHooks = 0;
+  let hooksError = null;
   const hooksPath = path.join(pluginRoot, "hooks.json");
   if (fs.existsSync(hooksPath)) {
     try {
@@ -93,8 +94,8 @@ export function inspectWorkspace({
           if (value.enabled === true) enabledHooks++;
         }
       }
-    } catch {
-      // Ignore malformed hooks.json during read-only inspection
+    } catch (err) {
+      hooksError = err.message;
     }
   }
 
@@ -111,6 +112,7 @@ export function inspectWorkspace({
     formalSkills,
     tlaFiles,
     hooks: { enabled: enabledHooks, total: totalHooks },
+    ...(hooksError ? { hooksError } : {}),
     modelRules,
   };
 }
@@ -173,14 +175,22 @@ function checkVerifyFreshness(cwd, verifySkills) {
     const out = execFileSync(
       "git",
       ["log", "-1", "--format=%ct", "--", ".", ":!*.md", ":!.agents/skills"],
-      { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+      { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     ).trim();
     latestCodeTs = out ? Number.parseInt(out, 10) : 0;
-  } catch {
+  } catch (err) {
+    const stderr = err.stderr?.toString?.() ?? "";
+    if (/not a git repository/i.test(stderr)) {
+      return {
+        id: "verify-freshness",
+        status: "pass",
+        detail: `${verifySkills.join(", ")} present (non-git workspace).`,
+      };
+    }
     return {
       id: "verify-freshness",
-      status: "pass",
-      detail: `${verifySkills.join(", ")} present (non-git workspace).`,
+      status: "warn",
+      detail: `${verifySkills.join(", ")} present, but git history check failed (${err.message}).`,
     };
   }
   let latestSkillTs = 0;
@@ -189,8 +199,12 @@ function checkVerifyFreshness(cwd, verifySkills) {
     try {
       const mtimeSec = Math.floor(fs.statSync(skillPath).mtimeMs / 1000);
       if (mtimeSec > latestSkillTs) latestSkillTs = mtimeSec;
-    } catch {
-      // Ignore unreadable file
+    } catch (err) {
+      return {
+        id: "verify-freshness",
+        status: "warn",
+        detail: `Could not inspect ${name}/SKILL.md (${err.code ?? err.message}).`,
+      };
     }
   }
   const stale = latestCodeTs > 0 && latestSkillTs > 0 && latestCodeTs - latestSkillTs > 7 * 86400;
@@ -203,10 +217,6 @@ function checkVerifyFreshness(cwd, verifySkills) {
   };
 }
 
-/**
- * Runs read-only AStack health diagnostics across Node version, verification
- * skill freshness, hooks, model overrides, worktrees, and active sandbox tier.
- */
 export async function runWorkspaceDoctor({
   cwd = process.cwd(),
   homeDir = os.homedir(),
@@ -214,17 +224,20 @@ export async function runWorkspaceDoctor({
   probeDeps = {},
 } = {}) {
   const status = inspectWorkspace({ cwd, homeDir, pluginRoot });
+  const hooksCheck = status.hooksError
+    ? { id: "safety-hooks", status: "warn", detail: `Invalid hooks.json: ${status.hooksError}` }
+    : {
+        id: "safety-hooks",
+        status: status.hooks.enabled > 0 ? "pass" : "info",
+        detail:
+          status.hooks.total > 0
+            ? `${status.hooks.enabled}/${status.hooks.total} opt-in hooks enabled in hooks.json`
+            : "No hooks.json found",
+      };
   const checks = [
     checkNodeVersion(),
     checkVerifyFreshness(status.cwd, status.verifySkills),
-    {
-      id: "safety-hooks",
-      status: status.hooks.enabled > 0 ? "pass" : "info",
-      detail:
-        status.hooks.total > 0
-          ? `${status.hooks.enabled}/${status.hooks.total} opt-in hooks enabled in hooks.json`
-          : "No hooks.json found",
-    },
+    hooksCheck,
     {
       id: "model-routing",
       status: status.modelRules.length > 0 ? "warn" : "pass",

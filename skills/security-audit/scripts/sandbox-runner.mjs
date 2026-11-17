@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-/**
- * 3-Tier Adaptive Sandbox Probe, Clean-Env Runner, and Race-Safe Artifact Promoter
- * for AStack's /security-audit skill.
- */
-
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import fs from "node:fs";

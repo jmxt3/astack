@@ -1,10 +1,7 @@
 #!/usr/bin/env node
-/**
- * Opt-in PreToolUse guard blocking accidental secret/key writes or .env staging.
- * Enable in astack/hooks.json by setting "enabled": true on "astack-secret-guard".
- */
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const TEST_PATH_ALLOWLIST = /(?:^|[\\/])(?:tests?|fixtures?|__tests__|mocks?)(?:[\\/]|$)|\.(?:test|spec)\.[jtcm]?[jt]sx?$/i;
 const ENV_SHELL_ACTION = /\b(?:git\s+add|cp|copy|scp|curl\s+[^\n;|&]*-d|cat|type|Get-Content)\b[^\n;|&]*?(?:\.env(?:\.[a-z]+)?|id_rsa|id_ed25519|\.npmrc|\.pypirc)\b/i;
@@ -105,9 +102,6 @@ function main() {
   process.stdout.write(JSON.stringify(evaluateSecretPayload(payload)) + "\n");
 }
 
-if (
-  import.meta.url === `file://${path.resolve(process.argv[1] ?? "").replace(/\\/g, "/")}` ||
-  process.argv[1]?.endsWith("secret-guard.mjs")
-) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main();
 }
