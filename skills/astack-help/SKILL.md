@@ -66,6 +66,7 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 | Catch up on this session + waiting calls | [`/ketchup`](../ketchup/SKILL.md) |
 | Catch up as narrated slide video | [`/ketchup-video`](../ketchup-video/SKILL.md) |
 | Prove what a diff can break externally | [`/blast-radius`](../blast-radius/SKILL.md) |
+| Security audit, threat modeling & PR-diff boundary checks | [`/security-audit`](../security-audit/SKILL.md) |
 | Explore parallel designs across boundaries | [`/architect`](../architect/SKILL.md) |
 | Race K candidates & graft best design | [`/arena`](../arena/SKILL.md) |
 | Lightweight N-way subagent fan-out | [`/fanout`](../fanout/SKILL.md) |

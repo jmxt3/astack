@@ -27,6 +27,7 @@ Remaining triggers:
   - Hard coupled debugging, races, or algorithmic optimization -> recommend `/boost`.
   - Multi-day / multi-milestone programs -> recommend `/teamwork` + `/goal`.
 - Contested design -> run [`interrogate`](../interrogate/SKILL.md) (adversarial empirical review) before shipping. Settle unbuilt product forks via `/grill-me` or `playbooks/prototype.md`.
+- Security review, threat model, vulnerability hunt, or pen test -> load [`security-audit`](../security-audit/SKILL.md) and follow `playbooks/security-audit.md` (`Guidance` mode for PR diffs or questions; 6-phase `Full audit` mode when requested).
 - Nontrivial multi-step feature -> write a throughput checkpoint (`playbooks/feature.md` step 3).
 - Any prose surface, your reply to the user included -> apply [`unslop`](../unslop/SKILL.md) and write per **Writing the reply**. Keep any new or edited `SKILL.md` body `<= 24,000` bytes.
 - Docs, RFCs, READMEs, PR descriptions, or commit messages -> [`technical-writing`](../technical-writing/SKILL.md).
@@ -142,6 +143,7 @@ Create a structured checklist whose first items mirror the matched playbook's st
 - **Refactoring** (`playbooks/refactoring.md`). Behavior-preserving structural improvement with before/after equivalence check.
 - **Prototype** (`playbooks/prototype.md`). Throwaway spike settling an empirical fork by observation.
 - **Visual parity** (`playbooks/visual-parity.md`). Pixel-exact UI match verified via `control-ui`.
+- **Security audit** (`playbooks/security-audit.md`). Coverage-led vulnerability audit, PR-diff boundary review, and remediation handoff via `security-audit`.
 - **Authoring or modifying a skill** (`playbooks/authoring-a-skill.md`). Creating or updating `SKILL.md` (`<= 24,000` bytes).
 - **Eval** (`playbooks/eval.md`). Blind behavioral comparison of skill or prompt variants graded from transcripts.
 - **Babysit** (`playbooks/babysit.md`). Drive a PR or stack to merge-ready using `watch-pr.mjs`.

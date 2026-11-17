@@ -18,7 +18,7 @@ import { DEFAULT_ROOT_DIR, RESERVED_SKILL_NAMES } from "./catalog.mjs";
 const WATCH_USAGE = `Usage: node scripts/upstream-watch.mjs [options]
 
 Options:
-  --source-id <id>     Upstream source id: pstack, gstack, or all (default: pstack)
+  --source-id <id>     Upstream source id: pstack, gstack, security-audit-skill, or all (default: pstack)
   --source <git-dir>   Local git repository checkout to inspect instead of temp cache
   --fetch              Clone or fetch upstream into OS temp dir before diffing
   --since <ref>        Override baseline/lastReviewed git ref for diffing
@@ -78,6 +78,19 @@ export function assertExternalOutPath(outPath, rootDir = DEFAULT_ROOT_DIR) {
  * counterpart relative POSIX path.
  */
 export function mapUpstreamPathToCounterpart(relPosix, sourceConfig) {
+  if (sourceConfig.id === "security-audit-skill" && relPosix.startsWith("skills/security-audit/")) {
+    const rest = relPosix.slice("skills/security-audit/".length);
+    if (rest === "SKILL.md") {
+      return relPosix;
+    }
+    if (rest.endsWith(".md")) {
+      return `skills/security-audit/references/${rest}`;
+    }
+    if (rest.endsWith(".cjs") || rest.endsWith(".json")) {
+      return `skills/security-audit/scripts/${rest}`;
+    }
+    return relPosix;
+  }
   if (relPosix.startsWith("automations/")) {
     return `docs/${relPosix}`;
   }
