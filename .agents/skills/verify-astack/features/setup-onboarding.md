@@ -26,4 +26,4 @@ Preconditions: `$ScratchDir` and `$EvidenceDir` exist from `Launch`; Node 22+ pa
 ## Gotchas
 
 - `setup-astack` sets `disable-model-invocation: true` (listed in `manualOnlySkills` in [catalog.json](../../../../scripts/catalog.json)) so it runs only when explicitly invoked as `/setup-astack`.
-- Never re-introduce a static model preset prompt (`Reasoning budget & subagent tier preset`); automated tests in `validate.test.mjs` fail if `setup-astack/SKILL.md` drifts from UI/Orchestrator inheritance.
+- Never re-introduce a static model preset prompt (`Reasoning budget & subagent tier preset`); automated tests in `scripts/test/validate.test.mjs` fail if `setup-astack/SKILL.md` drifts from UI/Orchestrator inheritance.
