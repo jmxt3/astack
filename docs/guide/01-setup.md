@@ -11,7 +11,7 @@ agy plugin install https://github.com/jmxt3/astack
 agy plugin list --json
 ```
 
-(To install from a local clone instead, run `agy plugin install ./astack` or `agy plugin install .`. On Windows, if updating while Antigravity is running fails with `Access is denied`, run `agy plugin uninstall astack` before reinstalling.) For workspace-level customization, you can also copy individual skills into `.agents/skills/`. AStack sets `disable-model-invocation: true` on `33` manual-only/principle skills so only `28` auto-invocable workflow skills sit in your prompt index, and never shadows any native command or built-in skill. See [Architecture & Swarm](../architecture-and-swarm.md) for how plugin skills route to Antigravity's 16 native slash commands (`/plan`, `/grill-me`, `/run-workflow`, `/boost`, `/swarm`, `/teamwork`, `/goal`, `/schedule`, `/automation`, `/browser`).
+(To install from a local clone instead, run `agy plugin install ./astack` or `agy plugin install .`. On Windows, if updating while Antigravity is running fails with `Access is denied`, run `agy plugin uninstall astack` before reinstalling.) For workspace-level customization, you can also copy individual skills into `.agents/skills/`. AStack sets `disable-model-invocation: true` on `34` manual-only/principle skills so only `29` auto-invocable workflow skills sit in your prompt index, and never shadows any native command or built-in skill. See [Architecture & Swarm](../architecture-and-swarm.md) for how plugin skills route to Antigravity's 16 native slash commands (`/plan`, `/grill-me`, `/run-workflow`, `/boost`, `/swarm`, `/teamwork`, `/goal`, `/schedule`, `/automation`, `/browser`).
 
 ## Works with any model & plan (zero config)
 

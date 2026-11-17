@@ -10,7 +10,7 @@ AStack earned its initial foundation from open-source pioneers in agentic engine
 - **Baseline:** `v0.15.36` (commit `3dbd22ff12742fb28c9700b9760baa29ed41dc13`)
 - **What AStack derives from `pstack`:**
   - Control Glass runtime verification skills ([`control-ui`](./skills/control-ui/SKILL.md), [`control-cli`](./skills/control-cli/SKILL.md)) and materialized `verify-<app>` Feature Maps ([`create-verification-skill`](./skills/create-verification-skill/SKILL.md), [`maintain-verification-skill`](./skills/maintain-verification-skill/SKILL.md))
-  - The 23 engineering playbooks and 24 named engineering principles (`principle-*`) under [`skills/astack-mode/`](./skills/astack-mode/SKILL.md)
+  - The core engineering playbooks (23 inherited from `pstack`, expanded with `security-audit`, `safe-migration`, and `release-and-postmortem` in AStack) and 24 named engineering principles (`principle-*`) under [`skills/astack-mode/`](./skills/astack-mode/SKILL.md)
   - Code, comment, and prose hygiene passes ([`deslop`](./skills/deslop/SKILL.md), [`no-comments`](./skills/no-comments/SKILL.md), [`unslop`](./skills/unslop/SKILL.md), [`comment-sicko`](./agents/comment-sicko.md))
   - Formal statechart trace checking ([`statechart`](./skills/statechart/SKILL.md)) and automated PR watch loops
   - Lauren Tan's **Deepcoding** and **Loops You Can Trust** engineering philosophy

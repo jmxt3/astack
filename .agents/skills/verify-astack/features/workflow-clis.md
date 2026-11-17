@@ -7,6 +7,8 @@ AStack bundles standalone Node 22+ workflow and verification helper CLIs across 
 - TSV decision logger (`skills/show-me-your-work/scripts/log.mjs`) with formula-injection escaping (`'=`, `'+`, `'-`, `'@`), `-h`/`--help`, and `--dry-run`
 - Plan structural and prose linter (`skills/astack-mode/scripts/check-plan.mjs`) checking the `"schedule"` marker, headings, and prose hygiene, supporting `-h`/`--help` and `--json`
 - Read-only git worktree table reporter (`skills/astack-mode/scripts/worktree-audit.mjs`) with `-h`/`--help` and `--json`
+- Routing & contract eval suite runner (`scripts/eval/run-eval.mjs`) driving `routing-cases.json` fixtures with `-h`/`--help` and `--json`
+- Security-audit schema validators (`skills/security-audit/scripts/validate-findings.cjs`, `skills/security-audit/scripts/validate-coverage-ledger.cjs`) and 3-tier adaptive sandbox runner (`skills/security-audit/scripts/sandbox-runner.mjs` with `--probe`, `--run`, `--promote`, `--json`)
 - Zero-dependency Control Glass wrapper starter (`skills/create-verification-skill/references/control-cli-template.mjs`) implementing `doctor`, `launch`, `snapshot`, `cleanup`, `findFreePort()` via `net.createServer()`, `-h`/`--help`, `--json`, and `--dry-run`
 
 ## How to get to it (user POV)
@@ -16,13 +18,18 @@ Invoke each script from the repository root with `node`:
 - `node skills/show-me-your-work/scripts/log.mjs [--dry-run] <logfile> <phase> <decision> <why> <evidence> <result>`
 - `node skills/astack-mode/scripts/check-plan.mjs [--json] <plan.md>`
 - `node skills/astack-mode/scripts/worktree-audit.mjs [--json] [-b|--base <ref>] [repo-path]`
+- `node scripts/eval/run-eval.mjs [--json] [-h|--help]`
+- `node skills/security-audit/scripts/sandbox-runner.mjs [--probe | --promote --scratch <dir> --artifacts <dir> --file <rel> | --exec --scratch <dir> -- <cmd>] [--json]`
+- `node skills/security-audit/scripts/validate-findings.cjs <findings.json>` / `validate-coverage-ledger.cjs <ledger.json>`
 - `node skills/create-verification-skill/references/control-cli-template.mjs <doctor|launch|snapshot|cleanup> [--json] [--dry-run] [--state-dir <dir>] [--evidence-dir <dir>] [--port <number>] [--cmd <shell-command>]`
 
 ## Driving it with control-cli
 
 Preconditions: `$ScratchDir` and `$EvidenceDir` exist from `Launch`; Node 22+ is available on `PATH`. Keep all written logs, scratch state, and synthetic repos inside `$ScratchDir`.
 
-- **Zero module warnings and `--help` / `-h` smoke check**: Run `--help` and `-h` across `log.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, and `control-cli-template.mjs` (plus `validate-astack.mjs`, `upstream-watch.mjs`, `setup-banner.mjs`, `watch-pr.mjs`, and `statechart.mjs`). Expect exit `0`, usage output on stdout, and zero `MODULE_TYPELESS_PACKAGE_JSON` warnings on stderr; save summary to `$EvidenceDir/cli-help-smoke.txt`.
+- **Zero module warnings and `--help` / `-h` smoke check**: Run `--help` and `-h` across all 12 bundled CLIs (`validate-astack.mjs`, `upstream-watch.mjs`, `run-eval.mjs`, `setup-banner.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, `log.mjs`, `watch-pr.mjs`, `statechart.mjs`, `validate-findings.cjs`, `validate-coverage-ledger.cjs`, `sandbox-runner.mjs`) plus `control-cli-template.mjs`. Expect exit `0`, usage output on stdout, and zero `MODULE_TYPELESS_PACKAGE_JSON` warnings on stderr; save summary to `$EvidenceDir/cli-help-smoke.txt`.
+- **Security-audit validators & sandbox runner (`--probe`, `--promote`)**: Probe sandbox tier (`--probe --json`), test valid and malformed `findings.json` / `coverage-ledger.json` fixtures inside `$ScratchDir`, and drive `sandbox-runner.mjs --promote --scratch <dir> --artifacts <dir> --file <rel> --json` for a valid regular file (`exit 0`) vs symlinks and `..` traversal paths (`exit 1`); save outputs to `$EvidenceDir/security-audit-cli.txt`.
+- **Routing eval runner**: Run `node scripts/eval/run-eval.mjs --json`; expect exit `0` (`failed === 0`); save to `$EvidenceDir/eval-live.json`.
 - **`log.mjs` dry-run + TSV write and formula escaping**: Run `node skills/show-me-your-work/scripts/log.mjs --dry-run "$ScratchDir/dry.decision.tsv" "build" "skip write" "dry run" "none" "pass"` and verify `$ScratchDir/dry.decision.tsv` was **not** created. Then run the 6-arg write call with `"=cmd()"` and inspect `header ts\tphase\tdecision\twhy\tevidence\tresult` and escaped `'=cmd()`, plus invalid arg count (`< 6` args) exiting `1`; save proof to `$EvidenceDir/cli-log-proof.txt`.
 - **`check-plan.mjs` JSON diagnostics + `multi-phase-plan.md` skeleton regression**: Extract the skeleton from `skills/astack-mode/playbooks/multi-phase-plan.md`, fill its `<...>` placeholders (for example `-replace '<[^<>\r\n]+>', 'placeholder'`, mirroring `check-plan.test.ts`) into `$ScratchDir/skeleton.plan.md`, and run `node skills/astack-mode/scripts/check-plan.mjs --json "$ScratchDir/skeleton.plan.md"` expecting exit `0` (the raw, unfilled skeleton exits `1` because lane headings reject `<`/`>`), a bad plan (with em dash or missing `schedule` check) expecting exit `1`, and zero args expecting exit `2`; save to `$EvidenceDir/cli-check-plan.txt`.
 - **`worktree-audit.mjs` TSV and `--json` table on isolated git repo**: Create a scratch git repo at `$ScratchDir/wt-repo` with one commit, and run both `node skills/astack-mode/scripts/worktree-audit.mjs "$ScratchDir/wt-repo"` and `node skills/astack-mode/scripts/worktree-audit.mjs --json "$ScratchDir/wt-repo"`. Expect exit `0`, valid JSON containing `base`, `warned`, and `rows`, and clean TSV columns; save to `$EvidenceDir/cli-worktree-audit.txt`.

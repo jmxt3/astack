@@ -28,6 +28,9 @@ Remaining triggers:
   - Multi-day / multi-milestone programs -> recommend `/teamwork` + `/goal`.
 - Contested design -> run [`interrogate`](../interrogate/SKILL.md) (adversarial empirical review) before shipping. Settle unbuilt product forks via `/grill-me` or `playbooks/prototype.md`.
 - Security review, threat model, vulnerability hunt, or pen test -> load [`security-audit`](../security-audit/SKILL.md) and follow `playbooks/security-audit.md` (`Guidance` mode for PR diffs or questions; 6-phase `Full audit` mode when requested).
+- New or redesigned UI without a pixel baseline -> load [`design-audit`](../design-audit/SKILL.md) to audit desktop/mobile layout, keyboard navigation, ARIA, and UI states empirically before finishing.
+- Database or stateful schema migration -> follow `playbooks/safe-migration.md` (expand, backfill, switch, contract with local rollback proof).
+- Post-merge release notes, deploy smoke checks, or incident postmortem -> follow `playbooks/release-and-postmortem.md`.
 - Nontrivial multi-step feature -> write a throughput checkpoint (`playbooks/feature.md` step 3).
 - Any prose surface, your reply to the user included -> apply [`unslop`](../unslop/SKILL.md) and write per **Writing the reply**. Keep any new or edited `SKILL.md` body `<= 24,000` bytes.
 - Docs, RFCs, READMEs, PR descriptions, or commit messages -> [`technical-writing`](../technical-writing/SKILL.md).
@@ -156,4 +159,6 @@ Create a structured checklist whose first items mirror the matched playbook's st
 - **Pause safely** (`playbooks/pause-safely.md`). Clean checkpoint (`wip:` commit + off-context resume note) before stop or compaction.
 - **Multi-phase plan** (`playbooks/multi-phase-plan.md`). Structured PR checklist verified with `check-plan.mjs`.
 - **Worktree and simulator cleanup** (`playbooks/worktree-cleanup.md`). Safe disk reclamation audited with `worktree-audit.mjs`.
+- **Safe migration** (`playbooks/safe-migration.md`). Zero-downtime expand/backfill/switch/contract schema migrations with local dual-version, idempotency, and rollback proof.
+- **Release and postmortem** (`playbooks/release-and-postmortem.md`). Evidence-backed release notes, read-only post-deploy smoke checks, blameless incident forensics, and permanent `/correct` + `verify-*` loop closure.
 - **Opening a PR** (`playbooks/opening-a-pr.md`). Final hygiene (`deslop`, `no-comments`, small ordered commits, evidence-backed PR body).

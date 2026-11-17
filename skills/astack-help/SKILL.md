@@ -48,7 +48,7 @@ See [README](../../README.md), [User Guide](../../docs/user-guide.md), [Architec
 
 ## Start a task with `/astack-mode`
 
-`/astack-mode` selects one of 23 playbooks, opens a structured checklist matching its steps verbatim, routes subagents/Swarms, and requires empirical proof via `control-ui`, `control-cli`, or `.agents/skills/verify-<app>/` before reporting done. Read [Guide 02: AStack Mode](../../docs/guide/02-astack-mode.md) and [`references/prompting.md`](references/prompting.md).
+`/astack-mode` selects one of 26 playbooks, opens a structured checklist matching its steps verbatim, routes subagents/Swarms, and requires empirical proof via `control-ui`, `control-cli`, or `.agents/skills/verify-<app>/` before reporting done. Read [Guide 02: AStack Mode](../../docs/guide/02-astack-mode.md) and [`references/prompting.md`](references/prompting.md).
 
 ## Pick a skill
 
@@ -74,6 +74,7 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 | Bug fix test-first on cheap local tests | [`/tdd`](../tdd/SKILL.md) |
 | Strict TypeScript patterns & types | [`/typescript-best-practices`](../typescript-best-practices/SKILL.md) |
 | Drive web/Electron UI via Chrome DevTools & `browser` | [`/control-ui`](../control-ui/SKILL.md) |
+| UX, accessibility & responsive layout audit for new UIs | [`/design-audit`](../design-audit/SKILL.md) |
 | Drive CLIs, APIs, and daemons empirically | [`/control-cli`](../control-cli/SKILL.md) |
 | Strip speculative abstractions & bloat pre-commit | [`/deslop`](../deslop/SKILL.md) |
 | Kill narration/workaround comments via `comment-sicko` | [`/no-comments`](../no-comments/SKILL.md) |

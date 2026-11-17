@@ -18,7 +18,7 @@ When agents repeat a mistake, push the fix as high up this hierarchy as possible
 | 1. Codebase & Architecture | Strongest | Data structures, module boundaries, single paved path (`principle-type-system-discipline`, `principle-model-the-domain`, `/correct`). Make the bad thing unrepresentable. |
 | 2. Static Analysis & Tests | Strong | TypeScript strictness, linters, CI checks whose error names the fix, TLA+ models (`/statechart`, `/create-formal-verification-skill`), `/tdd`. |
 | 3. Rules & Lifecycle Hooks | Medium | Always-on/triggered rules ([`rules/astack-orchestration.md`](../rules/astack-orchestration.md)) and opt-in [`hooks.json`](../hooks.json) (`PreToolUse` destructive command gate, `Stop` verify reminder). |
-| 4. Skills & Playbooks | Situational | `/astack-mode` router, 23 playbooks, 24 named principles, `/how`, `/why`, `/architect`, `/arena`, `/interrogate`, `/deslop`, `/no-comments`. |
+| 4. Skills & Playbooks | Situational | `/astack-mode` router, 26 playbooks, 24 named principles, `/how`, `/why`, `/architect`, `/arena`, `/interrogate`, `/deslop`, `/no-comments`. |
 | 5. Human Review | Weakest | Reserved for design taste, product tradeoffs, and high-risk irreversible actions, assisted by `/teach`, `/ketchup`, and `/show-me-your-work`. |
 
 ## Control Glass & Verification Infrastructure
@@ -95,7 +95,7 @@ To avoid ever shadowing a native slash command or built-in skill:
 
 - AStack keeps slice fan-out under **`skills/fanout`** (`/fanout`), letting `/fanout` handle lightweight `invoke_subagent` fan-out matrices and escalate cleanly to native `/swarm` when workers need a shared message board or dedicated `@verifier`.
 - [`validate-astack.mjs`](../scripts/validate-astack.mjs) and [`catalog.mjs`](../scripts/catalog.mjs) enforce `RESERVED_SKILL_NAMES` against all 16 native slash commands and the 15 built-in reserved names.
-- **Context budget (`disable-model-invocation: true`)**: Antigravity preloads only `name` and `description` for auto-invocable skills. AStack sets `disable-model-invocation: true` on `33` manual-only/reference skills (`24` `principle-*` skills plus `9` explicit slash entrypoints listed in [`catalog.json`](../scripts/catalog.json)), keeping `28` auto-invocable workflow skills lean in the session index.
+- **Context budget (`disable-model-invocation: true`)**: Antigravity preloads only `name` and `description` for auto-invocable skills. AStack sets `disable-model-invocation: true` on `34` manual-only/reference skills (`24` `principle-*` skills plus `10` explicit slash entrypoints listed in [`catalog.json`](../scripts/catalog.json)), keeping `29` auto-invocable workflow skills lean in the session index.
 
 See [`skills/astack-mode/references/swarm-coordination.md`](../skills/astack-mode/references/swarm-coordination.md) for concrete `swarm` (`title`, `add`, `workspace`, `@verifier`, `@monitor`, cleanup) patterns.
 
@@ -116,7 +116,7 @@ AStack includes [`docs/automations/beacon/`](./automations/beacon/README.md), a 
 | Lineage / Concept | AStack Antigravity Equivalent | Notes |
 |---|---|---|
 | Plugin manifest and lifecycle hooks | [`plugin.json`](../plugin.json) + opt-in [`hooks.json`](../hooks.json) | Verified by [`validate-astack.mjs`](../scripts/validate-astack.mjs) and `agy plugin validate --strict` |
-| Mode router, help, and repo setup | [`/astack-mode`](../skills/astack-mode/SKILL.md), [`/astack-help`](../skills/astack-help/SKILL.md), [`/setup-astack`](../skills/setup-astack/SKILL.md) | `SKILL.md` allows `name`, `description`, `disable-model-invocation` (`33` manual-only / `28` auto-invocable), `license`, `compatibility`; body `<= 24,000` bytes; `astack-agent` inherits context and `comment-sicko` sets `inheritCustomizations: false` |
+| Mode router, help, and repo setup | [`/astack-mode`](../skills/astack-mode/SKILL.md), [`/astack-help`](../skills/astack-help/SKILL.md), [`/setup-astack`](../skills/setup-astack/SKILL.md) | `SKILL.md` allows `name`, `description`, `disable-model-invocation` (`34` manual-only / `29` auto-invocable), `license`, `compatibility`; body `<= 24,000` bytes; `astack-agent` inherits context and `comment-sicko` sets `inheritCustomizations: false` |
 | Slice fan-out vs coordinated board | [`/fanout`](../skills/fanout/SKILL.md) (`invoke_subagent`) + built-in `/swarm` (`swarm`, `post_message`, `read_board`, `swarm_wait`) | Dedicated `/fanout` skill prevents shadowing Antigravity's built-in `/swarm` |
 | Model routing and cross-family diversity | `Model: "inherit"` default (UI picker and **Orchestrator** bidirectional routing), `Model: "flash"` for broad `research`/`browser` sweeps, live `swarm{action: "models", all: true}` discovery, optional `astack-models.md` | Cross-family `/arena` and `/interrogate` discover healthy `quota_remaining` live |
 | Workspace and global customizations | `.agents/skills/` and `~/.gemini/config/skills/`; `.agents/rules/` and `~/.gemini/config/rules/` | Global skills live under `~/.gemini/config/skills/` |

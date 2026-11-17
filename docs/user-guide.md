@@ -37,7 +37,7 @@ Open your project workspace and run:
 Select the **`(Recommended)`** option when prompted so [`/setup-astack`](../skills/setup-astack/SKILL.md) teaches agents how to launch and verify your app automatically.
 
 > [!TIP]
-> AStack works out of the box with **any model on any Antigravity plan**, with zero model config or chat restart needed. `33` manual-only/principle skills set `disable-model-invocation: true` so only `28` workflow skills sit in your model index, broad sweeps use `flash`, `/arena` checks live models via `swarm{action: "models"}`, and **Orchestrator (Carbon)** (Google AI Ultra) or **Orchestrator (Argon)** (Google AI Pro and Ultra) runs dynamic bidirectional routing with [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/) automatically.
+> AStack works out of the box with **any model on any Antigravity plan**, with zero model config or chat restart needed. `34` manual-only/principle skills set `disable-model-invocation: true` so only `29` workflow skills sit in your model index, broad sweeps use `flash`, `/arena` checks live models via `swarm{action: "models"}`, and **Orchestrator (Carbon)** (Google AI Ultra) or **Orchestrator (Argon)** (Google AI Pro and Ultra) runs dynamic bidirectional routing with [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/) automatically.
 
 ### Step 3: Run Tasks With `/astack-mode`
 
@@ -47,7 +47,7 @@ Describe **what you want** and **how to check it works** in plain English:
 /astack-mode add a --json flag to the export command. keep plain text output byte-identical, prove both outputs on the sample fixture, and don't push yet.
 ```
 
-`/astack-mode` picks the right playbook from its 23 playbooks, writes and cleans the code, and proves behavior on the real surface before finishing.
+`/astack-mode` picks the right playbook from its 26 playbooks, writes and cleans the code, and proves behavior on the real surface before finishing.
 
 Unsure which skill fits? Ask [`/astack-help`](../skills/astack-help/SKILL.md) without spending execution tokens yet:
 

@@ -90,7 +90,8 @@
         "test live web page"
       ],
       "astackCompanion": [
-        "skills/control-ui/SKILL.md"
+        "skills/control-ui/SKILL.md",
+        "skills/design-audit/SKILL.md"
       ],
       "surfaces": [
         "app",

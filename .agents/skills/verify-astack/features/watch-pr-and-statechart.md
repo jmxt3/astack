@@ -24,7 +24,7 @@ AStack runs its TypeScript helper CLIs (`watch-pr` and `statechart`) directly on
 
 Preconditions: `$ScratchDir` and `$EvidenceDir` exist from `Launch`; Node `>= 22.6.0` passed `Doctor`.
 
-- **`watch-pr.mjs` help & TypeScript unit suite (`55` tests)**: Run `node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --help` and `node --run test:watch-pr`. Expect exit `0` on `--help` (`Usage: watch-pr [options]`) and all `55` subtests passing (`fail=0`); save outputs to `$EvidenceDir/watch-pr-proof.txt`. (Report live `--pr <num>` GitHub API polling `verified-unreachable` when offline or unauthenticated.)
+- **`watch-pr.mjs` help & TypeScript unit suite (`56` tests + formal policy check)**: Run `node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --help`, `node --run test:watch-pr`, and `node --experimental-strip-types --disable-warning=ExperimentalWarning .agents/skills/verify-watch-pr-formal/scripts/verify-policy.ts`. Expect exit `0` on `--help` (`Usage: watch-pr [options]`), all `56` subtests passing (`fail=0`), and `ok: true` with `0` invariant violations from `verify-policy.ts`; save outputs to `$EvidenceDir/watch-pr-proof.txt`. (Report live `--pr <num>` GitHub API polling `verified-unreachable` when offline or unauthenticated.)
 - **`statechart.mjs` help, unknown-option exit `2`, and TypeScript test suite (`67` non-TLC tests)**:
   1. Run `node skills/statechart/scripts/statechart.mjs --help` and `-h` (expect exit `0` and `Usage: statechart SPEC.tla ...`).
   2. Run `node skills/statechart/scripts/statechart.mjs --bogus` (expect exit `2` and `Unknown option '--bogus'`).

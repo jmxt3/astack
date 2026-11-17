@@ -295,17 +295,17 @@ test("live AStack repo validates cleanly and enforces UI/Orchestrator and agent 
   }
 });
 
-test("live repo matches scripts/catalog.json manualOnlySkills (33 manual-only, 29 auto-invocable)", () => {
+test("live repo matches scripts/catalog.json manualOnlySkills (34 manual-only, 29 auto-invocable)", () => {
   const catalog = JSON.parse(fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "scripts", "catalog.json"), "utf8"));
   const manualSet = new Set(catalog.manualOnlySkills);
-  assert.equal(manualSet.size, 33);
+  assert.equal(manualSet.size, 34);
 
   const skillDirs = fs
     .readdirSync(path.join(DEFAULT_ROOT_DIR, "skills"), { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name)
     .sort();
-  assert.equal(skillDirs.length, 62);
+  assert.equal(skillDirs.length, 63);
 
   let manualCount = 0;
   let autoCount = 0;
@@ -321,20 +321,24 @@ test("live repo matches scripts/catalog.json manualOnlySkills (33 manual-only, 2
       autoCount++;
     }
   }
-  assert.equal(manualCount, 33);
+  assert.equal(manualCount, 34);
   assert.equal(autoCount, 29);
 });
 
-test("all 8 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
+test("all 12 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
   const clis = [
     "scripts/validate-astack.mjs",
     "scripts/upstream-watch.mjs",
+    "scripts/eval/run-eval.mjs",
     "skills/setup-astack/scripts/setup-banner.mjs",
     "skills/astack-mode/scripts/check-plan.mjs",
     "skills/astack-mode/scripts/worktree-audit.mjs",
     "skills/show-me-your-work/scripts/log.mjs",
     "skills/astack-mode/scripts/watch-pr/watch-pr.mjs",
     "skills/statechart/scripts/statechart.mjs",
+    "skills/security-audit/scripts/validate-findings.cjs",
+    "skills/security-audit/scripts/validate-coverage-ledger.cjs",
+    "skills/security-audit/scripts/sandbox-runner.mjs",
   ];
   for (const rel of clis) {
     const full = path.join(DEFAULT_ROOT_DIR, ...rel.split("/"));
