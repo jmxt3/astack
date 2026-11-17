@@ -1,4 +1,6 @@
 {
+  "maxAutoInvokeSkills": 32,
+  "maxAutoInvokeDescriptionBytes": 8500,
   "manualOnlySkills": [
     "astack-mode",
     "automate-me",

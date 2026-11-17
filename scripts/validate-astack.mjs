@@ -20,6 +20,7 @@ import {
   MAX_ANTIGRAVITY_BYTES,
   RESERVED_SKILL_NAMES,
   applyFrontmatterPolicy,
+  loadCatalog,
   parseFrontmatter,
 } from "./catalog.mjs";
 
@@ -379,6 +380,10 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
 
   // Validate skills
   const validSkillNames = new Set();
+  const autoInvokeSkills = [];
+  const manualOnlySkillCount = [];
+  const autoDescriptions = new Map();
+  let autoInvokeDescriptionBytes = 0;
   let skillCount = 0;
   if (fs.existsSync(skillsRoot)) {
     for (const entry of fs.readdirSync(skillsRoot, { withFileTypes: true })) {
@@ -420,6 +425,26 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
           });
         }
       }
+      const isManualOnly = keyMap["disable-model-invocation"] === "true";
+      if (isManualOnly) {
+        manualOnlySkillCount.push(entry.name);
+      } else {
+        const descBytes = Buffer.byteLength(`${keyMap.name ?? entry.name}\n${keyMap.description ?? ""}`, "utf8");
+        autoInvokeSkills.push({ name: entry.name, bytes: descBytes });
+        autoInvokeDescriptionBytes += descBytes;
+        const normalizedDesc = (keyMap.description ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+        if (normalizedDesc) {
+          const priorSkill = autoDescriptions.get(normalizedDesc);
+          if (priorSkill) {
+            errors.push({
+              file: rel,
+              message: `Duplicate auto-invocable skill description matches ${priorSkill}`,
+            });
+          } else {
+            autoDescriptions.set(normalizedDesc, entry.name);
+          }
+        }
+      }
       const bodyBytes = Buffer.byteLength(body, "utf8");
       if (bodyBytes > MAX_ANTIGRAVITY_BYTES) {
         errors.push({
@@ -427,6 +452,40 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
           message: `Skill body is ${bodyBytes} bytes, exceeding Antigravity's ${MAX_ANTIGRAVITY_BYTES}-byte truncation limit`,
         });
       }
+    }
+  }
+
+  const catalogFile = path.join(rootDir, "scripts", "catalog.json");
+  if (fs.existsSync(catalogFile)) {
+    try {
+      const catalog = loadCatalog(rootDir);
+      if (typeof catalog.maxAutoInvokeSkills === "number" && autoInvokeSkills.length > catalog.maxAutoInvokeSkills) {
+        const top = [...autoInvokeSkills]
+          .sort((a, b) => b.bytes - a.bytes)
+          .slice(0, 5)
+          .map((s) => `${s.name}(${s.bytes}B)`)
+          .join(", ");
+        errors.push({
+          file: "scripts/catalog.json",
+          message: `Auto-invocable skill count ${autoInvokeSkills.length} exceeds maxAutoInvokeSkills (${catalog.maxAutoInvokeSkills}); largest: ${top}`,
+        });
+      }
+      if (
+        typeof catalog.maxAutoInvokeDescriptionBytes === "number" &&
+        autoInvokeDescriptionBytes > catalog.maxAutoInvokeDescriptionBytes
+      ) {
+        const top = [...autoInvokeSkills]
+          .sort((a, b) => b.bytes - a.bytes)
+          .slice(0, 5)
+          .map((s) => `${s.name}(${s.bytes}B)`)
+          .join(", ");
+        errors.push({
+          file: "scripts/catalog.json",
+          message: `Auto-invocable startup description bytes ${autoInvokeDescriptionBytes} exceeds maxAutoInvokeDescriptionBytes (${catalog.maxAutoInvokeDescriptionBytes}); largest: ${top}`,
+        });
+      }
+    } catch (err) {
+      errors.push({ file: "scripts/catalog.json", message: `Invalid JSON: ${err.message}` });
     }
   }
 
@@ -570,6 +629,9 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
     warnings,
     stats: {
       skills: skillCount,
+      manualOnlySkills: manualOnlySkillCount.length,
+      autoInvokeSkills: autoInvokeSkills.length,
+      autoInvokeDescriptionBytes,
       agents: agentCount,
       rules: ruleCount,
       markdownFilesChecked: mdScanTargets.length,
@@ -618,7 +680,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(JSON.stringify(result, null, 2));
   } else {
     console.log(
-      `[validate-astack] skills=${result.stats.skills} agents=${result.stats.agents} rules=${result.stats.rules} md=${result.stats.markdownFilesChecked} errors=${result.errors.length} warnings=${result.warnings.length}`,
+      `[validate-astack] skills=${result.stats.skills} auto=${result.stats.autoInvokeSkills} autoBytes=${result.stats.autoInvokeDescriptionBytes} agents=${result.stats.agents} rules=${result.stats.rules} md=${result.stats.markdownFilesChecked} errors=${result.errors.length} warnings=${result.warnings.length}`,
     );
     for (const err of result.errors) {
       console.error(`ERROR ${err.file}: ${err.message}`);

@@ -1,0 +1,109 @@
+{
+  "routingCases": [
+    {
+      "id": "R1",
+      "prompt": "/astack-mode plan the OIDC refactor of our auth middleware",
+      "expectedCommand": "/plan",
+      "expectedMode": "contract",
+      "expectedSecurityMode": null
+    },
+    {
+      "id": "R1-neg",
+      "prompt": "/astack-mode rename the plan column in the subscriptions table to billing_tier and update its unit test",
+      "expectedCommand": null,
+      "expectedMode": "playbook",
+      "expectedSecurityMode": null
+    },
+    {
+      "id": "R2",
+      "prompt": "/astack-mode plan this auth migration, but interview me first",
+      "expectedCommand": "/grill-me",
+      "expectedMode": "contract",
+      "expectedSecurityMode": null
+    },
+    {
+      "id": "R3",
+      "prompt": "/astack-mode plan a 4-PR migration to Fastify",
+      "expectedCommand": "/plan",
+      "expectedMode": "contract",
+      "expectedSecurityMode": null
+    },
+    {
+      "id": "R4",
+      "prompt": "/astack-mode investigate why invoices duplicate, then plan the fix",
+      "expectedCommand": "/plan",
+      "expectedMode": "contract",
+      "expectedSecurityMode": null
+    },
+    {
+      "id": "R5",
+      "prompt": "/astack-mode review every changed file for unhandled exceptions",
+      "expectedCommand": "/run-workflow",
+      "expectedMode": "run",
+      "expectedSecurityMode": null
+    },
+    {
+      "id": "R6",
+      "prompt": "/astack-mode every Monday 9am check my failing PRs",
+      "expectedCommand": "/automation",
+      "expectedMode": "load",
+      "expectedSecurityMode": null
+    },
+    {
+      "id": "R7",
+      "prompt": "/astack-mode in 20 minutes re-run the flaky test",
+      "expectedCommand": "/schedule",
+      "expectedMode": "run",
+      "expectedSecurityMode": null
+    },
+    {
+      "id": "R8",
+      "prompt": "/astack-mode keep going overnight until tests pass",
+      "expectedCommand": "/goal",
+      "expectedMode": "recommend",
+      "expectedSecurityMode": null
+    },
+    {
+      "id": "R9",
+      "prompt": "/astack-mode remember to always retry DB transactions",
+      "expectedCommand": "/learn",
+      "expectedMode": "contract",
+      "expectedSecurityMode": null
+    },
+    {
+      "id": "R10",
+      "prompt": "/astack-mode check the dashboard renders at localhost:3000",
+      "expectedCommand": "/browser",
+      "expectedMode": "run",
+      "expectedSecurityMode": null
+    },
+    {
+      "id": "R11",
+      "prompt": "/astack-mode add a PreToolUse hook that blocks force push",
+      "expectedCommand": "/agy-customizations",
+      "expectedMode": "load",
+      "expectedSecurityMode": null
+    },
+    {
+      "id": "R12",
+      "prompt": "/astack-mode how do I run the CLI headless in GitHub Actions?",
+      "expectedCommand": "/antigravity-guide",
+      "expectedMode": "load",
+      "expectedSecurityMode": null
+    },
+    {
+      "id": "SEC-1",
+      "prompt": "/security-audit review this PR diff for auth bypass on POST /tokens",
+      "expectedCommand": null,
+      "expectedMode": "playbook",
+      "expectedSecurityMode": "guidance"
+    },
+    {
+      "id": "SEC-2",
+      "prompt": "do a full end-to-end security audit of this codebase and write REPORT.md",
+      "expectedCommand": null,
+      "expectedMode": "playbook",
+      "expectedSecurityMode": "full-audit"
+    }
+  ]
+}

@@ -23,3 +23,5 @@
 7. **Read every candidate output yourself** end to end. Compare to the judge's verdict. Disagreement means a model is biased or the rubric is ambiguous. Synthesize.
 
 **Reply:** variant under test, rubric, per-candidate notes, judge's verdict, your synthesis, and a recommendation for whether to promote the variant.
+
+For deterministic offline routing and schema contract regression checks (`R1` to `R12`, `R1-neg`, `security-audit` operating modes, `findings.json`, `coverage-ledger.json`, and `check-plan`), run `node scripts/eval/run-eval.mjs --json` (wired into `node --run test:eval`) alongside blinded multi-candidate evals.
