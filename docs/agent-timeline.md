@@ -110,7 +110,9 @@ Read the worked tutorials below whenever you need concrete command transcripts, 
 | [Tutorial 1. Ship daily tickets from Jira and Confluence](./tutorials/01-daily-ticket-workflow.md) | Isolated ticket worktrees, spec alignment before edits, CLI feature delivery, sticky-playbook reset, and recurring UTC bug prevention | `git worktree`, `/in-your-own-words`, `/astack-mode`, `/control-cli`, `/deslop`, `/no-comments`, `new task.`, `/correct` |
 | [Tutorial 2. Set up once and maintain verification skills](./tutorials/02-setup-and-skill-maintenance.md) | One-time onboarding of a shared service repo, repairing drifted route and flag checks a week later, and verifying a new CLI repo before setup exists | `agy plugin list --json`, `/setup-astack`, `/create-verification-skill`, `/maintain-verification-skill`, `/control-cli` |
 | [Tutorial 3. Run new features from rough idea to verified code](./tutorials/03-new-feature-workflows.md) | Direct build of a clear spec, gated plan review with inline comments, interactive ambiguity interview, and boundary design checkpoints | `/astack-mode`, `/plan /astack-mode`, `/plan /grill-me /astack-mode`, `/architect`, `/control-ui`, `/control-cli` |
-| [Tutorial 4. Review colleague PRs at scale with proven findings](./tutorials/04-reviewing-prs-at-scale.md) | Skeptical single-PR bug reproduction, downstream breakage proof, mapping an 800-line PR, 4-PR parallel triage, and 10+ or stacked PR audits | `/interrogate`, `/blast-radius`, `/teach`, `/fanout`, `/run-workflow`, `/swarm` |
+| [Tutorial 4. Harden UI, migrations, and security before pushing](./tutorials/04-pre-pr-audits-and-hardening.md) | Pre-PR UI accessibility audits, zero-downtime database migrations, Guidance and Full Audit security checks, and formal state checks | `/design-audit`, `safe-migration`, `/security-audit`, `astack-secret-guard`, `/create-formal-verification-skill` |
+| [Tutorial 5. Open PRs, babysit to green, land safely, and verify releases](./tutorials/05-pr-babysit-and-release.md) | Opening ready PRs, clearing CI and Bugbot threads, bottom-up stack merging, post-deploy smoke checks, and incident closure | `opening-a-pr`, `babysit` (`watch-pr.mjs`), `shipping`, `release-and-postmortem`, `/correct` |
+| [Tutorial 6. Review colleague PRs at scale with proven findings](./tutorials/06-reviewing-prs-at-scale.md) | Skeptical single-PR bug reproduction, downstream breakage proof, mapping an 800-line PR, 4-PR parallel triage, and 10+ or stacked PR audits | `/interrogate`, `/blast-radius`, `/teach`, `/fanout`, `/run-workflow`, `/swarm` |
 
 Additional reference documents in this repository complement the timeline:
 
@@ -264,7 +266,7 @@ Run these commands whenever entering unfamiliar code, checking why an invariant 
 ### `/teach`
 
 - **Function.** [`/teach`](../skills/teach/SKILL.md) runs `/how` and `/why` in parallel and weaves their findings into plain spoken English, building understanding up step by step with sequential Mermaid diagrams (or marker-on-whiteboard images for spatial concepts). It keeps `/why`'s epistemic hedges intact and avoids wall-of-text summaries.
-- **Practical example.** From [Tutorial 4](./tutorials/04-reviewing-prs-at-scale.md#understand-a-large-unfamiliar-pr-with-teach) (`PR #223`):
+- **Practical example.** From [Tutorial 6](./tutorials/06-reviewing-prs-at-scale.md#understand-a-large-unfamiliar-pr-with-teach) (`PR #223`):
 
 ```text
 /teach me what PR #223 changes in the dead-letter retry loop and prove whether it fixes the duplicate-delivery root cause.
@@ -319,7 +321,7 @@ For work that crosses module boundaries, introduces a new shared interface, or l
 ### `/fanout`
 
 - **Function.** [`/fanout`](../skills/fanout/SKILL.md) runs N independent slices or declared race arms concurrently via `invoke_subagent` without spinning up a full Swarm message board. Before launching workers, the parent frames the shape (`partition`, `race`, or `mixed`), upfront selection rule (`first pass`, `rank all`, or `best-of`), workspace isolation (`inherit` for readers, `share` for disjoint editors, `branch` for races), pinned `git rev-parse HEAD` SHA, and exact measurement method. Workers echo the SHA and observed command outputs, and the parent audits compliance (respawning once on missing proof) before returning one consolidated `PASS` / `ISSUES` / `BLOCKED` report.
-- **Practical example.** From [Tutorial 4](./tutorials/04-reviewing-prs-at-scale.md#triage-a-morning-batch-of-4-prs-in-parallel-with-fanout):
+- **Practical example.** From [Tutorial 6](./tutorials/06-reviewing-prs-at-scale.md#triage-a-morning-batch-of-4-prs-in-parallel-with-fanout):
 
 ```text
 /fanout review refs/remotes/origin/pr/231, pr/232, pr/235, and pr/238 in isolated branch workspaces. one worker per PR. state intent, run affected tests plus one boundary break script against real code, skip style nitpicks, and return one consolidated report.
@@ -407,7 +409,7 @@ When implementation begins, `/astack-mode` matches the task to a build playbook 
 `/astack-mode` routes broad or hard execution to Antigravity's native orchestration tiers (`invoke_subagent`, `/run-workflow`, `/boost`, `/swarm`, `/teamwork`) per [`swarm-coordination.md`](../skills/astack-mode/references/swarm-coordination.md):
 
 1. **`invoke_subagent` (`astack-agent`, `research`, `browser`, `comment-sicko`).** Spawns focused background workers for code edits (`TypeName: "astack-agent"` or `"self"` reading [`astack-agent.md`](../agents/astack-agent.md) + [`astack-mode/SKILL.md`](../skills/astack-mode/SKILL.md)), read-only sandbox sweeps (`research`), live browser driving (`browser`), or comment audits (`comment-sicko`). Never poll in a loop; Antigravity wakes the parent automatically.
-2. **`/run-workflow` (`run` mode).** Loads Antigravity's `run-workflow` skill and calls `run_workflow` with Python `parallel()` and `pipeline()` orchestration across many uniform items or staged phases (Pro and Ultra). Ideal for auditing 10+ PRs as shown in [Tutorial 4](./tutorials/04-reviewing-prs-at-scale.md#scale-to-10-or-more-prs-or-stacked-prs-with-run-workflow-and-swarm):
+2. **`/run-workflow` (`run` mode).** Loads Antigravity's `run-workflow` skill and calls `run_workflow` with Python `parallel()` and `pipeline()` orchestration across many uniform items or staged phases (Pro and Ultra). Ideal for auditing 10+ PRs as shown in [Tutorial 6](./tutorials/06-reviewing-prs-at-scale.md#scale-to-10-or-more-prs-or-stacked-prs-with-run-workflow-and-swarm):
 
 ```text
 /run-workflow list open PRs requesting my review, checkout each in parallel in an isolated temp worktree, run affected tests and boundary checks, clean up worktrees, and return one ranked summary line per PR.
@@ -419,7 +421,7 @@ When implementation begins, `/astack-mode` matches the task to a build playbook 
 /boost /astack-mode worker threads deadlock under concurrent shutdown. repro under load, isolate root cause, fix, and prove 50 consecutive clean runs.
 ```
 
-4. **`/swarm` (`run` mode).** Drives Antigravity's native shared message board (`swarm` `title`, `add`, `status`, `model`, `kill`, `post_message`, `read_board`, `swarm_wait`) for broad work spanning modules, test suites, or stacked PRs (Pro and Ultra). Give author workers `workspace: "share"` or `"branch"`, write self-contained `@mention` briefs with owned paths and proof commands, spawn at least 1 independent `@verifier` (`workspace: "inherit"`) per 2 to 4 authors, arm `@monitor` on long runs, and **always merge or push worker changes before calling `swarm{action: "kill"}`** because `kill` deletes worker workspaces. Powers [`autopilot-full.md`](../skills/astack-mode/playbooks/autopilot-full.md) (parallel PRs built, swarm-verified, babysat, and merged) and [`autopilot-stack.md`](../skills/astack-mode/playbooks/autopilot-stack.md) (builds and swarm-verifies PRs or stacks, stopping before merge). Practical example from [Tutorial 4](./tutorials/04-reviewing-prs-at-scale.md#scale-to-10-or-more-prs-or-stacked-prs-with-run-workflow-and-swarm):
+4. **`/swarm` (`run` mode).** Drives Antigravity's native shared message board (`swarm` `title`, `add`, `status`, `model`, `kill`, `post_message`, `read_board`, `swarm_wait`) for broad work spanning modules, test suites, or stacked PRs (Pro and Ultra). Give author workers `workspace: "share"` or `"branch"`, write self-contained `@mention` briefs with owned paths and proof commands, spawn at least 1 independent `@verifier` (`workspace: "inherit"`) per 2 to 4 authors, arm `@monitor` on long runs, and **always merge or push worker changes before calling `swarm{action: "kill"}`** because `kill` deletes worker workspaces. Powers [`autopilot-full.md`](../skills/astack-mode/playbooks/autopilot-full.md) (parallel PRs built, swarm-verified, babysat, and merged) and [`autopilot-stack.md`](../skills/astack-mode/playbooks/autopilot-stack.md) (builds and swarm-verifies PRs or stacks, stopping before merge). Practical example from [Tutorial 6](./tutorials/06-reviewing-prs-at-scale.md#scale-to-10-or-more-prs-or-stacked-prs-with-run-workflow-and-swarm):
 
 ```text
 /swarm review stacked PRs #240, #241, and #242 with one reviewer worker per PR in branch workspaces plus an independent @verifier worker that reruns every candidate bug before reporting back.
@@ -536,7 +538,7 @@ Before committing or opening a PR, run code cleanup, comment pruning, prose tigh
 ### `/interrogate`
 
 - **Function.** [`/interrogate`](../skills/interrogate/SKILL.md) performs skeptical, read-only adversarial code and design review on concrete built diffs or prototypes. It restates the change's intent via `/in-your-own-words`, launches 2 to 3 isolated `Workspace: "branch"` adversaries (across different attack angles or distinct model families via `/swarm` when requested) ordered to break the change against real code, **reruns every reported failure command in the parent workspace**, keeps only reproduced defects that break stated intent, records every rejected claim under `Dropped` with reasons, cleans up temporary branch workspaces, and applies zero edits itself.
-- **Practical example.** From [Tutorial 4](./tutorials/04-reviewing-prs-at-scale.md#prove-real-bugs-and-drop-noise-on-one-pr-with-interrogate) (`PR #214`):
+- **Practical example.** From [Tutorial 6](./tutorials/06-reviewing-prs-at-scale.md#prove-real-bugs-and-drop-noise-on-one-pr-with-interrogate) (`PR #214`):
 
 ```text
 /interrogate this branch against origin/main skeptically. don't change anything. skip nitpicks unless it's an actual bug or regression in behavior.
@@ -545,7 +547,7 @@ Before committing or opening a PR, run code cleanup, comment pruning, prose tigh
 ### `/blast-radius`
 
 - **Function.** [`/blast-radius`](../skills/blast-radius/SKILL.md) finds hidden non-local breakage that symbol grep misses (wire JSON contracts, DB columns, library version internals, microtask and teardown timing, code three hops downstream). It reads the change and PR history (`why` step 2), identifies the **single fact** the change's safety depends on, writes and executes a small script importing and exercising real downstream callers to prove that fact (or marks it `unproven`), and reports `What it does`, `The one fact it's safe because of`, `Risks` (`file:line` + proof), `Cleared`, and `Before you merge`.
-- **Practical example.** From [Tutorial 4](./tutorials/04-reviewing-prs-at-scale.md#check-hidden-downstream-breakage-with-blast-radius) (`PR #219`):
+- **Practical example.** From [Tutorial 6](./tutorials/06-reviewing-prs-at-scale.md#check-hidden-downstream-breakage-with-blast-radius) (`PR #219`):
 
 ```text
 /blast-radius of stripping null keys inside serializeEvent on this branch.
@@ -556,7 +558,7 @@ Before committing or opening a PR, run code cleanup, comment pruning, prose tigh
 - **Function.** [`/security-audit`](../skills/security-audit/SKILL.md) (paired with [`playbooks/security-audit.md`](../skills/astack-mode/playbooks/security-audit.md)) performs coverage-led trust-boundary auditing in two modes:
   - **Guidance mode (default).** Reviews named PR diffs, single endpoints, or threat questions without creating output directories.
   - **Full audit mode (`quick`, `standard`, `deep`).** Runs all 6 phases. It launches 4 parallel `research` recon explorers, seeds `coverage-ledger.json`, assigns isolated `astack-agent` or `self` hunters, runs independent refutation verifiers, validates `findings.json` via [`validate-findings.cjs`](../skills/security-audit/scripts/validate-findings.cjs) and [`validate-coverage-ledger.cjs`](../skills/security-audit/scripts/validate-coverage-ledger.cjs), runs Phase 5 independent record verification, and emits target-neutral `REPORT.md`, `FINDINGS-DETAIL.md`, and `NEEDS-VALIDATION.md`. It uses read-only `research` sandboxes, executes target code only inside isolated OS sandboxes (`source`-only `needs_validation` otherwise), never probes deployed infrastructure, and hands user-approved fixes back to `bug-fix.md`, `/tdd`, and `/correct`.
-- **Practical example.** Review a PR authentication boundary without generating full audit directories:
+- **Practical example.** From [Tutorial 4](./tutorials/04-pre-pr-audits-and-hardening.md#run-a-pre-pr-security-diff-check-in-guidance-mode), review a PR authentication boundary without generating full audit directories:
 
 ```text
 /security-audit check the JWT cookie validation changes on this branch in Guidance mode.
@@ -622,7 +624,7 @@ Once verified locally, package clean commits, drive PRs through CI and review, k
 ### `/astack-mode babysit` (`babysit.md` and `watch-pr.mjs`)
 
 - **Function.** [`playbooks/babysit.md`](../skills/astack-mode/playbooks/babysit.md) drives open PRs to merge-ready without auto-merging, declaring one of four modes (`drive`, `background`, `threads-only`, `check`). It always works the lowest unmerged frontier PR first, handles blockers in strict order (`conflicts`, then `review threads`, then `CI`), batches fixes into single push waves, classifies CI failures rather than blind-retrying, and triages human and automated Bugbot comments skeptically per [`bugbot-triage.md`](../skills/astack-mode/references/bugbot-triage.md) (fixing real bugs with red-first proofs and posting concrete disproof on false positives). Uses [`watch-pr.mjs`](../skills/astack-mode/scripts/watch-pr/watch-pr.mjs) (`--status-only`, `--pretty`, `--stack`, `--queued-stack`, `--stack-prs`) paired with `/goal`, subagent watcher, or `/schedule` until `READY` (or `WAITING` with reason `merge-queue`, `ADVANCE`, `COMPLETE`).
-- **Practical example.** Check one PR or drive a branch to merge-ready:
+- **Practical example.** From [Tutorial 5](./tutorials/05-pr-babysit-and-release.md#drive-an-open-pr-or-stack-to-merge-ready-with-babysit), check one PR or drive a branch to merge-ready:
 
 ```bash
 node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --pr 214 --status-only --pretty

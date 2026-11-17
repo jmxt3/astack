@@ -302,7 +302,7 @@ AStack ships **63 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 |---|---|
 | Single-page quickstart, plan-approve-execute workflow, 5-stage guide, and power moves | [AStack User Guide](./docs/user-guide.md) · [Plan-First Workflow](./docs/user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute) |
 | Chronological agent reference covering all main commands, practical examples, and tutorial links | [Agent Command Timeline](./docs/agent-timeline.md) |
-| Hands-on daily walkthroughs (Jira & Confluence tickets, skill upkeep, feature gates, batch PR reviews) | [Hands-On Daily Tutorials](./docs/tutorials/README.md) |
+| Hands-on daily walkthroughs along the full delivery timeline (tickets, setup, feature gates, pre-PR UI/migration/security audits, PR babysit & release, batch reviews) | [Hands-On Daily Tutorials](./docs/tutorials/README.md) |
 | Step-by-step 10-chapter onboarding course | [The AStack Guide](./docs/guide/README.md) |
 | 5-layer enforcement model, dynamic bidirectional model routing, Control Glass, and Antigravity mode matrix | [Architecture & Swarm](./docs/architecture-and-swarm.md) · [Swarm Coordination Reference](./skills/astack-mode/references/swarm-coordination.md) |
 | Prompting patterns, copy-paste recipes, and review checklists | [Prompting Guide](./skills/astack-help/references/prompting.md) · [Prompt Recipes](./skills/astack-help/references/recipes.md) · [Bugbot & Review Triage](./skills/astack-mode/references/bugbot-triage.md) · [DevTools Evidence Checklist](./skills/control-ui/references/devtools-evidence-checklist.md) · [Design Red Flags](./skills/architect/references/design-red-flags.md) · [TypeScript Patterns](./skills/typescript-best-practices/references/patterns.md) |
