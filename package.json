@@ -11,7 +11,7 @@
     "test:helpers": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test skills/astack-mode/scripts/check-plan.test.ts skills/astack-mode/scripts/worktree-audit.test.mjs skills/show-me-your-work/scripts/log.test.mjs skills/setup-astack/scripts/setup-banner.test.mjs",
     "test:watch-pr": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test skills/astack-mode/scripts/watch-pr/cli.test.ts skills/astack-mode/scripts/watch-pr/github.test.ts skills/astack-mode/scripts/watch-pr/policy.test.ts",
     "test:statechart": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test skills/statechart/scripts/test/chart.test.ts skills/statechart/scripts/test/messages.test.ts skills/statechart/scripts/test/pipeline.test.ts skills/statechart/scripts/test/tlc-out.test.ts",
-    "test:security-audit": "node --test skills/security-audit/scripts/validate-findings.test.cjs skills/security-audit/scripts/validate-coverage-ledger.test.cjs skills/security-audit/scripts/sandbox-runner.test.mjs",
+    "test:security-audit": "node --test skills/security-audit/scripts/validate-findings.test.cjs skills/security-audit/scripts/validate-coverage-ledger.test.cjs",
     "test:eval": "node --test scripts/eval/eval.test.mjs",
     "test": "node --run validate && node --run test:plugin && node --run test:helpers && node --run test:watch-pr && node --run test:statechart && node --run test:security-audit && node --run test:eval"
   }

@@ -28,17 +28,13 @@ If intent is ambiguous, call `ask_question` with unnumbered options (no manual `
 - **Hunters & Phase 3 candidate verifiers**: Launch `invoke_subagent` with `TypeName: "astack-agent"` or `"self"` (omit `Model` so workers inherit your active UI model or **Orchestrator**), using isolated `scratch/` directories per agent. For large targets spanning 4 or more subsystems, escalate to native `/swarm` (`workspace: "inherit"` read-only on target source, disjoint `scratch/` directories per agent).
 - **Phase 5 final record verifiers**: Launch `invoke_subagent` with `TypeName: "research"` (omit `Model` to inherit the active frontier/Orchestrator setting for strict verification).
 
-## 3-Tier adaptive execution sandbox
+## Native Antigravity execution & isolation
 
-Before running any target-controlled build, test, parser fixture, browser check, or local loopback server, probe active isolation with [`scripts/sandbox-runner.mjs`](./scripts/sandbox-runner.mjs) and follow [`references/SANDBOX-MODES.md`](./references/SANDBOX-MODES.md):
+Keep security reviews lightweight, local, and safe using Antigravity's built-in boundaries with zero external container daemons or servers:
 
-```bash
-node <skill-dir>/scripts/sandbox-runner.mjs --probe --json
-```
-
-- **Tier 2 (`opensandbox`)**: `osb` CLI or `opensandbox-mcp` configured with SHA-256 digest-pinned container images (`opensandbox-group/OpenSandbox#2463`). Required for untrusted target builds, native binaries, fuzzers, or multi-service loopback stacks. Destroy every sandbox on exit.
-- **Tier 1 (`antigravity-terminal-sandbox`)**: Antigravity Native Terminal Sandbox verified empirically (outbound network blocked and `~/.ssh` hidden/inaccessible on Linux namespaces, macOS `sandbox-exec`, or Windows 11 `24H2+` AppContainer). Permitted for bounded offline checks and external read-only audits (`read_file` on target, `write_file` on `scratch/`) using `--exec` with clean allowlisted `env` and explicit `timeout`. Never run untrusted repository install scripts inside an in-repo read-write workspace.
-- **Tier 0 (`unsandboxed-static-only`)**: Whenever Tier 1 probe fails (`Turbo`, `Request Review`, legacy Windows, restricted containers) and Tier 2 is unavailable, `--exec` fails closed (exit `3`). Execute **zero** target-controlled code; retain dynamic hypotheses as `needs_validation` with exact local or owner-observed validation plans.
+- **Read-only subagent sandbox (`TypeName: "research"`)**: Antigravity natively runs `research` subagents in a read-only sandbox with no network access. Use `research` for Reconnaissance (`Agent 1a` to `1d`), coverage critics, and Phase 5 final record verification.
+- **Trusted local projects (your own repository)**: When auditing your own codebase inside Antigravity's native Terminal Sandbox (`Default` or `Auto` permission presets, or `agy --sandbox`), run only small offline tests or bounded local checks (`node --test`, `pytest`, [`control-cli`](../control-cli/SKILL.md), [`control-ui`](../control-ui/SKILL.md)) with clean environment variables, explicit timeouts, and dummy fixtures.
+- **Untrusted code or unisolated hosts (`needs_validation` fallback)**: Whenever auditing untrusted third-party code or running without OS-enforced network, environment, and filesystem isolation (`Turbo`, `Request Review`, or hosts where native terminal sandboxing is inactive), execute **zero** target-controlled code (`method: "source"` only) and record dynamic hypotheses as `needs_validation` with exact local or owner-observed validation plans.
 
 Use dummy principals, fixtures, and secrets only. Never probe deployed endpoints, external services, shared infrastructure, production accounts, or paid APIs. Stop at the minimum local boundary result.
 
@@ -53,7 +49,7 @@ In full audit mode, resolve these before Phase 1:
 
 The parent is the sole writer of shared root files (`run-metadata.json`, `architecture.md`, `coverage-ledger.json`, `findings.json`, `REPORT.md`, `FINDINGS-DETAIL.md`, `NEEDS-VALIDATION.md`). Each hunter or verifier receives `<output-dir>/agents/<agent-id>/` with writable `scratch/` and parent-owned `artifacts/`. Canonical IDs match `^[a-z0-9][a-z0-9_-]{0,63}$` and must not equal Windows reserved names (`con`, `prn`, `aux`, `nul`, `com1`–`com9`, `lpt1`–`lpt9`). Never fall back to `/tmp` or host `$HOME` as target scratch.
 
-Before running a bounded check, predeclare allowed scratch-relative paths and byte limits, run via `sandbox-runner.mjs --exec`, and promote outputs afterward via parent-side `sandbox-runner.mjs --promote` (which implements all 11 checks below):
+Before running any bounded local check inside an OS-enforced sandbox, predeclare allowed scratch-relative paths and byte limits, discard `scratch/` if a process times out, and promote outputs afterward only via trusted parent-side verification (if OS sandboxing or race-safe promotion is unavailable, retain `needs_validation`):
 
 ```text
 Artifact promotion procedure (trusted parent-side code only):
@@ -92,7 +88,7 @@ file separately:
     promotion blocker.
 ```
 
-Write `run-metadata.json` before delegation with `run_id`, `repo`, `target`, `source_ref`, `profile`, `scope_paths`, `budget`, `sandbox_tier`, `execution_policy`, `selected_companions`, `prior_runs`, `shared_file_owners`, and `run_status: "in_progress"`.
+Write `run-metadata.json` before delegation with `run_id`, `repo`, `target`, `source_ref`, `profile`, `scope_paths`, `budget`, `execution_policy`, `selected_companions`, `prior_runs`, `shared_file_owners`, and `run_status: "in_progress"`.
 
 ## Profiles, prior runs & budget gate
 
@@ -113,7 +109,7 @@ Write `run-metadata.json` before delegation with `run_id`, `repo`, `target`, `so
 
 ## 6-Phase full audit workflow
 
-1. **Reconnaissance** ([`references/RECONNAISSANCE.md`](./references/RECONNAISSANCE.md)): Run 4 parallel `research` explorers (`Agent 1a`–`1d`, probing sandbox tier via `sandbox-runner.mjs --probe`), synthesize `<output-dir>/architecture.md` (~1,000-word cap), seed canonical RFC-3986 `coverage-ledger.json`, and run `node <skill-dir>/scripts/validate-coverage-ledger.cjs <output-dir>/coverage-ledger.json`.
+1. **Reconnaissance** ([`references/RECONNAISSANCE.md`](./references/RECONNAISSANCE.md)): Run 4 parallel `research` explorers (`Agent 1a` to `1d`), synthesize `<output-dir>/architecture.md` (~1,000-word cap), seed canonical RFC-3986 `coverage-ledger.json`, and run `node <skill-dir>/scripts/validate-coverage-ledger.cjs <output-dir>/coverage-ledger.json`.
 2. **Coverage-led hunting waves** ([`references/HUNTING.md`](./references/HUNTING.md), [`references/ATTACK-CLASSES.md`](./references/ATTACK-CLASSES.md)): Assign isolated hunters (`astack-agent` / `self`), copy selected domain companion blocks verbatim ([AI/LLM](./references/AI-AND-LLM.md), [Web & Auth](./references/WEB-PROTOCOL-AND-AUTH.md), [Client-Side](./references/CLIENT-SIDE.md), [Supply Chain](./references/SUPPLY-CHAIN-AND-RELEASE.md), [Cloud](./references/CLOUD-AND-DEPLOYMENT.md), [Protocols/RPC](./references/PROTOCOLS-RPC-AND-MESSAGING.md), [Resource Exhaustion](./references/RESOURCE-EXHAUSTION-AND-AVAILABILITY.md), [Data Lifecycle](./references/DATA-ISOLATION-AND-LIFECYCLE.md), [Desktop/Mobile/IPC](./references/DESKTOP-MOBILE-AND-LOCAL-IPC.md), [Memory Safety](./references/MEMORY-SAFETY-AND-BINARY.md)), update the ledger, and run `research` coverage critics.
 3. **Candidate validation** ([`references/VALIDATION-AND-REPORTING.md`](./references/VALIDATION-AND-REPORTING.md)): Send every unique candidate fingerprint to a fresh verifier trying to refute it.
 4. **Structured output**: Write sorted `findings.json` matching [`scripts/report-schema.json`](./scripts/report-schema.json) and pass both `validate-findings.cjs` and `validate-coverage-ledger.cjs`.

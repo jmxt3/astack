@@ -6,7 +6,6 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { auditWorktrees } from "../../astack-mode/scripts/worktree-audit.mjs";
-import { probeSandboxTier } from "../../security-audit/scripts/sandbox-runner.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_PLUGIN_ROOT = path.resolve(__dirname, "..", "..", "..");
@@ -217,11 +216,10 @@ function checkVerifyFreshness(cwd, verifySkills) {
   };
 }
 
-export async function runWorkspaceDoctor({
+export function runWorkspaceDoctor({
   cwd = process.cwd(),
   homeDir = os.homedir(),
   pluginRoot = DEFAULT_PLUGIN_ROOT,
-  probeDeps = {},
 } = {}) {
   const status = inspectWorkspace({ cwd, homeDir, pluginRoot });
   const hooksCheck = status.hooksError
@@ -268,21 +266,10 @@ export async function runWorkspaceDoctor({
     });
   }
 
-  const sandbox = await probeSandboxTier({ homeDir, ...probeDeps });
-  checks.push({
-    id: "security-sandbox",
-    status: sandbox.tier >= 1 ? "pass" : "warn",
-    detail:
-      sandbox.tier >= 1
-        ? `Tier ${sandbox.tier} (${sandbox.mode}) active.`
-        : "Tier 0 (unsandboxed-static-only). Enable Antigravity Default/Auto preset or `agy --sandbox` (Tier 1) or OpenSandbox (Tier 2) before running dynamic security checks.",
-  });
-
   return {
     ok: checks.every((c) => c.status !== "warn"),
     workspace: status.workspace,
     cwd: status.cwd,
-    sandbox,
     staleWorktrees,
     checks,
   };
@@ -296,7 +283,7 @@ export function formatDoctorReport(report) {
   return lines.join("\n");
 }
 
-async function main() {
+function main() {
   const { values } = parseArgs({
     options: {
       cwd: { type: "string" },
@@ -312,7 +299,7 @@ async function main() {
   }
 
   if (values.doctor) {
-    const report = await runWorkspaceDoctor({ cwd: values.cwd ?? process.cwd() });
+    const report = runWorkspaceDoctor({ cwd: values.cwd ?? process.cwd() });
     process.stdout.write(
       values.json ? `${JSON.stringify(report, null, 2)}\n` : `${formatDoctorReport(report)}\n`,
     );

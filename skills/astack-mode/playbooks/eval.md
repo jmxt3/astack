@@ -24,4 +24,4 @@
 
 **Reply:** variant under test, rubric, per-candidate notes, judge's verdict, your synthesis, and a recommendation for whether to promote the variant.
 
-For deterministic offline routing and schema contract regression checks (`R1` to `R12`, `R1-neg`, `security-audit` operating modes, `findings.json`, `coverage-ledger.json`, and `check-plan`), run `node scripts/eval/run-eval.mjs --json` (wired into `node --run test:eval`) alongside blinded multi-candidate evals.
+For an offline routing fixture lint (`classifyRoutingIntent` regex table in `run-eval.mjs` against `routing-cases.json`) plus JSON schema and `check-plan` contract checks (`19` fixtures total), run `node scripts/eval/run-eval.mjs --json` (wired into `node --run test:eval`). Passing that fixture lint checks trigger and schema consistency only; live model routing behavior still requires the blinded transcript-graded run in steps 1 to 7.

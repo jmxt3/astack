@@ -225,7 +225,7 @@ AStack ships **63 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 | [`/control-ui`](./skills/control-ui/SKILL.md) | Verifies live web and Electron UIs via `browser` subagent and Chrome DevTools MCP |
 | [`/design-audit`](./skills/design-audit/SKILL.md) | Empirical UX, accessibility, responsive layout, and UI state audit when no pixel baseline exists yet |
 | [`/control-cli`](./skills/control-cli/SKILL.md) | Verifies CLIs, daemons, and HTTP or RPC services against temp workspaces, exit codes, and cleanup |
-| [`/security-audit`](./skills/security-audit/SKILL.md) | Coverage-led vulnerability audit (`Guidance` and 6-phase `Full Audit`), 3-tier adaptive sandbox runner, and remediation handoff |
+| [`/security-audit`](./skills/security-audit/SKILL.md) | Coverage-led vulnerability audit (`Guidance` and 6-phase `Full Audit`), JSON schema validators, and remediation handoff |
 | [`/create-verification-skill`](./skills/create-verification-skill/SKILL.md) | Generates a repo-local `verify-<app>` skill and `features/` sitemap |
 | [`/maintain-verification-skill`](./skills/maintain-verification-skill/SKILL.md) | Audits and updates a project's `verify-<app>` skill against current code and live UI or CLI flows |
 | [`/create-formal-verification-skill`](./skills/create-formal-verification-skill/SKILL.md) | Scaffolds TLA+ formal specification checks for stateful protocols and concurrency invariants |

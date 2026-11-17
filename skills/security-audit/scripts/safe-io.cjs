@@ -140,6 +140,5 @@ module.exports = {
   SafeInputError,
   WINDOWS_RESERVED_COMPONENT,
   hasSafeInputProtection,
-  hasSafePosixOpenConstants,
   readFileWithinLimit,
 };

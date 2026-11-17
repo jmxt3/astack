@@ -18,7 +18,7 @@ First, run [`scripts/setup-banner.mjs`](./scripts/setup-banner.mjs) from the act
 node "<skill-dir>/scripts/setup-banner.mjs"
 ```
 
-Pass `--doctor` (and optionally `--json`) anytime to inspect Node version, `verify-*` skill freshness, `hooks.json` status, `astack-models.md` overrides, worktrees, and active `/security-audit` sandbox tier read-only.
+Pass `--doctor` (and optionally `--json`) anytime to inspect Node version, `verify-*` skill freshness, `hooks.json` status, `astack-models.md` overrides, and worktrees read-only.
 
 This prints the `ASTACK` ASCII initiation banner and inspects the workspace read-only for:
 

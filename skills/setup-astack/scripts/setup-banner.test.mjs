@@ -127,7 +127,7 @@ test("setup-banner CLI prints ASCII banner and JSON status for --cwd", () => {
   }
 });
 
-test("runWorkspaceDoctor and setup-banner --doctor report diagnostics including sandbox tier", async () => {
+test("runWorkspaceDoctor and setup-banner --doctor report workspace diagnostics", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "astack-doctor-"));
   try {
     const workspaceDir = path.join(tmp, "doc-app");
@@ -141,28 +141,20 @@ test("runWorkspaceDoctor and setup-banner --doctor report diagnostics including 
     );
     writeFile(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "---\nname: verify-app\ndescription: app\n---\n");
 
-    const report = await runWorkspaceDoctor({
+    const report = runWorkspaceDoctor({
       cwd: workspaceDir,
       homeDir,
       pluginRoot,
-      probeDeps: {
-        platform: "linux",
-        osRelease: "6.8.0",
-        env: {},
-        hasCommand: () => false,
-        connectTcp: async () => ({ blocked: true, reason: "EACCES" }),
-        statSync: () => {
-          const err = new Error("ENOENT");
-          err.code = "ENOENT";
-          throw err;
-        },
-      },
     });
     assert.equal(report.ok, true);
-    assert.equal(report.sandbox.tier, 1);
     const rendered = formatDoctorReport(report);
     assert.match(rendered, /> \/setup-astack --doctor/);
-    assert.match(rendered, /\[PASS\] security-sandbox: Tier 1/);
+    assert.match(rendered, /\[PASS\] safety-hooks: 1\/1 opt-in hooks enabled/);
+
+    writeFile(path.join(pluginRoot, "hooks.json"), "{broken");
+    const brokenHooks = runWorkspaceDoctor({ cwd: workspaceDir, homeDir, pluginRoot });
+    assert.equal(brokenHooks.ok, false);
+    assert.ok(brokenHooks.checks.some((c) => c.id === "safety-hooks" && c.status === "warn"));
 
     const cliOut = execFileSync(process.execPath, [bannerScript, "--doctor", "--json", "--cwd", workspaceDir], {
       encoding: "utf8",

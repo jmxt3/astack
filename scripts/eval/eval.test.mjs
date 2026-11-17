@@ -8,9 +8,10 @@ import { runEvalSuite } from "./run-eval.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const evalCli = path.join(here, "run-eval.mjs");
 
-test("runEvalSuite passes all routing and structural contract cases", () => {
+test("runEvalSuite passes all routing fixture lint and structural contract cases", () => {
   const report = runEvalSuite();
   assert.equal(report.ok, true, JSON.stringify(report.results.filter((r) => !r.pass), null, 2));
+  assert.equal(report.suiteKind, "routing-fixture-and-contract-lint");
   assert.equal(report.failed, 0);
   assert.ok(report.total >= 19);
 });

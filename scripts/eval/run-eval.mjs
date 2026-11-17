@@ -179,6 +179,7 @@ export function runEvalSuite({ rootDir = DEFAULT_ROOT_DIR } = {}) {
   const passed = results.filter((r) => r.pass).length;
   return {
     ok: passed === results.length,
+    suiteKind: "routing-fixture-and-contract-lint",
     total: results.length,
     passed,
     failed: results.length - passed,
@@ -189,7 +190,7 @@ export function runEvalSuite({ rootDir = DEFAULT_ROOT_DIR } = {}) {
 const USAGE = `Usage: node scripts/eval/run-eval.mjs [options]
 
 Options:
-  --json       Emit machine-readable JSON eval report
+  --json       Emit machine-readable JSON fixture-lint report
   -h, --help   Show this help text and exit 0`;
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -207,7 +208,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (values.json) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } else {
-    process.stdout.write(`[eval] passed=${report.passed}/${report.total} failed=${report.failed}\n`);
+    process.stdout.write(
+      `[eval:fixture-lint] passed=${report.passed}/${report.total} failed=${report.failed} (regex routing fixture lint + schema contracts; not live model routing)\n`,
+    );
     for (const item of report.results.filter((r) => !r.pass)) {
       console.error(`FAIL ${item.id}: ${JSON.stringify(item)}`);
     }

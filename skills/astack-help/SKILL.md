@@ -29,7 +29,7 @@ Check workspace state that changes the answer:
 ## Get set up
 
 1. Install AStack via Antigravity Plugins Manager or CLI: `agy plugin install <path-or-repo>`.
-2. Pick your preferred model or **Orchestrator** directly in Antigravity's UI model picker (inherited automatically with zero config). Optionally run [`/setup-astack`](../setup-astack/SKILL.md) inside an app repo to bootstrap `.agents/skills/verify-<app>/`, formal TLA+ specs, and opt-in hooks (`hooks.json`), or run `node <plugin>/skills/setup-astack/scripts/setup-banner.mjs --doctor` for workspace diagnostics including sandbox tier.
+2. Pick your preferred model or **Orchestrator** directly in Antigravity's UI model picker (inherited automatically with zero config). Optionally run [`/setup-astack`](../setup-astack/SKILL.md) inside an app repo to bootstrap `.agents/skills/verify-<app>/`, formal TLA+ specs, and opt-in hooks (`hooks.json`), or run `node <plugin>/skills/setup-astack/scripts/setup-banner.mjs --doctor` for workspace diagnostics.
 3. Run your first real task with `/astack-mode`, a concrete goal, and an observable done check.
 
 See [README](../../README.md), [User Guide](../../docs/user-guide.md), [Architecture & Swarm Guide](../../docs/architecture-and-swarm.md), and [Guide 01: Setup](../../docs/guide/01-setup.md). For crafting your first prompt, follow [`references/prompting.md`](references/prompting.md).

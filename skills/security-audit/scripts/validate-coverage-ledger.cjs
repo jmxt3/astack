@@ -13,6 +13,7 @@ const {
   readFileWithinLimit: sharedReadFileWithinLimit,
 } = require("./safe-io.cjs");
 
+// Conservative bounds apply before JSON.parse and again to the parsed document.
 const LIMITS = Object.freeze({
   inputBytes: 5 * 1024 * 1024,
   units: 10000,
@@ -22,6 +23,9 @@ const LIMITS = Object.freeze({
   preflightValues: 500000,
   validationErrors: 100,
 });
+const MAX_INPUT_BYTES = LIMITS.inputBytes;
+const MAX_UNITS = LIMITS.units;
+const MAX_LIST_ITEMS = LIMITS.collectionItems;
 const MAX_TEXT_LENGTH = 4096;
 const REQUIRED_FIELDS = [
   "coverage_id",
@@ -167,7 +171,7 @@ function preflightJsonText(contents) {
         fail("has malformed JSON array structure");
       }
       container.items++;
-      const limit = container.topLevel ? LIMITS.units : LIMITS.collectionItems;
+      const limit = container.topLevel ? MAX_UNITS : LIMITS.collectionItems;
       if (container.items > limit) {
         fail(container.topLevel
           ? `exceeds ${limit} top-level unit limit`
@@ -290,7 +294,7 @@ function preflightDocument(root) {
     }
 
     if (Array.isArray(value)) {
-      const limit = location === "$" ? LIMITS.units : LIMITS.collectionItems;
+      const limit = location === "$" ? MAX_UNITS : MAX_LIST_ITEMS;
       if (value.length > limit) {
         errors.push(`${location}: exceeds ${limit} entries`);
         return errors;
@@ -401,9 +405,9 @@ function validateStringArray(value, location, errors, options = {}) {
     return;
   }
   if (!allowEmpty && value.length === 0) errors.push(`${location}: must not be empty`);
-  if (value.length > LIMITS.collectionItems) errors.push(`${location}: exceeds ${LIMITS.collectionItems} entries`);
+  if (value.length > MAX_LIST_ITEMS) errors.push(`${location}: exceeds ${MAX_LIST_ITEMS} entries`);
   const seen = new Set();
-  value.slice(0, LIMITS.collectionItems).forEach((entry, index) => {
+  value.slice(0, MAX_LIST_ITEMS).forEach((entry, index) => {
     const entryLocation = `${location}[${index}]`;
     const valid = pathValue ? isSafeRelativePath(entry) : isVisibleText(entry);
     if (!valid) errors.push(`${entryLocation}: invalid ${pathValue ? "repository-relative path" : "text"}`);
@@ -420,8 +424,8 @@ function validateChecks(value, location, errors) {
     errors.push(`${location}: expected array`);
     return;
   }
-  if (value.length > LIMITS.collectionItems) errors.push(`${location}: exceeds ${LIMITS.collectionItems} entries`);
-  value.slice(0, LIMITS.collectionItems).forEach((check, index) => {
+  if (value.length > MAX_LIST_ITEMS) errors.push(`${location}: exceeds ${MAX_LIST_ITEMS} entries`);
+  value.slice(0, MAX_LIST_ITEMS).forEach((check, index) => {
     const base = `${location}[${index}]`;
     if (!isObject(check)) {
       errors.push(`${base}: expected object`);
@@ -470,9 +474,9 @@ function validateExcludedBlocks(value, location, errors) {
     errors.push(`${location}: expected array`);
     return;
   }
-  if (value.length > LIMITS.collectionItems) errors.push(`${location}: exceeds ${LIMITS.collectionItems} entries`);
+  if (value.length > MAX_LIST_ITEMS) errors.push(`${location}: exceeds ${MAX_LIST_ITEMS} entries`);
   const seen = new Set();
-  value.slice(0, LIMITS.collectionItems).forEach((entry, index) => {
+  value.slice(0, MAX_LIST_ITEMS).forEach((entry, index) => {
     const base = `${location}[${index}]`;
     if (!isObject(entry)) {
       errors.push(`${base}: expected object`);
@@ -567,12 +571,12 @@ function validateAttempts(value, unit, base, errors) {
     errors.push(`${base}.attempts: expected array`);
     return;
   }
-  if (value.length > LIMITS.collectionItems) errors.push(`${base}.attempts: exceeds ${LIMITS.collectionItems} entries`);
+  if (value.length > MAX_LIST_ITEMS) errors.push(`${base}.attempts: exceeds ${MAX_LIST_ITEMS} entries`);
 
   const priorOwners = new Set();
   const priorArtifacts = new Set();
   let previousWave = 0;
-  value.slice(0, LIMITS.collectionItems).forEach((attempt, index) => {
+  value.slice(0, MAX_LIST_ITEMS).forEach((attempt, index) => {
     const attemptBase = `${base}.attempts[${index}]`;
     if (!isObject(attempt)) {
       errors.push(`${attemptBase}: expected object`);
@@ -657,27 +661,24 @@ function collectUnitErrors(unit, index) {
   if (!isObject(unit.canonical_refs)) {
     errors.push(`${base}.canonical_refs: expected object`);
   } else {
-    let refsValid = true;
     const expectedFields = hasOwn(unit.canonical_refs, "lifecycle") ? [...REF_FIELDS, "lifecycle"] : REF_FIELDS;
     for (const field of expectedFields) {
       if (!hasOwn(unit.canonical_refs, field)) {
         errors.push(`${base}.canonical_refs: missing required field ${safeQuote(field)}`);
-        refsValid = false;
       } else if (!isCanonicalRef(unit.canonical_refs[field])) {
         errors.push(`${base}.canonical_refs.${field}: invalid canonical reference`);
-        refsValid = false;
       }
     }
     if (Object.keys(unit.canonical_refs).some((field) => !expectedFields.includes(field))) {
       errors.push(`${base}.canonical_refs: contains unexpected fields`);
-      refsValid = false;
     }
     if (hasOwn(unit, "lifecycle") !== hasOwn(unit.canonical_refs, "lifecycle")) {
       errors.push(`${base}: lifecycle and canonical_refs.lifecycle must appear together`);
-      refsValid = false;
     }
-    if (refsValid) {
+    try {
       expectedId = canonicalCoverageId(unit.canonical_refs);
+    } catch {
+      // The specific reference errors above are more useful.
     }
   }
   if (!isVisibleText(unit.coverage_id, 65536)) {
@@ -718,14 +719,18 @@ function collectUnitErrors(unit, index) {
   return errors;
 }
 
+function readFileWithinLimit(file) {
+  return sharedReadFileWithinLimit(file, MAX_INPUT_BYTES);
+}
+
 function validateDocument(ledger) {
   const errors = createErrorList();
   if (!Array.isArray(ledger)) {
     errors.push("$: expected a top-level array");
     return errors;
   }
-  if (ledger.length > LIMITS.units) {
-    errors.push(`$: exceeds ${LIMITS.units} coverage units`);
+  if (ledger.length > MAX_UNITS) {
+    errors.push(`$: exceeds ${MAX_UNITS} coverage units`);
     return errors;
   }
 
@@ -777,7 +782,7 @@ function run(file) {
 
   let contents;
   try {
-    contents = sharedReadFileWithinLimit(file, LIMITS.inputBytes);
+    contents = readFileWithinLimit(file);
   } catch (error) {
     const reason = error instanceof SafeInputError ? error.message : "input could not be opened or read safely";
     console.error(`Failed to read coverage ledger: ${reason}`);
@@ -828,6 +833,7 @@ module.exports = {
   isSafeAgentId,
   isSafeRelativePath,
   preflightJsonText,
+  readFileWithinLimit,
   safeQuote,
   validateDocument,
 };

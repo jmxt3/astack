@@ -31,7 +31,7 @@ AStack earned its initial foundation from open-source pioneers in agentic engine
 - **What AStack adapts from `cloudflare/security-audit-skill`:**
   - Dual operating modes (`Guidance` and `Full Audit`), 6-phase coverage-led reconnaissance, hunting, adversarial validation, structured output, record verification, and target-neutral reporting
   - Deterministic `coverage-ledger.json` canonical unit state machine, three-branch `findings.json` contract (`confirmed`, `needs_validation`, `rejected`), `report-schema.json`, and zero-dependency Node validators (`validate-findings.cjs` and `validate-coverage-ledger.cjs`)
-  - `ATTACK-CLASSES.md` and the 10 domain companion references placed under [`skills/security-audit/references/`](./skills/security-audit/references/ATTACK-CLASSES.md), paired natively with Antigravity `invoke_subagent`, `/swarm`, the 3-Tier Adaptive Sandbox runner, and [`security-audit`](./skills/security-audit/SKILL.md) remediation handoffs
+  - `ATTACK-CLASSES.md` and the 10 domain companion references placed under [`skills/security-audit/references/`](./skills/security-audit/references/ATTACK-CLASSES.md), paired natively with Antigravity `invoke_subagent` (`research` read-only sandbox), `/swarm`, and [`security-audit`](./skills/security-audit/SKILL.md) remediation handoffs
 
 ## Google Antigravity Platform
 

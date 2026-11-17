@@ -325,7 +325,7 @@ test("live repo matches scripts/catalog.json manualOnlySkills (34 manual-only, 2
   assert.equal(autoCount, 29);
 });
 
-test("all 12 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
+test("all 11 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
   const clis = [
     "scripts/validate-astack.mjs",
     "scripts/upstream-watch.mjs",
@@ -338,7 +338,6 @@ test("all 12 bundled CLI entrypoints exit 0 on --help and -h with zero module-ty
     "skills/statechart/scripts/statechart.mjs",
     "skills/security-audit/scripts/validate-findings.cjs",
     "skills/security-audit/scripts/validate-coverage-ledger.cjs",
-    "skills/security-audit/scripts/sandbox-runner.mjs",
   ];
   for (const rel of clis) {
     const full = path.join(DEFAULT_ROOT_DIR, ...rel.split("/"));
