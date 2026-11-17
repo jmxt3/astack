@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const guardScript = path.resolve(here, "../hooks/irreversible-guard.mjs");
 const stopScript = path.resolve(here, "../hooks/verify-reminder.mjs");
+const secretScript = path.resolve(here, "../hooks/secret-guard.mjs");
 const hooksJsonPath = path.resolve(here, "../../hooks.json");
 
 function runHook(scriptPath, stdinText, extraEnv = {}) {
@@ -20,12 +21,14 @@ function runHook(scriptPath, stdinText, extraEnv = {}) {
   return JSON.parse(stdout.trim());
 }
 
-test("hooks.json declares both hooks opt-in (enabled: false) using Stop flat format", () => {
+test("hooks.json declares all hooks opt-in (enabled: false) using Stop flat format", () => {
   const cfg = JSON.parse(fs.readFileSync(hooksJsonPath, "utf8"));
   assert.equal(cfg["astack-irreversible-guard"]?.enabled, false);
   assert.equal(cfg["astack-verify-reminder"]?.enabled, false);
+  assert.equal(cfg["astack-secret-guard"]?.enabled, false);
   assert.ok(Array.isArray(cfg["astack-irreversible-guard"]?.PreToolUse));
   assert.ok(Array.isArray(cfg["astack-verify-reminder"]?.Stop));
+  assert.ok(Array.isArray(cfg["astack-secret-guard"]?.PreToolUse));
   assert.equal(cfg["astack-verify-reminder"].Stop[0]?.type, "command");
 });
 
@@ -152,4 +155,80 @@ test("verify-reminder allows continuationActive, non-NO_TOOL_CALL, default env, 
   );
 
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test("secret-guard allows safe edits, test paths, and .env.example while flagging synthetic keys and .env writes", () => {
+  const fakePat = ["ghp", "A".repeat(36)].join("_");
+  const fakePem = ["-----BEGIN ", "RSA PRIVATE ", "KEY-----"].join("");
+
+  assert.deepEqual(
+    runHook(
+      secretScript,
+      JSON.stringify({
+        toolCall: { name: "write_file", args: { Path: "src/app.ts", Content: "export const ok = true;\n" } },
+      }),
+      { CI: "", NON_INTERACTIVE: "" },
+    ),
+    { decision: "allow" },
+  );
+
+  assert.deepEqual(
+    runHook(
+      secretScript,
+      JSON.stringify({
+        toolCall: { name: "write_file", args: { Path: ".env.example", Content: "API_TOKEN=\n" } },
+      }),
+      { CI: "", NON_INTERACTIVE: "" },
+    ),
+    { decision: "allow" },
+  );
+
+  assert.deepEqual(
+    runHook(
+      secretScript,
+      JSON.stringify({
+        toolCall: { name: "write_file", args: { Path: "tests/auth.test.ts", Content: `const t = "${fakePat}";` } },
+      }),
+      { CI: "", NON_INTERACTIVE: "" },
+    ),
+    { decision: "allow" },
+  );
+
+  const askWrite = runHook(
+    secretScript,
+    JSON.stringify({
+      toolCall: { name: "write_file", args: { Path: "src/config.ts", Content: `export const k = "${fakePat}";` } },
+    }),
+    { CI: "", NON_INTERACTIVE: "" },
+  );
+  assert.equal(askWrite.decision, "force_ask");
+
+  const askPem = runHook(
+    secretScript,
+    JSON.stringify({
+      toolCall: { name: "edit_file", args: { Path: "src/key.ts", Replacement: fakePem } },
+    }),
+    { CI: "", NON_INTERACTIVE: "" },
+  );
+  assert.equal(askPem.decision, "force_ask");
+
+  const denyEnv = runHook(
+    secretScript,
+    JSON.stringify({
+      toolCall: { name: "write_file", args: { Path: ".env", Content: "PORT=3000\n" } },
+    }),
+    { CI: "true" },
+  );
+  assert.equal(denyEnv.decision, "deny");
+
+  const denyCmd = runHook(
+    secretScript,
+    JSON.stringify({
+      toolCall: { name: "run_command", args: { CommandLine: "git add .env" } },
+    }),
+    { NON_INTERACTIVE: "1" },
+  );
+  assert.equal(denyCmd.decision, "deny");
+
+  assert.deepEqual(runHook(secretScript, "{bad json", { CI: "" }), { decision: "allow" });
 });

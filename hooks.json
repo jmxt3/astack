@@ -23,5 +23,20 @@
         "timeout": 10
       }
     ]
+  },
+  "astack-secret-guard": {
+    "enabled": false,
+    "PreToolUse": [
+      {
+        "matcher": "write_file|edit_file|run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./scripts/hooks/secret-guard.mjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }

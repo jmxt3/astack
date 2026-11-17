@@ -101,10 +101,11 @@ See [`skills/astack-mode/references/swarm-coordination.md`](../skills/astack-mod
 
 ## Opt-In Lifecycle Hooks (`hooks.json`)
 
-[`hooks.json`](../hooks.json) ships two lightweight Node 22+ lifecycle hooks **disabled by default (`"enabled": false`)** so installing AStack introduces zero unexpected friction:
+[`hooks.json`](../hooks.json) ships three lightweight Node 22+ lifecycle hooks **disabled by default (`"enabled": false`)** so installing AStack introduces zero unexpected friction:
 
 1. **`astack-irreversible-guard` (`PreToolUse` on `run_command`)**: Inspects shell strings (including unwrapped nested `sh -c`, `bash -c`, `pwsh -Command`, `cmd /c`, and `eval` calls, scoped SQL DB execution vs read-only searches, and trunk refspec pushes such as `+main`, `:main`, and `--delete main`). Returns `{"decision": "force_ask"}` interactively or `{"decision": "deny"}` under `CI=true` / `NON_INTERACTIVE=1`. Implemented in [`scripts/hooks/irreversible-guard.mjs`](../scripts/hooks/irreversible-guard.mjs).
 2. **`astack-verify-reminder` (`Stop`)**: When enabled and `ASTACK_REQUIRE_VERIFY=1` is set in the environment, nudges once (`{"decision": "continue"}`) if uncommitted non-markdown changes exist on a normal `NO_TOOL_CALL` stop, strictly honoring `continuationActive` to prevent loops. Implemented in [`scripts/hooks/verify-reminder.mjs`](../scripts/hooks/verify-reminder.mjs).
+3. **`astack-secret-guard` (`PreToolUse` on `write_file|edit_file|run_command`)**: Guards against accidental hardcoded private keys, API tokens, or direct `.env` writes/staging while ignoring test fixtures. Returns `{"decision": "force_ask"}` interactively or `{"decision": "deny"}` under `CI=true` / `NON_INTERACTIVE=1`. Implemented in [`scripts/hooks/secret-guard.mjs`](../scripts/hooks/secret-guard.mjs).
 
 ## Outer Loop Automations (`beacon`)
 

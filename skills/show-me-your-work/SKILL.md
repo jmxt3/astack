@@ -79,3 +79,7 @@ Read top to bottom, follow the evidence pointers, spot-check. GitHub renders a c
 ## Composing this skill
 
 Other skills route their audit trail here instead of inventing one. Reference it by name and let it own the format. Don't restate the columns.
+
+## Visual timeline (`/generative_ui`)
+
+When presenting a completed run's decision trail in the Antigravity App, you may load the built-in `generative_ui` skill to render an interactive timeline card summarizing phases, outcomes, and evidence paths from the real TSV rows (never inventing values). Fall back to a Markdown table or terminal snippet in CLI sessions.

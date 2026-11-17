@@ -184,7 +184,10 @@
       ],
       "astackCompanion": [
         "skills/ketchup/SKILL.md",
-        "skills/teach/SKILL.md"
+        "skills/teach/SKILL.md",
+        "skills/arena/SKILL.md",
+        "skills/show-me-your-work/SKILL.md",
+        "skills/security-audit/SKILL.md"
       ],
       "surfaces": [
         "app"
