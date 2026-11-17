@@ -92,4 +92,4 @@ Suppose ticket `PLAT-77` adds a shared webhook retry-policy module imported by b
 
    **Visible result.** Both `packages/http-api` and `packages/worker` build on the approved interface, pass live checks, run `/deslop` and `/no-comments`, and stay at clean local commits until you push.
 
-Next: [Review colleague PRs at scale with proven findings](./04-reviewing-prs-at-scale.md).
+Next: [Harden UI, migrations, and security before pushing](./04-pre-pr-audits-and-hardening.md).

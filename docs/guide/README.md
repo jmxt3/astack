@@ -19,7 +19,7 @@ Here's what you'll learn:
 
 Read the pages in order the first time. After that, each page stands alone.
 
-For everyday walkthroughs covering Jira and Confluence tickets, `/maintain-verification-skill` upkeep, `/plan` and `/grill-me` feature flows, and reviewing colleague PRs at scale, follow the [Hands-on daily tutorials](../tutorials/README.md).
+For everyday walkthroughs following the full delivery timeline from Jira and Confluence tickets, `/setup-astack`, and `/plan` feature flows through pre-PR `/design-audit` and `/security-audit`, `babysit` PR automation, release smoke verification, and reviewing colleague PRs at scale, follow the [Hands-on daily tutorials](../tutorials/README.md).
 
 When you're stuck, or can't tell which skill fits, type [`/astack-help`](../../skills/astack-help/SKILL.md) with your question:
 
