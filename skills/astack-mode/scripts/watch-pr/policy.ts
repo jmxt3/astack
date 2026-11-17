@@ -163,10 +163,11 @@ function gateReason(
 ): T.MergeGateReason | null {
   if (row.kind === "merged") return null;
   if (row.kind === "closed") return "closed-without-merge";
+  if (row.facts.reviewDecision === "CHANGES_REQUESTED") {
+    return "changes-requested";
+  }
   if (row.facts.isDraft && !allowDraft) return "draft-pr";
-  return row.facts.reviewDecision === "CHANGES_REQUESTED"
-    ? "changes-requested"
-    : null;
+  return null;
 }
 function gateBlocker(
   row: T.PrSnapshot,

@@ -1,13 +1,13 @@
 # Native Antigravity Command Registry & Behavioral Routing
 
-AStack aligns 100% with Antigravity's 16 public slash commands through a single source of truth ([native-commands.json](../../../../skills/astack-mode/references/native-commands.json) and generated [native-commands.md](../../../../skills/astack-mode/references/native-commands.md)), enforcing `/plan` and `/grill-me` gates via [plan-contract.md](../../../../skills/astack-mode/references/plan-contract.md) and deferring overlapping AStack skills to native flows.
+AStack aligns 100% with Antigravity's 16 public slash commands through a single source of truth ([native-commands.json](../../../../skills/astack-mode/references/native-commands.json) and generated [native-commands.md](../../../../skills/astack-mode/references/native-commands.md)), enforcing `/plan`, `/grill-me`, and `/learn` gates plus automated post-approval finish gates via [plan-contract.md](../../../../skills/astack-mode/references/plan-contract.md) and deferring overlapping AStack skills to native flows.
 
 ## Sub-features
 
 - Single-source 16-command registry (`run`, `load`, `contract`, `recommend` engagement modes, surfaces `app` / `cli`, plan tiers, triggers, and AStack companions)
 - Byte-identical generated Markdown table (`node scripts/validate-astack.mjs --write-native-commands`) checked automatically by `validate-astack.mjs`
-- Hard `/plan` approval gate (`implementation_plan.md` with `RequestFeedback: true` and `UserFacing: true`, zero workspace edits before approval) and `/learn` `learning_proposal.md` gate
-- Always-on intent routing via `rules/astack-orchestration.md` plus explicit `/` command priority and sticky active-playbook follow-ups reset by `"new task"`
+- Hard `/plan` approval gate (`implementation_plan.md` with `RequestFeedback: true` and `UserFacing: true`, zero workspace edits before approval), automated post-approval Step 6 finish gates (clicking **Proceed** or replying with short approval triggers `astack-mode`, live verification, `/deslop` + `/no-comments`, `walkthrough.md`, and local commit boundary before `git push`), and `/learn` `learning_proposal.md` gate
+- Model-decision intent routing (`trigger: model_decision`) via `rules/astack-orchestration.md` plus explicit `/` command priority and sticky active-playbook follow-ups reset by `"new task"`
 - Behavioral routing evaluation suite (`R1` to `R12` plus negative twin `R1-neg`, defined only in this file below) graded from transcripts using the general blinded-eval protocol in [eval.md](../../../../skills/astack-mode/playbooks/eval.md)
 
 ## How to get to it (user POV)

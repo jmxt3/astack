@@ -53,3 +53,7 @@ Spawn a read-only judge **only after Phase B completes**, running in parallel wh
 1. Apply or merge the chosen base plus manual grafts into the parent working tree **before** killing any branch subagents or `/swarm` workers (`manage_subagents` `kill` and `swarm{action: "kill"}` permanently delete branched workspaces).
 2. Re-run the full empirical verification suite (`control-ui`, `control-cli`, builds, tests, static checks) on the final landed working copy (`principle-prove-it-works`). Judging a branch before grafting never proves the landed code.
 3. Clean up temporary branch workspaces once the landed copy passes.
+
+## Visual comparison (`/generative_ui`)
+
+When presenting multi-candidate tradeoffs in the Antigravity App, load the built-in `generative_ui` skill to render a compact comparison card (criteria scores, latency/perf numbers, and grafted wins side by side from verified measurements only). Fall back cleanly to a Markdown comparison table in CLI sessions.

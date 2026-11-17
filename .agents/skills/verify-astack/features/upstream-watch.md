@@ -1,11 +1,11 @@
 # Read-Only Upstream Watch
 
-Maintainers inspect new commits and file diffs across watched upstream sources (`pstack` and `gstack`) through `scripts/upstream-watch.mjs` and `scripts/upstream-watch.json`, using OS temp caches, mapped AStack counterparts, `--fail-on-updates` CI checks, and strict read-only `--out` containment guarantees so the AStack repository is never modified.
+Maintainers inspect new commits and file diffs across watched upstream sources (`pstack`, `gstack`, and `security-audit-skill`) through `scripts/upstream-watch.mjs` and `scripts/upstream-watch.json`, using OS temp caches, mapped AStack counterparts, `--fail-on-updates` CI checks, and strict read-only `--out` containment guarantees so the AStack repository is never modified.
 
 ## Sub-features
 
-- CLI help and option handling (`-h`, `--help`, `--source-id pstack|gstack|all`, `--source <git-dir>`, `--fetch`, `--since <ref>`, `--json`, `--out <external-file>`, `--fail-on-updates`)
-- Multi-source manifest (`scripts/upstream-watch.json`) separating `code-derived (MIT)` (`pstack` with `skillRenames`, `agentRenames`, `ignoredPaths`) from `inspiration (MIT, no code copied)` (`gstack`)
+- CLI help and option handling (`-h`, `--help`, `--source-id pstack|gstack|security-audit-skill|all`, `--source <git-dir>`, `--fetch`, `--since <ref>`, `--json`, `--out <external-file>`, `--fail-on-updates`)
+- Multi-source manifest (`scripts/upstream-watch.json`) separating `code-derived (MIT)` (`pstack` and `security-audit-skill`, with path mappings and ignoredPaths) from `inspiration (MIT, no code copied)` (`gstack`)
 - Hard read-only containment check (`assertExternalOutPath`) rejecting any `--out` path inside `rootDir` with exit code `2` before any network or file write
 - Automated SHA-256 repository byte-identity proof in `scripts/test/upstream-watch.test.mjs`
 

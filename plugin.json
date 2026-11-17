@@ -3,7 +3,7 @@
   "name": "astack",
   "displayName": "AStack",
   "version": "0.2.0",
-  "description": "Turn Google Antigravity into a disciplined engineering loop: 61 skills and 23 playbooks that plan, test your live app, strip AI slop, and run swarms.",
+  "description": "Turn Google Antigravity into a disciplined engineering loop: 63 skills and 26 playbooks that plan, test your live app, strip AI slop, and run swarms.",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
     "Run /setup-astack to scaffold runtime verification skills and safety guardrails for this repo",

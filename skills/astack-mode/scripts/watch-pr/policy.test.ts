@@ -222,6 +222,22 @@ it("waits on a draft while checks are pending, then reports the draft gate", asy
   });
 });
 
+it("reports changes-requested before draft-pr even while checks are pending", async () => {
+  const snapshot = await readSnapshot({
+    reader: fakeReader({
+      facts: { isDraft: true, reviewDecision: "CHANGES_REQUESTED" },
+      fastPath: { kind: "checks", checks: [pendingCheck()] },
+    }),
+    context: context(13),
+    pendingHistory: "omit",
+    allowDraft: false,
+  });
+  expect(classifyPr(snapshot)).toMatchObject({
+    kind: "blocker",
+    blocker: { kind: "merge-gate", reason: "changes-requested" },
+  });
+});
+
 describe("queued-stack cadence", () => {
   async function openSnapshot(pr: PrContext) {
     return readSnapshot({

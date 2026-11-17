@@ -208,3 +208,21 @@ test("upstream-watch CLI honors --fail-on-updates and refuses --out inside the A
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("mapUpstreamPathToCounterpart maps security-audit-skill files into references and scripts", async () => {
+  const { mapUpstreamPathToCounterpart } = await import("../upstream-watch.mjs");
+  const cfg = { id: "security-audit-skill", skillRenames: {}, agentRenames: {} };
+  assert.equal(mapUpstreamPathToCounterpart("skills/security-audit/SKILL.md", cfg), "skills/security-audit/SKILL.md");
+  assert.equal(
+    mapUpstreamPathToCounterpart("skills/security-audit/HUNTING.md", cfg),
+    "skills/security-audit/references/HUNTING.md",
+  );
+  assert.equal(
+    mapUpstreamPathToCounterpart("skills/security-audit/validate-findings.cjs", cfg),
+    "skills/security-audit/scripts/validate-findings.cjs",
+  );
+  assert.equal(
+    mapUpstreamPathToCounterpart("skills/security-audit/report-schema.json", cfg),
+    "skills/security-audit/scripts/report-schema.json",
+  );
+});

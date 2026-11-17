@@ -7,8 +7,10 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   ASTACK_ASCII_LOGO,
+  formatDoctorReport,
   formatSetupBanner,
   inspectWorkspace,
+  runWorkspaceDoctor,
 } from "./setup-banner.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -119,7 +121,48 @@ test("setup-banner CLI prints ASCII banner and JSON status for --cwd", () => {
     assert.equal(parsed.workspace, "cli-target");
     assert.deepEqual(parsed.verifySkills, ["verify-api"]);
     assert.deepEqual(parsed.tlaFiles, ["Protocol.tla"]);
-    assert.equal(parsed.hooks.total, 2);
+    assert.equal(parsed.hooks.total, 3);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("runWorkspaceDoctor and setup-banner --doctor report workspace diagnostics", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "astack-doctor-"));
+  try {
+    const workspaceDir = path.join(tmp, "doc-app");
+    const homeDir = path.join(tmp, "home");
+    const pluginRoot = path.join(tmp, "plugin");
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.mkdirSync(homeDir, { recursive: true });
+    writeFile(
+      path.join(pluginRoot, "hooks.json"),
+      JSON.stringify({ "astack-irreversible-guard": { enabled: true } }),
+    );
+    writeFile(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "---\nname: verify-app\ndescription: app\n---\n");
+
+    const report = runWorkspaceDoctor({
+      cwd: workspaceDir,
+      homeDir,
+      pluginRoot,
+    });
+    assert.equal(report.ok, true);
+    const rendered = formatDoctorReport(report);
+    assert.match(rendered, /> \/setup-astack --doctor/);
+    assert.match(rendered, /\[PASS\] safety-hooks: 1\/1 opt-in hooks enabled/);
+
+    writeFile(path.join(pluginRoot, "hooks.json"), "{broken");
+    const brokenHooks = runWorkspaceDoctor({ cwd: workspaceDir, homeDir, pluginRoot });
+    assert.equal(brokenHooks.ok, false);
+    assert.ok(brokenHooks.checks.some((c) => c.id === "safety-hooks" && c.status === "warn"));
+
+    const cliOut = execFileSync(process.execPath, [bannerScript, "--doctor", "--json", "--cwd", workspaceDir], {
+      encoding: "utf8",
+      env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir },
+    });
+    const parsed = JSON.parse(cliOut);
+    assert.equal(parsed.workspace, "doc-app");
+    assert.ok(Array.isArray(parsed.checks));
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

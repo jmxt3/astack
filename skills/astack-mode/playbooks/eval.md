@@ -23,3 +23,5 @@
 7. **Read every candidate output yourself** end to end. Compare to the judge's verdict. Disagreement means a model is biased or the rubric is ambiguous. Synthesize.
 
 **Reply:** variant under test, rubric, per-candidate notes, judge's verdict, your synthesis, and a recommendation for whether to promote the variant.
+
+For an offline routing fixture lint (`classifyRoutingIntent` regex table in `run-eval.mjs` against `routing-cases.json`) plus JSON schema and `check-plan` contract checks (`19` fixtures total), run `node scripts/eval/run-eval.mjs --json` (wired into `node --run test:eval`). Passing that fixture lint checks trigger and schema consistency only; live model routing behavior still requires the blinded transcript-graded run in steps 1 to 7.

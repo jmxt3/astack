@@ -43,6 +43,22 @@
       "skillRenames": {},
       "agentRenames": {},
       "ignoredPaths": []
+    },
+    "security-audit-skill": {
+      "id": "security-audit-skill",
+      "name": "security-audit-skill by Cloudflare (@cloudflare)",
+      "repoUrl": "https://github.com/cloudflare/security-audit-skill.git",
+      "subdir": "",
+      "relationship": "code-derived (MIT)",
+      "license": "MIT",
+      "baselineCommit": "c1c8a8c1471069fb0e188eeaff69b8e8db6564a8",
+      "lastReviewed": "c1c8a8c1471069fb0e188eeaff69b8e8db6564a8",
+      "skillRenames": {},
+      "agentRenames": {},
+      "ignoredPaths": [
+        "LICENSE",
+        "README.md"
+      ]
     }
   }
 }

@@ -19,7 +19,7 @@ AStack is a Google Antigravity plugin that makes the agent prove its work. You g
 
 AStack takes inspiration from Lauren Tan's [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) for empirical verification playbooks and Garry Tan's [`gstack`](https://github.com/garrytan/gstack) for structured review gates, and builds those ideas natively for Google Antigravity.
 
-AStack has 61 skills, 23 playbooks, 24 engineering principles, 2 subagents, 1 routing rule, and 2 opt-in hooks. It runs locally as markdown skills and Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
+AStack has 63 skills, 26 playbooks, 24 engineering principles, 2 subagents, 1 routing rule, and 3 opt-in hooks. It runs locally as markdown skills and Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
 
 fork it. improve it. make it yours. PRs are welcome!
 
@@ -29,7 +29,7 @@ fork it. improve it. make it yours. PRs are welcome!
   <a href="#quick-start">Quick start</a> ·
   <a href="#interactive-plan-review--execute-workflow">Plan &amp; review</a> ·
   <a href="#how-it-fits-together">How it fits</a> ·
-  <a href="#skill-catalog">61 skills</a> ·
+  <a href="#skill-catalog">63 skills</a> ·
   <a href="./docs/user-guide.md">User guide</a> ·
   <a href="./docs/tutorials/README.md">Tutorials</a> ·
   <a href="./CREDITS.md">Credits</a> ·
@@ -153,18 +153,18 @@ verify-{app} · /blast-radius`"]
 
 ## Skill catalog
 
-AStack ships **61 skills** (`skills/`), **2 agents** (`agents/`), **1 routing rule** (`rules/`), and **2 opt-in hooks** (`hooks.json`):
+AStack ships **63 skills** (`skills/`), **2 agents** (`agents/`), **1 routing rule** (`rules/`), and **3 opt-in hooks** (`hooks.json`):
 
 ### Orchestration & setup (3)
 
 | Skill | Purpose |
 |---|---|
-| [`/astack-mode`](./skills/astack-mode/SKILL.md) | Main entry point routing tasks across 23 playbooks, 24 principles, subagents, and Antigravity multi-agent modes |
+| [`/astack-mode`](./skills/astack-mode/SKILL.md) | Main entry point routing tasks across 26 playbooks, 24 principles, subagents, and Antigravity multi-agent modes |
 | [`/astack-help`](./skills/astack-help/SKILL.md) | Recommends the right skill and gives a copy-paste prompt without spending execution turns |
-| [`/setup-astack`](./skills/setup-astack/SKILL.md) | Scaffolds repo-local `verify-<app>` verification skills and optional formal verification |
+| [`/setup-astack`](./skills/setup-astack/SKILL.md) | Scaffolds repo-local `verify-<app>` verification skills, optional formal verification, and workspace `--doctor` checks |
 
 <details>
-<summary>23 playbooks inside /astack-mode (skills/astack-mode/playbooks/)</summary>
+<summary>26 playbooks inside /astack-mode (skills/astack-mode/playbooks/)</summary>
 
 | Playbook | When `/astack-mode` uses it |
 |---|---|
@@ -185,7 +185,10 @@ AStack ships **61 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 | [`perf-issue.md`](./skills/astack-mode/playbooks/perf-issue.md) | Profiling bottlenecks and vetting before/after latency or throughput claims |
 | [`prototype.md`](./skills/astack-mode/playbooks/prototype.md) | Running throwaway empirical prototypes to settle design or UI questions |
 | [`refactoring.md`](./skills/astack-mode/playbooks/refactoring.md) | Changing internal structure while proving identical observable behavior |
+| [`release-and-postmortem.md`](./skills/astack-mode/playbooks/release-and-postmortem.md) | Evidence-backed release notes, read-only deploy smoke checks, and permanent postmortem fixes |
 | [`runtime-forensics.md`](./skills/astack-mode/playbooks/runtime-forensics.md) | Instrumenting live processes for runtime diagnosis instead of guessing |
+| [`safe-migration.md`](./skills/astack-mode/playbooks/safe-migration.md) | Zero-downtime expand/backfill/switch/contract schema migrations with local rollback proof |
+| [`security-audit.md`](./skills/astack-mode/playbooks/security-audit.md) | Coverage-led vulnerability audit, PR-diff boundary checks, and sandboxed PoC handoff |
 | [`session-pickup.md`](./skills/astack-mode/playbooks/session-pickup.md) | Resuming interrupted work from decision trails and repository state |
 | [`shipping.md`](./skills/astack-mode/playbooks/shipping.md) | Landing a verified PR stack sequentially after independent verification |
 | [`trace-forensics.md`](./skills/astack-mode/playbooks/trace-forensics.md) | Diagnosing failures directly from captured trace artifacts and logs |
@@ -215,12 +218,14 @@ AStack ships **61 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 | [`/sharpen`](./skills/sharpen/SKILL.md) | Refines a task to be deeper rather than broader and rewrites the prompt |
 | [`/figure-it-out`](./skills/figure-it-out/SKILL.md) | Designs an auditable hypothesis loop for open-ended migrations and multi-part changes |
 
-### Verification & formal checks (11)
+### Verification & formal checks (13)
 
 | Skill | Purpose |
 |---|---|
 | [`/control-ui`](./skills/control-ui/SKILL.md) | Verifies live web and Electron UIs via `browser` subagent and Chrome DevTools MCP |
+| [`/design-audit`](./skills/design-audit/SKILL.md) | Empirical UX, accessibility, responsive layout, and UI state audit when no pixel baseline exists yet |
 | [`/control-cli`](./skills/control-cli/SKILL.md) | Verifies CLIs, daemons, and HTTP or RPC services against temp workspaces, exit codes, and cleanup |
+| [`/security-audit`](./skills/security-audit/SKILL.md) | Coverage-led vulnerability audit (`Guidance` and 6-phase `Full Audit`), JSON schema validators, and remediation handoff |
 | [`/create-verification-skill`](./skills/create-verification-skill/SKILL.md) | Generates a repo-local `verify-<app>` skill and `features/` sitemap |
 | [`/maintain-verification-skill`](./skills/maintain-verification-skill/SKILL.md) | Audits and updates a project's `verify-<app>` skill against current code and live UI or CLI flows |
 | [`/create-formal-verification-skill`](./skills/create-formal-verification-skill/SKILL.md) | Scaffolds TLA+ formal specification checks for stateful protocols and concurrency invariants |
@@ -319,13 +324,13 @@ AStack ships **61 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 
 ## Security & lifecycle hooks
 
-AStack runs locally. It starts no background servers, sends no telemetry, and stores no credentials. [`hooks.json`](./hooks.json) defines two optional hooks, and both are off by default.
+AStack runs locally. It starts no background servers, sends no telemetry, and stores no credentials. [`hooks.json`](./hooks.json) defines three optional hooks (`astack-irreversible-guard`, `astack-verify-reminder`, `astack-secret-guard`), and all three are off by default.
 
 To report a vulnerability, follow [SECURITY.md](./SECURITY.md).
 
 ## Credits & license
 
-AStack draws inspiration from Lauren Tan's [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) and Garry Tan's [`gstack`](https://github.com/garrytan/gstack). Read [CREDITS.md](./CREDITS.md) for full attribution.
+AStack adapts foundations from Lauren Tan's [`pstack`](https://github.com/cursor/plugins/tree/main/pstack), Garry Tan's [`gstack`](https://github.com/garrytan/gstack), and Cloudflare's [`security-audit-skill`](https://github.com/cloudflare/security-audit-skill). Read [CREDITS.md](./CREDITS.md) for full attribution.
 
 To contribute, read [CONTRIBUTING.md](./CONTRIBUTING.md) and the [Code of Conduct](./CODE_OF_CONDUCT.md), or [open an issue](https://github.com/jmxt3/astack/issues/new/choose).
 

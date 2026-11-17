@@ -1,17 +1,18 @@
 # Opt-In Safety & Verification Lifecycle Hooks
 
-Users can optionally enable AStack's two safety hooks in `hooks.json` (`astack-irreversible-guard` on `PreToolUse` `run_command` and `astack-verify-reminder` on `Stop`), prompting confirmation before destructive shell commands and reminding agents to run final verification when code files changed.
+Users can optionally enable AStack's three safety hooks in `hooks.json` (`astack-irreversible-guard` on `PreToolUse` `run_command`, `astack-secret-guard` on `PreToolUse` `write_file|edit_file|run_command`, and `astack-verify-reminder` on `Stop`), prompting confirmation before destructive shell commands or hardcoded secrets and reminding agents to run final verification when code files changed.
 
 ## Sub-features
 
 - `PreToolUse` destructive-command guard (`scripts/hooks/irreversible-guard.mjs`, wired in `hooks.json` with `"enabled": false` by default)
+- `PreToolUse` secret & credential guard (`scripts/hooks/secret-guard.mjs`, wired in `hooks.json` as `"astack-secret-guard"` with `"enabled": false` by default, scanning write content, edit replacements, and inline secret assignment/export shell commands)
 - Multi-schema tool payload extraction (`toolCall.args.CommandLine`, `toolCall.args.command`, `tool_input.command`; a top-level `command` key is not read and fails open to `allow`)
 - `Stop` verification reminder (`scripts/hooks/verify-reminder.mjs`, gated by `ASTACK_REQUIRE_VERIFY === "1"`)
 - Opt-in diff filtering (ignores clean repos, `.md`-only changes, `continuationActive: true`, and non-`NO_TOOL_CALL` terminations)
 
 ## How to get to it (user POV)
 
-By default both hooks in `hooks.json` ship disabled (`"enabled": false`). Maintainers verify the hook scripts by piping JSON hook payloads via stdin, and end users enable them selectively in `hooks.json` (plus `ASTACK_REQUIRE_VERIFY=1` for `verify-reminder`).
+By default all three hooks in `hooks.json` ship disabled (`"enabled": false`). Maintainers verify the hook scripts by piping JSON hook payloads via stdin, and end users enable them selectively in `hooks.json` (plus `ASTACK_REQUIRE_VERIFY=1` for `verify-reminder`).
 
 ## Driving it with control-cli
 
@@ -20,6 +21,7 @@ Preconditions: `$ScratchDir` and `$EvidenceDir` exist from `Launch`. Pipe UTF-8 
 - **`irreversible-guard.mjs` safe & read-only SQL search commands (`allow`)**: Pipe `'{"toolCall":{"args":{"CommandLine":"git status --short"}}}'`, `'{"toolCall":{"args":{"CommandLine":"rg \"DROP TABLE\" scripts/"}}}'`, and `'{"toolCall":{"args":{"CommandLine":"git push --force-with-lease origin feat/test"}}}'` into `node scripts/hooks/irreversible-guard.mjs` (with `CI=""`, `NON_INTERACTIVE=""`). Expect exit code `0` and stdout `{"decision":"allow"}`; save output to `$EvidenceDir/hooks-proof.txt`.
 - **`irreversible-guard.mjs` destructive, wrapped subshell, piped SQL, and trunk refspec commands (`force_ask` vs headless `deny`)**: Test `git reset --hard HEAD~1`, `bash -c "rm -rf /"`, `echo "DROP TABLE users;" | psql`, and `git push origin +main` against `node scripts/hooks/irreversible-guard.mjs`. Expect exit code `0` and `force_ask` interactively (`CI=""`, `NON_INTERACTIVE=""`), or `{"decision":"deny",...}` when `CI="true"` or `NON_INTERACTIVE="1"`; append to `$EvidenceDir/hooks-proof.txt`.
 - **`irreversible-guard.mjs` malformed JSON fallback**: Pipe `'not-valid-json'` into `node scripts/hooks/irreversible-guard.mjs`. Expect exit code `0` and `{"decision":"allow"}` (fail-open on hook parse error so benign sessions are not locked).
+- **`secret-guard.mjs` `allow`, `force_ask`, and headless `deny`**: Pipe a safe write payload to `node scripts/hooks/secret-guard.mjs` (expect `{"decision":"allow"}`), then pipe a synthetic token-pattern payload built dynamically in memory with `CI=""` vs `CI="true"` (expect `force_ask` vs `deny`); save to `$EvidenceDir/secret-guard-proof.txt`.
 - **`verify-reminder.mjs` gating across clean, `.md`-only, and dirty code repos**: Create a temporary git repo under `$ScratchDir/hook-git`, commit a baseline file, then test `node scripts/hooks/verify-reminder.mjs` with `$env:ASTACK_REQUIRE_VERIFY = "1"` and stdin `'{"continuationActive":false,"terminationReason":"NO_TOOL_CALL","cwd":"<abs-hook-git>"}'`:
   1. Clean repo -> `{"decision":"allow"}`
   2. Dirty `README.md` only -> `{"decision":"allow"}`

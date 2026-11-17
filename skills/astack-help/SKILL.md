@@ -29,7 +29,7 @@ Check workspace state that changes the answer:
 ## Get set up
 
 1. Install AStack via Antigravity Plugins Manager or CLI: `agy plugin install <path-or-repo>`.
-2. Pick your preferred model or **Orchestrator** directly in Antigravity's UI model picker (inherited automatically with zero config). Optionally run [`/setup-astack`](../setup-astack/SKILL.md) inside an app repo to bootstrap `.agents/skills/verify-<app>/`, formal TLA+ specs, and opt-in hooks (`hooks.json`).
+2. Pick your preferred model or **Orchestrator** directly in Antigravity's UI model picker (inherited automatically with zero config). Optionally run [`/setup-astack`](../setup-astack/SKILL.md) inside an app repo to bootstrap `.agents/skills/verify-<app>/`, formal TLA+ specs, and opt-in hooks (`hooks.json`), or run `node <plugin>/skills/setup-astack/scripts/setup-banner.mjs --doctor` for workspace diagnostics.
 3. Run your first real task with `/astack-mode`, a concrete goal, and an observable done check.
 
 See [README](../../README.md), [User Guide](../../docs/user-guide.md), [Architecture & Swarm Guide](../../docs/architecture-and-swarm.md), and [Guide 01: Setup](../../docs/guide/01-setup.md). For crafting your first prompt, follow [`references/prompting.md`](references/prompting.md).
@@ -48,7 +48,7 @@ See [README](../../README.md), [User Guide](../../docs/user-guide.md), [Architec
 
 ## Start a task with `/astack-mode`
 
-`/astack-mode` selects one of 23 playbooks, opens a structured checklist matching its steps verbatim, routes subagents/Swarms, and requires empirical proof via `control-ui`, `control-cli`, or `.agents/skills/verify-<app>/` before reporting done. Read [Guide 02: AStack Mode](../../docs/guide/02-astack-mode.md) and [`references/prompting.md`](references/prompting.md).
+`/astack-mode` selects one of 26 playbooks, opens a structured checklist matching its steps verbatim, routes subagents/Swarms, and requires empirical proof via `control-ui`, `control-cli`, or `.agents/skills/verify-<app>/` before reporting done. Read [Guide 02: AStack Mode](../../docs/guide/02-astack-mode.md) and [`references/prompting.md`](references/prompting.md).
 
 ## Pick a skill
 
@@ -66,6 +66,7 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 | Catch up on this session + waiting calls | [`/ketchup`](../ketchup/SKILL.md) |
 | Catch up as narrated slide video | [`/ketchup-video`](../ketchup-video/SKILL.md) |
 | Prove what a diff can break externally | [`/blast-radius`](../blast-radius/SKILL.md) |
+| Security audit, threat modeling & PR-diff boundary checks | [`/security-audit`](../security-audit/SKILL.md) |
 | Explore parallel designs across boundaries | [`/architect`](../architect/SKILL.md) |
 | Race K candidates & graft best design | [`/arena`](../arena/SKILL.md) |
 | Lightweight N-way subagent fan-out | [`/fanout`](../fanout/SKILL.md) |
@@ -73,6 +74,7 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 | Bug fix test-first on cheap local tests | [`/tdd`](../tdd/SKILL.md) |
 | Strict TypeScript patterns & types | [`/typescript-best-practices`](../typescript-best-practices/SKILL.md) |
 | Drive web/Electron UI via Chrome DevTools & `browser` | [`/control-ui`](../control-ui/SKILL.md) |
+| UX, accessibility & responsive layout audit for new UIs | [`/design-audit`](../design-audit/SKILL.md) |
 | Drive CLIs, APIs, and daemons empirically | [`/control-cli`](../control-cli/SKILL.md) |
 | Strip speculative abstractions & bloat pre-commit | [`/deslop`](../deslop/SKILL.md) |
 | Kill narration/workaround comments via `comment-sicko` | [`/no-comments`](../no-comments/SKILL.md) |

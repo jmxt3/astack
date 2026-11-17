@@ -131,6 +131,33 @@ test("validateAStack rejects collisions, frontmatter errors, oversized skills, b
     assert.match(messages, /Cursor runtime leak matched \(cursor-ask-allow-multiple\)/);
     assert.match(messages, /Unknown principle skill reference: principle-does-not-exist/);
 
+    const budgetTmp = makeTempDir("astack-budget-test-");
+    try {
+      writeFile(
+        path.join(budgetTmp, "plugin.json"),
+        JSON.stringify({ name: "astack", author: { name: "João Machete" } }),
+      );
+      writeFile(path.join(budgetTmp, "LICENSE"), "Lauren Tan\nJoão Machete\n");
+      writeFile(
+        path.join(budgetTmp, "scripts", "catalog.json"),
+        JSON.stringify({ maxAutoInvokeSkills: 1, maxAutoInvokeDescriptionBytes: 40, manualOnlySkills: [] }),
+      );
+      writeFile(
+        path.join(budgetTmp, "skills", "skill-one", "SKILL.md"),
+        "---\nname: skill-one\ndescription: shared trigger description\n---\n\nOne.\n",
+      );
+      writeFile(
+        path.join(budgetTmp, "skills", "skill-two", "SKILL.md"),
+        "---\nname: skill-two\ndescription: shared trigger description\n---\n\nTwo.\n",
+      );
+      const budgetErrors = validateAStack(budgetTmp, { withAgy: false }).errors.map((e) => e.message).join("\n");
+      assert.match(budgetErrors, /Duplicate auto-invocable skill description matches skill-one/);
+      assert.match(budgetErrors, /Auto-invocable skill count 2 exceeds maxAutoInvokeSkills \(1\)/);
+      assert.match(budgetErrors, /Auto-invocable startup description bytes \d+ exceeds maxAutoInvokeDescriptionBytes \(40\)/);
+    } finally {
+      fs.rmSync(budgetTmp, { recursive: true, force: true });
+    }
+
     writeFile(path.join(tmp, "skills", "plan", "SKILL.md"), "---\nname: plan\ndescription: clash\n---\n\nPlan.\n");
     writeFile(path.join(tmp, "skills", "learn", "SKILL.md"), "---\nname: learn\ndescription: clash\n---\n\nLearn.\n");
     writeFile(path.join(tmp, "skills", "antigravity_guide", "SKILL.md"), "---\nname: antigravity_guide\ndescription: clash\n---\n\nGuide.\n");
@@ -268,17 +295,17 @@ test("live AStack repo validates cleanly and enforces UI/Orchestrator and agent 
   }
 });
 
-test("live repo matches scripts/catalog.json manualOnlySkills (33 manual-only, 28 auto-invocable)", () => {
+test("live repo matches scripts/catalog.json manualOnlySkills (34 manual-only, 29 auto-invocable)", () => {
   const catalog = JSON.parse(fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "scripts", "catalog.json"), "utf8"));
   const manualSet = new Set(catalog.manualOnlySkills);
-  assert.equal(manualSet.size, 33);
+  assert.equal(manualSet.size, 34);
 
   const skillDirs = fs
     .readdirSync(path.join(DEFAULT_ROOT_DIR, "skills"), { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name)
     .sort();
-  assert.equal(skillDirs.length, 61);
+  assert.equal(skillDirs.length, 63);
 
   let manualCount = 0;
   let autoCount = 0;
@@ -294,20 +321,23 @@ test("live repo matches scripts/catalog.json manualOnlySkills (33 manual-only, 2
       autoCount++;
     }
   }
-  assert.equal(manualCount, 33);
-  assert.equal(autoCount, 28);
+  assert.equal(manualCount, 34);
+  assert.equal(autoCount, 29);
 });
 
-test("all 8 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
+test("all 11 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
   const clis = [
     "scripts/validate-astack.mjs",
     "scripts/upstream-watch.mjs",
+    "scripts/eval/run-eval.mjs",
     "skills/setup-astack/scripts/setup-banner.mjs",
     "skills/astack-mode/scripts/check-plan.mjs",
     "skills/astack-mode/scripts/worktree-audit.mjs",
     "skills/show-me-your-work/scripts/log.mjs",
     "skills/astack-mode/scripts/watch-pr/watch-pr.mjs",
     "skills/statechart/scripts/statechart.mjs",
+    "skills/security-audit/scripts/validate-findings.cjs",
+    "skills/security-audit/scripts/validate-coverage-ledger.cjs",
   ];
   for (const rel of clis) {
     const full = path.join(DEFAULT_ROOT_DIR, ...rel.split("/"));

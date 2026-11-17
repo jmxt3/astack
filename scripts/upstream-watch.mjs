@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-/**
- * Read-only upstream watcher for AStack.
- *
- * Inspects upstream git repositories (`pstack`, `gstack`, or a local checkout)
- * from an OS temp cache and prints commits and changed files since the last
- * reviewed revision without ever writing inside the AStack repository.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -18,7 +10,7 @@ import { DEFAULT_ROOT_DIR, RESERVED_SKILL_NAMES } from "./catalog.mjs";
 const WATCH_USAGE = `Usage: node scripts/upstream-watch.mjs [options]
 
 Options:
-  --source-id <id>     Upstream source id: pstack, gstack, or all (default: pstack)
+  --source-id <id>     Upstream source id: pstack, gstack, security-audit-skill, or all (default: pstack)
   --source <git-dir>   Local git repository checkout to inspect instead of temp cache
   --fetch              Clone or fetch upstream into OS temp dir before diffing
   --since <ref>        Override baseline/lastReviewed git ref for diffing
@@ -47,18 +39,6 @@ function normalizeForContainment(targetPath) {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
-/**
- * Loads `scripts/upstream-watch.json` from `rootDir`.
- */
-export function loadWatchManifest(rootDir = DEFAULT_ROOT_DIR) {
-  const manifestPath = path.join(rootDir, "scripts", "upstream-watch.json");
-  return JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-}
-
-/**
- * Ensures `--out` resolves strictly outside `rootDir` so upstream-watch never
- * writes into the AStack repository.
- */
 export function assertExternalOutPath(outPath, rootDir = DEFAULT_ROOT_DIR) {
   const normRoot = normalizeForContainment(rootDir);
   const normOut = normalizeForContainment(outPath);
@@ -78,6 +58,19 @@ export function assertExternalOutPath(outPath, rootDir = DEFAULT_ROOT_DIR) {
  * counterpart relative POSIX path.
  */
 export function mapUpstreamPathToCounterpart(relPosix, sourceConfig) {
+  if (sourceConfig.id === "security-audit-skill" && relPosix.startsWith("skills/security-audit/")) {
+    const rest = relPosix.slice("skills/security-audit/".length);
+    if (rest === "SKILL.md") {
+      return relPosix;
+    }
+    if (rest.endsWith(".md")) {
+      return `skills/security-audit/references/${rest}`;
+    }
+    if (rest.endsWith(".cjs") || rest.endsWith(".json")) {
+      return `skills/security-audit/scripts/${rest}`;
+    }
+    return relPosix;
+  }
   if (relPosix.startsWith("automations/")) {
     return `docs/${relPosix}`;
   }
@@ -96,10 +89,6 @@ export function mapUpstreamPathToCounterpart(relPosix, sourceConfig) {
     return `agents/${mappedAgent}.md`;
   }
   return relPosix;
-}
-
-function isIgnoredPath(relPosix, ignoredPaths = []) {
-  return ignoredPaths.some((ignored) => relPosix === ignored || relPosix.startsWith(`${ignored}/`));
 }
 
 function ensureUpstreamCheckout(sourceConfig, { sourceGitDir, fetch = false } = {}) {
@@ -165,7 +154,7 @@ function classifyChangedFile(gitStatus, rawPath, sourceConfig, rootDir) {
     relPosix = relPosix.slice(prefix.length);
   }
 
-  if (isIgnoredPath(relPosix, sourceConfig.ignoredPaths)) {
+  if ((sourceConfig.ignoredPaths ?? []).some((ignored) => relPosix === ignored || relPosix.startsWith(`${ignored}/`))) {
     return {
       gitStatus,
       upstreamPath: relPosix,
@@ -290,9 +279,6 @@ export function watchSource(
   };
 }
 
-/**
- * Watches one or all configured upstream sources read-only.
- */
 export function watchUpstream({
   rootDir = DEFAULT_ROOT_DIR,
   sourceId = "pstack",
@@ -300,7 +286,7 @@ export function watchUpstream({
   fetch = false,
   since,
 } = {}) {
-  const manifest = loadWatchManifest(rootDir);
+  const manifest = JSON.parse(fs.readFileSync(path.join(rootDir, "scripts", "upstream-watch.json"), "utf8"));
   const allSources = manifest.sources ?? {};
   const targetIds = sourceId === "all" ? Object.keys(allSources) : [sourceId];
 
