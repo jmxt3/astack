@@ -249,5 +249,94 @@ test("validateFindingsDocument enforces schemaVersion, severity enum, and non-em
   assert.deepEqual(errs, []);
 
   const badErrs = validateFindingsDocument({ schemaVersion: 2, verdict: "BOGUS", findings: "no" });
-  assert.ok(badErrs.length >= 3);
+    assert.equal(badErrs.length >= 3, true);
+});
+
+test("compilePrDossier preserves rebase match across repeated runs, rejects stale unpassed --findings inheritance, and keeps hunk 1 line numbers", () => {
+  const repo = makeRepo();
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-dossier-prv-"));
+  const trustDir = path.join(artifactDir, "astack-trust");
+  const customFindings = path.join(artifactDir, "custom-findings.json");
+  try {
+    execFileSync("git", ["checkout", "-b", "feat/rebase-check"], { cwd: repo, stdio: "ignore" });
+    fs.writeFileSync(path.join(repo, "README.md"), "# R1\n\nline3\n", "utf8");
+    execFileSync("git", ["add", "README.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "readme change"], { cwd: repo, stdio: "ignore" });
+    const sha1 = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    const baseSha = execFileSync("git", ["rev-parse", "main"], { cwd: repo, encoding: "utf8" }).trim();
+
+    fs.mkdirSync(trustDir, { recursive: true });
+    fs.writeFileSync(
+      customFindings,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: sha1,
+        baseSha,
+        round: 1,
+        verdict: "PASS",
+        summary: "Verified sha1",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: [] },
+      }),
+      "utf8",
+    );
+    recordReceipt(
+      { kind: "tool-command", conversationId: "exec", command: "node --test", error: "", workspaceDir: repo },
+      { trustDir, headSha: sha1 },
+    );
+    const runSha1 = compilePrDossier({ cwd: repo, baseRef: "main", artifactDir, findingsPath: customFindings });
+    assert.equal(runSha1.evidence.freshness, "fresh");
+    assert.equal(runSha1.evidence.roundState, "verified");
+
+    execFileSync("git", ["commit", "--amend", "-m", "rebased commit message"], { cwd: repo, stdio: "ignore" });
+    const sha2 = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    assert.notEqual(sha2, sha1);
+
+    const rebaseRun1 = compilePrDossier({ cwd: repo, baseRef: "main", artifactDir, findingsPath: customFindings });
+    assert.equal(rebaseRun1.evidence.freshness, "fresh_rebase_patch_id");
+    assert.equal(rebaseRun1.evidence.verifier.stale, false);
+    assert.equal(rebaseRun1.evidence.roundState, "verified");
+
+    const rebaseRun2 = compilePrDossier({ cwd: repo, baseRef: "main", artifactDir, findingsPath: customFindings });
+    assert.equal(rebaseRun2.evidence.freshness, "fresh_rebase_patch_id");
+    assert.equal(rebaseRun2.evidence.verifier.stale, false);
+    assert.equal(rebaseRun2.evidence.roundState, "verified");
+
+    const manyLines = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
+    fs.writeFileSync(path.join(repo, "multi.txt"), manyLines, "utf8");
+    execFileSync("git", ["add", "multi.txt"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "add multi"], { cwd: repo, stdio: "ignore" });
+    fs.writeFileSync(path.join(repo, "multi.txt"), manyLines.replace("line 1\n", "line 1 edited\n").replace("line 38\n", "line 38 edited\n"), "utf8");
+    execFileSync("git", ["add", "multi.txt"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "two hunks"], { cwd: repo, stdio: "ignore" });
+    const sha3 = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    recordReceipt(
+      { kind: "tool-command", conversationId: "exec", command: "node --test", error: "", workspaceDir: repo },
+      { trustDir, headSha: sha3 },
+    );
+
+    const afterNewCommitNoFindings = compilePrDossier({ cwd: repo, baseRef: "main", artifactDir });
+    assert.equal(afterNewCommitNoFindings.evidence.verifier.stale, true);
+    assert.notEqual(afterNewCommitNoFindings.evidence.roundState, "verified");
+
+    fs.writeFileSync(path.join(repo, "NOTES.md"), "base line 1\n" + Array.from({ length: 30 }, (_, i) => `n${i}`).join("\n") + "\n", "utf8");
+    execFileSync("git", ["add", "NOTES.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "base notes"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["checkout", "-b", "feat/hunk1", "HEAD"], { cwd: repo, stdio: "ignore" });
+    fs.writeFileSync(
+      path.join(repo, "NOTES.md"),
+      "edited line 1\n" + Array.from({ length: 29 }, (_, i) => `n${i}`).join("\n") + "\nn29 edited\n",
+      "utf8",
+    );
+    execFileSync("git", ["add", "NOTES.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "two hunks at line 1 and 31"], { cwd: repo, stdio: "ignore" });
+
+    const hunkRes = compilePrDossier({ cwd: repo, baseRef: "HEAD~1", artifactDir });
+    const docsCluster = hunkRes.evidence.clusters.find((c) => c.id === "docs-and-generated");
+    assert.equal(docsCluster.firstLines["NOTES.md"], 1);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
+  }
 });

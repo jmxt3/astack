@@ -159,7 +159,7 @@ function parseNumstatAndFirstLines(numstatText, diffText) {
     const additions = parts[0] === "-" ? 0 : Number.parseInt(parts[0], 10) || 0;
     const deletions = parts[1] === "-" ? 0 : Number.parseInt(parts[1], 10) || 0;
     const file = parts.slice(2).join("\t").replace(/\\/g, "/");
-    stats.set(file, { file, additions, deletions, firstLine: 1 });
+    stats.set(file, { file, additions, deletions, firstLine: null });
   }
 
   let currentFile = "";
@@ -192,12 +192,12 @@ function parseNumstatAndFirstLines(numstatText, diffText) {
     }
     if (currentFile && line.startsWith("@@ ")) {
       const hunk = line.match(/\+(\d+)/);
-      if (hunk && stats.has(currentFile) && stats.get(currentFile).firstLine === 1) {
+      if (hunk && stats.has(currentFile) && stats.get(currentFile).firstLine === null) {
         stats.get(currentFile).firstLine = Math.max(1, Number.parseInt(hunk[1], 10) || 1);
       }
     }
   }
-  return [...stats.values()];
+  return [...stats.values()].map((entry) => ({ ...entry, firstLine: entry.firstLine ?? 1 }));
 }
 
 /**
@@ -497,17 +497,31 @@ export function compilePrDossier({
   const maxReviewRounds = policy.maxReviewRounds ?? 3;
   const reviewRound = findingsDoc?.round ?? priorEvidence?.reviewRound ?? 0;
   const findingsHead = findingsDoc?.headSha?.trim() || null;
-  const findingsMatchHead = Boolean(
-    findingsDoc &&
-      (!headSha ||
-        (findingsHead &&
-          (findingsHead === headSha ||
-            (freshness === "fresh_rebase_patch_id" && priorEvidence?.headSha === findingsHead)))),
-  );
-  const findingsStale = Boolean(findingsDoc && !findingsMatchHead);
-  const reviewViolations = findingsDoc?.reviewMdCompliance?.violations ?? [];
+  const effectiveVerifierHead = findingsHead ?? priorEvidence?.verifier?.headSha?.trim() ?? null;
   const rawVerifierVerdict = findingsDoc?.verdict ?? priorEvidence?.verifier?.verdict ?? null;
-  const verifierVerdict = findingsStale ? null : rawVerifierVerdict;
+  const hasVerifierData = Boolean(findingsDoc || rawVerifierVerdict || effectiveVerifierHead);
+  const priorRebaseValid = Boolean(
+    priorEvidence?.freshness === "fresh_rebase_patch_id" &&
+      priorEvidence?.verifier?.headSha === effectiveVerifierHead &&
+      !priorEvidence?.verifier?.stale,
+  );
+  const verifierMatchesHead = Boolean(
+    hasVerifierData &&
+      (!headSha ||
+        (effectiveVerifierHead &&
+          (effectiveVerifierHead === headSha ||
+            (freshness === "fresh_rebase_patch_id" &&
+              (priorEvidence?.headSha === effectiveVerifierHead || priorRebaseValid))))),
+  );
+  const findingsStale = Boolean(hasVerifierData && !verifierMatchesHead);
+  const reviewViolations = findingsDoc?.reviewMdCompliance?.violations ?? [];
+  const reviewViolationCount = findingsDoc
+    ? reviewViolations.length
+    : (priorEvidence?.verifier?.reviewViolationCount ?? 0);
+  const carryEscalation =
+    reviewRound >= maxReviewRounds &&
+    (rawVerifierVerdict === "FAIL" || rawVerifierVerdict === "ESCALATE_HUMAN");
+  const verifierVerdict = findingsStale && !carryEscalation ? null : rawVerifierVerdict;
   const roundState = evaluateRoundState({
     reviewRound,
     verdict: verifierVerdict,
@@ -517,7 +531,7 @@ export function compilePrDossier({
 
   const importantCount = findingsDoc
     ? findingsDoc.findings.filter((f) => f.severity === "important").length
-    : 0;
+    : (priorEvidence?.verifier?.importantCount ?? 0);
 
   const autoMergeEligible = Boolean(
     policy.allowTier0AutoMerge === true &&
@@ -527,8 +541,8 @@ export function compilePrDossier({
       !assertionDelta.flagged &&
       !baseCtx.reviewMd.modifiedInPr &&
       findingsDoc &&
-      findingsMatchHead &&
-      reviewViolations.length === 0 &&
+      verifierMatchesHead &&
+      reviewViolationCount === 0 &&
       (findingsDoc.verdict === "PASS" || findingsDoc.verdict === "PASS_WITH_NOTES") &&
       importantCount === 0,
   );
@@ -562,11 +576,11 @@ export function compilePrDossier({
     },
     verifier: {
       verdict: rawVerifierVerdict,
-      headSha: findingsHead ?? priorEvidence?.verifier?.headSha ?? null,
+      headSha: effectiveVerifierHead,
       stale: findingsStale,
       findingsPath: resolvedFindingsPath,
       importantCount,
-      reviewViolationCount: reviewViolations.length,
+      reviewViolationCount,
     },
     clusters,
     screenshots: screenshots.filter(Boolean),

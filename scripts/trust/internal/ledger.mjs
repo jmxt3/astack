@@ -445,6 +445,15 @@ export function evaluateVerifyReminder(event, options = {}) {
   };
 }
 
+function isEscalatedEvidence(evidence, maxRounds = evidence?.maxReviewRounds ?? 3) {
+  if (!evidence) return false;
+  return (
+    evidence.roundState === "escalated" ||
+    ((evidence.reviewRound ?? 0) >= maxRounds &&
+      (evidence.verifier?.verdict === "FAIL" || evidence.verifier?.verdict === "ESCALATE_HUMAN"))
+  );
+}
+
 /**
  * Checks whether a push or PR creation command has fresh verification evidence on HEAD.
  */
@@ -480,6 +489,7 @@ export function evaluateEvidenceGate(event, options = {}) {
     freshness = receiptFreshness;
   }
 
+  const maxRounds = options.maxReviewRounds ?? evidence?.maxReviewRounds ?? 3;
   const reasons = [];
   if (!evidence && freshness === "missing_receipts") {
     reasons.push("no verification receipts or evidence.json found for current branch");
@@ -489,7 +499,7 @@ export function evaluateEvidenceGate(event, options = {}) {
   if (evidence?.assertionDelta?.flagged) {
     reasons.push(`test assertions weakened (${evidence.assertionDelta.weakeningRatio})`);
   }
-  if (evidence?.roundState === "escalated") {
+  if (isEscalatedEvidence(evidence, maxRounds)) {
     reasons.push("review remediation hit 3-round escalation cap");
   }
 
@@ -520,13 +530,8 @@ export function evaluateRoundLimit(event, options = {}) {
   const evidence = readEvidenceSnapshot(trustDir);
   if (!evidence) return { decision: "allow" };
 
-  const maxRounds = options.maxReviewRounds ?? 3;
-  const escalated =
-    evidence.roundState === "escalated" ||
-    ((evidence.reviewRound ?? 0) >= maxRounds &&
-      (evidence.verifier?.verdict === "FAIL" || evidence.verifier?.verdict === "ESCALATE_HUMAN"));
-
-  if (!escalated) return { decision: "allow" };
+  const maxRounds = options.maxReviewRounds ?? evidence?.maxReviewRounds ?? 3;
+  if (!isEscalatedEvidence(evidence, maxRounds)) return { decision: "allow" };
 
   const headless = options.headless ?? false;
   return {

@@ -278,6 +278,21 @@ test("evaluateEvidenceGate reacts to newer writes and passing test receipts on t
     );
     const refreshedPush = evaluateEvidenceGate(pushEv, { trustDir: tmp, headSha: head, headless: true });
     assert.equal(refreshedPush.decision, "allow");
+
+    writeEvidenceSnapshotAtomic(tmp, {
+      schemaVersion: 1,
+      generatedAt: "2026-11-20T10:08:00.000Z",
+      headSha: head,
+      freshness: "fresh",
+      roundState: "open",
+      reviewRound: 3,
+      maxReviewRounds: 3,
+      verifier: { verdict: "FAIL", headSha: "d".repeat(40), stale: true },
+      assertionDelta: { flagged: false, weakeningRatio: 0 },
+    });
+    const escalatedPush = evaluateEvidenceGate(pushEv, { trustDir: tmp, headSha: head, headless: true });
+    assert.equal(escalatedPush.decision, "deny");
+    assert.match(escalatedPush.reason, /escalation cap/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
