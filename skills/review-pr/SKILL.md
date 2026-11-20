@@ -38,4 +38,4 @@ If UI screenshots were captured outside `<artifact-dir>`, copy them into `<artif
 
 ## 4. Human Review Gate
 
-Present the Risk Tier (`Tier 0..3`), `Freshness`, `Auto-Merge Eligible` flag, and a direct link to `<artifact-dir>/pr-review.md` (`UserFacing: true`, `RequestFeedback: false`). Tier 1 through Tier 3 PRs always wait for human review; Tier 0 skips manual merge review only when `.agents/risk-policy.json` explicitly sets `allowTier0AutoMerge: true` and `humanGates.prReview: "tier0-auto"` with all proof checks green.
+Present the Risk Tier (`Tier 0..3`), `Freshness`, `Auto-Merge Eligible` flag, and a direct link to `<artifact-dir>/pr-review.md` (`UserFacing: true`, `RequestFeedback: false`). Tier 1 through Tier 3 PRs always wait for human review; Tier 0 skips manual merge review only when `.agents/risk-policy.json` explicitly sets `allowTier0AutoMerge: true` and `humanGates.prReview: "tier0-auto"` with all proof checks green. When the AStack Timeline sidecar is enabled in an Antigravity App session and the pill has not yet appeared in this conversation, close with `[AStack Timeline](sidecar://astack/astack_timeline/)` on its own line.

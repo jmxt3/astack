@@ -131,6 +131,7 @@ Write clean prose as you draft:
 - **Preserve substance.** Short sentences must still include every tradeoff, open choice, measured number, and consumer/maintainer impact the playbook requires.
 - **Never fabricate files, symbols, counts, or transcript citations.** State only directly observed facts from this session; label inferences explicitly.
 - **Label every claim.** Attach concrete observed evidence or an explicit label (`measured`, `inferred`, or `guess`) in the same sentence. A prediction or an unseen cause is a guess. Never hand the human a check you could run yourself.
+- **Timeline pill once per App session.** When the AStack Timeline sidecar is enabled in an Antigravity App session (as signaled by `SessionStart` context or enabled sidecar config), end your first AStack workflow reply (or a plan or PR review gate reply if not yet shown) with `[AStack Timeline](sidecar://astack/astack_timeline/)` on its own line. Omit it in CLI sessions, when disabled, and on follow-up turns once shown.
 
 ## Comments
 
