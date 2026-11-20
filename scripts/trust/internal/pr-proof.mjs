@@ -808,11 +808,11 @@ export function renderGitHubPrProof({
   if (typeof existingBody === "string" && existingBody.length > 0) {
     const markerPair = /<!--\s*astack:pr-proof:start\s*-->[\s\S]*?<!--\s*astack:pr-proof:end\s*-->/;
     if (markerPair.test(existingBody)) {
-      return `${existingBody.replace(markerPair, block).trimEnd()}\n`;
+      return `${existingBody.replace(markerPair, () => block).trimEnd()}\n`;
     }
     const openOnly = /<!--\s*astack:pr-proof:start\s*-->[\s\S]*$/;
     if (openOnly.test(existingBody)) {
-      return `${existingBody.replace(openOnly, block).trimEnd()}\n`;
+      return `${existingBody.replace(openOnly, () => block).trimEnd()}\n`;
     }
     return `${existingBody.trimEnd()}\n\n${block}\n`;
   }
