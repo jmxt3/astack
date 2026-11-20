@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AStack PR Verifier Findings",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "headSha",
+    "baseSha",
+    "round",
+    "verdict",
+    "summary",
+    "findings",
+    "dropped",
+    "reviewMdCompliance"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "headSha": {
+      "type": "string"
+    },
+    "baseSha": {
+      "type": "string"
+    },
+    "round": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["PASS", "PASS_WITH_NOTES", "FAIL", "ESCALATE_HUMAN"]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "severity",
+          "category",
+          "file",
+          "line",
+          "claim",
+          "evidence",
+          "suggestedFix"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "severity": { "type": "string", "enum": ["important", "nit", "pre_existing"] },
+          "category": {
+            "type": "string",
+            "enum": [
+              "correctness",
+              "security",
+              "boundary",
+              "test_weakening",
+              "review_md",
+              "regression",
+              "architecture"
+            ]
+          },
+          "file": { "type": "string", "minLength": 1 },
+          "line": { "type": "integer", "minimum": 1 },
+          "ruleRef": { "type": "string" },
+          "claim": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "string", "minLength": 1 },
+          "suggestedFix": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "dropped": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "reason"],
+        "properties": {
+          "claim": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "reviewMdCompliance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checked", "violations"],
+      "properties": {
+        "checked": { "type": "boolean" },
+        "violations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

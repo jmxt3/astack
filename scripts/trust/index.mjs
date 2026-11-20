@@ -41,6 +41,13 @@ import {
   resolveBaseRef,
   resolveRelativeImportPath,
 } from "./internal/policy.mjs";
+import {
+  classifyRiskTier,
+  clusterChangedFiles,
+  compilePrDossier,
+  renderDossierMarkdown,
+  validateFindingsDocument,
+} from "./internal/dossier.mjs";
 
 export const TOOL_MATCHERS = {
   fileWriteTools: FILE_WRITE_TOOLS,
@@ -53,6 +60,9 @@ export {
   DEFAULT_RISK_POLICY,
   PIPELINE_STAGES,
   classifyCommandCategory,
+  classifyRiskTier,
+  clusterChangedFiles,
+  compilePrDossier,
   computeAssertionDelta,
   computeFreshness,
   evaluateBoundaryViolation,
@@ -79,10 +89,12 @@ export {
   readMergedReceipts,
   recordReceipt,
   recordVerifierReceipt,
+  renderDossierMarkdown,
   resolveBaseRef,
   resolveRelativeImportPath,
   resolveTrustDir,
   runHookShell,
+  validateFindingsDocument,
   writeEvidenceSnapshotAtomic,
 };
 
