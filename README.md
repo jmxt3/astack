@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/jmxt3/astack/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jmxt3/astack/ci.yml?branch=main&style=flat-square&label=ci" alt="CI status"></a>
-  <a href="./plugin.json"><img src="https://img.shields.io/badge/plugin-v0.2.0-38BDF8?style=flat-square" alt="Plugin v0.2.0"></a>
+  <a href="./plugin.json"><img src="https://img.shields.io/badge/plugin-v0.4.0-38BDF8?style=flat-square" alt="Plugin v0.4.0"></a>
   <a href="https://antigravity.google"><img src="https://img.shields.io/badge/platform-Google%20Antigravity-6366F1?style=flat-square" alt="Platform: Google Antigravity"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22.6-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js >= 22.6"></a>
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/stack-ESM%20%2B%20TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="Stack: ESM + TypeScript"></a>
@@ -19,7 +19,7 @@ AStack is a Google Antigravity plugin that makes the agent prove its work. You g
 
 AStack takes inspiration from Lauren Tan's [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) for empirical verification playbooks and Garry Tan's [`gstack`](https://github.com/garrytan/gstack) for structured review gates, and builds those ideas natively for Google Antigravity.
 
-AStack has 63 skills, 26 playbooks, 24 engineering principles, 2 subagents, 1 routing rule, and 3 opt-in hooks. It runs locally as markdown skills and Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
+AStack has 65 skills, 26 playbooks, 24 engineering principles, 3 custom agents, 1 routing rule, and 8 lifecycle hooks (2 passive observe-only enabled by default plus 6 opt-in blocking gates). It runs locally as markdown skills and zero-dependency Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
 
 fork it. improve it. make it yours. PRs are welcome!
 
@@ -29,7 +29,7 @@ fork it. improve it. make it yours. PRs are welcome!
   <a href="#quick-start">Quick start</a> ·
   <a href="#interactive-plan-review--execute-workflow">Plan &amp; review</a> ·
   <a href="#how-it-fits-together">How it fits</a> ·
-  <a href="#skill-catalog">63 skills</a> ·
+  <a href="#skill-catalog">65 skills</a> ·
   <a href="./docs/user-guide.md">User guide</a> ·
   <a href="./docs/tutorials/README.md">Tutorials</a> ·
   <a href="./CREDITS.md">Credits</a> ·
@@ -117,43 +117,39 @@ If your idea is still rough, start with `/plan /grill-me <idea>`. The agent asks
 
 ## How it fits together
 
-Most work flows through five stages. You do not need to chain commands manually because `/astack-mode` calls them when needed, though you can invoke any stage directly:
+Most work flows through a deterministic 6-stage pipeline when you invoke [`/astack-mode`](./skills/astack-mode/SKILL.md). Stages 1, 3, 4, and 5 advance automatically (`[AUTO]`), while Stage 2 (Implementation Plan) and Stage 6 (Visual PR Review) enforce human gates (`[HUMAN GATE]`) unless a repo explicitly opts Tier 0 into auto-merge:
 
 ```mermaid
 flowchart LR
-    subgraph Router["/astack-mode · auto-routes stages, or invoke any stage directly"]
+    subgraph Router["/astack-mode · 6-stage deterministic pipeline rail"]
         direction LR
-        S1["`**1. Understand**
-/how · /why
-/teach · /recall`"]
-        S2["`**2. Design**
-/architect · /arena
-/interrogate`"]
-        S3["`**3. Build**
-/astack-mode
-playbooks · /tdd`"]
-        S4["`**4. Clean**
-/deslop · /no-comments
-/unslop`"]
-        S5["`**5. Verify & ship**
-/control-ui · /control-cli
-verify-{app} · /blast-radius`"]
+        S1["`1. AUTO: Understand
+/how · /why · base REVIEW.md`"]
+        S2["`2. HUMAN GATE: Plan
+/plan · Proceed`"]
+        S3["`3. AUTO: Build & Guard
+astack-agent · /tdd · hooks`"]
+        S4["`4. AUTO: Clean
+/deslop · /no-comments`"]
+        S5["`5. AUTO: Prove & AI Review
+control-ui/cli · pr-verifier`"]
+        S6["`6. HUMAN GATE: Visual PR
+/review-pr · Review pane`"]
 
-        S1 --> S2 --> S3 --> S4 --> S5
+        S1 --> S2 --> S3 --> S4 --> S5 --> S6
     end
 
     style Router fill:transparent,stroke:#eab308,stroke-width:1.5px,stroke-dasharray:5 5
     classDef stage fill:#111827,stroke:#38bdf8,stroke-width:1.5px,color:#f9fafb
-    classDef build fill:#111827,stroke:#eab308,stroke-width:2px,color:#f9fafb
+    classDef gate fill:#111827,stroke:#eab308,stroke-width:2px,color:#f9fafb
     classDef verify fill:#111827,stroke:#22c55e,stroke-width:2px,color:#f9fafb
-    class S1,S2,S4 stage
-    class S3 build
-    class S5 verify
+    class S1,S3,S4,S5 stage
+    class S2,S6 gate
 ```
 
 ## Skill catalog
 
-AStack ships **63 skills** (`skills/`), **2 agents** (`agents/`), **1 routing rule** (`rules/`), and **3 opt-in hooks** (`hooks.json`):
+AStack ships **65 skills** (`skills/`), **3 agents** (`agents/`), **1 routing rule** (`rules/`), and **8 lifecycle hooks** (`hooks.json`):
 
 ### Orchestration & setup (3)
 
@@ -207,24 +203,26 @@ AStack ships **63 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 | [`/recall`](./skills/recall/SKILL.md) | Mines recent Antigravity transcripts and live repo or PR state across sessions |
 | [`/in-your-own-words`](./skills/in-your-own-words/SKILL.md) | Restates the user's goal and underlying problem before starting work |
 
-### Design & parallel exploration (6)
+### Design & parallel exploration (7)
 
 | Skill | Purpose |
 |---|---|
 | [`/architect`](./skills/architect/SKILL.md) | Explores competing architectures in parallel, checks design red flags, and writes a type sketch |
+| [`/audit-architecture`](./skills/audit-architecture/SKILL.md) | Audits `.agents/boundaries.json`, Ousterhout shallow modules, and stale workaround examples |
 | [`/arena`](./skills/arena/SKILL.md) | Runs 2 to 3 isolated candidate implementations against the same check and grafts winning pieces |
 | [`/fanout`](./skills/fanout/SKILL.md) | Fans out independent read-only sweeps, test matrices, or file-disjoint tasks to subagents |
 | [`/interrogate`](./skills/interrogate/SKILL.md) | Stress-tests built prototypes, contested designs, and branch diffs with adversarial runs |
 | [`/sharpen`](./skills/sharpen/SKILL.md) | Refines a task to be deeper rather than broader and rewrites the prompt |
 | [`/figure-it-out`](./skills/figure-it-out/SKILL.md) | Designs an auditable hypothesis loop for open-ended migrations and multi-part changes |
 
-### Verification & formal checks (13)
+### Verification & formal checks (14)
 
 | Skill | Purpose |
 |---|---|
 | [`/control-ui`](./skills/control-ui/SKILL.md) | Verifies live web and Electron UIs via `browser` subagent and Chrome DevTools MCP |
 | [`/design-audit`](./skills/design-audit/SKILL.md) | Empirical UX, accessibility, responsive layout, and UI state audit when no pixel baseline exists yet |
 | [`/control-cli`](./skills/control-cli/SKILL.md) | Verifies CLIs, daemons, and HTTP or RPC services against temp workspaces, exit codes, and cleanup |
+| [`/review-pr`](./skills/review-pr/SKILL.md) | Compiles visual Markdown, Mermaid, and carousel PR dossiers with Risk Tiers (0–3) and isolated `pr-verifier` checks |
 | [`/security-audit`](./skills/security-audit/SKILL.md) | Coverage-led vulnerability audit (`Guidance` and 6-phase `Full Audit`), JSON schema validators, and remediation handoff |
 | [`/create-verification-skill`](./skills/create-verification-skill/SKILL.md) | Generates a repo-local `verify-<app>` skill and `features/` sitemap |
 | [`/maintain-verification-skill`](./skills/maintain-verification-skill/SKILL.md) | Audits and updates a project's `verify-<app>` skill against current code and live UI or CLI flows |
@@ -290,9 +288,9 @@ AStack ships **63 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 
 </details>
 
-- **Custom agents (`agents/`)**: [`astack-agent`](./agents/astack-agent.md) (verification-first builder and reviewer) and [`comment-sicko`](./agents/comment-sicko.md) (isolated `inheritCustomizations: false` adversarial comment and suppression auditor).
+- **Custom agents (`agents/`)**: [`astack-agent`](./agents/astack-agent.md) (verification-first builder with Osmani anti-rationalization discipline), [`pr-verifier`](./agents/pr-verifier.md) (isolated `inheritCustomizations: false` read-only PR verifier), and [`comment-sicko`](./agents/comment-sicko.md) (isolated `inheritCustomizations: false` adversarial comment and suppression auditor).
 - **Routing rule (`rules/`)**: [`astack-orchestration.md`](./rules/astack-orchestration.md).
-- **Lifecycle hooks (`hooks.json`)**: `astack-irreversible-guard` (`PreToolUse`) and `astack-verify-reminder` (`Stop`).
+- **Lifecycle hooks (`hooks.json`)**: 2 passive observe-only hooks enabled by default (`astack-receipt-ledger` on `PostToolUse` and `astack-session-context` on `SessionStart`) plus 6 opt-in blocking gates (`astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, `astack-round-limiter`).
 
 ## Documentation
 
@@ -325,7 +323,7 @@ AStack ships **63 skills** (`skills/`), **2 agents** (`agents/`), **1 routing ru
 
 ## Security & lifecycle hooks
 
-AStack runs locally. It starts no background servers, sends no telemetry, and stores no credentials. [`hooks.json`](./hooks.json) defines three optional hooks (`astack-irreversible-guard`, `astack-verify-reminder`, `astack-secret-guard`), and all three are off by default.
+AStack runs locally with zero external npm dependencies. It starts no background servers, sends no telemetry, and stores no credentials. [`hooks.json`](./hooks.json) enables two passive observe-only hooks (`astack-receipt-ledger` and `astack-session-context`) by default while keeping all six blocking gates (`astack-irreversible-guard`, `astack-verify-reminder`, `astack-secret-guard`, `astack-evidence-gate`, `astack-boundary-guard`, and `astack-round-limiter`) disabled until opted in. Dormant scheduled automation templates live under [`docs/automations/`](./docs/automations/beacon/README.md) ([PR triage](./docs/automations/pr-triage/README.md), [weekly `/correct`](./docs/automations/weekly-correct/README.md)).
 
 To report a vulnerability, follow [SECURITY.md](./SECURITY.md).
 

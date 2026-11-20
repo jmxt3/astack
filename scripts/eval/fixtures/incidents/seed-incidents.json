@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "incidents": [
+    {
+      "id": "astack-stop-schema-mismatch",
+      "description": "Stop hook checks legacy NO_TOOL_CALL and payload.cwd, ignoring Antigravity Stop payloads (model_stop, workspacePaths, fullyIdle).",
+      "expectedVerdict": ["FAIL"],
+      "expectImportantMin": 1,
+      "expectImportantMax": 5,
+      "expectedCategories": ["correctness"],
+      "diff": "diff --git a/scripts/hooks/verify-reminder.mjs b/scripts/hooks/verify-reminder.mjs\n--- a/scripts/hooks/verify-reminder.mjs\n+++ b/scripts/hooks/verify-reminder.mjs\n@@ -14,7 +14,7 @@ export function evaluateStop(payload) {\n-  if (payload.terminationReason && payload.terminationReason !== \"model_stop\") return { decision: \"allow\" };\n+  if (payload.terminationReason && payload.terminationReason !== \"NO_TOOL_CALL\") return { decision: \"allow\" };\n-  const cwd = payload.workspacePaths?.[0] ?? payload.cwd;\n+  const cwd = payload.cwd;\n",
+      "referenceOutput": {
+        "schemaVersion": 1,
+        "headSha": "1111111111111111111111111111111111111111",
+        "baseSha": "0000000000000000000000000000000000000000",
+        "round": 1,
+        "verdict": "FAIL",
+        "summary": "Stop hook ignores Antigravity model_stop and workspacePaths fields.",
+        "findings": [
+          {
+            "id": "INC-1",
+            "severity": "important",
+            "category": "correctness",
+            "file": "scripts/hooks/verify-reminder.mjs",
+            "line": 15,
+            "claim": "evaluateStop rejects Antigravity Stop terminationReason model_stop and ignores workspacePaths array.",
+            "evidence": "Piping {terminationReason:'model_stop',workspacePaths:[tmp]} returned allow on dirty repo.",
+            "suggestedFix": "Normalize model_stop/NO_TOOL_CALL and workspacePaths[0]/cwd via envelope.mjs."
+          }
+        ],
+        "dropped": [],
+        "reviewMdCompliance": {
+          "checked": true,
+          "violations": []
+        }
+      }
+    },
+    {
+      "id": "silent-test-assertion-weakening",
+      "description": "PR deletes failing assertions from unit tests while leaving product behavior broken.",
+      "expectedVerdict": ["FAIL"],
+      "expectImportantMin": 1,
+      "expectImportantMax": 5,
+      "expectedCategories": ["test_weakening"],
+      "diff": "diff --git a/tests/auth.test.js b/tests/auth.test.js\n--- a/tests/auth.test.js\n+++ b/tests/auth.test.js\n@@ -5,4 +5,2 @@ test('rejects expired token', () => {\n-  assert.equal(res.status, 401);\n-  assert.equal(res.body.error, 'token_expired');\n+  assert.ok(res);\n });\n",
+      "referenceOutput": {
+        "schemaVersion": 1,
+        "headSha": "2222222222222222222222222222222222222222",
+        "baseSha": "0000000000000000000000000000000000000000",
+        "round": 1,
+        "verdict": "FAIL",
+        "summary": "PR weakens auth expiration assertions to a trivial truthy check.",
+        "findings": [
+          {
+            "id": "INC-2",
+            "severity": "important",
+            "category": "test_weakening",
+            "file": "tests/auth.test.js",
+            "line": 5,
+            "ruleRef": "REVIEW.md#L7",
+            "claim": "Removed 401 and token_expired assertions and replaced them with assert.ok(res).",
+            "evidence": "Diff removes 2 strict assertions and adds 1 non-checking assertion without spec change.",
+            "suggestedFix": "Restore strict 401 and token_expired assertions and fix token expiry validation."
+          }
+        ],
+        "dropped": [],
+        "reviewMdCompliance": {
+          "checked": true,
+          "violations": ["REVIEW.md#L7: No silent test weakening"]
+        }
+      }
+    },
+    {
+      "id": "clean-docs-typo-fix",
+      "description": "Negative control: Tier 0 documentation typo fix with zero runtime impact.",
+      "expectedVerdict": ["PASS", "PASS_WITH_NOTES"],
+      "expectImportantMin": 0,
+      "expectImportantMax": 0,
+      "expectedCategories": [],
+      "diff": "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -10,1 +10,1 @@\n-Run tests before opning a PR.\n+Run tests before opening a PR.\n",
+      "referenceOutput": {
+        "schemaVersion": 1,
+        "headSha": "3333333333333333333333333333333333333333",
+        "baseSha": "0000000000000000000000000000000000000000",
+        "round": 1,
+        "verdict": "PASS",
+        "summary": "Documentation typo fix only; zero runtime or boundary risk.",
+        "findings": [],
+        "dropped": [],
+        "reviewMdCompliance": {
+          "checked": true,
+          "violations": []
+        }
+      }
+    }
+  ]
+}

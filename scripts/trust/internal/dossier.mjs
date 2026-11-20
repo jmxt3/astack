@@ -379,7 +379,6 @@ export function compilePrDossier({
     ? tryGitText(workspaceDir, ["diff", diffRange])
     : tryGitText(workspaceDir, ["diff", "HEAD"]);
 
-  // Include uncommitted working-tree changes when reviewing local WIP.
   const wtNumstat = tryGitText(workspaceDir, ["diff", "--numstat"]);
   const wtDiff = tryGitText(workspaceDir, ["diff"]);
   const combinedNumstat = [numstatText, wtNumstat].filter(Boolean).join("\n");

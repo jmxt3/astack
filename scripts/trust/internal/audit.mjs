@@ -14,7 +14,8 @@ const SKIP_DIRS = new Set([
 ]);
 
 const CODE_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".jsx", ".tsx", ".py"]);
-const TEST_FILE_REGEX = /(?:^|\/)(?:tests?|fixtures?|__tests__|mocks?)(?:\/|$)|\.(?:test|spec)\.[jtcm]?[jt]sx?$/i;
+const TEST_FILE_REGEX =
+  /(?:^|\/)(?:tests?|fixtures?|__tests__|mocks?)(?:\/|$)|\.(?:test|spec|compile)\.[jtcm]?[jt]sx?$/i;
 
 function collectCodeFiles(dir, rootDir, out = []) {
   if (!fs.existsSync(dir)) return out;
@@ -49,9 +50,9 @@ function analyzeShallowModule(rel, content, thresholds) {
     if (!trimmed.startsWith("import ") && !trimmed.startsWith("export ")) {
       implLines++;
     }
-    if (/^export\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|class|type|interface)\b/.test(trimmed)) {
+    if (/^export\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|class)\b/.test(trimmed)) {
       exportCount++;
-    } else if (/^export\s*\{/.test(trimmed)) {
+    } else if (/^export\s*\{/.test(trimmed) && !/^export\s+type\s*\{/.test(trimmed)) {
       const inner = trimmed.match(/^export\s*\{([^}]+)\}/);
       if (inner) {
         exportCount += inner[1].split(",").filter((s) => s.trim()).length;
@@ -84,10 +85,31 @@ function analyzeShallowModule(rel, content, thresholds) {
 }
 
 const GARDENING_PATTERNS = [
-  { id: "suppression", regex: /(?:\beslint-disable\b|@ts-ignore\b|@ts-expect-error\b|#\s*type:\s*ignore\b)/ },
-  { id: "workaround-todo", regex: /\b(?:TODO\((?:hack|temp|workaround)\)|FIXME\b|XXX\b)/i },
-  { id: "zero-delay-timer", regex: /\bsetTimeout\s*\([^,]+,\s*0\s*\)/ },
+  {
+    id: "suppression",
+    commentOnly: true,
+    regex: /(?:\beslint-disable\b|@ts-ignore\b|@ts-expect-error\b|#\s*type:\s*ignore\b)/,
+  },
+  {
+    id: "workaround-todo",
+    commentOnly: true,
+    regex: /\b(?:TODO\((?:hack|temp|workaround)\)|FIXME\b|XXX\b)/i,
+  },
+  {
+    id: "zero-delay-timer",
+    commentOnly: false,
+    regex: /\bsetTimeout\s*\([^,]+,\s*0\s*\)/,
+  },
 ];
+
+function isCommentLine(trimmedLine) {
+  return (
+    trimmedLine.startsWith("//") ||
+    trimmedLine.startsWith("/*") ||
+    trimmedLine.startsWith("*") ||
+    trimmedLine.startsWith("#")
+  );
+}
 
 /**
  * Scans a repository for `.agents/boundaries.json` violations, shallow modules, and stale workarounds.
@@ -128,13 +150,16 @@ export function runArchitectureAudit({ cwd = process.cwd() } = {}) {
     if (!isTest) {
       const lines = content.split(/\r?\n/);
       for (let i = 0; i < lines.length; i++) {
+        const trimmedLine = lines[i].trim();
+        const isComment = isCommentLine(trimmedLine);
         for (const gp of GARDENING_PATTERNS) {
+          if (gp.commentOnly && !isComment) continue;
           if (gp.regex.test(lines[i])) {
             gardeningHits.push({
               id: gp.id,
               file: rel,
               line: i + 1,
-              snippet: lines[i].trim().slice(0, 120),
+              snippet: trimmedLine.slice(0, 120),
             });
             break;
           }

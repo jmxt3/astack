@@ -5,6 +5,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_ROOT_DIR, RESERVED_SKILL_NAMES } from "../catalog.mjs";
+import { runIncidentReplay } from "./incident-replay.mjs";
 import { checkPlan } from "../../skills/astack-mode/scripts/check-plan.mjs";
 
 const require = createRequire(import.meta.url);
@@ -190,12 +191,16 @@ export function runEvalSuite({ rootDir = DEFAULT_ROOT_DIR } = {}) {
 const USAGE = `Usage: node scripts/eval/run-eval.mjs [options]
 
 Options:
-  --json       Emit machine-readable JSON fixture-lint report
+  --replay     Run incident-replay reviewer evaluation suite (offline contract grading by default)
+  --live       With --replay, invoke live headless agy -p --json-schema --sandbox --agent pr-verifier
+  --json       Emit machine-readable JSON report
   -h, --help   Show this help text and exit 0`;
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { values } = parseArgs({
     options: {
+      replay: { type: "boolean", default: false },
+      live: { type: "boolean", default: false },
       json: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -204,12 +209,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.stdout.write(`${USAGE}\n`);
     process.exit(0);
   }
-  const report = runEvalSuite();
+  const report = values.replay ? runIncidentReplay({ live: values.live }) : runEvalSuite();
   if (values.json) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } else {
+    const label = values.replay ? report.suiteKind : "eval:fixture-lint";
     process.stdout.write(
-      `[eval:fixture-lint] passed=${report.passed}/${report.total} failed=${report.failed} (regex routing fixture lint + schema contracts; not live model routing)\n`,
+      `[${label}] passed=${report.passed}/${report.total} failed=${report.failed}\n`,
     );
     for (const item of report.results.filter((r) => !r.pass)) {
       console.error(`FAIL ${item.id}: ${JSON.stringify(item)}`);

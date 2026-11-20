@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "zones": {
+    "trustPublic": {
+      "include": ["scripts/trust/index.mjs"]
+    },
+    "trustInternal": {
+      "include": ["scripts/trust/internal/**"],
+      "publicEntry": ["scripts/trust/index.mjs"]
+    },
+    "consumers": {
+      "include": ["scripts/**", "skills/**"],
+      "exclude": ["scripts/trust/**"]
+    }
+  },
+  "importRules": [
+    {
+      "id": "no-trust-internals",
+      "from": "consumers",
+      "forbidImportFrom": ["trustInternal"],
+      "reason": "Import scripts/trust/index.mjs facade instead of scripts/trust/internal/*"
+    }
+  ],
+  "bannedPatterns": [],
+  "shallowModuleThresholds": {
+    "maxExportsPerShallowFile": 8,
+    "minImplLinesPerExport": 6
+  }
+}

@@ -95,21 +95,21 @@ To avoid ever shadowing a native slash command or built-in skill:
 
 - AStack keeps slice fan-out under **`skills/fanout`** (`/fanout`), letting `/fanout` handle lightweight `invoke_subagent` fan-out matrices and escalate cleanly to native `/swarm` when workers need a shared message board or dedicated `@verifier`.
 - [`validate-astack.mjs`](../scripts/validate-astack.mjs) and [`catalog.mjs`](../scripts/catalog.mjs) enforce `RESERVED_SKILL_NAMES` against all 16 native slash commands and the 15 built-in reserved names.
-- **Context budget (`disable-model-invocation: true`)**: Antigravity preloads only `name` and `description` for auto-invocable skills. AStack sets `disable-model-invocation: true` on `34` manual-only/reference skills (`24` `principle-*` skills plus `10` explicit slash entrypoints listed in [`catalog.json`](../scripts/catalog.json)), keeping `29` auto-invocable workflow skills lean in the session index.
+- **Context budget (`disable-model-invocation: true`)**: Antigravity preloads only `name` and `description` for auto-invocable skills. AStack sets `disable-model-invocation: true` on `36` manual-only/reference skills (`24` `principle-*` skills plus `12` explicit slash entrypoints listed in [`catalog.json`](../scripts/catalog.json)), keeping `29` auto-invocable workflow skills lean in the session index.
 
 See [`skills/astack-mode/references/swarm-coordination.md`](../skills/astack-mode/references/swarm-coordination.md) for concrete `swarm` (`title`, `add`, `workspace`, `@verifier`, `@monitor`, cleanup) patterns.
 
-## Opt-In Lifecycle Hooks (`hooks.json`)
+## Zero-Dependency Trust Core & Split Lifecycle Hooks
 
-[`hooks.json`](../hooks.json) ships three lightweight Node 22+ lifecycle hooks **disabled by default (`"enabled": false`)** so installing AStack introduces zero unexpected friction:
+AStack centralizes Antigravity wire normalization, per-actor receipt logging, policy parsing, visual PR dossier compilation, and repository boundary auditing inside one zero-dependency pure-ESM facade ([`scripts/trust/index.mjs`](../scripts/trust/index.mjs)):
 
-1. **`astack-irreversible-guard` (`PreToolUse` on `run_command`)**: Inspects shell strings (including unwrapped nested `sh -c`, `bash -c`, `pwsh -Command`, `cmd /c`, and `eval` calls, scoped SQL DB execution vs read-only searches, and trunk refspec pushes such as `+main`, `:main`, and `--delete main`). Returns `{"decision": "force_ask"}` interactively or `{"decision": "deny"}` under `CI=true` / `NON_INTERACTIVE=1`. Implemented in [`scripts/hooks/irreversible-guard.mjs`](../scripts/hooks/irreversible-guard.mjs).
-2. **`astack-verify-reminder` (`Stop`)**: When enabled and `ASTACK_REQUIRE_VERIFY=1` is set in the environment, nudges once (`{"decision": "continue"}`) if uncommitted non-markdown changes exist on a normal `NO_TOOL_CALL` stop, strictly honoring `continuationActive` to prevent loops. Implemented in [`scripts/hooks/verify-reminder.mjs`](../scripts/hooks/verify-reminder.mjs).
-3. **`astack-secret-guard` (`PreToolUse` on `write_file|edit_file|run_command`)**: Guards against accidental hardcoded private keys, API tokens, or direct `.env` writes/staging while ignoring test fixtures. Returns `{"decision": "force_ask"}` interactively or `{"decision": "deny"}` under `CI=true` / `NON_INTERACTIVE=1`. Implemented in [`scripts/hooks/secret-guard.mjs`](../scripts/hooks/secret-guard.mjs).
+- **Deterministic 6-stage pipeline rail**: `/astack-mode` prints `[AUTO]` stages (1 Understand, 3 Build & Guard, 4 Clean, 5 Live Proof & AI Review) and `[HUMAN GATE]` stages (2 Implementation Plan, 6 Visual PR Review via [`/review-pr`](../skills/review-pr/SKILL.md)), governed by optional `.agents/risk-policy.json` (`allowTier0AutoMerge: false` by default).
+- **Split-default hooks ([`hooks.json`](../hooks.json))**: 2 passive observe-only hooks run enabled by default (`astack-receipt-ledger` on `PostToolUse` writing per-actor `receipts.<conversationId>.jsonl`, and `astack-session-context` on `SessionStart` injecting base-branch `REVIEW.md` and `GLOSSARY.md`), while all 6 blocking gates (`astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, `astack-round-limiter`) remain `"enabled": false` until opted in.
+- **Read-only fresh-context verifier & incident-replay evals**: [`agents/pr-verifier.md`](../agents/pr-verifier.md) omits `tools:` safely across App/CLI and emits [`findings-schema.json`](../skills/review-pr/scripts/findings-schema.json) checked offline and via headless `agy -p --json-schema --sandbox` in [`scripts/eval/incident-replay.mjs`](../scripts/eval/incident-replay.mjs).
 
-## Outer Loop Automations (`beacon`)
+## Outer Loop Automations (`beacon`, `pr-triage`, `weekly-correct`)
 
-AStack includes [`docs/automations/beacon/`](./automations/beacon/README.md), a dormant two-stage automation pack (triage plus reproduce-and-fix) adapted to `.agents/automations/beacon/`, Antigravity `/automation` (`sidecar.json` + `CRON_TZ=`), **Remote Agents** (`agy --remote-agent`), headless `agy -p` runners, `/schedule`, `control-ui` and `control-cli`, and fail-closed Slack thread invariants.
+AStack includes [`docs/automations/beacon/`](./automations/beacon/README.md), [`docs/automations/pr-triage/`](./automations/pr-triage/README.md), and [`docs/automations/weekly-correct/`](./automations/weekly-correct/README.md), dormant automation templates adapted to Antigravity `/automation` (`sidecar.json` + `CRON_TZ=` + `agentapi`), **Remote Agents** (`agy --remote-agent`), headless `agy -p` runners, and `/schedule`.
 
 ## Lineage: What AStack Kept, Adapted, and Built Natively
 

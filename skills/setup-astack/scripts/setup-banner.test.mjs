@@ -12,6 +12,7 @@ import {
   inspectWorkspace,
   runWorkspaceDoctor,
 } from "./setup-banner.mjs";
+import { scaffoldRepoPolicies } from "./init-repo-policy.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bannerScript = path.join(here, "setup-banner.mjs");
@@ -50,7 +51,8 @@ test("inspectWorkspace and formatSetupBanner render defaults for a clean workspa
     assert.match(rendered, /> \/setup-astack initiated · workspace: demo-app/);
     assert.match(rendered, /verify skills : none/);
     assert.match(rendered, /formal verify : none/);
-    assert.match(rendered, /safety hooks  : opt-in \(0\/2 enabled\)/);
+    assert.match(rendered, /safety hooks  : opt-in \(0\/2 enabled; passive 0\/0, blocking 0\/2\)/);
+    assert.match(rendered, /repo policies : defaults \(unconfigured\)/);
     assert.match(rendered, /model routing : native UI \/ Orchestrator \(zero-config\)/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -87,7 +89,7 @@ test("inspectWorkspace and formatSetupBanner report existing verification skills
     const rendered = formatSetupBanner(status);
     assert.match(rendered, /verify skills : verify-web/);
     assert.match(rendered, /formal verify : verify-auth-formal, 1 \.tla spec\(s\)/);
-    assert.match(rendered, /safety hooks  : opt-in \(1\/2 enabled\)/);
+    assert.match(rendered, /safety hooks  : opt-in \(1\/2 enabled; passive 0\/0, blocking 1\/2\)/);
     assert.match(rendered, /model routing : custom override \(\.agents\/rules\/astack-models\.md\)/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -121,7 +123,15 @@ test("setup-banner CLI prints ASCII banner and JSON status for --cwd", () => {
     assert.equal(parsed.workspace, "cli-target");
     assert.deepEqual(parsed.verifySkills, ["verify-api"]);
     assert.deepEqual(parsed.tlaFiles, ["Protocol.tla"]);
-    assert.equal(parsed.hooks.total, 3);
+    assert.equal(parsed.hooks.total, 8);
+    assert.equal(parsed.hookBreakdown.passiveTotal, 2);
+    assert.equal(parsed.hookBreakdown.passiveEnabled, 2);
+    assert.equal(parsed.hookBreakdown.blockingTotal, 6);
+    assert.equal(parsed.hookBreakdown.blockingEnabled, 0);
+    assert.equal(parsed.policies.boundaries, false);
+
+    const liveStatus = inspectWorkspace({ cwd: path.resolve(here, "../../..") });
+    assert.equal(liveStatus.policies.boundaries, true);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -149,7 +159,7 @@ test("runWorkspaceDoctor and setup-banner --doctor report workspace diagnostics"
     assert.equal(report.ok, true);
     const rendered = formatDoctorReport(report);
     assert.match(rendered, /> \/setup-astack --doctor/);
-    assert.match(rendered, /\[PASS\] safety-hooks: 1\/1 opt-in hooks enabled/);
+    assert.match(rendered, /\[PASS\] safety-hooks: passive 0\/0 enabled, blocking 1\/1 opt-in \(1\/1 total\)/);
 
     writeFile(path.join(pluginRoot, "hooks.json"), "{broken");
     const brokenHooks = runWorkspaceDoctor({ cwd: workspaceDir, homeDir, pluginRoot });
@@ -163,6 +173,31 @@ test("runWorkspaceDoctor and setup-banner --doctor report workspace diagnostics"
     const parsed = JSON.parse(cliOut);
     assert.equal(parsed.workspace, "doc-app");
     assert.ok(Array.isArray(parsed.checks));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("scaffoldRepoPolicies creates defaults idempotently and supports --dry-run and --force", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "astack-init-policy-"));
+  try {
+    const dry = scaffoldRepoPolicies({ cwd: tmp, dryRun: true });
+    assert.equal(dry.created.length, 4);
+    assert.equal(fs.existsSync(path.join(tmp, ".agents", "risk-policy.json")), false);
+
+    const first = scaffoldRepoPolicies({ cwd: tmp });
+    assert.deepEqual(first.created, [".agents/risk-policy.json", ".agents/boundaries.json", "REVIEW.md", "GLOSSARY.md"]);
+    assert.deepEqual(first.skipped, []);
+
+    fs.writeFileSync(path.join(tmp, "REVIEW.md"), "# Custom\n", "utf8");
+    const second = scaffoldRepoPolicies({ cwd: tmp });
+    assert.deepEqual(second.created, []);
+    assert.equal(second.skipped.length, 4);
+    assert.equal(fs.readFileSync(path.join(tmp, "REVIEW.md"), "utf8"), "# Custom\n");
+
+    const forced = scaffoldRepoPolicies({ cwd: tmp, targets: ["review-md"], force: true });
+    assert.deepEqual(forced.overwritten, ["REVIEW.md"]);
+    assert.match(fs.readFileSync(path.join(tmp, "REVIEW.md"), "utf8"), /Repository Review Rules/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

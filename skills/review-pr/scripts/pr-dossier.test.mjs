@@ -38,7 +38,6 @@ test("compilePrDossier classifies Risk Tiers, opt-in Tier 0 auto-merge, assertio
   const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-dossier-artifacts-"));
   const trustDir = path.join(artifactDir, "astack-trust");
   try {
-    // Tier 0 docs-only branch with opt-in disabled -> autoMergeEligible stays false
     execFileSync("git", ["checkout", "-b", "feat/docs"], { cwd: repo, stdio: "ignore" });
     fs.writeFileSync(path.join(repo, "README.md"), "# Demo updated\n", "utf8");
     execFileSync("git", ["add", "README.md"], { cwd: repo, stdio: "ignore" });
@@ -75,18 +74,6 @@ test("compilePrDossier classifies Risk Tiers, opt-in Tier 0 auto-merge, assertio
     assert.equal(defaultTier0.evidence.freshness, "fresh");
     assert.equal(defaultTier0.evidence.autoMergeEligible, false);
 
-    // Enable Tier 0 opt-in auto-merge in .agents/risk-policy.json (keep clean repo by writing policy via base commit)
-    fs.mkdirSync(path.join(repo, ".agents"), { recursive: true });
-    fs.writeFileSync(
-      path.join(repo, ".agents", "risk-policy.json"),
-      JSON.stringify({
-        schemaVersion: 1,
-        allowTier0AutoMerge: true,
-        humanGates: { planApproval: "nontrivial", prReview: "tier0-auto" },
-      }),
-      "utf8",
-    );
-    // Note: adding .agents/risk-policy.json in PR puts defaultTier 1, so match it as tier 0 only on base branch:
     execFileSync("git", ["checkout", "main"], { cwd: repo, stdio: "ignore" });
     fs.mkdirSync(path.join(repo, ".agents"), { recursive: true });
     fs.writeFileSync(
@@ -134,7 +121,6 @@ test("compilePrDossier classifies Risk Tiers, opt-in Tier 0 auto-merge, assertio
     assert.match(optedIn.markdown, /````carousel/);
     assert.match(optedIn.markdown, /file:\/\/\//);
 
-    // Tier 3 auth path + assertion weakening + REVIEW.md tampering -> flagged and never autoMergeEligible
     execFileSync("git", ["checkout", "-b", "feat/risky"], { cwd: repo, stdio: "ignore" });
     fs.mkdirSync(path.join(repo, "src"), { recursive: true });
     fs.writeFileSync(path.join(repo, "src", "auth-login.js"), "export const allow = true;\n", "utf8");

@@ -259,7 +259,7 @@ export function runWorkspaceDoctor({
         status: status.hooks.enabled > 0 ? "pass" : "info",
         detail:
           status.hooks.total > 0
-            ? `${status.hooks.enabled}/${status.hooks.total} opt-in hooks enabled in hooks.json`
+            ? `passive ${status.hookBreakdown.passiveEnabled}/${status.hookBreakdown.passiveTotal} enabled, blocking ${status.hookBreakdown.blockingEnabled}/${status.hookBreakdown.blockingTotal} opt-in (${status.hooks.enabled}/${status.hooks.total} total)`
             : "No hooks.json found",
       };
   const activePolicies = Object.entries(status.policies ?? {})

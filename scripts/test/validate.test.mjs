@@ -295,17 +295,17 @@ test("live AStack repo validates cleanly and enforces UI/Orchestrator and agent 
   }
 });
 
-test("live repo matches scripts/catalog.json manualOnlySkills (34 manual-only, 29 auto-invocable)", () => {
+test("live repo matches scripts/catalog.json manualOnlySkills (36 manual-only, 29 auto-invocable)", () => {
   const catalog = JSON.parse(fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "scripts", "catalog.json"), "utf8"));
   const manualSet = new Set(catalog.manualOnlySkills);
-  assert.equal(manualSet.size, 34);
+  assert.equal(manualSet.size, 36);
 
   const skillDirs = fs
     .readdirSync(path.join(DEFAULT_ROOT_DIR, "skills"), { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name)
     .sort();
-  assert.equal(skillDirs.length, 63);
+  assert.equal(skillDirs.length, 65);
 
   let manualCount = 0;
   let autoCount = 0;
@@ -321,16 +321,55 @@ test("live repo matches scripts/catalog.json manualOnlySkills (34 manual-only, 2
       autoCount++;
     }
   }
-  assert.equal(manualCount, 34);
+  assert.equal(manualCount, 36);
   assert.equal(autoCount, 29);
 });
 
-test("all 11 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
+test("validateAStack rejects hook script gaps, drifted matchers, trust/internal imports, and pr-verifier tools", () => {
+  const tmp = makeTempDir("astack-trust-validate-");
+  try {
+    writeFile(path.join(tmp, "plugin.json"), JSON.stringify({ name: "astack", author: { name: "João Machete" } }));
+    writeFile(path.join(tmp, "LICENSE"), "Lauren Tan\nJoão Machete\n");
+    writeFile(
+      path.join(tmp, "agents", "pr-verifier.md"),
+      "---\nname: pr-verifier\ndescription: verifier\ntools:\n  - read_file\n---\n\n# Verifier\n",
+    );
+    writeFile(
+      path.join(tmp, "hooks.json"),
+      JSON.stringify({
+        "astack-secret-guard": {
+          enabled: false,
+          PreToolUse: [
+            {
+              matcher: "write_file",
+              hooks: [{ type: "command", command: "node ./scripts/hooks/does-not-exist.mjs" }],
+            },
+          ],
+        },
+      }),
+    );
+    writeFile(
+      path.join(tmp, "scripts", "bad-caller.mjs"),
+      'import { parseHookStdin } from "./trust/internal/envelope.mjs";\n',
+    );
+
+    const msgs = validateAStack(tmp, { withAgy: false }).errors.map((e) => e.message).join("\n");
+    assert.match(msgs, /agents\/pr-verifier\.md must omit tools:/);
+    assert.match(msgs, /astack-secret-guard PreToolUse matcher drifted from TOOL_MATCHERS/);
+    assert.match(msgs, /astack-secret-guard references missing hook script: scripts\/hooks\/does-not-exist\.mjs/);
+    assert.match(msgs, /Direct import of scripts\/trust\/internal\/\* is forbidden/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("all 14 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
   const clis = [
     "scripts/validate-astack.mjs",
     "scripts/upstream-watch.mjs",
     "scripts/eval/run-eval.mjs",
     "skills/setup-astack/scripts/setup-banner.mjs",
+    "skills/setup-astack/scripts/init-repo-policy.mjs",
     "skills/astack-mode/scripts/check-plan.mjs",
     "skills/astack-mode/scripts/worktree-audit.mjs",
     "skills/show-me-your-work/scripts/log.mjs",
@@ -338,6 +377,8 @@ test("all 11 bundled CLI entrypoints exit 0 on --help and -h with zero module-ty
     "skills/statechart/scripts/statechart.mjs",
     "skills/security-audit/scripts/validate-findings.cjs",
     "skills/security-audit/scripts/validate-coverage-ledger.cjs",
+    "skills/review-pr/scripts/pr-dossier.mjs",
+    "skills/audit-architecture/scripts/arch-audit.mjs",
   ];
   for (const rel of clis) {
     const full = path.join(DEFAULT_ROOT_DIR, ...rel.split("/"));
