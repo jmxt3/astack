@@ -437,7 +437,7 @@ export function compilePrDossier({
   const patchId = computePatchId(diffText, workspaceDir);
 
   const { policy } = loadRiskPolicy(workspaceDir, { baseRef: resolvedBase });
-  const baseCtx = readBaseReviewContext(workspaceDir, resolvedBase);
+  const baseCtx = readBaseReviewContext(workspaceDir, resolvedBase, headRef);
   const trustDir = resolveTrustDir({ workspaceDir, artifactDir });
   const trustRelPrefix = trustDir
     ? path.relative(workspaceDir, trustDir).split(path.sep).join("/")

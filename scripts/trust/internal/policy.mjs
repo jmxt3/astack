@@ -41,6 +41,7 @@ export const DEFAULT_RISK_POLICY = {
         "scripts/trust/**",
         ".github/workflows/**",
         ".agents/**",
+        "REVIEW.md",
         "**/*auth*",
         "**/*billing*",
         "**/*payment*",
@@ -318,7 +319,7 @@ export function parsePorcelainPaths(statusText) {
 /**
  * Reads `REVIEW.md` and `GLOSSARY.md` strictly from the base git ref so a PR cannot weaken its own review rules.
  */
-export function readBaseReviewContext(workspaceDir, explicitBase) {
+export function readBaseReviewContext(workspaceDir, explicitBase, headRef = "HEAD") {
   const baseRef = resolveBaseRef(workspaceDir, explicitBase);
   if (!baseRef) {
     return {
@@ -337,17 +338,19 @@ export function readBaseReviewContext(workspaceDir, explicitBase) {
         "diff",
         "--name-only",
         "--no-renames",
-        `${baseRef}...HEAD`,
+        `${baseRef}...${headRef}`,
       ]) ?? ""
     )
       .split(/\r?\n/)
       .map((s) => unquoteGitPath(s).replace(/\\/g, "/"))
       .filter(Boolean),
   );
-  const statusText =
-    tryGit(workspaceDir, ["-c", "core.quotepath=false", "status", "--porcelain", "-uall"]) ?? "";
-  for (const rel of parsePorcelainPaths(statusText)) {
-    changed.add(rel);
+  if (headRef === "HEAD") {
+    const statusText =
+      tryGit(workspaceDir, ["-c", "core.quotepath=false", "status", "--porcelain", "-uall"]) ?? "";
+    for (const rel of parsePorcelainPaths(statusText)) {
+      changed.add(rel);
+    }
   }
 
   const readBaseFile = (relPath) => {
@@ -373,7 +376,7 @@ export function readBaseReviewContext(workspaceDir, explicitBase) {
 export function evaluateSessionContext(event) {
   if (!event || !event.workspaceDir) return {};
   const ctx = readBaseReviewContext(event.workspaceDir);
-  if (!ctx.reviewMd.present && !ctx.glossaryMd.present) {
+  if (!ctx.reviewMd.present && !ctx.glossaryMd.present && !ctx.riskPolicy?.modifiedInPr) {
     return {};
   }
 

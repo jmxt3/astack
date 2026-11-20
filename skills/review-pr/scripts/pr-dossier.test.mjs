@@ -409,6 +409,61 @@ test("compilePrDossier preserves rebase match across repeated runs, rejects stal
     });
     assert.equal(blankRes.evidence.verifier.stale, true);
     assert.equal(blankRes.evidence.verifier.headSha, null);
+
+    execFileSync("git", ["checkout", "-b", "feat/review-edit", "main"], { cwd: repo, stdio: "ignore" });
+    fs.writeFileSync(path.join(repo, "REVIEW.md"), "- Weakened\n", "utf8");
+    execFileSync("git", ["add", "REVIEW.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "edit review"], { cwd: repo, stdio: "ignore" });
+    const reviewEditSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    const reviewFindings = path.join(artifactDir, "review-edit-findings.json");
+    fs.writeFileSync(
+      reviewFindings,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: reviewEditSha,
+        baseSha,
+        round: 1,
+        verdict: "PASS",
+        summary: "Only review edit",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: [] },
+      }),
+      "utf8",
+    );
+    recordReceipt(
+      { kind: "tool-command", conversationId: "exec", command: "node --test", error: "", workspaceDir: repo },
+      { trustDir, headSha: reviewEditSha },
+    );
+
+    execFileSync("git", ["checkout", "-b", "feat/clean-head-audit", "main"], { cwd: repo, stdio: "ignore" });
+    fs.writeFileSync(path.join(repo, "NOTES2.md"), "clean note\n", "utf8");
+    execFileSync("git", ["add", "NOTES2.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "clean docs"], { cwd: repo, stdio: "ignore" });
+
+    execFileSync("git", ["checkout", "main"], { cwd: repo, stdio: "ignore" });
+    const crossBranchReview = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      headRef: "feat/review-edit",
+      artifactDir,
+      findingsPath: reviewFindings,
+    });
+    assert.equal(crossBranchReview.evidence.riskTier, 3);
+    assert.equal(crossBranchReview.evidence.baseReviewPolicy.modifiedInPr, true);
+    assert.equal(crossBranchReview.evidence.autoMergeEligible, false);
+
+    fs.mkdirSync(path.join(repo, ".agents"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "REVIEW.md"), "- Dirty uncommitted review edit\n", "utf8");
+    fs.writeFileSync(path.join(repo, ".agents", "risk-policy.json"), "{}\n", "utf8");
+    const nonHeadIsolated = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      headRef: "feat/clean-head-audit",
+      artifactDir,
+    });
+    assert.equal(nonHeadIsolated.evidence.baseReviewPolicy.modifiedInPr, false);
+    assert.equal(nonHeadIsolated.evidence.baseReviewPolicy.riskPolicyModifiedInPr, false);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });

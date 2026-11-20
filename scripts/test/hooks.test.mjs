@@ -245,6 +245,24 @@ test("receipt-ledger and session-context passive hooks return {} / base-branch i
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+
+  const tmpPolicyOnly = makeTempGitRepo("astack-policy-warn-");
+  try {
+    execFileSync("git", ["checkout", "-b", "feat/policy-edit"], { cwd: tmpPolicyOnly, stdio: "ignore" });
+    fs.mkdirSync(path.join(tmpPolicyOnly, ".agents"), { recursive: true });
+    fs.writeFileSync(path.join(tmpPolicyOnly, ".agents", "risk-policy.json"), '{"allowTier0AutoMerge":true}\n', "utf8");
+    const sessionPolicyWarn = runHook(
+      sessionScript,
+      JSON.stringify({ conversationId: "s-2", workspacePaths: [tmpPolicyOnly] }),
+    );
+    assert.ok(Array.isArray(sessionPolicyWarn.injectSteps));
+    assert.match(
+      sessionPolicyWarn.injectSteps[0].systemMessage.systemMessage,
+      /WARNING: Working branch edits \.agents\/risk-policy\.json/,
+    );
+  } finally {
+    fs.rmSync(tmpPolicyOnly, { recursive: true, force: true });
+  }
 });
 
 test("evidence-gate, boundary-guard, and round-limiter block violations and honor headless mode", () => {
