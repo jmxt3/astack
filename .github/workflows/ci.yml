@@ -37,3 +37,15 @@ jobs:
 
       - name: Run statechart tests
         run: node --run test:statechart
+
+      - name: Run trust core, PR dossier, and architecture audit tests
+        run: node --run test:trust
+
+      - name: Run security-audit validator tests
+        run: node --run test:security-audit
+
+      - name: Run routing and incident-replay eval tests
+        run: node --run test:eval
+
+      - name: Audit AStack module boundaries
+        run: node skills/audit-architecture/scripts/arch-audit.mjs --cwd . --strict
