@@ -48,6 +48,12 @@ import {
   renderDossierMarkdown,
   validateFindingsDocument,
 } from "./internal/dossier.mjs";
+import {
+  renderGitHubPrProof,
+  resolvePrStatechart,
+  validatePrBodyContract,
+  validateProofManifest,
+} from "./internal/pr-proof.mjs";
 import { runArchitectureAudit } from "./internal/audit.mjs";
 
 export const TOOL_MATCHERS = {
@@ -91,12 +97,16 @@ export {
   recordReceipt,
   recordVerifierReceipt,
   renderDossierMarkdown,
+  renderGitHubPrProof,
   resolveBaseRef,
+  resolvePrStatechart,
   resolveRelativeImportPath,
   resolveTrustDir,
   runArchitectureAudit,
   runHookShell,
   validateFindingsDocument,
+  validatePrBodyContract,
+  validateProofManifest,
   writeEvidenceSnapshotAtomic,
 };
 

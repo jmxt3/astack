@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +10,8 @@ import {
   recordReceipt,
   recordVerifierReceipt,
   validateFindingsDocument,
+  validatePrBodyContract,
+  validateProofManifest,
 } from "../../../scripts/trust/index.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -464,6 +466,245 @@ test("compilePrDossier preserves rebase match across repeated runs, rejects stal
     });
     assert.equal(nonHeadIsolated.evidence.baseReviewPolicy.modifiedInPr, false);
     assert.equal(nonHeadIsolated.evidence.baseReviewPolicy.riskPolicyModifiedInPr, false);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
+  }
+});
+
+test("validateProofManifest enforces schema and compilePrDossier GitHub format covers all 4 statechart tiers, failed receipts, idempotent merge, and --check-pr-body", () => {
+  assert.deepEqual(validateProofManifest({ schemaVersion: 2, checks: "no" }).length >= 2, true);
+  assert.deepEqual(
+    validateProofManifest({
+      schemaVersion: 1,
+      headSha: "a".repeat(40),
+      statechart: { source: "feature-map-flow", transitions: [{ from: "Idle", to: "Done", action: "run", status: "PASS" }] },
+      checks: [
+        {
+          id: "c1",
+          featureId: "workflow-clis",
+          name: "CLI check",
+          surface: "cli",
+          status: "UNREACHABLE",
+          commandOrAction: "node cli.mjs",
+          observed: "No server running",
+        },
+      ],
+    }),
+    [],
+  );
+
+  const repo = makeRepo();
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-gh-proof-"));
+  const trustDir = path.join(artifactDir, "astack-trust");
+  try {
+    execFileSync("git", ["remote", "add", "origin", "git@github.com:acme/demo-app.git"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["checkout", "-b", "feat/github-proof"], { cwd: repo, stdio: "ignore" });
+    fs.mkdirSync(path.join(repo, "src"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "src", "app.js"), "export const ready = true;\n", "utf8");
+    execFileSync("git", ["add", "src/app.js"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "add app"], { cwd: repo, stdio: "ignore" });
+    const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+
+    recordReceipt(
+      { kind: "tool-command", conversationId: "cli", command: "node --test tests/pass.test.js", error: "", workspaceDir: repo },
+      { headSha },
+    );
+    recordReceipt(
+      { kind: "tool-command", conversationId: "cli", command: "node --test tests/fail.test.js", error: "exit status 1", workspaceDir: repo },
+      { headSha },
+    );
+
+    const tierC = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      format: "github",
+    });
+    assert.equal(tierC.evidence.statechartSource, "verification-lifecycle");
+    assert.equal(tierC.evidence.recentChecks.length, 2);
+    assert.equal(tierC.evidence.recentChecks[0].status, "PASS");
+    assert.equal(tierC.evidence.recentChecks[1].status, "FAIL");
+    assert.match(tierC.markdown, /<!-- astack:pr-proof:start -->/);
+    assert.match(tierC.markdown, /<!-- astack:proof-meta \{/);
+    assert.match(tierC.markdown, /```mermaid[\r\n]+stateDiagram-v2/);
+    assert.match(tierC.markdown, /`PASS`/);
+    assert.match(tierC.markdown, /`FAIL`/);
+    assert.match(tierC.markdown, /https:\/\/github\.com\/acme\/demo-app\/blob\//);
+    assert.doesNotMatch(tierC.markdown, /file:\/\/\//);
+    assert.doesNotMatch(tierC.markdown, /````carousel/);
+    assert.doesNotMatch(tierC.markdown, /[\u2013\u2014]/);
+    assert.equal(validatePrBodyContract(tierC.markdown).ok, true);
+
+    const featureDir = path.join(repo, ".agents", "skills", "verify-demo", "features");
+    fs.mkdirSync(featureDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(featureDir, "notes.md"),
+      "# Notes Feature\n\n## Sub-features\n\n- Create note\n- Cancel draft\n- List notes\n",
+      "utf8",
+    );
+    const manifestPath = path.join(trustDir, "proof-manifest.json");
+    fs.mkdirSync(trustDir, { recursive: true });
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha,
+        featureMap: { skillDir: ".agents/skills/verify-demo", coveredFeatures: ["notes"] },
+        checks: [
+          {
+            id: "create-note",
+            featureId: "notes",
+            name: "Create note persists",
+            surface: "cli",
+            status: "PASS",
+            commandOrAction: "node cli.mjs create",
+            observed: "Saved note 1",
+          },
+          {
+            id: "cancel-note",
+            featureId: "notes",
+            name: "Cancel draft leaves store clean",
+            surface: "ui",
+            status: "UNREACHABLE",
+            commandOrAction: "control-ui cancel",
+            observed: "No headless browser in test",
+          },
+        ],
+      }),
+      "utf8",
+    );
+
+    const tierB2 = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      format: "github",
+      featureMapDir: featureDir,
+      proofManifestPath: manifestPath,
+    });
+    assert.equal(tierB2.evidence.statechartSource, "feature-map-coverage");
+    assert.match(tierB2.markdown, /state "Notes Feature" as notes \{/);
+    assert.doesNotMatch(tierB2.markdown, /create_note --> cancel_note/);
+    assert.match(tierB2.markdown, /`UNREACHABLE`/);
+    assert.match(tierB2.markdown, /"unreachable":1/);
+
+    const flowManifestPath = path.join(trustDir, "flow-manifest.json");
+    fs.writeFileSync(
+      flowManifestPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha,
+        statechart: {
+          source: "feature-map-flow",
+          transitions: [
+            { from: "List", to: "Draft", action: "click New", status: "PASS" },
+            { from: "Draft", to: "Saved", action: "click Save", status: "FAIL" },
+          ],
+        },
+        checks: [
+          {
+            id: "save-flow",
+            name: "Save flow",
+            surface: "ui",
+            status: "FAIL",
+            commandOrAction: "click Save",
+            observed: "500 returned",
+          },
+        ],
+      }),
+      "utf8",
+    );
+    const tierB1 = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      format: "github",
+      proofManifestPath: flowManifestPath,
+    });
+    assert.equal(tierB1.evidence.statechartSource, "feature-map-flow");
+    assert.match(tierB1.markdown, /List --> Draft: click New/);
+    assert.match(tierB1.markdown, /class Saved fail/);
+
+    const tlaPath = path.join(artifactDir, "tla.mmd");
+    fs.writeFileSync(
+      tlaPath,
+      [
+        "---",
+        'title: "Demo Spec"',
+        "---",
+        "stateDiagram-v2",
+        "  s0: Idle",
+        "  s1: Broken",
+        "  s0 --> s1: step",
+        "  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834",
+        "  class s0 teal",
+        "  class s0 bugPath",
+        "  class s1 breaks",
+        "  class s1 repeats",
+      ].join("\n"),
+      "utf8",
+    );
+    const tierA1 = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      format: "github",
+      statechartPath: tlaPath,
+    });
+    assert.equal(tierA1.evidence.statechartSource, "formal-tla");
+    assert.match(tierA1.markdown, /classDef teal fill:#bfe3df/);
+    assert.match(tierA1.markdown, /classDef bugPath stroke:#1680f3/);
+    assert.match(tierA1.markdown, /classDef repeats stroke:#9b35d6/);
+
+    const tsPath = path.join(artifactDir, "ts.mmd");
+    fs.writeFileSync(tsPath, "%% provenance: formal-ts\nstateDiagram-v2\n  [*] --> Init\n  Init --> Ready: ok\n", "utf8");
+    const tierA2 = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      format: "github",
+      statechartPath: tsPath,
+    });
+    assert.equal(tierA2.evidence.statechartSource, "formal-ts");
+
+    const prBodyFile = path.join(artifactDir, "body.md");
+    fs.writeFileSync(prBodyFile, "## Why\n\nExplain the fix.\n\n## Scope\n\nCovers core parser.\n", "utf8");
+    execFileSync(
+      process.execPath,
+      [cliPath, "--cwd", repo, "--base", "main", "--artifact-dir", artifactDir, "--format", "github", "--merge-body", prBodyFile, "--out", prBodyFile],
+      { encoding: "utf8" },
+    );
+    const mergedFirst = fs.readFileSync(prBodyFile, "utf8");
+    assert.match(mergedFirst, /^## Why[\s\S]*Explain the fix\./);
+    assert.match(mergedFirst, /## Scope[\s\S]*Covers core parser\./);
+
+    execFileSync(
+      process.execPath,
+      [cliPath, "--cwd", repo, "--base", "main", "--artifact-dir", artifactDir, "--format", "github", "--merge-body", prBodyFile, "--out", prBodyFile],
+      { encoding: "utf8" },
+    );
+    const mergedSecond = fs.readFileSync(prBodyFile, "utf8");
+    assert.equal(mergedSecond, mergedFirst);
+
+    const checkGood = spawnSync(
+      process.execPath,
+      [cliPath, "--check-pr-body", "-", "--json"],
+      { input: mergedSecond, encoding: "utf8" },
+    );
+    assert.equal(checkGood.status, 0, checkGood.stderr);
+    assert.equal(JSON.parse(checkGood.stdout).ok, true);
+
+    const checkBad = spawnSync(
+      process.execPath,
+      [cliPath, "--check-pr-body", "-", "--json"],
+      { input: "## Why\n\nPlain body with [local](file:///tmp/a.png)\n", encoding: "utf8" },
+    );
+    assert.equal(checkBad.status, 1);
+    const badParsed = JSON.parse(checkBad.stdout);
+    assert.equal(badParsed.ok, false);
+    assert.ok(badParsed.violations.some((v) => /file:\/\/\//.test(v)));
+    assert.ok(badParsed.violations.some((v) => /stateDiagram-v2/.test(v)));
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });

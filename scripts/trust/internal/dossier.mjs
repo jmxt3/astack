@@ -18,6 +18,11 @@ import {
   readBaseReviewContext,
   resolveBaseRef,
 } from "./policy.mjs";
+import {
+  renderGitHubPrProof,
+  resolvePrStatechart,
+  validateProofManifest,
+} from "./pr-proof.mjs";
 
 const VALID_VERDICTS = new Set(["PASS", "PASS_WITH_NOTES", "FAIL", "ESCALATE_HUMAN"]);
 const VALID_SEVERITIES = new Set(["important", "nit", "pre_existing"]);
@@ -328,12 +333,16 @@ export function renderDossierMarkdown({
   }
 
   lines.push("## Verification Receipts", "");
-  if (evidence.passedChecks.length === 0) {
+  const antigravityChecks = evidence.recentChecks ?? evidence.passedChecks ?? [];
+  if (antigravityChecks.length === 0) {
     lines.push("No passing command or verifier receipts recorded for this session.", "");
   } else {
-    lines.push("| Time | Category | Summary | HEAD |", "|---|---|---|---|");
-    for (const chk of evidence.passedChecks.slice(-10)) {
-      lines.push(`| ${chk.ts} | \`${chk.category}\` | ${escapeMarkdownCell(chk.summary)} | \`${(chk.headSha ?? "none").slice(0, 7)}\` |`);
+    lines.push("| Time | Category | Status | Summary | HEAD |", "|---|---|---|---|---|");
+    for (const chk of antigravityChecks.slice(-10)) {
+      const status = chk.status ?? (chk.ok === false ? "FAIL" : "PASS");
+      lines.push(
+        `| ${chk.ts} | \`${chk.category}\` | \`${status}\` | ${escapeMarkdownCell(chk.summary)} | \`${(chk.headSha ?? "none").slice(0, 7)}\` |`,
+      );
     }
     lines.push("");
   }
@@ -397,7 +406,16 @@ export function compilePrDossier({
   findingsPath = null,
   screenshots = [],
   outPath = null,
+  format = "antigravity",
+  proofManifestPath = null,
+  statechartPath = null,
+  featureMapDir = null,
+  repoUrl = null,
+  mergeBodyPath = null,
 } = {}) {
+  if (format !== "antigravity" && format !== "github") {
+    throw new Error(`Invalid format "${format}": expected "antigravity" or "github"`);
+  }
   const workspaceDir = path.resolve(cwd);
   const resolvedBase = resolveBaseRef(workspaceDir, baseRef);
   const headSha = tryGitText(workspaceDir, ["rev-parse", headRef]).trim() || readHeadShaFast(workspaceDir);
@@ -439,6 +457,7 @@ export function compilePrDossier({
   const { policy } = loadRiskPolicy(workspaceDir, { baseRef: resolvedBase });
   const baseCtx = readBaseReviewContext(workspaceDir, resolvedBase, headRef);
   const trustDir = resolveTrustDir({ workspaceDir, artifactDir });
+  const fallbackTrustDir = artifactDir ? resolveTrustDir({ workspaceDir, artifactDir: null }) : null;
   const trustRelPrefix = trustDir
     ? path.relative(workspaceDir, trustDir).split(path.sep).join("/")
     : null;
@@ -462,8 +481,14 @@ export function compilePrDossier({
       fileEntries.push({ file: rel, additions: 0, deletions: 0, firstLine: 1 });
     }
   }
-  const receipts = readMergedReceipts(trustDir);
-  const priorEvidence = readEvidenceSnapshot(trustDir);
+  let receipts = readMergedReceipts(trustDir);
+  if (receipts.length === 0 && fallbackTrustDir && fallbackTrustDir !== trustDir) {
+    receipts = readMergedReceipts(fallbackTrustDir);
+  }
+  let priorEvidence = readEvidenceSnapshot(trustDir);
+  if (!priorEvidence && fallbackTrustDir && fallbackTrustDir !== trustDir) {
+    priorEvidence = readEvidenceSnapshot(fallbackTrustDir);
+  }
   const freshness = computeFreshness({
     receipts,
     headSha,
@@ -485,6 +510,10 @@ export function compilePrDossier({
     const candidate = path.join(trustDir, "findings.json");
     if (fs.existsSync(candidate)) resolvedFindingsPath = candidate;
   }
+  if (!resolvedFindingsPath && fallbackTrustDir && fallbackTrustDir !== trustDir) {
+    const candidate = path.join(fallbackTrustDir, "findings.json");
+    if (fs.existsSync(candidate)) resolvedFindingsPath = candidate;
+  }
   if (resolvedFindingsPath && fs.existsSync(resolvedFindingsPath)) {
     const rawFindings = JSON.parse(fs.readFileSync(resolvedFindingsPath, "utf8"));
     const errors = validateFindingsDocument(rawFindings);
@@ -492,6 +521,28 @@ export function compilePrDossier({
       throw new Error(`Invalid findings.json (${resolvedFindingsPath}): ${errors.join("; ")}`);
     }
     findingsDoc = rawFindings;
+  }
+
+  let proofManifest = null;
+  let resolvedManifestPath = proofManifestPath ? path.resolve(workspaceDir, proofManifestPath) : null;
+  if (resolvedManifestPath && !fs.existsSync(resolvedManifestPath)) {
+    throw new Error(`Proof manifest not found (${resolvedManifestPath})`);
+  }
+  if (!resolvedManifestPath && trustDir) {
+    const candidate = path.join(trustDir, "proof-manifest.json");
+    if (fs.existsSync(candidate)) resolvedManifestPath = candidate;
+  }
+  if (!resolvedManifestPath && fallbackTrustDir && fallbackTrustDir !== trustDir) {
+    const candidate = path.join(fallbackTrustDir, "proof-manifest.json");
+    if (fs.existsSync(candidate)) resolvedManifestPath = candidate;
+  }
+  if (resolvedManifestPath && fs.existsSync(resolvedManifestPath)) {
+    const rawManifest = JSON.parse(fs.readFileSync(resolvedManifestPath, "utf8"));
+    const manifestErrors = validateProofManifest(rawManifest);
+    if (manifestErrors.length > 0) {
+      throw new Error(`Invalid proof-manifest.json (${resolvedManifestPath}): ${manifestErrors.join("; ")}`);
+    }
+    proofManifest = rawManifest;
   }
 
   const maxReviewRounds = policy.maxReviewRounds ?? 3;
@@ -550,8 +601,24 @@ export function compilePrDossier({
       importantCount === 0,
   );
 
-  const passedChecks = receipts
-    .filter((r) => r.ok && (r.kind === "verifier" || ["test", "verify", "lint", "build"].includes(r.category)))
+  const checkReceipts = receipts.filter(
+    (r) => r.kind === "verifier" || ["test", "verify", "lint", "build"].includes(r.category),
+  );
+  const recentCandidates = checkReceipts.filter((r) => {
+    if (!headSha || !r.headSha) return true;
+    if (r.headSha === headSha) return true;
+    return freshness === "fresh_rebase_patch_id" && priorEvidence?.headSha && r.headSha === priorEvidence.headSha;
+  });
+  const recentChecks = recentCandidates.map((r) => ({
+    ts: r.ts,
+    category: r.category,
+    ok: Boolean(r.ok),
+    status: r.ok ? "PASS" : "FAIL",
+    summary: r.summary,
+    headSha: r.headSha,
+  }));
+  const passedChecks = checkReceipts
+    .filter((r) => r.ok)
     .map((r) => ({ ts: r.ts, category: r.category, summary: r.summary, headSha: r.headSha }));
 
   const riskLabel = policy.tiers?.[String(risk.tier)]?.label ?? "medium";
@@ -571,6 +638,7 @@ export function compilePrDossier({
     maxReviewRounds,
     roundState,
     passedChecks,
+    recentChecks,
     assertionDelta,
     baseReviewPolicy: {
       present: baseCtx.reviewMd.present,
@@ -590,8 +658,40 @@ export function compilePrDossier({
     screenshots: screenshots.filter(Boolean),
   };
 
+  let statechart = null;
+  let markdown;
+  if (format === "github") {
+    statechart = resolvePrStatechart({
+      workspaceDir,
+      evidence,
+      proofManifest,
+      statechartPath,
+      featureMapDir,
+    });
+    evidence.statechartSource = statechart.source;
+    const resolvedMergeBody = mergeBodyPath ? path.resolve(workspaceDir, mergeBodyPath) : null;
+    const existingBody =
+      resolvedMergeBody && fs.existsSync(resolvedMergeBody)
+        ? fs.readFileSync(resolvedMergeBody, "utf8")
+        : null;
+    markdown = renderGitHubPrProof({
+      workspaceDir,
+      evidence,
+      findingsDoc,
+      proofManifest,
+      statechart,
+      repoUrl,
+      existingBody,
+    });
+  } else {
+    markdown = renderDossierMarkdown({ workspaceDir, evidence, findingsDoc });
+  }
+
   const evidencePath = trustDir ? writeEvidenceSnapshotAtomic(trustDir, evidence) : null;
-  const markdown = renderDossierMarkdown({ workspaceDir, evidence, findingsDoc });
+  if (format === "github" && trustDir) {
+    fs.mkdirSync(trustDir, { recursive: true });
+    fs.writeFileSync(path.join(trustDir, "pr-body.md"), markdown, "utf8");
+  }
   let writtenOutPath = null;
   if (outPath) {
     writtenOutPath = path.resolve(workspaceDir, outPath);
@@ -604,5 +704,6 @@ export function compilePrDossier({
     markdown,
     evidencePath,
     outPath: writtenOutPath,
+    statechart,
   };
 }
