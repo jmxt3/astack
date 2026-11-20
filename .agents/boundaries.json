@@ -9,7 +9,7 @@
       "publicEntry": ["scripts/trust/index.mjs"]
     },
     "consumers": {
-      "include": ["scripts/**", "skills/**"],
+      "include": ["scripts/**", "skills/**", "sidecars/**"],
       "exclude": ["scripts/trust/**"]
     }
   },

@@ -29,6 +29,9 @@ jobs:
       - name: Run plugin validator and hook tests
         run: node --run test:plugin
 
+      - name: Run sidecar timeline tests
+        run: node --run test:sidecar
+
       - name: Run workflow helper tests
         run: node --run test:helpers
 

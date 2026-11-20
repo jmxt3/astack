@@ -352,18 +352,33 @@ test("validateAStack rejects hook script gaps, drifted matchers, trust/internal 
       path.join(tmp, "scripts", "bad-caller.mjs"),
       'import { parseHookStdin } from "./trust/internal/envelope.mjs";\n',
     );
+    writeFile(
+      path.join(tmp, "sidecars", "broken_sidecar", "sidecar.json"),
+      JSON.stringify({
+        command: "node",
+        args: ["missing.mjs"],
+        has_web_ui: true,
+        ui_config: { views: [] },
+      }),
+    );
+    writeFile(
+      path.join(tmp, "sidecars", "broken_sidecar", "bad.mjs"),
+      'import { readMergedReceipts } from ' + '"../../scripts/trust/internal/ledger.mjs";\n',
+    );
 
     const msgs = validateAStack(tmp, { withAgy: false }).errors.map((e) => e.message).join("\n");
     assert.match(msgs, /agents\/pr-verifier\.md must omit tools:/);
     assert.match(msgs, /astack-secret-guard PreToolUse matcher drifted from TOOL_MATCHERS/);
     assert.match(msgs, /astack-secret-guard references missing hook script: scripts\/hooks\/does-not-exist\.mjs/);
     assert.match(msgs, /Direct import of scripts\/trust\/internal\/\* is forbidden/);
+    assert.match(msgs, /Sidecar references missing script: missing\.mjs/);
+    assert.match(msgs, /has_web_ui sidecar must declare non-empty ui_config\.views/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-test("all 14 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
+test("all 15 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
   const clis = [
     "scripts/validate-astack.mjs",
     "scripts/upstream-watch.mjs",
@@ -379,6 +394,7 @@ test("all 14 bundled CLI entrypoints exit 0 on --help and -h with zero module-ty
     "skills/security-audit/scripts/validate-coverage-ledger.cjs",
     "skills/review-pr/scripts/pr-dossier.mjs",
     "skills/audit-architecture/scripts/arch-audit.mjs",
+    "sidecars/astack_timeline/main.mjs",
   ];
   for (const rel of clis) {
     const full = path.join(DEFAULT_ROOT_DIR, ...rel.split("/"));
