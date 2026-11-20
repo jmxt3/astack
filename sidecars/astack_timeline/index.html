@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AStack Timeline</title>
+  <script src="/preload.js"></script>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-row">
+      <h1 class="title">AStack Timeline</h1>
+      <span id="progress" class="progress" data-testid="timeline-progress">0 / 5</span>
+      <span id="live" class="live" role="status" data-testid="timeline-live">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span id="live-label">Idle</span>
+      </span>
+    </div>
+    <div id="meta-row" class="meta-row hidden" data-testid="timeline-meta"></div>
+  </header>
+
+  <main class="main">
+    <section id="next-bar" class="next-bar hidden" aria-label="Recommended next command" data-testid="timeline-next"></section>
+    <ol id="timeline" class="timeline" aria-label="AStack engineering workflow timeline" data-testid="timeline-list"></ol>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" data-testid="timeline-toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
