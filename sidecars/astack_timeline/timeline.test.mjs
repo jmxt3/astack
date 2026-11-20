@@ -511,6 +511,26 @@ test("marks Build & Prove done on Proceed + fresh verify + walkthrough without /
     assert.equal(verified.stages[1].status, "done", "Fresh test receipt plus walkthrough must clear earlier verify-skill reads");
     assert.equal(verified.freshness, "fresh");
     assert.equal(verified.stages[2].status, "next");
+
+    const worktreeWs = path.join(root, ".gemini", "antigravity", "worktrees", "conv-wt", "subagent-branch");
+    writeText(path.join(worktreeWs, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeTranscript(brainDir, "conv-wt", [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:00:00Z",
+        content: "<USER_REQUEST>/astack-mode update widget</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-20T10:00:10Z",
+        tool_calls: [{ name: "edit_file", args: { Path: path.join(worktreeWs, "src", "widget.js") } }],
+      },
+    ]);
+    const wtSnap = evaluateTimelineSnapshot({ conversationId: "conv-wt", brainDir, workspaceDir: worktreeWs });
+    assert.equal(wtSnap.stages[1].status, "active", "Edits inside ~/.gemini/antigravity/worktrees/... must mark Build & Prove active");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

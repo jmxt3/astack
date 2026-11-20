@@ -251,10 +251,13 @@ function extractLeadingSlashCommands(rawContent) {
   return [...match[1].matchAll(/\/([a-z0-9_-]+)/gi)].map((m) => `/${m[1].toLowerCase()}`);
 }
 
+const BRAIN_OR_GENERATED_RE = /(?:^|\/)(?:\.gemini\/antigravity(?:-cli)?\/brain|\.system_generated)(?:\/|$)/i;
+const LOCAL_ARTIFACT_RE = /(?:^|\/)(?:\.system_generated|\.gemini)(?:\/|$)/i;
+
 function isWorkspaceFileTarget(rawPath, workspaceDir, brainConvDir) {
   if (!rawPath) return false;
   const norm = normalizePosix(rawPath);
-  if (/(?:^|\/)(?:\.system_generated|\.gemini)(?:\/|$)/i.test(norm)) return false;
+  if (BRAIN_OR_GENERATED_RE.test(norm)) return false;
   const resolved = workspaceDir ? path.resolve(workspaceDir, rawPath) : path.resolve(rawPath);
   if (brainConvDir) {
     const convNorm = normalizePosix(path.resolve(brainConvDir)).replace(/\/$/, "").toLowerCase();
@@ -263,9 +266,10 @@ function isWorkspaceFileTarget(rawPath, workspaceDir, brainConvDir) {
   }
   if (workspaceDir) {
     const rel = path.relative(path.resolve(workspaceDir), resolved);
-    return rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+    if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return false;
+    return !LOCAL_ARTIFACT_RE.test(normalizePosix(rel));
   }
-  return !path.isAbsolute(rawPath) && norm !== ".." && !norm.startsWith("../");
+  return !path.isAbsolute(rawPath) && norm !== ".." && !norm.startsWith("../") && !LOCAL_ARTIFACT_RE.test(norm);
 }
 
 function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
