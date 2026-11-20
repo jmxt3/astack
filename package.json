@@ -14,6 +14,7 @@
     "test:statechart": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test skills/statechart/scripts/test/chart.test.ts skills/statechart/scripts/test/messages.test.ts skills/statechart/scripts/test/pipeline.test.ts skills/statechart/scripts/test/tlc-out.test.ts",
     "test:security-audit": "node --test skills/security-audit/scripts/validate-findings.test.cjs skills/security-audit/scripts/validate-coverage-ledger.test.cjs",
     "test:eval": "node --test scripts/eval/eval.test.mjs",
-    "test": "node --run validate && node --run test:plugin && node --run test:trust && node --run test:helpers && node --run test:watch-pr && node --run test:statechart && node --run test:security-audit && node --run test:eval"
+    "test:sidecar": "node --test sidecars/astack_panel/server.test.mjs",
+    "test": "node --run validate && node --run test:plugin && node --run test:trust && node --run test:helpers && node --run test:watch-pr && node --run test:statechart && node --run test:security-audit && node --run test:eval && node --run test:sidecar"
   }
 }

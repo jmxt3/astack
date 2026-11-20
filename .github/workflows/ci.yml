@@ -47,5 +47,8 @@ jobs:
       - name: Run routing and incident-replay eval tests
         run: node --run test:eval
 
+      - name: Run sidecar panel tests
+        run: node --run test:sidecar
+
       - name: Audit AStack module boundaries
         run: node skills/audit-architecture/scripts/arch-audit.mjs --cwd . --strict
