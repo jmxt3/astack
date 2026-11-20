@@ -69,4 +69,3 @@ Then ask concisely with `ask_question` (pass unnumbered options without adding a
   - `/plan /astack-mode <task>`: investigate and pause at an approval-gated `implementation_plan.md` before editing files
   - `/astack-help`: browse playbooks, verification skills, and recipes
   - `/swarm` / `/run-workflow` / `/boost` / `/teamwork` / `/goal`: Antigravity's native multi-worker board, Python workflow runner, iterative challenge-and-fix, long-horizon, and completion-driven modes
-  - Open the **AStack** side-pane panel anytime from **Extensions** in the top-right panel menu (or via `[AStack](sidecar://astack/astack_panel/ui.html)`). If AStack was just installed via CLI while Antigravity was open and does not appear in **Extensions** yet, reload or restart the Antigravity window once.

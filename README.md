@@ -86,8 +86,6 @@ agy plugin list --json
 
 To install from a local clone instead, run `agy plugin install ./astack` (or `agy plugin install .` inside the repository). On Windows, if updating while Antigravity is running fails with `Access is denied`, run `agy plugin uninstall astack` first and reinstall.
 
-After installing or updating via CLI while Antigravity is open, reload or restart your Antigravity window so the **AStack** side-pane UI extension (`sidecars/astack_panel/`) appears under **Extensions** in the top-right panel menu.
-
 ## Quick start
 
 1. **Initialize verification in your repository once** by running `/setup-astack` inside Antigravity and picking the recommended option. It inspects your project and scaffolds `.agents/skills/verify-<app>/` so future runs know how to start and verify your app.
