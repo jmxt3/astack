@@ -14,6 +14,7 @@ import {
   computeAssertionDelta,
   loadRiskPolicy,
   matchesAnyGlob,
+  parsePorcelainPaths,
   readBaseReviewContext,
   resolveBaseRef,
 } from "./policy.mjs";
@@ -162,11 +163,32 @@ function parseNumstatAndFirstLines(numstatText, diffText) {
   }
 
   let currentFile = "";
+  let inHeader = false;
+  let headerSrc = "";
   for (const line of String(diffText ?? "").split(/\r?\n/)) {
     if (line.startsWith("diff --git ")) {
+      inHeader = true;
       const m = line.match(/^diff --git a\/.+ b\/(.+)$/);
       currentFile = m ? m[1].replace(/\\/g, "/") : "";
+      headerSrc = currentFile;
       continue;
+    }
+    if (inHeader) {
+      if (line.startsWith("--- a/")) {
+        headerSrc = line.slice(6).replace(/\\/g, "/");
+        continue;
+      }
+      if (line === "+++ /dev/null") {
+        currentFile = headerSrc;
+        continue;
+      }
+      if (line.startsWith("+++ b/")) {
+        currentFile = line.slice(6).replace(/\\/g, "/");
+        continue;
+      }
+      if (line.startsWith("@@ ")) {
+        inHeader = false;
+      }
     }
     if (currentFile && line.startsWith("@@ ")) {
       const hunk = line.match(/\+(\d+)/);
@@ -226,6 +248,10 @@ export function validateFindingsDocument(doc) {
   return errors;
 }
 
+function escapeMarkdownCell(text) {
+  return String(text ?? "").replace(/\|/g, "\\|").replace(/[\r\n]+/g, " ");
+}
+
 function toFileUrl(absPath, line = 1) {
   const normalized = path.resolve(absPath).replace(/\\/g, "/");
   const prefix = normalized.startsWith("/") ? "file://" : "file:///";
@@ -279,7 +305,7 @@ export function renderDossierMarkdown({
     lines.push("## Visual UI Proof", "", "````carousel");
     evidence.screenshots.forEach((imgPath, idx) => {
       if (idx > 0) lines.push("<!-- slide -->");
-      const absImg = path.isAbsolute(imgPath) ? imgPath : path.resolve(workspaceDir, imgPath);
+      const absImg = (path.isAbsolute(imgPath) ? imgPath : path.resolve(workspaceDir, imgPath)).replace(/\\/g, "/");
       const caption = path.basename(imgPath);
       lines.push(`![${caption}](${absImg})`);
     });
@@ -307,7 +333,7 @@ export function renderDossierMarkdown({
   } else {
     lines.push("| Time | Category | Summary | HEAD |", "|---|---|---|---|");
     for (const chk of evidence.passedChecks.slice(-10)) {
-      lines.push(`| ${chk.ts} | \`${chk.category}\` | ${chk.summary} | \`${(chk.headSha ?? "none").slice(0, 7)}\` |`);
+      lines.push(`| ${chk.ts} | \`${chk.category}\` | ${escapeMarkdownCell(chk.summary)} | \`${(chk.headSha ?? "none").slice(0, 7)}\` |`);
     }
     lines.push("");
   }
@@ -316,6 +342,12 @@ export function renderDossierMarkdown({
   if (!findingsDoc) {
     lines.push("No `findings.json` attached yet. Run `pr-verifier` via `/review-pr`.", "");
   } else {
+    if (evidence.verifier?.stale) {
+      lines.push(
+        `> **Warning.** Attached \`findings.json\` is stale: it verified an older commit (\`${findingsDoc.headSha}\`) instead of HEAD (\`${evidence.headSha}\`). Re-run \`pr-verifier\`.`,
+        "",
+      );
+    }
     lines.push(`**Verdict.** \`${findingsDoc.verdict}\` (${findingsDoc.summary})`, "");
     const important = findingsDoc.findings.filter((f) => f.severity === "important");
     const nits = findingsDoc.findings.filter((f) => f.severity === "nit");
@@ -371,20 +403,37 @@ export function compilePrDossier({
   const headSha = tryGitText(workspaceDir, ["rev-parse", headRef]).trim() || readHeadShaFast(workspaceDir);
   const baseSha = resolvedBase ? tryGitText(workspaceDir, ["rev-parse", resolvedBase]).trim() || null : null;
 
-  const diffRange = resolvedBase ? `${resolvedBase}...${headRef}` : headRef;
-  const numstatText = resolvedBase
-    ? tryGitText(workspaceDir, ["diff", "--numstat", diffRange])
-    : tryGitText(workspaceDir, ["diff", "--numstat", "HEAD"]);
-  const diffText = resolvedBase
-    ? tryGitText(workspaceDir, ["diff", diffRange])
-    : tryGitText(workspaceDir, ["diff", "HEAD"]);
+  const comparingHead = headRef === "HEAD";
+  let diffSpec = headRef;
+  if (comparingHead) {
+    if (resolvedBase) {
+      const mergeBase = tryGitText(workspaceDir, ["merge-base", resolvedBase, "HEAD"]).trim();
+      diffSpec = mergeBase || resolvedBase;
+    } else {
+      diffSpec = "HEAD";
+    }
+  } else if (resolvedBase) {
+    diffSpec = `${resolvedBase}...${headRef}`;
+  }
+  const numstatText = tryGitText(workspaceDir, [
+    "-c",
+    "core.quotepath=false",
+    "diff",
+    "--no-renames",
+    "--numstat",
+    diffSpec,
+  ]);
+  const diffText = tryGitText(workspaceDir, [
+    "-c",
+    "core.quotepath=false",
+    "diff",
+    "--no-renames",
+    diffSpec,
+  ]);
 
-  const wtNumstat = tryGitText(workspaceDir, ["diff", "--numstat"]);
-  const wtDiff = tryGitText(workspaceDir, ["diff"]);
-  const combinedNumstat = [numstatText, wtNumstat].filter(Boolean).join("\n");
-  const combinedDiff = [diffText, wtDiff].filter(Boolean).join("\n");
-  const statusText = tryGitText(workspaceDir, ["status", "--porcelain"]);
-  const treeDirty = statusText.trim().length > 0;
+  const statusText = comparingHead
+    ? tryGitText(workspaceDir, ["-c", "core.quotepath=false", "status", "--porcelain", "-uall"])
+    : "";
   const patchId = computePatchId(diffText, workspaceDir);
 
   const { policy } = loadRiskPolicy(workspaceDir);
@@ -393,19 +442,25 @@ export function compilePrDossier({
   const trustRelPrefix = trustDir
     ? path.relative(workspaceDir, trustDir).split(path.sep).join("/")
     : null;
+  const isUnderTrustDir = (rel) =>
+    Boolean(
+      trustRelPrefix &&
+        !trustRelPrefix.startsWith("..") &&
+        (rel === trustRelPrefix || rel.startsWith(`${trustRelPrefix}/`)),
+    );
 
-  const fileEntries = parseNumstatAndFirstLines(combinedNumstat, combinedDiff);
+  const fileEntries = parseNumstatAndFirstLines(numstatText, diffText).filter(
+    (e) => !isUnderTrustDir(e.file),
+  );
   const seenFiles = new Set(fileEntries.map((e) => e.file));
-  for (const line of statusText.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const rel = trimmed.replace(/^[MADRCU?!]{1,2}\s+/, "").replace(/\\/g, "/");
-    if (!rel || seenFiles.has(rel)) continue;
-    if (trustRelPrefix && !trustRelPrefix.startsWith("..") && (rel === trustRelPrefix || rel.startsWith(`${trustRelPrefix}/`))) {
-      continue;
+  const dirtyNonTrustFiles = [];
+  for (const rel of parsePorcelainPaths(statusText)) {
+    if (!rel || isUnderTrustDir(rel)) continue;
+    dirtyNonTrustFiles.push(rel);
+    if (!seenFiles.has(rel)) {
+      seenFiles.add(rel);
+      fileEntries.push({ file: rel, additions: 0, deletions: 0, firstLine: 1 });
     }
-    seenFiles.add(rel);
-    fileEntries.push({ file: rel, additions: 0, deletions: 0, firstLine: 1 });
   }
   const receipts = readMergedReceipts(trustDir);
   const priorEvidence = readEvidenceSnapshot(trustDir);
@@ -414,11 +469,11 @@ export function compilePrDossier({
     headSha,
     patchId,
     priorEvidence,
-    treeDirty: treeDirty && fileEntries.some((f) => !/\.md$/i.test(f.file)),
+    treeDirty: dirtyNonTrustFiles.some((rel) => !/\.md$/i.test(rel)),
   });
 
   const assertionDelta = computeAssertionDelta(
-    combinedDiff,
+    diffText,
     policy.maxAssertionWeakeningRatio ?? 0.25,
   );
   const risk = classifyRiskTier(fileEntries.map((f) => f.file), policy);
@@ -441,7 +496,18 @@ export function compilePrDossier({
 
   const maxReviewRounds = policy.maxReviewRounds ?? 3;
   const reviewRound = findingsDoc?.round ?? priorEvidence?.reviewRound ?? 0;
-  const verifierVerdict = findingsDoc?.verdict ?? priorEvidence?.verifier?.verdict ?? null;
+  const findingsHead = findingsDoc?.headSha?.trim() || null;
+  const findingsMatchHead = Boolean(
+    findingsDoc &&
+      (!headSha ||
+        (findingsHead &&
+          (findingsHead === headSha ||
+            (freshness === "fresh_rebase_patch_id" && priorEvidence?.headSha === findingsHead)))),
+  );
+  const findingsStale = Boolean(findingsDoc && !findingsMatchHead);
+  const reviewViolations = findingsDoc?.reviewMdCompliance?.violations ?? [];
+  const rawVerifierVerdict = findingsDoc?.verdict ?? priorEvidence?.verifier?.verdict ?? null;
+  const verifierVerdict = findingsStale ? null : rawVerifierVerdict;
   const roundState = evaluateRoundState({
     reviewRound,
     verdict: verifierVerdict,
@@ -461,6 +527,8 @@ export function compilePrDossier({
       !assertionDelta.flagged &&
       !baseCtx.reviewMd.modifiedInPr &&
       findingsDoc &&
+      findingsMatchHead &&
+      reviewViolations.length === 0 &&
       (findingsDoc.verdict === "PASS" || findingsDoc.verdict === "PASS_WITH_NOTES") &&
       importantCount === 0,
   );
@@ -493,10 +561,12 @@ export function compilePrDossier({
       modifiedInPr: baseCtx.reviewMd.modifiedInPr,
     },
     verifier: {
-      verdict: verifierVerdict,
-      headSha: findingsDoc?.headSha ?? priorEvidence?.verifier?.headSha ?? null,
+      verdict: rawVerifierVerdict,
+      headSha: findingsHead ?? priorEvidence?.verifier?.headSha ?? null,
+      stale: findingsStale,
       findingsPath: resolvedFindingsPath,
       importantCount,
+      reviewViolationCount: reviewViolations.length,
     },
     clusters,
     screenshots: screenshots.filter(Boolean),

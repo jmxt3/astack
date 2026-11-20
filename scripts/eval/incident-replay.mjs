@@ -75,7 +75,11 @@ function invokeLiveHeadlessVerifier({ diff, schemaPath, agent, cwd }) {
     },
   );
   const parsed = JSON.parse(stdout.trim());
-  return parsed?.structuredOutput ?? parsed?.result ?? parsed;
+  const candidate = parsed?.structuredOutput ?? parsed?.result ?? parsed;
+  if (typeof candidate === "string") {
+    return JSON.parse(candidate);
+  }
+  return candidate;
 }
 
 /**

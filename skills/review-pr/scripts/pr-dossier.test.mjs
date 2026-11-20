@@ -97,7 +97,7 @@ test("compilePrDossier classifies Risk Tiers, opt-in Tier 0 auto-merge, assertio
       {
         kind: "tool-command",
         conversationId: "runner",
-        command: "node --test",
+        command: "node --test | cat",
         error: "",
         workspaceDir: repo,
       },
@@ -107,6 +107,36 @@ test("compilePrDossier classifies Risk Tiers, opt-in Tier 0 auto-merge, assertio
     const shot = path.join(artifactDir, "home.png");
     fs.writeFileSync(shot, "fake-png", "utf8");
     const outMd = path.join(artifactDir, "pr-review.md");
+
+    const staleAttempt = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      findingsPath,
+      screenshots: [shot],
+      outPath: outMd,
+    });
+    assert.equal(staleAttempt.evidence.verifier.stale, true);
+    assert.notEqual(staleAttempt.evidence.roundState, "verified");
+    assert.equal(staleAttempt.evidence.autoMergeEligible, false);
+    assert.match(staleAttempt.markdown, /stale|older commit/i);
+
+    fs.writeFileSync(
+      findingsPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: headDocs2,
+        baseSha: execFileSync("git", ["rev-parse", "main"], { cwd: repo, encoding: "utf8" }).trim(),
+        round: 1,
+        verdict: "PASS",
+        summary: "Clean v2 docs edit",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: [] },
+      }),
+      "utf8",
+    );
+
     const optedIn = compilePrDossier({
       cwd: repo,
       baseRef: "main",
@@ -116,10 +146,56 @@ test("compilePrDossier classifies Risk Tiers, opt-in Tier 0 auto-merge, assertio
       outPath: outMd,
     });
     assert.equal(optedIn.evidence.riskTier, 0);
+    assert.equal(optedIn.evidence.verifier.stale, false);
     assert.equal(optedIn.evidence.autoMergeEligible, true);
     assert.match(optedIn.markdown, /```mermaid/);
     assert.match(optedIn.markdown, /````carousel/);
     assert.match(optedIn.markdown, /file:\/\/\//);
+    assert.match(optedIn.markdown, /!\[home\.png\]\([^\\\r\n]+\/home\.png\)/);
+    assert.match(optedIn.markdown, /node --test \\\| cat/);
+
+    const policyViolatingPath = path.join(trustDir, "findings-viol.json");
+    fs.writeFileSync(
+      policyViolatingPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: headDocs2,
+        baseSha: execFileSync("git", ["rev-parse", "main"], { cwd: repo, encoding: "utf8" }).trim(),
+        round: 1,
+        verdict: "PASS_WITH_NOTES",
+        summary: "Review violation present",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: ["Weakened invariant"] },
+      }),
+      "utf8",
+    );
+    const violAttempt = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      findingsPath: policyViolatingPath,
+    });
+    assert.equal(violAttempt.evidence.autoMergeEligible, false);
+    assert.equal(violAttempt.evidence.verifier.reviewViolationCount, 1);
+
+    fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "docs", "old-note.md"), "# Old\n", "utf8");
+    execFileSync("git", ["add", "docs/old-note.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "add note"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["mv", "docs/old-note.md", "docs/new-note.md"], { cwd: repo, stdio: "ignore" });
+    fs.writeFileSync(path.join(repo, "staged-script.mjs"), "export const s = 1;\n", "utf8");
+    execFileSync("git", ["add", "staged-script.mjs"], { cwd: repo, stdio: "ignore" });
+
+    const stagedDossier = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+    });
+    const allClusterFiles = stagedDossier.evidence.clusters.flatMap((c) => c.files);
+    assert.ok(allClusterFiles.includes("staged-script.mjs"), `Expected staged-script.mjs in ${allClusterFiles}`);
+    assert.ok(allClusterFiles.includes("docs/new-note.md"), `Expected docs/new-note.md in ${allClusterFiles}`);
+    assert.ok(allClusterFiles.every((f) => !f.includes("=>") && !f.includes("->")), `Leaked rename syntax in ${allClusterFiles}`);
 
     execFileSync("git", ["checkout", "-b", "feat/risky"], { cwd: repo, stdio: "ignore" });
     fs.mkdirSync(path.join(repo, "src"), { recursive: true });

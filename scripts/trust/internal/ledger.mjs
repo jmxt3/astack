@@ -276,7 +276,7 @@ export function readMergedReceipts(trustDir) {
   const seen = new Set();
   const files = fs
     .readdirSync(trustDir, { withFileTypes: true })
-    .filter((d) => d.isFile() && /^receipts(?:\.[^.]+)?\.jsonl$/i.test(d.name))
+    .filter((d) => d.isFile() && /^receipts(?:\..+)?\.jsonl$/i.test(d.name))
     .map((d) => d.name)
     .sort();
 
@@ -321,7 +321,10 @@ export function readEvidenceSnapshot(trustDir) {
 export function writeEvidenceSnapshotAtomic(trustDir, evidence) {
   fs.mkdirSync(trustDir, { recursive: true });
   const target = path.join(trustDir, "evidence.json");
-  const tmp = path.join(trustDir, `evidence.json.tmp.${process.pid}.${Date.now()}`);
+  const tmp = path.join(
+    trustDir,
+    `evidence.json.tmp.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2, 8)}`,
+  );
   fs.writeFileSync(tmp, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
   fs.renameSync(tmp, target);
   return target;
@@ -460,10 +463,22 @@ export function evaluateEvidenceGate(event, options = {}) {
   const headSha = options.headSha ?? readHeadShaFast(event.workspaceDir);
   const headless = options.headless ?? false;
 
-  const freshness =
-    evidence && headSha && evidence.headSha === headSha
-      ? evidence.freshness
-      : computeFreshness({ receipts, headSha, priorEvidence: evidence });
+  const receiptFreshness = computeFreshness({ receipts, headSha, priorEvidence: evidence });
+  let freshness;
+  if (evidence && headSha && evidence.headSha === headSha) {
+    if (evidence.freshness === "fresh" || evidence.freshness === "fresh_rebase_patch_id") {
+      const hasNewerWrite = receipts.some(
+        (r) => r.kind === "file_write" && String(r.ts ?? "") > String(evidence.generatedAt ?? ""),
+      );
+      freshness = hasNewerWrite ? "dirty_after_verify" : evidence.freshness;
+    } else if (receiptFreshness === "fresh" || receiptFreshness === "fresh_rebase_patch_id") {
+      freshness = receiptFreshness;
+    } else {
+      freshness = evidence.freshness;
+    }
+  } else {
+    freshness = receiptFreshness;
+  }
 
   const reasons = [];
   if (!evidence && freshness === "missing_receipts") {
