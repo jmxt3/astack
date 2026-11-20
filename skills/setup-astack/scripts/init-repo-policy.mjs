@@ -9,7 +9,7 @@ const USAGE = `Usage: node skills/setup-astack/scripts/init-repo-policy.mjs [opt
 
 Options:
   --cwd <dir>         Target repository root (defaults to current working directory)
-  --targets <list>    Comma-separated targets: risk-policy,boundaries,review-md,glossary (default: all)
+  --targets <list>    Comma-separated targets: risk-policy,boundaries,review-md,glossary,pr-template (default: risk-policy,boundaries,review-md,glossary)
   --force             Overwrite existing files
   --dry-run           Report planned changes without writing files
   --json              Emit machine-readable JSON output
@@ -46,6 +46,7 @@ const DEFAULT_REVIEW_MD = `# Repository Review Rules
 2. **No silent test weakening.** Never delete or loosen existing assertions to force a failing test suite green.
 3. **Preserve module boundaries.** Respect \`.agents/boundaries.json\` import zones and public entrypoints.
 4. **Tiered human sign-off.** Tier 1 through Tier 3 changes always require human review before merge.
+5. **PR statechart and proof table.** Every GitHub PR description must include a compiled \`stateDiagram-v2\` statechart and \`PASS\`/\`FAIL\`/\`SKIP\`/\`UNREACHABLE\` proof table from \`pr-dossier.mjs --format github\`.
 `;
 
 const DEFAULT_GLOSSARY_MD = `# Domain Glossary
@@ -58,10 +59,31 @@ const DEFAULT_GLOSSARY_MD = `# Domain Glossary
 | Evidence Bundle | Deterministic \`evidence.json\` bound to \`HEAD\` SHA | Unverified prose test claims |
 `;
 
+const DEFAULT_PR_TEMPLATE_MD = `## Why
+
+<!-- 1-3 short sentences on the problem and approach. -->
+
+## What changed
+
+- <!-- Key behavioral or structural change. -->
+
+## Scope
+
+- <!-- What this PR covers and what it deliberately leaves out. -->
+
+## Blast Radius
+
+<!-- Risk Tier (Tier 0..3), affected surfaces, and safety check. -->
+
+<!-- astack:pr-proof:start -->
+<!-- Replace with: node skills/review-pr/scripts/pr-dossier.mjs --format github --merge-body <body-file> --out <body-file> -->
+<!-- astack:pr-proof:end -->
+`;
+
 const ALL_TARGETS = ["risk-policy", "boundaries", "review-md", "glossary"];
 
 /**
- * Idempotently scaffolds repo governance files (`.agents/risk-policy.json`, `.agents/boundaries.json`, `REVIEW.md`, `GLOSSARY.md`).
+ * Idempotently scaffolds repo governance files (\`.agents/risk-policy.json\`, \`.agents/boundaries.json\`, \`REVIEW.md\`, \`GLOSSARY.md\`, optional \`.github/PULL_REQUEST_TEMPLATE.md\`).
  */
 export function scaffoldRepoPolicies({
   cwd = process.cwd(),
@@ -91,6 +113,11 @@ export function scaffoldRepoPolicies({
       id: "glossary",
       rel: "GLOSSARY.md",
       content: DEFAULT_GLOSSARY_MD,
+    },
+    {
+      id: "pr-template",
+      rel: ".github/PULL_REQUEST_TEMPLATE.md",
+      content: DEFAULT_PR_TEMPLATE_MD,
     },
   ].filter((item) => selected.has(item.id));
 
