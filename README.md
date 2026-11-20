@@ -19,7 +19,7 @@ AStack is a Google Antigravity plugin that makes the agent prove its work. You g
 
 AStack takes inspiration from Lauren Tan's [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) for empirical verification playbooks and Garry Tan's [`gstack`](https://github.com/garrytan/gstack) for structured review gates, and builds those ideas natively for Google Antigravity.
 
-AStack has 65 skills, 26 playbooks, 24 engineering principles, 3 custom agents, 1 routing rule, and 8 lifecycle hooks (2 passive observe-only enabled by default plus 6 opt-in blocking gates). It runs locally as markdown skills and zero-dependency Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
+AStack has 65 skills, 26 playbooks, 24 engineering principles, 3 custom agents, 1 routing rule, 8 lifecycle hooks (2 passive observe-only enabled by default plus 6 opt-in blocking gates), and 1 optional read-only timeline sidecar UI ([`sidecars/astack_timeline/`](./sidecars/astack_timeline/sidecar.json)). It runs locally as markdown skills and zero-dependency Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
 
 fork it. improve it. make it yours. PRs are welcome!
 
@@ -86,8 +86,6 @@ agy plugin list --json
 
 To install from a local clone instead, run `agy plugin install ./astack` (or `agy plugin install .` inside the repository). On Windows, if updating while Antigravity is running fails with `Access is denied`, run `agy plugin uninstall astack` first and reinstall.
 
-After installing or updating via CLI while Antigravity is open, reload or restart your Antigravity window so the **AStack** side-pane UI extension (`sidecars/astack_panel/`) appears under **Extensions** in the top-right panel menu.
-
 ## Quick start
 
 1. **Initialize verification in your repository once** by running `/setup-astack` inside Antigravity and picking the recommended option. It inspects your project and scaffolds `.agents/skills/verify-<app>/` so future runs know how to start and verify your app.
@@ -148,6 +146,8 @@ control-ui/cli · pr-verifier`"]
     class S1,S3,S4,S5 stage
     class S2,S6 gate
 ```
+
+To follow that path visually inside Google Antigravity, enable the optional [`AStack Timeline`](./sidecars/astack_timeline/sidecar.json) sidecar panel under **Extensions**. It shows only the five primary developer commands (`/setup-astack`, `/plan` with `/grill-me`, `/astack-mode` with `/interrogate`, `/review-pr`, and `open the pr`) with green check marks, amber gates or stale warnings, click-to-copy next steps, and native artifact links.
 
 ## Skill catalog
 
@@ -325,7 +325,7 @@ AStack ships **65 skills** (`skills/`), **3 agents** (`agents/`), **1 routing ru
 
 ## Security & lifecycle hooks
 
-AStack runs locally with zero external npm dependencies. It starts no background servers, sends no telemetry, and stores no credentials. [`hooks.json`](./hooks.json) enables two passive observe-only hooks (`astack-receipt-ledger` and `astack-session-context`) by default while keeping all six blocking gates (`astack-irreversible-guard`, `astack-verify-reminder`, `astack-secret-guard`, `astack-evidence-gate`, `astack-boundary-guard`, and `astack-round-limiter`) disabled until opted in. Dormant scheduled automation templates live under [`docs/automations/`](./docs/automations/beacon/README.md) ([PR triage](./docs/automations/pr-triage/README.md), [weekly `/correct`](./docs/automations/weekly-correct/README.md)).
+AStack runs locally with zero external npm dependencies. It starts no hosted servers, sends no telemetry, and stores no credentials. When you enable the optional [`AStack Timeline`](./sidecars/astack_timeline/sidecar.json) sidecar in Antigravity, Antigravity launches one read-only localhost HTTP panel bound to `127.0.0.1` that inspects local transcripts, workspace readiness, and `astack-trust` receipts without mutating files or sending agent messages. [`hooks.json`](./hooks.json) enables two passive observe-only hooks (`astack-receipt-ledger` and `astack-session-context`) by default while keeping all six blocking gates (`astack-irreversible-guard`, `astack-verify-reminder`, `astack-secret-guard`, `astack-evidence-gate`, `astack-boundary-guard`, and `astack-round-limiter`) disabled until opted in. Dormant scheduled automation templates live under [`docs/automations/`](./docs/automations/beacon/README.md) ([PR triage](./docs/automations/pr-triage/README.md), [weekly `/correct`](./docs/automations/weekly-correct/README.md)).
 
 To report a vulnerability, follow [SECURITY.md](./SECURITY.md).
 

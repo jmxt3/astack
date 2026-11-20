@@ -248,7 +248,13 @@ AStack routes matching intent to all 16 public Antigravity slash commands ([`nat
 
 When returning from a long `/swarm`, `/teamwork`, or `/goal` run, catch up in seconds using [`/ketchup`](../skills/ketchup/SKILL.md) (which uses `/generative_ui` in the App and markdown in the CLI) or [`/ketchup-video`](../skills/ketchup-video/SKILL.md).
 
-### 2. Build the Compounding Repository Flywheel
+### 2. Follow Progress in the Optional AStack Timeline Panel
+
+AStack bundles a compact read-only Antigravity sidecar UI at [`sidecars/astack_timeline/`](../sidecars/astack_timeline/sidecar.json). In the Antigravity App, open the Overview panel's **Extensions** menu and enable **AStack Timeline**, or open `[AStack Timeline](sidecar://astack/astack_timeline/)` from chat.
+
+The panel hides internal sub-commands and displays only the five primary stages and developer commands (`/setup-astack`, `/plan` with optional `/grill-me`, `/astack-mode` with optional `/interrogate`, `/review-pr`, and `open the pr`). Green check marks confirm finished stages, amber indicators highlight waiting human gates or edits made after verification, and expandable rows show automated cleanup/verification sub-checks alongside clickable links to `implementation_plan.md`, `walkthrough.md`, and `pr-review.md`.
+
+### 3. Build the Compounding Repository Flywheel
 
 AStack gets exponentially faster the longer you use it in a repo because each run strengthens the environment for future runs:
 
@@ -258,7 +264,7 @@ AStack gets exponentially faster the longer you use it in a repo because each ru
 4. **Capture durable workflow wins:** After a hard session, run [`/reflect`](../skills/reflect/SKILL.md) (`learning_proposal.md` gate for new skills or rules), or [`/automate-me`](../skills/automate-me/SKILL.md) (powered by `/agy-customizations`) to distill your personal coding preferences out of your transcripts.
 5. **Opt into safety guardrails ([hooks.json](../hooks.json)):** Flip `"enabled": true` on `astack-irreversible-guard` to require explicit confirmation on destructive commands (`git push --force`, `git reset --hard`, `DROP TABLE`), and `astack-verify-reminder` when you want a stop-time verification check.
 
-### 3. Steer Mid-Chat With One-Line Principle Shortcuts
+### 4. Steer Mid-Chat With One-Line Principle Shortcuts
 
 Instead of writing paragraphs of correction, drop a principle name or slash shortcut:
 
@@ -268,7 +274,7 @@ Instead of writing paragraphs of correction, drop a principle name or slash shor
 - **Diff got bloated with wrappers or speculative flags:** `"Apply principle-laziness-protocol and run /deslop."`
 - **Reply got too dense with jargon:** Type [`/bro`](../skills/bro/SKILL.md) for a crisp, jargon-free restatement.
 
-### 4. High-Leverage Do's vs. Common Pitfalls
+### 5. High-Leverage Do's vs. Common Pitfalls
 
 | Do This (High Leverage) | Avoid This (Common Pitfall) |
 |---|---|
