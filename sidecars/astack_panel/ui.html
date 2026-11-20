@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AStack</title>
+    <style>
+      :root {
+        --bg: #0f1117;
+        --surface: #171a23;
+        --surface-hover: #1e2330;
+        --border: #262b38;
+        --text: #e6e9ef;
+        --muted: #939bb0;
+        --accent: #38bdf8;
+        --green: #22c55e;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        --sans: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 14px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .title {
+        font-size: 15px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .badge {
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: rgba(56, 189, 248, 0.14);
+        color: var(--accent);
+        border: 1px solid rgba(56, 189, 248, 0.3);
+      }
+      .desc {
+        color: var(--muted);
+        margin: 0 0 14px;
+        font-size: 12px;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+      .stat {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+      .stat-val {
+        font-size: 16px;
+        font-weight: 600;
+        font-family: var(--mono);
+      }
+      .stat-label {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .section-title {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin: 14px 0 8px;
+      }
+      .cmd-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .cmd {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+      .cmd code {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--accent);
+      }
+      .cmd small {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 2px;
+      }
+      button.copy {
+        background: var(--surface-hover);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-size: 11px;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      button.copy:hover {
+        border-color: var(--accent);
+      }
+      .search {
+        width: 100%;
+        padding: 7px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font-size: 12px;
+        margin-bottom: 8px;
+      }
+      .pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .pill {
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 6px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
+      }
+      .pill.playbook {
+        border-color: rgba(34, 197, 94, 0.35);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="title">
+        <span id="name">AStack</span>
+        <span class="badge" id="version">v0.4.0</span>
+      </div>
+    </div>
+    <p class="desc" id="desc">Loading AStack plugin metadata...</p>
+
+    <div class="stats">
+      <div class="stat"><div class="stat-val" id="c-skills">-</div><div class="stat-label">Skills</div></div>
+      <div class="stat"><div class="stat-val" id="c-playbooks">-</div><div class="stat-label">Playbooks</div></div>
+      <div class="stat"><div class="stat-val" id="c-agents">-</div><div class="stat-label">Agents</div></div>
+      <div class="stat"><div class="stat-val" id="c-hooks">-</div><div class="stat-label">Hooks</div></div>
+    </div>
+
+    <div class="section-title">Quick Commands</div>
+    <div class="cmd-list">
+      <div class="cmd">
+        <div><code>/setup-astack</code><small>Bootstrap verification skills & guardrails for a repo</small></div>
+        <button class="copy" data-copy="/setup-astack">Copy</button>
+      </div>
+      <div class="cmd">
+        <div><code>/plan /astack-mode</code><small>Design a verifiable plan before editing files</small></div>
+        <button class="copy" data-copy="/plan /astack-mode ">Copy</button>
+      </div>
+      <div class="cmd">
+        <div><code>/astack-mode</code><small>Run end-to-end playbook with live proof</small></div>
+        <button class="copy" data-copy="/astack-mode ">Copy</button>
+      </div>
+      <div class="cmd">
+        <div><code>/astack-help</code><small>Pick the right skill, playbook, or multi-agent tier</small></div>
+        <button class="copy" data-copy="/astack-help ">Copy</button>
+      </div>
+    </div>
+
+    <div class="section-title">Playbooks & Skills</div>
+    <input class="search" id="filter" type="search" placeholder="Filter skills & playbooks..." />
+    <div class="pills" id="items"></div>
+
+    <script>
+      const token = new URLSearchParams(window.location.search).get('token');
+      const headers = token ? { 'X-Sidecar-Token': token } : {};
+
+      document.querySelectorAll('button.copy').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(btn.dataset.copy || '');
+            const prev = btn.textContent;
+            btn.textContent = 'Copied';
+            setTimeout(() => { btn.textContent = prev; }, 1200);
+          } catch {}
+        });
+      });
+
+      let allItems = [];
+      function renderItems(query = '') {
+        const q = query.trim().toLowerCase();
+        const container = document.getElementById('items');
+        container.innerHTML = '';
+        for (const item of allItems) {
+          if (q && !item.label.toLowerCase().includes(q)) continue;
+          const el = document.createElement('span');
+          el.className = item.kind === 'playbook' ? 'pill playbook' : 'pill';
+          el.textContent = item.kind === 'playbook' ? `playbook:${item.label}` : `/${item.label}`;
+          container.appendChild(el);
+        }
+      }
+
+      document.getElementById('filter').addEventListener('input', (e) => {
+        renderItems(e.target.value);
+      });
+
+      fetch('/api/overview', { headers })
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
+        .then((data) => {
+          document.getElementById('name').textContent = data.displayName || data.name;
+          document.getElementById('version').textContent = `v${data.version}`;
+          document.getElementById('desc').textContent = data.description || '';
+          document.getElementById('c-skills').textContent = data.counts?.skills ?? 0;
+          document.getElementById('c-playbooks').textContent = data.counts?.playbooks ?? 0;
+          document.getElementById('c-agents').textContent = data.counts?.agents ?? 0;
+          document.getElementById('c-hooks').textContent = data.counts?.hooks ?? 0;
+          allItems = [
+            ...(data.playbooks || []).map((label) => ({ kind: 'playbook', label })),
+            ...(data.skills || []).map((label) => ({ kind: 'skill', label }))
+          ];
+          renderItems();
+        })
+        .catch(() => {
+          document.getElementById('desc').textContent = 'Unable to load AStack overview.';
+        });
+    </script>
+  </body>
+</html>
