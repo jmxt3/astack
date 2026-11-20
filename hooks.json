@@ -1,4 +1,29 @@
 {
+  "astack-receipt-ledger": {
+    "enabled": true,
+    "PostToolUse": [
+      {
+        "matcher": "write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content|run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./scripts/hooks/receipt-ledger.mjs",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "astack-session-context": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "node ./scripts/hooks/session-context.mjs",
+        "timeout": 5
+      }
+    ]
+  },
   "astack-irreversible-guard": {
     "enabled": false,
     "PreToolUse": [
@@ -8,6 +33,21 @@
           {
             "type": "command",
             "command": "node ./scripts/hooks/irreversible-guard.mjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "astack-secret-guard": {
+    "enabled": false,
+    "PreToolUse": [
+      {
+        "matcher": "write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content|run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./scripts/hooks/secret-guard.mjs",
             "timeout": 10
           }
         ]
@@ -24,15 +64,45 @@
       }
     ]
   },
-  "astack-secret-guard": {
+  "astack-evidence-gate": {
     "enabled": false,
     "PreToolUse": [
       {
-        "matcher": "write_file|edit_file|run_command",
+        "matcher": "run_command",
         "hooks": [
           {
             "type": "command",
-            "command": "node ./scripts/hooks/secret-guard.mjs",
+            "command": "node ./scripts/hooks/evidence-gate.mjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "astack-boundary-guard": {
+    "enabled": false,
+    "PreToolUse": [
+      {
+        "matcher": "write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./scripts/hooks/boundary-guard.mjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "astack-round-limiter": {
+    "enabled": false,
+    "PreToolUse": [
+      {
+        "matcher": "write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./scripts/hooks/round-limiter.mjs",
             "timeout": 10
           }
         ]

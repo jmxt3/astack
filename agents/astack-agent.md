@@ -17,3 +17,18 @@ Before doing any work:
 2. If no path was provided, search `~/.gemini/config/plugins/` and `.agents/plugins/` for a file ending in `skills/astack-mode/SKILL.md` (if multiple copies exist, pick the plugin directory whose `plugin.json` has the highest `version`). Stop and report to your parent / swarm coordinator if none exists.
 3. Navigate to the relevant leaf `principle-*` skill whenever you apply that principle.
 4. Keep edits strictly scoped to your assignment, verify empirically before reporting done, and cite exact file paths, symbol names, and observed command output in your final reply (`@coordinator` if running as a `/swarm` worker, or directly to the parent via subagent return).
+
+## Anti-Rationalization Protocol
+
+Never bypass tests, invent pass claims, or modify assertions to green a broken implementation. `PostToolUse` (`receipt-ledger.mjs`) records real test receipts and `pr-dossier.mjs` computes test-assertion weakening ratios. If your reasoning matches any excuse below, execute the mandatory action instead.
+
+| Model Rationalization | Rejected Because | Mandatory Action |
+|---|---|---|
+| Verified logic by reading the diff carefully | Mental simulation misses runtime side effects | Run the real test suite or CLI/UI check and capture stdout |
+| Change is too small to need tests | Small diffs still cause silent regressions | Run or add one targeted assertion covering touched lines |
+| Failures are pre-existing or env noise | Masks regressions introduced in this diff | Verify failure status on the base commit before claiming pre-existing |
+| Headless run blocks browser verification | Antigravity `/browser` and CDP work headless | Drive the live UI via `browser` subagent or CDP and save screenshots |
+| Updated existing assertions so tests pass | Weakening tests hides functional bugs | Restore original assertions unless product behavior intentionally changed |
+| Suite is slow so skipped running it | Unverified edits multiply human review time | Run targeted module tests covering every modified file |
+| Added comments explaining safe usage | Agents skip prose and copy nearby code | Encode invariants in types, runtime validation, or `.agents/boundaries.json` |
+| No mock database/service available | Untested external contracts fail at runtime | Use an isolated temp workspace/fixture or stop and report blocked |

@@ -12,6 +12,7 @@ import {
   loadCatalog,
   parseFrontmatter,
 } from "./catalog.mjs";
+import { TOOL_MATCHERS } from "./trust/index.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_ROOT_DIR = path.resolve(__dirname, "..");
@@ -495,6 +496,72 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
           });
         }
       }
+      if (expectedName === "pr-verifier" && keyMap.tools !== undefined) {
+        errors.push({
+          file: rel,
+          message: "agents/pr-verifier.md must omit tools: to avoid Antigravity App/CLI tool-validation hangs",
+        });
+      }
+    }
+  }
+
+  const hooksFile = path.join(rootDir, "hooks.json");
+  if (fs.existsSync(hooksFile)) {
+    try {
+      const hooksCfg = JSON.parse(fs.readFileSync(hooksFile, "utf8"));
+      const expectedMatchers = {
+        "astack-receipt-ledger": { event: "PostToolUse", matcher: TOOL_MATCHERS.secretGuard },
+        "astack-secret-guard": { event: "PreToolUse", matcher: TOOL_MATCHERS.secretGuard },
+        "astack-boundary-guard": { event: "PreToolUse", matcher: TOOL_MATCHERS.fileWrite },
+        "astack-round-limiter": { event: "PreToolUse", matcher: TOOL_MATCHERS.fileWrite },
+      };
+      for (const [hookName, def] of Object.entries(hooksCfg)) {
+        if (!def || typeof def !== "object") continue;
+        const spec = expectedMatchers[hookName];
+        if (spec) {
+          const entry = Array.isArray(def[spec.event]) ? def[spec.event][0] : null;
+          if (!entry || entry.matcher !== spec.matcher) {
+            errors.push({
+              file: "hooks.json",
+              message: `${hookName} ${spec.event} matcher drifted from TOOL_MATCHERS (${spec.matcher})`,
+            });
+          }
+        }
+        for (const evKey of ["PreToolUse", "PostToolUse", "SessionStart", "Stop", "PreInvocation", "PostInvocation"]) {
+          const items = def[evKey];
+          if (!Array.isArray(items)) continue;
+          const handlers = evKey === "PreToolUse" || evKey === "PostToolUse"
+            ? items.flatMap((block) => (Array.isArray(block?.hooks) ? block.hooks : []))
+            : items;
+          for (const h of handlers) {
+            const m = typeof h?.command === "string" ? h.command.match(/^node\s+\.\/(\S+)/) : null;
+            if (m && !fs.existsSync(path.join(rootDir, ...m[1].split("/")))) {
+              errors.push({
+                file: "hooks.json",
+                message: `${hookName} references missing hook script: ${m[1]}`,
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      errors.push({ file: "hooks.json", message: `Invalid JSON: ${err.message}` });
+    }
+  }
+
+  const trustScanDirs = [
+    ...collectFiles(path.join(rootDir, "scripts"), [".mjs", ".js", ".ts", ".cjs"]),
+    ...collectFiles(path.join(rootDir, "skills"), [".mjs", ".js", ".ts", ".cjs"]),
+  ];
+  for (const codeFile of trustScanDirs) {
+    const rel = toRel(rootDir, codeFile);
+    if (rel.startsWith("scripts/trust/") || rel.startsWith("scripts/test/")) continue;
+    const rawCode = fs.readFileSync(codeFile, "utf8");
+    if (/(?:import|from|require\s*\()\s*["'][^"']*trust\/internal\//.test(rawCode)) {
+      errors.push({
+        file: rel,
+        message: "Direct import of scripts/trust/internal/* is forbidden; import scripts/trust/index.mjs instead",
+      });
     }
   }
 

@@ -8,6 +8,21 @@ disable-model-invocation: true
 
 Bundled AStack skills live at `../<name>/SKILL.md` relative to this file. Pass this file's absolute path (and `../../agents/astack-agent.md`) to every code-writing delegate or `/swarm` worker so delegates inherit the same engineering discipline.
 
+## Deterministic 6-Stage Pipeline Rail
+
+At the start of any build, feature, bug-fix, or refactor run, display this flight rail with stage statuses (`running`, `done`, `skip: <reason>`, `waiting`) and advance automatically in order until the next `[HUMAN GATE]` (governed by `.agents/risk-policy.json` `humanGates`, defaulting to `planApproval: "nontrivial"` and `prReview: "always"`):
+
+```text
+1. [AUTO]       Understand & Align       (/how, /why, base REVIEW.md, GLOSSARY.md)
+2. [HUMAN GATE] Implementation Plan      (implementation_plan.md + Proceed; skipped on trivial fixes or /goal)
+3. [AUTO]       Build & Guard            (astack-agent / /swarm / /tdd, anti-rationalization, receipt hooks)
+4. [AUTO]       Clean & Harden           (/deslop, /no-comments via comment-sicko, re-verify tests)
+5. [AUTO]       Live Proof & AI Review   (verify-<app> / control-ui / control-cli, pr-dossier, pr-verifier <=3 rounds)
+6. [HUMAN GATE] Visual PR Review & Merge (<artifact-dir>/pr-review.md + Review pane; Tier 0 auto-merge only if opted in)
+```
+
+Before reporting done on a PR or branch review, run `/review-pr` (visual dossier + isolated `pr-verifier`, capped at 3 remediation rounds before human escalation). Use `/audit-architecture` for deep-module and `.agents/boundaries.json` scans.
+
 ## Non-negotiables
 
 The Principles section below grounds every trigger. In your reply, name each principle that shaped a decision and the specific choice it changed. Cite only principles whose leaf `SKILL.md` you read this session.
