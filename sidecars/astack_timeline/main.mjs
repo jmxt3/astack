@@ -71,16 +71,19 @@ function fetchWorkspaceFromAgentApi(convId) {
 function resolveWorkspaceUriInput(rawUri) {
   if (typeof rawUri !== "string") return "";
   const trimmed = rawUri.trim();
-  if (!trimmed || trimmed.includes("\0")) return "";
+  if (!trimmed || trimmed.includes("\0") || /^(?:\\\\|\/\/)/.test(trimmed)) return "";
   try {
     let dir = "";
     if (/^file:\/\//i.test(trimmed)) {
-      dir = fileURLToPath(trimmed);
+      const parsed = new URL(trimmed);
+      if (parsed.hostname && parsed.hostname.toLowerCase() !== "localhost") return "";
+      dir = fileURLToPath(parsed);
     } else if (path.isAbsolute(trimmed)) {
       dir = path.resolve(trimmed);
     } else {
       return "";
     }
+    if (!dir || /^(?:\\\\|\/\/)/.test(dir)) return "";
     if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
       return dir;
     }

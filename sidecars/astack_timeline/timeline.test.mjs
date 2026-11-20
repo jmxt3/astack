@@ -390,6 +390,7 @@ test("detects autoSubCommands and opt-in moreCommands from transcript while igno
         type: "PLANNER_RESPONSE",
         created_at: "2026-11-20T10:02:00Z",
         tool_calls: [
+          { name: "read_file", args: { Path: "/plugin/skills/maintain-verification-skill/SKILL.md" } },
           { name: "read_file", args: { Path: "/plugin/skills/deslop/SKILL.md" } },
           { name: "invoke_subagent", args: { TypeName: "pr-verifier" } },
           { name: "run_command", args: { CommandLine: "node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --pr 1" } },
@@ -401,6 +402,8 @@ test("detects autoSubCommands and opt-in moreCommands from transcript while igno
     const build = snap.stages[1];
     const review = snap.stages[2];
     const ship = snap.stages[3];
+
+    assert.equal(snap.setup.commands.find((c) => c.command === "/maintain-verification-skill")?.state, "done");
 
     assert.equal(build.autoSubCommands.find((c) => c.command === "/deslop")?.ran, true);
     assert.equal(build.moreCommands.find((c) => c.command === "/tdd")?.state, "pending");

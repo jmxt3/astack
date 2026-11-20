@@ -534,7 +534,7 @@ function buildSetupReadiness(setup, sig) {
   const commands = status === "ready"
     ? [
         makeCommandItem("/setup-astack", "done"),
-        makeCommandItem("/maintain-verification-skill", "pending", true),
+        makeCommandItem("/maintain-verification-skill", sig.detected.has("/maintain-verification-skill") ? "done" : "pending", true),
       ]
     : [makeCommandItem("/setup-astack", status === "needs_setup" ? "next" : "pending")];
 
