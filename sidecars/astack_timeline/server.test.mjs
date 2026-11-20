@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createTimelineServer } from "./main.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -56,11 +56,19 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     const htmlRes = await fetch(`${srv.url}`);
     assert.equal(htmlRes.status, 200);
     assert.match(htmlRes.headers.get("content-type") ?? "", /text\/html/);
-    assert.match(await htmlRes.text(), /AStack Timeline/);
+    const htmlText = await htmlRes.text();
+    assert.match(htmlText, /AStack Timeline/);
+    assert.match(htmlText, /data-testid="cmd-popover"/);
+    assert.match(htmlText, /data-testid="timeline-footer"/);
+    assert.match(htmlText, /data-testid="timeline-setup"/);
+    assert.match(htmlText, /data-testid="timeline-setup-drawer"/);
 
     const cssRes = await fetch(`${srv.url}styles.css`);
     assert.equal(cssRes.status, 200);
     assert.match(cssRes.headers.get("content-type") ?? "", /text\/css/);
+    const cssText = await cssRes.text();
+    assert.match(cssText, /--tl-done:/);
+    assert.match(cssText, /\.setup-card\b/);
 
     const jsRes = await fetch(`${srv.url}app.js`);
     assert.equal(jsRes.status, 200);
@@ -68,7 +76,9 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
 
     const preloadRes = await fetch(`${srv.url}preload.js`);
     assert.equal(preloadRes.status, 200);
-    assert.match(await preloadRes.text(), /window\.sidecar/);
+    const preloadText = await preloadRes.text();
+    assert.match(preloadText, /window\.sidecar/);
+    assert.match(preloadText, /getWorkspaceUris/);
 
     const unauth = await fetch(`${srv.url}api/timeline?conversationId=${convId}`);
     assert.equal(unauth.status, 401);
@@ -86,9 +96,17 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     const firstRes = await fetch(`${srv.url}api/timeline?conversationId=${convId}`, { headers });
     assert.equal(firstRes.status, 200);
     const first = await firstRes.json();
-    assert.equal(first.stages.length, 5);
-    assert.equal(first.stages[0].status, "done");
-    assert.equal(first.stages[1].status, "waiting_gate");
+    assert.equal(first.stages.length, 4);
+    assert.equal(first.setup.status, "ready");
+    assert.ok(Array.isArray(first.setup.autoSubCommands) && first.setup.autoSubCommands.length > 0);
+    assert.ok(Array.isArray(first.setup.moreCommands) && first.setup.moreCommands.length > 0);
+    for (const st of first.stages) {
+      assert.ok(Array.isArray(st.autoSubCommands) && st.autoSubCommands.length > 0);
+      assert.ok(Array.isArray(st.moreCommands) && st.moreCommands.length > 0);
+    }
+    const secAudit = first.stages[2].moreCommands.find((c) => c.command === "/security-audit");
+    assert.equal(secAudit?.copyText, "/security-audit");
+    assert.equal(first.stages[0].status, "waiting_gate");
     assert.equal(first.nextAction.command, "Proceed");
     assert.ok(first.etag);
 
@@ -114,11 +132,67 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     assert.equal(nextRes.status, 200);
     const updated = await nextRes.json();
     assert.notEqual(updated.etag, first.etag);
-    assert.equal(updated.stages[1].status, "done");
-    assert.equal(updated.stages[2].status, "next");
+    assert.equal(updated.stages[0].status, "done");
+    assert.equal(updated.stages[1].status, "next");
     assert.equal(updated.nextAction.command, "/astack-mode");
   } finally {
     await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("createTimelineServer resolves workspaceUri on idle conversations, rejects invalid paths, and preserves explicitWorkspace precedence", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-ws-"));
+  const brainDir = path.join(root, "brain");
+  const configuredRepo = path.join(root, "configured");
+  const unconfiguredRepo = path.join(root, "unconfigured");
+  const notADirFile = path.join(root, "file.txt");
+
+  writeText(path.join(configuredRepo, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+  fs.mkdirSync(unconfiguredRepo, { recursive: true });
+  fs.mkdirSync(brainDir, { recursive: true });
+  writeText(notADirFile, "not a dir\n");
+
+  const prevConvEnv = process.env.ANTIGRAVITY_CONVERSATION_ID;
+  const prevWsEnv = process.env.ANTIGRAVITY_WORKSPACE_DIR;
+  delete process.env.ANTIGRAVITY_CONVERSATION_ID;
+  delete process.env.ANTIGRAVITY_WORKSPACE_DIR;
+
+  const dynamicSrv = await createTimelineServer({ brainDir, conversationId: "", port: 0 });
+  const pinnedSrv = await createTimelineServer({ brainDir, conversationId: "", workspaceDir: configuredRepo, port: 0 });
+
+  try {
+    const cfgUri = encodeURIComponent(pathToFileURL(configuredRepo).href);
+    const uncfgUri = encodeURIComponent(pathToFileURL(unconfiguredRepo).href);
+    const fileUri = encodeURIComponent(pathToFileURL(notADirFile).href);
+
+    const cfgSnap = await (await fetch(`${dynamicSrv.url}api/timeline?workspaceUri=${cfgUri}`)).json();
+    assert.equal(cfgSnap.hasConversation, false);
+    assert.equal(cfgSnap.setup.status, "ready");
+    assert.equal(cfgSnap.stages[0].status, "next");
+    assert.equal(cfgSnap.nextAction.command, "/plan");
+
+    const uncfgSnap = await (await fetch(`${dynamicSrv.url}api/timeline?workspaceUri=${uncfgUri}`)).json();
+    assert.equal(uncfgSnap.setup.status, "needs_setup");
+    assert.equal(uncfgSnap.nextAction.stageId, "setup");
+    assert.equal(uncfgSnap.nextAction.command, "/setup-astack");
+
+    const badUriSnap = await (await fetch(`${dynamicSrv.url}api/timeline?workspaceUri=${fileUri}`)).json();
+    assert.equal(badUriSnap.setup.status, "unknown");
+    assert.equal(badUriSnap.nextAction.command, "/plan");
+
+    const relPathSnap = await (await fetch(`${dynamicSrv.url}api/timeline?workspaceUri=relative/path`)).json();
+    assert.equal(relPathSnap.setup.status, "unknown");
+    assert.equal(relPathSnap.nextAction.command, "/plan");
+
+    const pinnedSnap = await (await fetch(`${pinnedSrv.url}api/timeline?workspaceUri=${uncfgUri}`)).json();
+    assert.equal(pinnedSnap.workspace, path.resolve(configuredRepo));
+    assert.equal(pinnedSnap.setup.status, "ready");
+  } finally {
+    if (prevConvEnv !== undefined) process.env.ANTIGRAVITY_CONVERSATION_ID = prevConvEnv;
+    if (prevWsEnv !== undefined) process.env.ANTIGRAVITY_WORKSPACE_DIR = prevWsEnv;
+    await dynamicSrv.close();
+    await pinnedSrv.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

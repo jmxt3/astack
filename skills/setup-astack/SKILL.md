@@ -69,3 +69,4 @@ Then ask concisely with `ask_question` (pass unnumbered options without adding a
   - `/plan /astack-mode <task>`: investigate and pause at an approval-gated `implementation_plan.md` before editing files
   - `/astack-help`: browse playbooks, verification skills, and recipes
   - `/swarm` / `/run-workflow` / `/boost` / `/teamwork` / `/goal`: Antigravity's native multi-worker board, Python workflow runner, iterative challenge-and-fix, long-horizon, and completion-driven modes
+- When running in an Antigravity App session with the AStack Timeline sidecar enabled and the pill has not been shown yet, finish with `[AStack Timeline](sidecar://astack/astack_timeline/)` on its own line.

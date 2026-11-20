@@ -68,19 +68,50 @@ function fetchWorkspaceFromAgentApi(convId) {
   });
 }
 
+function resolveWorkspaceUriInput(rawUri) {
+  if (typeof rawUri !== "string") return "";
+  const trimmed = rawUri.trim();
+  if (!trimmed || trimmed.includes("\0")) return "";
+  try {
+    let dir = "";
+    if (/^file:\/\//i.test(trimmed)) {
+      dir = fileURLToPath(trimmed);
+    } else if (path.isAbsolute(trimmed)) {
+      dir = path.resolve(trimmed);
+    } else {
+      return "";
+    }
+    if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+      return dir;
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
 function makeWorkspaceResolver({ explicitWorkspace = "", resolveWorkspaceFn = null } = {}) {
   const cache = new Map();
-  return async (convId) => {
+  return async (convId, workspaceUri = "") => {
     if (explicitWorkspace) return path.resolve(explicitWorkspace);
-    if (!convId) return process.env.ANTIGRAVITY_WORKSPACE_DIR || "";
-    if (resolveWorkspaceFn) return (await resolveWorkspaceFn(convId)) || "";
-    if (cache.has(convId)) return cache.get(convId);
-    const pending = fetchWorkspaceFromAgentApi(convId).then((dir) => {
-      cache.set(convId, dir);
-      return dir;
-    });
-    cache.set(convId, pending);
-    return pending;
+    if (convId) {
+      if (resolveWorkspaceFn) {
+        const dir = (await resolveWorkspaceFn(convId)) || "";
+        if (dir) return dir;
+      } else {
+        let pending = cache.get(convId);
+        if (!pending) {
+          pending = fetchWorkspaceFromAgentApi(convId).then((dir) => {
+            if (!dir) cache.delete(convId);
+            return dir;
+          });
+          cache.set(convId, pending);
+        }
+        const dir = await pending;
+        if (dir) return dir;
+      }
+    }
+    return resolveWorkspaceUriInput(workspaceUri) || process.env.ANTIGRAVITY_WORKSPACE_DIR || "";
   };
 }
 
@@ -119,6 +150,11 @@ function buildStandalonePreloadScript(defaultConvId) {
   window.sidecar = {
     conversationId: params.get("conversationId") || ${JSON.stringify(defaultConvId || "")},
     fetch: (url, init) => fetch(url, init),
+    getWorkspaceUris: async () => {
+      const w = params.get("workspaceUri");
+      return w ? [w] : [];
+    },
+    onWorkspaceChange: () => () => {},
   };
 })();\n`;
 }
@@ -129,13 +165,13 @@ function createTimelineResponder({
   allowFixtureIds = false,
   workspaceResolver,
 }) {
-  return async ({ conversationId = "", etag = "" } = {}) => {
+  return async ({ conversationId = "", etag = "", workspaceUri = "" } = {}) => {
     const rawConv = String(conversationId || defaultConversationId || "").trim();
     if (rawConv && !isValidConversationId(rawConv, allowFixtureIds)) {
       return { status: 400, body: { error: "Invalid conversationId" } };
     }
 
-    const workspaceDir = await workspaceResolver(rawConv);
+    const workspaceDir = await workspaceResolver(rawConv, workspaceUri);
     const snap = evaluateTimelineSnapshot({ conversationId: rawConv, brainDir, workspaceDir });
     if (etag && etag === snap.etag) {
       return { status: 200, body: { conversationId: rawConv || null, unchanged: true, etag: snap.etag } };
@@ -204,6 +240,7 @@ export async function createTimelineServer(options = {}) {
       const { status, body } = await respondTimeline({
         conversationId: reqUrl.searchParams.get("conversationId") ?? "",
         etag: reqUrl.searchParams.get("etag") ?? "",
+        workspaceUri: reqUrl.searchParams.get("workspaceUri") ?? "",
       });
       res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
       res.end(req.method === "HEAD" ? "" : JSON.stringify(body));
@@ -253,6 +290,7 @@ export async function startTimelineSidecar(options = {}) {
         const res = await respondTimeline({
           conversationId: data?.conversationId ?? app.config?.conversationId ?? "",
           etag: data?.etag ?? "",
+          workspaceUri: data?.workspaceUri ?? "",
         });
         return new Response(JSON.stringify(res.body), {
           status: res.status,

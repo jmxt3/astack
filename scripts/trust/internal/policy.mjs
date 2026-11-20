@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { isHeadless, parseHookPayload } from "./envelope.mjs";
 
@@ -382,28 +383,65 @@ export function readBaseReviewContext(workspaceDir, explicitBase, headRef = "HEA
   };
 }
 
+function detectEnabledTimelineSidecar({ artifactDir = "", configPath = null } = {}) {
+  if (!artifactDir || !/(?:^|[\\/])antigravity[\\/]brain(?:[\\/]|$)/i.test(artifactDir)) {
+    return false;
+  }
+  const cfgPath = configPath || path.join(os.homedir(), ".gemini", "config", "config.json");
+  if (!fs.existsSync(cfgPath)) return false;
+  try {
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+    const entry = cfg?.sidecars?.["astack/astack_timeline"];
+    if (!entry || typeof entry !== "object") return false;
+    if (entry.enabled === false) return false;
+    return entry.enabled === true || (entry.resolvedPermissions !== null && entry.resolvedPermissions !== undefined);
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Formats Antigravity SessionStart `injectSteps` carrying base-branch `REVIEW.md` and `GLOSSARY.md`.
+ * Formats Antigravity SessionStart `injectSteps` carrying base-branch governance context and optional AStack Timeline pill guidance.
  */
-export function evaluateSessionContext(event) {
-  if (!event || !event.workspaceDir) return {};
-  const ctx = readBaseReviewContext(event.workspaceDir);
-  if (!ctx.reviewMd.present && !ctx.glossaryMd.present && !ctx.riskPolicy?.modifiedInPr) {
+export function evaluateSessionContext(event, options = {}) {
+  if (!event) return {};
+  const timelineEnabled = detectEnabledTimelineSidecar({
+    artifactDir: event.artifactDir,
+    configPath: options.configPath,
+  });
+  const ctx = event.workspaceDir
+    ? readBaseReviewContext(event.workspaceDir)
+    : {
+        baseRef: null,
+        reviewMd: { present: false, content: "", modifiedInPr: false },
+        glossaryMd: { present: false, content: "", modifiedInPr: false },
+        riskPolicy: { present: false, content: "", modifiedInPr: false },
+      };
+  const hasGovernance = ctx.reviewMd.present || ctx.glossaryMd.present || ctx.riskPolicy?.modifiedInPr;
+  if (!hasGovernance && !timelineEnabled) {
     return {};
   }
 
-  const parts = [`Loaded base-branch (${ctx.baseRef}) governance context:`];
-  if (ctx.reviewMd.present) {
-    parts.push(`\n## Base-branch REVIEW.md\n${ctx.reviewMd.content.slice(0, 3500)}`);
-    if (ctx.reviewMd.modifiedInPr) {
-      parts.push("\nWARNING: Working branch edits REVIEW.md. Evaluate strictly against base-branch REVIEW.md.");
+  const parts = [];
+  if (hasGovernance) {
+    parts.push(`Loaded base-branch (${ctx.baseRef}) governance context:`);
+    if (ctx.reviewMd.present) {
+      parts.push(`\n## Base-branch REVIEW.md\n${ctx.reviewMd.content.slice(0, 3500)}`);
+      if (ctx.reviewMd.modifiedInPr) {
+        parts.push("\nWARNING: Working branch edits REVIEW.md. Evaluate strictly against base-branch REVIEW.md.");
+      }
+    }
+    if (ctx.riskPolicy?.modifiedInPr) {
+      parts.push("\nWARNING: Working branch edits .agents/risk-policy.json. Evaluate strictly against base-branch risk policy.");
+    }
+    if (ctx.glossaryMd.present) {
+      parts.push(`\n## Base-branch GLOSSARY.md\n${ctx.glossaryMd.content.slice(0, 2500)}`);
     }
   }
-  if (ctx.riskPolicy?.modifiedInPr) {
-    parts.push("\nWARNING: Working branch edits .agents/risk-policy.json. Evaluate strictly against base-branch risk policy.");
-  }
-  if (ctx.glossaryMd.present) {
-    parts.push(`\n## Base-branch GLOSSARY.md\n${ctx.glossaryMd.content.slice(0, 2500)}`);
+  if (timelineEnabled) {
+    parts.push(
+      "AStack Timeline sidecar is enabled in this Antigravity App session. End your first AStack workflow reply (or a plan or PR review gate reply if not yet shown) with `[AStack Timeline](sidecar://astack/astack_timeline/)` on its own line. Do not repeat the pill on follow-up turns once shown.",
+    );
   }
 
   return {

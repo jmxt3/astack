@@ -14,22 +14,47 @@ import {
   resolveTrustDir,
 } from "../../scripts/trust/index.mjs";
 
+import { COMMAND_DOCS, STAGE_COMMAND_CATALOG } from "./command-catalog.mjs";
+
+export { COMMAND_DOCS };
+
 const STAGE_BY_ID = new Map(PIPELINE_STAGES.map((stage) => [stage.id, stage]));
+
+function makeCommandItem(command, state, optional = false) {
+  const doc = COMMAND_DOCS[command] ?? {};
+  const trimmed = String(command).trim();
+  return {
+    command,
+    copyText: trimmed,
+    state,
+    optional,
+    description: doc.description ?? "",
+    docsUrl: doc.docsUrl ?? null,
+  };
+}
+
+function buildStageSubCommands(stageId, detected, excludeCommands = null) {
+  const entry = STAGE_COMMAND_CATALOG[stageId] ?? { autoSubCommands: [], moreCommands: [] };
+  const moreIds = excludeCommands
+    ? entry.moreCommands.filter((cmd) => !excludeCommands.has(cmd))
+    : entry.moreCommands;
+  return {
+    autoSubCommands: entry.autoSubCommands.map((cmd) => ({
+      ...makeCommandItem(cmd, detected.has(cmd) ? "done" : "pending", true),
+      ran: detected.has(cmd),
+    })),
+    moreCommands: moreIds.map((cmd) =>
+      makeCommandItem(cmd, detected.has(cmd) ? "done" : "pending", true),
+    ),
+  };
+}
 
 export const TIMELINE_STEPS = [
   {
-    id: "setup",
-    number: 1,
-    label: "Setup",
-    gate: "SETUP",
-    primaryCommand: "/setup-astack",
-    optionalCommands: [],
-    pipelineStages: [],
-  },
-  {
     id: "plan",
-    number: 2,
+    number: 1,
     label: "Plan",
+    summary: "Agree on a written plan before editing code.",
     gate: "GATE",
     primaryCommand: "/plan",
     optionalCommands: ["/grill-me"],
@@ -37,8 +62,9 @@ export const TIMELINE_STEPS = [
   },
   {
     id: "build",
-    number: 3,
+    number: 2,
     label: "Build & Prove",
+    summary: "Implement, clean the diff, and prove it works.",
     gate: "AUTO",
     primaryCommand: "/astack-mode",
     optionalCommands: ["/interrogate"],
@@ -50,8 +76,9 @@ export const TIMELINE_STEPS = [
   },
   {
     id: "review",
-    number: 4,
+    number: 3,
     label: "PR Review",
+    summary: "Compile PR proof and run isolated verification.",
     gate: "GATE",
     primaryCommand: "/review-pr",
     optionalCommands: [],
@@ -59,8 +86,9 @@ export const TIMELINE_STEPS = [
   },
   {
     id: "ship",
-    number: 5,
+    number: 4,
     label: "Ship",
+    summary: "Open the PR and track CI to merge-ready.",
     gate: "AUTO",
     primaryCommand: "/astack-mode open the pr",
     optionalCommands: ["babysit"],
@@ -241,6 +269,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
   const sig = {
     startedAt: null,
     childConvIds: new Set(),
+    detected: new Set(),
     setupAt: null,
     grillMeAt: null,
     planCmdAt: null,
@@ -284,6 +313,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
       const cmds = extractLeadingSlashCommands(step.content);
       const body = extractRequestBody(step.content).trim();
       for (const cmd of cmds) {
+        if (COMMAND_DOCS[cmd]) sig.detected.add(cmd);
         if (cmd === "/setup-astack") sig.setupAt = latestMarker(sig.setupAt, marker);
         else if (cmd === "/grill-me") sig.grillMeAt = latestMarker(sig.grillMeAt, marker);
         else if (cmd === "/plan") sig.planCmdAt = latestMarker(sig.planCmdAt, marker);
@@ -291,8 +321,13 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
         else if (cmd === "/interrogate") sig.interrogateAt = latestMarker(sig.interrogateAt, marker);
         else if (cmd === "/review-pr") sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
       }
-      if (/\b(?:open\s+(?:the|a)\s+pr|gh\s+pr\s+create)\b/i.test(body) && cmds.includes("/astack-mode")) {
-        sig.openPrAt = latestMarker(sig.openPrAt, marker);
+      if (cmds.includes("/astack-mode")) {
+        if (/\b(?:open\s+(?:the|a)\s+pr|gh\s+pr\s+create)\b/i.test(body)) {
+          sig.openPrAt = latestMarker(sig.openPrAt, marker);
+          sig.detected.add("/astack-mode open the pr");
+        }
+        if (/\bland\s+(?:the\s+)?stack\b/i.test(body)) sig.detected.add("/astack-mode land the stack");
+        if (/\bprune\s+worktrees?\b/i.test(body)) sig.detected.add("/astack-mode prune worktrees");
       }
       if (/\bProceeded\s+with\b/i.test(body) || /^(?:approved|approve|proceed|do it|go ahead)\b/i.test(body)) {
         if (sig.planWrittenAt && isMarkerAfter(marker, sig.planWrittenAt)) {
@@ -327,6 +362,18 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
 
       if (FILE_READ_TOOLS.has(name)) {
         const p = targetPathOf(args);
+        const skillRead = p.match(/\/skills\/([a-z0-9-]+)\/SKILL\.md$/i);
+        if (skillRead) {
+          const slug = `/${skillRead[1].toLowerCase()}`;
+          if (COMMAND_DOCS[slug]) sig.detected.add(slug);
+        }
+        const pbRead = p.match(/\/skills\/astack-mode\/playbooks\/([a-z0-9-]+)\.md$/i);
+        if (pbRead) {
+          const pbName = pbRead[1].toLowerCase();
+          if (pbName === "shipping") sig.detected.add("/astack-mode land the stack");
+          else if (pbName === "release-and-postmortem") sig.detected.add("release-and-postmortem");
+          else if (pbName === "worktree-cleanup") sig.detected.add("/astack-mode prune worktrees");
+        }
         if (/\/skills\/setup-astack\/SKILL\.md$/i.test(p)) sig.setupAt = latestMarker(sig.setupAt, marker);
         else if (/\/skills\/astack-mode\/references\/plan-contract\.md$/i.test(p)) sig.planContractAt = latestMarker(sig.planContractAt, marker);
         else if (/\/skills\/astack-mode\/SKILL\.md$/i.test(p)) sig.astackModeAt = latestMarker(sig.astackModeAt, marker);
@@ -357,15 +404,34 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
         sig.askQuestionAt = latestMarker(sig.askQuestionAt, marker);
       } else if (name === "invoke_subagent") {
         const subType = unquoteArg(args.TypeName);
-        if (subType === "comment-sicko") sig.cleanAt = latestMarker(sig.cleanAt, marker);
-        else if (subType === "pr-verifier") sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
-        else if (subType === "browser") sig.verifyRunAt = latestMarker(sig.verifyRunAt, marker);
+        if (subType === "comment-sicko") {
+          sig.cleanAt = latestMarker(sig.cleanAt, marker);
+          sig.detected.add("/no-comments");
+        } else if (subType === "pr-verifier") {
+          sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
+          sig.detected.add("pr-verifier");
+        } else if (subType === "browser") {
+          sig.verifyRunAt = latestMarker(sig.verifyRunAt, marker);
+          sig.detected.add("/control-ui");
+        }
       } else if (name === "run_command") {
         const cmd = unquoteArg(args.CommandLine || args.commandLine || args.command);
         if (/\bsetup-banner\.mjs\b/i.test(cmd)) sig.setupAt = latestMarker(sig.setupAt, marker);
-        if (/\barch-audit\.mjs\b/i.test(cmd)) sig.cleanAt = latestMarker(sig.cleanAt, marker);
-        if (/\bpr-dossier\.mjs\b/i.test(cmd)) sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
-        if (/\bwatch-pr\.mjs\b/i.test(cmd)) sig.babysitAt = latestMarker(sig.babysitAt, marker);
+        if (/\barch-audit\.mjs\b/i.test(cmd)) {
+          sig.cleanAt = latestMarker(sig.cleanAt, marker);
+          sig.detected.add("/audit-architecture");
+        }
+        if (/\bpr-dossier\.mjs\b/i.test(cmd)) {
+          sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
+          sig.detected.add("pr-dossier");
+        }
+        if (/\bwatch-pr\.mjs\b/i.test(cmd)) {
+          sig.babysitAt = latestMarker(sig.babysitAt, marker);
+          sig.detected.add("watch-pr");
+        }
+        if (/\bworktree-audit\.mjs\b/i.test(cmd)) sig.detected.add("/astack-mode prune worktrees");
+        if (/\bstatechart\.mjs\b/i.test(cmd)) sig.detected.add("/statechart");
+        if (/\blog\.mjs\b/i.test(cmd)) sig.detected.add("/show-me-your-work");
         if (/\b(?:gh\s+pr\s+create|git\s+push)\b/i.test(cmd)) sig.pushOrPrAt = latestMarker(sig.pushOrPrAt, marker);
         const category = classifyCommandCategory(cmd);
         if (category === "test" || category === "verify") {
@@ -391,6 +457,9 @@ function mergeChildTranscriptSignals(sig, brainDir, workspaceDir, parentConvId) 
     const childSig = analyzeTranscript(childTranscript, childConvDir, workspaceDir);
     for (const key of mergeKeys) {
       sig[key] = latestMarker(sig[key], childSig[key]);
+    }
+    for (const d of childSig.detected) {
+      sig.detected.add(d);
     }
   }
   return sig;
@@ -440,28 +509,49 @@ function buildArtifactRef(brainConvDir, filename) {
   return uri ? { name: filename, uri } : null;
 }
 
-function buildSetupStage(setup, sig) {
-  const done = Boolean(setup.configured || sig.setupAt);
-  const status = done ? "done" : setup.workspaceKnown ? "next" : "pending";
+function buildSetupReadiness(setup, sig) {
+  const ranInSession = Boolean(sig.setupAt);
+  const ready = Boolean(setup.configured || ranInSession);
+  const status = ready ? "ready" : setup.workspaceKnown ? "needs_setup" : "unknown";
   const parts = [];
   if (setup.verifySkills.length > 0) parts.push(`verify: ${setup.verifySkills.join(", ")}`);
   if (setup.policies.length > 0) parts.push(`policies: ${setup.policies.join(", ")}`);
+
   const detail = parts.length > 0
     ? parts.join(" · ")
-    : setup.workspaceKnown
-      ? "No verify-<app> skill or repo policy files detected yet."
-      : "Open a workspace conversation to check setup readiness.";
+    : ranInSession
+      ? "Setup ran in this session."
+      : setup.workspaceKnown
+        ? "No verify-<app> skill or repo policy files detected yet."
+        : "Open a workspace conversation to check setup readiness.";
+
+  const summary = status === "ready"
+    ? detail
+    : status === "needs_setup"
+      ? "Run /setup-astack once in this repo to scaffold verification skills and guardrails."
+      : "Open a workspace conversation to inspect setup readiness.";
+
+  const commands = status === "ready"
+    ? [
+        makeCommandItem("/setup-astack", "done"),
+        makeCommandItem("/maintain-verification-skill", "pending", true),
+      ]
+    : [makeCommandItem("/setup-astack", status === "needs_setup" ? "next" : "pending")];
+
   return {
-    ...TIMELINE_STEPS[0],
+    workspaceKnown: setup.workspaceKnown,
+    configured: ready,
+    ranInSession,
     status,
-    commands: [{ command: "/setup-astack", state: done ? "done" : status === "next" ? "next" : "pending", optional: false }],
-    subChecks: [],
+    summary,
     detail,
-    artifact: null,
+    verifySkills: setup.verifySkills,
+    policies: setup.policies,
+    commands,
   };
 }
 
-function buildPlanStage({ setupStatus, sig, planArtifact, planWrittenMarker, latestAnyWrite }) {
+function buildPlanStage({ hasConv, setupState, sig, planArtifact, planWrittenMarker, latestAnyWrite }) {
   const editsAfterPlan = Boolean(planWrittenMarker && latestAnyWrite && isMarkerAfter(latestAnyWrite, planWrittenMarker));
   const diskPlanApproved = Boolean(!sig.planWrittenAt && planArtifact && sig.approvalIntentAt);
   const planApproved = Boolean(sig.planApprovedAt || diskPlanApproved || editsAfterPlan);
@@ -473,7 +563,8 @@ function buildPlanStage({ setupStatus, sig, planArtifact, planWrittenMarker, lat
   else if (planWrittenMarker) status = "waiting_gate";
   else if (Boolean(latestAnyWrite) && !triggered) status = "skipped";
   else if (triggered || grillMe) status = "active";
-  else if (setupStatus === "done") status = "next";
+  else if (!hasConv) status = setupState.status === "ready" ? "next" : "pending";
+  else if (setupState.status !== "needs_setup") status = "next";
 
   const detail = status === "waiting_gate"
     ? "implementation_plan.md staged. Review comments and click Proceed."
@@ -486,15 +577,11 @@ function buildPlanStage({ setupStatus, sig, planArtifact, planWrittenMarker, lat
           : "Write implementation_plan.md before editing code.";
 
   return {
-    ...TIMELINE_STEPS[1],
+    ...TIMELINE_STEPS[0],
     status,
     commands: [
-      {
-        command: "/plan",
-        state: planWrittenMarker ? "done" : status === "active" ? "active" : status === "next" ? "next" : "pending",
-        optional: false,
-      },
-      { command: "/grill-me", state: grillMe ? "done" : "pending", optional: true },
+      makeCommandItem("/plan", planWrittenMarker ? "done" : status === "active" ? "active" : status === "next" ? "next" : "pending"),
+      makeCommandItem("/grill-me", grillMe ? "done" : "pending", true),
     ],
     subChecks: [],
     detail,
@@ -517,9 +604,10 @@ function buildBuildStage({
   walkthroughArtifact,
 }) {
   const astackModeActive = Boolean(sig.astackModeAt || hasEdits);
+  const walkthroughComplete = Boolean(walkthroughArtifact);
   let status = "pending";
   if (buildStale) status = "stale";
-  else if (verifyFresh && (!hasCodeEdits || cleanFresh || (reviewStarted && reviewFresh))) status = "done";
+  else if (verifyFresh && (!hasCodeEdits || cleanFresh || walkthroughComplete || (reviewStarted && reviewFresh))) status = "done";
   else if (astackModeActive || Boolean(sig.interrogateAt) || cleanDone || verifyDone) status = "active";
   else if (planStatus === "done" || planStatus === "skipped") status = "next";
 
@@ -531,21 +619,22 @@ function buildBuildStage({
   const detail = status === "stale"
     ? "New file edits landed after cleanup or tests. Re-run verification before PR review."
     : status === "done"
-      ? "Code edits cleaned and verified on HEAD."
+      ? cleanFresh || !hasCodeEdits
+        ? "Code edits cleaned and verified on HEAD."
+        : "Edits verified on HEAD with walkthrough recorded."
       : status === "active"
         ? "Running build, cleanup, and live verification."
         : "Run /astack-mode with your goal and done check.";
 
   return {
-    ...TIMELINE_STEPS[2],
+    ...TIMELINE_STEPS[1],
     status,
     commands: [
-      {
-        command: "/astack-mode",
-        state: status === "done" ? "done" : status === "stale" ? "stale" : astackModeActive ? "active" : status === "next" ? "next" : "pending",
-        optional: false,
-      },
-      { command: "/interrogate", state: sig.interrogateAt ? "done" : "pending", optional: true },
+      makeCommandItem(
+        "/astack-mode",
+        status === "done" ? "done" : status === "stale" ? "stale" : astackModeActive ? "active" : status === "next" ? "next" : "pending",
+      ),
+      makeCommandItem("/interrogate", sig.interrogateAt ? "done" : "pending", true),
     ],
     subChecks,
     detail,
@@ -578,23 +667,21 @@ function buildReviewStage({ buildStatus, reviewStarted, staleFromReceipts, revie
           : "Compile pr-review.md and run isolated pr-verifier.";
 
   return {
-    ...TIMELINE_STEPS[3],
+    ...TIMELINE_STEPS[2],
     status,
     commands: [
-      {
-        command: "/review-pr",
-        state:
-          status === "done" || status === "waiting_gate"
-            ? "done"
-            : status === "stale" || status === "error"
-              ? "stale"
-              : status === "active"
-                ? "active"
-                : status === "next"
-                  ? "next"
-                  : "pending",
-        optional: false,
-      },
+      makeCommandItem(
+        "/review-pr",
+        status === "done" || status === "waiting_gate"
+          ? "done"
+          : status === "stale" || status === "error"
+            ? "stale"
+            : status === "active"
+              ? "active"
+              : status === "next"
+                ? "next"
+                : "pending",
+      ),
     ],
     subChecks: [],
     detail,
@@ -615,15 +702,11 @@ function buildShipStage({ reviewStatus, shipped, sig }) {
     : "Review local commits and open PR when ready.";
 
   return {
-    ...TIMELINE_STEPS[4],
+    ...TIMELINE_STEPS[3],
     status,
     commands: [
-      {
-        command: "/astack-mode open the pr",
-        state: shipped ? "done" : status === "next" ? "next" : "pending",
-        optional: false,
-      },
-      { command: "babysit", state: sig.babysitAt ? "done" : "pending", optional: true },
+      makeCommandItem("/astack-mode open the pr", shipped ? "done" : status === "next" ? "next" : "pending"),
+      makeCommandItem("babysit", sig.babysitAt ? "done" : "pending", true),
     ],
     subChecks: [],
     detail,
@@ -631,8 +714,8 @@ function buildShipStage({ reviewStatus, shipped, sig }) {
   };
 }
 
-function selectNextAction(stepViews) {
-  const [, plan, build, review] = stepViews;
+function selectNextAction(stepViews, setupState) {
+  const [plan, build, review, ship] = stepViews;
   if (review.status === "error") {
     return { stageId: "review", stageLabel: "PR Review", command: "/review-pr", hint: "Escalated at 3 rounds. Inspect findings in pr-review.md." };
   }
@@ -648,17 +731,41 @@ function selectNextAction(stepViews) {
   if (review.status === "waiting_gate") {
     return { stageId: "ship", stageLabel: "Ship", command: "/astack-mode open the pr", hint: "Inspect pr-review.md, then open the PR when ready." };
   }
-  const current = stepViews.find((s) => s.status === "next" || s.status === "active") ?? stepViews[stepViews.length - 1];
+  if (setupState.status === "needs_setup" && stepViews.every((s) => s.status === "pending")) {
+    return {
+      stageId: "setup",
+      stageLabel: "First-time setup",
+      command: "/setup-astack",
+      hint: "Run once in this repo to scaffold verification skills and policies.",
+    };
+  }
+  const current = stepViews.find((s) => s.status === "next" || s.status === "active");
+  if (current) {
+    return {
+      stageId: current.id,
+      stageLabel: current.label,
+      command: current.primaryCommand,
+      hint: current.detail,
+    };
+  }
+  if (ship.status === "done" || stepViews.every((s) => s.status === "done" || s.status === "skipped")) {
+    return {
+      stageId: "ship",
+      stageLabel: "Ship",
+      command: "/astack-mode open the pr",
+      hint: "All workflow steps completed.",
+    };
+  }
   return {
-    stageId: current.id,
-    stageLabel: current.label,
-    command: current.primaryCommand,
-    hint: current.status === "done" ? "All workflow steps completed." : current.detail,
+    stageId: "plan",
+    stageLabel: "Start",
+    command: "/plan",
+    hint: "Start a task with /plan or /astack-mode.",
   };
 }
 
 /**
- * Projects workspace readiness, transcript signals, and trust ledger receipts into the 5-step AStack timeline.
+ * Projects workspace readiness, transcript signals, and trust ledger receipts into the 4-step AStack timeline.
  */
 export function evaluateTimelineSnapshot({
   conversationId = "",
@@ -712,9 +819,13 @@ export function evaluateTimelineSnapshot({
   for (const r of receipts) {
     const m = makeMarker(r.ts, Number.MAX_SAFE_INTEGER);
     if (r.kind === "file_write") {
+      const workspacePaths = Array.isArray(r.paths)
+        ? r.paths.filter((p) => isWorkspaceFileTarget(p, workspaceDir, brainConvDir))
+        : [];
+      if (Array.isArray(r.paths) && r.paths.length > 0 && workspacePaths.length === 0) continue;
       hadReceiptWrite = true;
       latestAnyWrite = latestMarker(latestAnyWrite, m);
-      const allDocs = Array.isArray(r.paths) && r.paths.length > 0 && r.paths.every((p) => DOC_EXT_RE.test(p));
+      const allDocs = workspacePaths.length > 0 && workspacePaths.every((p) => DOC_EXT_RE.test(p));
       if (!allDocs) latestCodeWrite = latestMarker(latestCodeWrite, m);
     } else if (isVerifyReceipt(r)) {
       hasVerifyReceipt = true;
@@ -749,8 +860,17 @@ export function evaluateTimelineSnapshot({
   const reviewFresh = !staleFromReceipts && (!evidence?.freshness || evidence.freshness === "fresh" || evidence.freshness === "fresh_rebase_patch_id");
   const shipped = Boolean(sig.pushOrPrAt || receiptPush);
 
-  const setupStage = buildSetupStage(setup, sig);
-  const planStage = buildPlanStage({ setupStatus: setupStage.status, sig, planArtifact, planWrittenMarker, latestAnyWrite });
+  const setupState = buildSetupReadiness(setup, sig);
+  if (setup.verifySkills.some((s) => !s.endsWith("-formal"))) sig.detected.add("/create-verification-skill");
+  if (setup.verifySkills.some((s) => s.endsWith("-formal"))) sig.detected.add("/create-formal-verification-skill");
+  if (evidence) sig.detected.add("pr-dossier");
+  if (evidence?.verifier?.verdict) sig.detected.add("pr-verifier");
+  Object.assign(
+    setupState,
+    buildStageSubCommands("setup", sig.detected, new Set((setupState.commands || []).map((c) => c.command))),
+  );
+
+  const planStage = buildPlanStage({ hasConv, setupState, sig, planArtifact, planWrittenMarker, latestAnyWrite });
   const buildStage = buildBuildStage({
     planStatus: planStage.status,
     sig,
@@ -776,7 +896,10 @@ export function evaluateTimelineSnapshot({
     shipped,
   });
   const shipStage = buildShipStage({ reviewStatus: reviewStage.status, shipped, sig });
-  const stepViews = [setupStage, planStage, buildStage, reviewStage, shipStage];
+  const stepViews = [planStage, buildStage, reviewStage, shipStage].map((stage) => ({
+    ...stage,
+    ...buildStageSubCommands(stage.id, sig.detected),
+  }));
 
   let liveState = "ok";
   let liveLabel = hasConv ? "Live" : "Idle";
@@ -798,6 +921,7 @@ export function evaluateTimelineSnapshot({
     workspaceName: workspaceDir ? path.basename(workspaceDir) : null,
     branch: setup.branch,
     headSha: setup.headSha ? setup.headSha.slice(0, 7) : null,
+    setup: setupState,
     riskTier: evidence?.riskTier ?? null,
     riskLabel: evidence?.riskLabel ?? null,
     freshness: receipts.length > 0 || evidence ? receiptFreshness : null,
@@ -807,7 +931,7 @@ export function evaluateTimelineSnapshot({
     totalCount: stepViews.length,
     liveState,
     liveLabel,
-    nextAction: selectNextAction(stepViews),
+    nextAction: selectNextAction(stepViews, setupState),
     stages: stepViews,
   };
 

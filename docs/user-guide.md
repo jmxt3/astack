@@ -250,9 +250,9 @@ When returning from a long `/swarm`, `/teamwork`, or `/goal` run, catch up in se
 
 ### 2. Follow Progress in the Optional AStack Timeline Panel
 
-AStack bundles a compact read-only Antigravity sidecar UI at [`sidecars/astack_timeline/`](../sidecars/astack_timeline/sidecar.json). In the Antigravity App, open the Overview panel's **Extensions** menu and enable **AStack Timeline**, or open `[AStack Timeline](sidecar://astack/astack_timeline/)` from chat.
+AStack bundles a compact read-only Antigravity sidecar UI at [`sidecars/astack_timeline/`](../sidecars/astack_timeline/sidecar.json). In the Antigravity App, open the Overview panel's **Extensions** menu and enable **AStack Timeline**. When enabled, AStack also prints `[AStack Timeline](sidecar://astack/astack_timeline/)` once at the start of an App workflow session so you can open or toggle the panel straight from chat.
 
-The panel hides internal sub-commands and displays only the five primary stages and developer commands (`/setup-astack`, `/plan` with optional `/grill-me`, `/astack-mode` with optional `/interrogate`, `/review-pr`, and `open the pr`). Green check marks confirm finished stages, amber indicators highlight waiting human gates or edits made after verification, and expandable rows show automated cleanup/verification sub-checks alongside clickable links to `implementation_plan.md`, `walkthrough.md`, and `pr-review.md`.
+The panel tracks the 4 per-conversation engineering stages (`/plan` with optional `/grill-me`, `/astack-mode` with optional `/interrogate`, `/review-pr`, and `open the pr`). One-time repository setup (`/setup-astack`) stays out of the daily numbered rail: unconfigured repos display a top onboarding card once per repository, while configured repos tuck setup details and `/maintain-verification-skill` behind a compact **Setup ready** badge in the header. Clicking any command chip copies it cleanly (`Cmd+V` / `Ctrl+V` into chat, with no trailing space so slash-command autocomplete opens immediately on paste), green check marks confirm finished stages, amber indicators highlight waiting human gates or edits made after verification, and expandable rows show cleanup/verification sub-checks plus clickable links to `implementation_plan.md`, `walkthrough.md`, and `pr-review.md`.
 
 ### 3. Build the Compounding Repository Flywheel
 

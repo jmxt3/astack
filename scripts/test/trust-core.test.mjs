@@ -14,6 +14,7 @@ import {
   evaluateEvidenceGate,
   evaluateRoundLimit,
   evaluateRoundState,
+  evaluateSessionContext,
   evaluateVerifyReminder,
   extractImportSpecifiers,
   formatPipelineRail,
@@ -409,4 +410,152 @@ test("boundary parser handles multiline imports, extensionless publicEntry, gi b
   const delta = computeAssertionDelta(perFileDiff, 0.25);
   assert.deepEqual(delta.flaggedFiles, ["tests/a.test.js"]);
   assert.equal(delta.flagged, true);
+});
+
+test("evaluateSessionContext emits once-per-session AStack Timeline pill instruction only when enabled in Antigravity App", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "astack-session-pill-"));
+  const cfgPath = path.join(tmp, "config.json");
+  const appArtifactDir = path.join(tmp, ".gemini", "antigravity", "brain", "conv-1");
+  const cliArtifactDir = path.join(tmp, ".gemini", "antigravity-cli", "brain", "conv-1");
+  try {
+    assert.deepEqual(
+      evaluateSessionContext({ workspaceDir: "", artifactDir: appArtifactDir }, { configPath: cfgPath }),
+      {},
+    );
+
+    fs.writeFileSync(
+      cfgPath,
+      JSON.stringify({ sidecars: { "astack/astack_timeline": { enabled: false } } }),
+      "utf8",
+    );
+    assert.deepEqual(
+      evaluateSessionContext({ workspaceDir: "", artifactDir: appArtifactDir }, { configPath: cfgPath }),
+      {},
+    );
+
+    fs.writeFileSync(
+      cfgPath,
+      JSON.stringify({ sidecars: { "astack/astack_timeline": { resolvedPermissions: null } } }),
+      "utf8",
+    );
+    assert.deepEqual(
+      evaluateSessionContext({ workspaceDir: "", artifactDir: appArtifactDir }, { configPath: cfgPath }),
+      {},
+    );
+
+    fs.writeFileSync(
+      cfgPath,
+      JSON.stringify({ sidecars: { "astack/astack_timeline": { resolvedPermissions: {} } } }),
+      "utf8",
+    );
+    const appRes = evaluateSessionContext(
+      { workspaceDir: "", artifactDir: appArtifactDir },
+      { configPath: cfgPath },
+    );
+    assert.ok(Array.isArray(appRes.injectSteps));
+    assert.match(
+      appRes.injectSteps[0].systemMessage.systemMessage,
+      /\[AStack Timeline\]\(sidecar:\/\/astack\/astack_timeline\/\)/,
+    );
+
+    assert.deepEqual(
+      evaluateSessionContext({ workspaceDir: "", artifactDir: cliArtifactDir }, { configPath: cfgPath }),
+      {},
+    );
+
+    fs.writeFileSync(
+      cfgPath,
+      JSON.stringify({ sidecars: { "astack/astack_timeline": { enabled: true } } }),
+      "utf8",
+    );
+    const enabledRes = evaluateSessionContext(
+      { workspaceDir: "", artifactDir: appArtifactDir },
+      { configPath: cfgPath },
+    );
+    assert.match(
+      enabledRes.injectSteps[0].systemMessage.systemMessage,
+      /\[AStack Timeline\]\(sidecar:\/\/astack\/astack_timeline\/\)/,
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("recordReceipt and computeFreshness ignore brain artifact and out-of-workspace writes", () => {
+  const repo = makeTempGitRepo();
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-brain-"));
+  const trustDir = path.join(artifactDir, "astack-trust");
+  try {
+    const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+
+    assert.equal(
+      recordReceipt(
+        {
+          kind: "tool-write",
+          conversationId: "conv-1",
+          tool: "write_file",
+          filePath: path.join(artifactDir, "walkthrough.md"),
+          workspaceDir: repo,
+          artifactDir,
+        },
+        { trustDir, now: "2026-11-20T10:02:00Z" },
+      ),
+      null,
+    );
+
+    assert.equal(
+      recordReceipt(
+        {
+          kind: "tool-write",
+          conversationId: "conv-1",
+          tool: "write_file",
+          filePath: path.join(os.homedir(), ".gemini", "antigravity", "brain", "conv-1", "walkthrough.md"),
+          workspaceDir: repo,
+        },
+        { trustDir, now: "2026-11-20T10:02:01Z" },
+      ),
+      null,
+    );
+
+    const legacyReceipts = [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:00:00Z",
+        conversationId: "conv-1",
+        kind: "file_write",
+        category: "other",
+        headSha: head,
+        ok: true,
+        summary: "edit_file app.js",
+        paths: ["app.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:01:00Z",
+        conversationId: "conv-1",
+        kind: "command",
+        category: "test",
+        headSha: head,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:02:00Z",
+        conversationId: "conv-1",
+        kind: "file_write",
+        category: "other",
+        headSha: head,
+        ok: true,
+        summary: "write_file walkthrough.md",
+        paths: ["C:/Users/dev/.gemini/antigravity/brain/conv-1/walkthrough.md"],
+      },
+    ];
+
+    assert.equal(computeFreshness({ receipts: legacyReceipts, headSha: head }), "fresh");
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
+  }
 });

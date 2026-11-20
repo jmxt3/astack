@@ -147,7 +147,7 @@ control-ui/cli · pr-verifier`"]
     class S2,S6 gate
 ```
 
-To follow that path visually inside Google Antigravity, enable the optional [`AStack Timeline`](./sidecars/astack_timeline/sidecar.json) sidecar panel under **Extensions**. It shows only the five primary developer commands (`/setup-astack`, `/plan` with `/grill-me`, `/astack-mode` with `/interrogate`, `/review-pr`, and `open the pr`) with green check marks, amber gates or stale warnings, click-to-copy next steps, and native artifact links.
+To follow that path visually inside Google Antigravity, enable the optional [`AStack Timeline`](./sidecars/astack_timeline/sidecar.json) sidecar panel under **Extensions**. It shows the 4 per-conversation stages (`/plan` with `/grill-me`, `/astack-mode` with `/interrogate`, `/review-pr`, and `open the pr`), surfaces one-time `/setup-astack` readiness conditionally per repo (a first-time onboarding card when unconfigured, or a compact `Setup ready` header toggle once configured), supports click-to-copy command chips ready to paste in chat, and exposes a once-per-session `[AStack Timeline](sidecar://astack/astack_timeline/)` chat pill when enabled.
 
 ## Skill catalog
 
