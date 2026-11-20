@@ -1,6 +1,14 @@
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  collectLeafSegments,
+  loadRiskPolicy,
+  resolveBaseRef,
+  tokenizeSimpleWords,
+} from "./policy.mjs";
+import { validatePrBodyContract } from "./pr-proof.mjs";
 
 export const PIPELINE_STAGES = [
   {
@@ -454,57 +462,347 @@ function isEscalatedEvidence(evidence, maxRounds = evidence?.maxReviewRounds ?? 
   );
 }
 
+const PR_INTENT_REGEX =
+  /\b(?:open|create|submit|raise|prepare|make|draft|update|refresh|generate)\s+(?:a\s+|an\s+|the\s+|this\s+|my\s+|our\s+)?(?:pr|pull\s+request)\b|\b(?:update|refresh|generate|write|build)\s+(?:the\s+|my\s+)?pr\s+description\b/i;
+const PR_QUESTION_ONLY_REGEX =
+  /^\s*(?:what\s+is|explain|tell\s+me\s+about|how\s+(?:does|do)\s+(?:a\s+)?pr)\b/i;
+const GH_BODY_FLAGS = new Set(["-b", "--body", "-F", "--body-file"]);
+const GH_FILL_FLAGS = new Set(["-f", "--fill", "--fill-first", "--fill-verbose"]);
+const WRAPPER_VERBS = new Set(["npx", "pnpm", "yarn", "pnpx", "bunx", "uvx", "sudo", "env"]);
+const GIT_FLAG_WITH_ARG = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace"]);
+const GH_FLAG_WITH_ARG = new Set(["-R", "--repo"]);
+
+function discoverVerifyFeaturesDir(workspaceDir) {
+  if (!workspaceDir) return null;
+  const skillsDir = path.join(workspaceDir, ".agents", "skills");
+  if (!fs.existsSync(skillsDir)) return null;
+  const dirs = fs
+    .readdirSync(skillsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && d.name.startsWith("verify-"))
+    .map((d) => d.name)
+    .sort();
+  for (const name of dirs) {
+    const featDir = path.join(skillsDir, name, "features");
+    if (fs.existsSync(featDir) && fs.statSync(featDir).isDirectory()) {
+      return path.posix.join(".agents", "skills", name, "features");
+    }
+  }
+  return null;
+}
+
+function readWithFallback(primaryTrustDir, workspaceDir, hasExplicitTrustDir, reader) {
+  let result = reader(primaryTrustDir);
+  const empty = Array.isArray(result) ? result.length === 0 : !result;
+  if (empty && !hasExplicitTrustDir && workspaceDir) {
+    const fallbackDir = resolveTrustDir({ workspaceDir, artifactDir: null });
+    if (fallbackDir && fallbackDir !== primaryTrustDir) {
+      result = reader(fallbackDir);
+    }
+  }
+  return result;
+}
+
+function extractCliPrActions(command) {
+  const actions = [];
+  for (const segment of collectLeafSegments(String(command ?? ""))) {
+    const tokens = tokenizeSimpleWords(segment);
+    let idx = 0;
+    if (tokens[0] === "&") idx++;
+    while (idx < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[idx])) idx++;
+    let verb = "";
+    while (idx < tokens.length) {
+      const tok = tokens[idx];
+      if (tok.startsWith("-")) {
+        idx++;
+        continue;
+      }
+      const base = path.win32.basename(tok.replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
+      if (WRAPPER_VERBS.has(base)) {
+        idx++;
+        continue;
+      }
+      verb = base;
+      idx++;
+      break;
+    }
+    if (verb === "git") {
+      let skipNext = false;
+      for (let i = idx; i < tokens.length; i++) {
+        const tok = tokens[i];
+        if (skipNext) {
+          skipNext = false;
+          continue;
+        }
+        if (GIT_FLAG_WITH_ARG.has(tok)) {
+          skipNext = true;
+          continue;
+        }
+        if (tok.startsWith("-")) continue;
+        if (tok.toLowerCase() === "push") {
+          actions.push({ kind: "git-push" });
+        }
+        break;
+      }
+    } else if (verb === "gh") {
+      const positionals = [];
+      let skipNext = false;
+      for (let i = idx; i < tokens.length; i++) {
+        const tok = tokens[i];
+        if (skipNext) {
+          skipNext = false;
+          continue;
+        }
+        if (GH_FLAG_WITH_ARG.has(tok)) {
+          skipNext = true;
+          continue;
+        }
+        if (tok.startsWith("--repo=")) continue;
+        if (tok.startsWith("-")) continue;
+        positionals.push({ value: tok.toLowerCase(), index: i });
+        if (positionals.length >= 2) break;
+      }
+      if (positionals[0]?.value === "pr") {
+        const sub2 = positionals[1]?.value;
+        const rest = tokens.slice((positionals[1]?.index ?? idx) + 1);
+        if (sub2 === "create" || sub2 === "new") {
+          actions.push({ kind: "gh-pr-create", tokens: rest });
+        } else if (sub2 === "edit") {
+          const touchesBody = rest.some(
+            (t) =>
+              GH_BODY_FLAGS.has(t) ||
+              t.toLowerCase().startsWith("--body=") ||
+              t.toLowerCase().startsWith("--body-file="),
+          );
+          if (touchesBody) {
+            actions.push({ kind: "gh-pr-edit-body", tokens: rest });
+          }
+        }
+      }
+    }
+  }
+  return actions;
+}
+
+function extractGhBodyText(tokens, workspaceDir) {
+  let bodyText = null;
+  let bodyFile = null;
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    const lower = tok.toLowerCase();
+    if (GH_FILL_FLAGS.has(tok) || GH_FILL_FLAGS.has(lower)) {
+      return {
+        error:
+          "gh --fill flags bypass the PR statechart and proof contract; run pr-dossier.mjs --format github --out <body-file> and pass --body-file <body-file>",
+      };
+    }
+    if (tok === "-b" || lower === "--body") {
+      bodyText = tokens[++i] ?? "";
+    } else if (lower.startsWith("--body=")) {
+      bodyText = tok.slice("--body=".length);
+    } else if (tok === "-F" || lower === "--body-file") {
+      bodyFile = tokens[++i] ?? "";
+    } else if (lower.startsWith("--body-file=")) {
+      bodyFile = tok.slice("--body-file=".length);
+    }
+  }
+
+  if (bodyFile !== null) {
+    if (bodyFile === "-") {
+      return {
+        error:
+          "stdin PR body (-F -) cannot be pre-validated; pass --body-file <path-to-compiled-pr-body.md>",
+      };
+    }
+    const abs = path.isAbsolute(bodyFile)
+      ? bodyFile
+      : path.resolve(workspaceDir || process.cwd(), bodyFile);
+    if (!fs.existsSync(abs)) {
+      return { error: `PR body file not found (${bodyFile})` };
+    }
+    return { bodyText: fs.readFileSync(abs, "utf8") };
+  }
+  if (bodyText !== null) {
+    return { bodyText };
+  }
+  return { error: "missing --body-file from pr-dossier.mjs --format github" };
+}
+
 /**
- * Checks whether a push or PR creation command has fresh verification evidence on HEAD.
+ * Evaluates a `PreInvocation` payload and injects PR proof instructions when the user asks to open or update a PR.
+ */
+export function evaluatePrIntent(event, options = {}) {
+  if (!event || event.kind !== "pre-invocation") {
+    return {};
+  }
+  const text = String(event.lastUserInput ?? "").trim();
+  if (!text || PR_QUESTION_ONLY_REGEX.test(text) || !PR_INTENT_REGEX.test(text)) {
+    return {};
+  }
+
+  const workspaceDir = event.workspaceDir || "";
+  const headSha = options.headSha ?? (workspaceDir ? readHeadShaFast(workspaceDir) : null);
+  const trustDir = options.trustDir ?? resolveTrustDir(event);
+  const promptHash = crypto
+    .createHash("sha256")
+    .update(`${headSha ?? "none"}|${text.toLowerCase()}`)
+    .digest("hex")
+    .slice(0, 16);
+
+  if (trustDir) {
+    const stateFile = path.join(trustDir, `pr-intent.${event.conversationId || "default"}.json`);
+    try {
+      if (fs.existsSync(stateFile)) {
+        const prev = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+        if (prev?.lastHash === promptHash) {
+          return {};
+        }
+      }
+      fs.mkdirSync(trustDir, { recursive: true });
+      fs.writeFileSync(
+        stateFile,
+        `${JSON.stringify({ lastHash: promptHash, ts: new Date().toISOString() })}\n`,
+        "utf8",
+      );
+    } catch {
+      // Fail-open if state file cannot be read or written.
+    }
+  }
+
+  const hasExplicitTrust = Boolean(options.trustDir);
+  const evidence = readWithFallback(trustDir, workspaceDir, hasExplicitTrust, readEvidenceSnapshot);
+  const receipts = readWithFallback(trustDir, workspaceDir, hasExplicitTrust, readMergedReceipts);
+  const freshness = computeFreshness({ receipts, headSha, priorEvidence: evidence });
+
+  const fallbackTrustDir =
+    !hasExplicitTrust && event.artifactDir && workspaceDir
+      ? resolveTrustDir({ workspaceDir, artifactDir: null })
+      : null;
+  const hasManifest = Boolean(
+    (trustDir && fs.existsSync(path.join(trustDir, "proof-manifest.json"))) ||
+      (fallbackTrustDir && fs.existsSync(path.join(fallbackTrustDir, "proof-manifest.json"))),
+  );
+  const featureDir = discoverVerifyFeaturesDir(workspaceDir);
+
+  const artifactFlag = event.artifactDir ? ` --artifact-dir "${event.artifactDir}"` : "";
+  const featureFlag = featureDir ? ` --feature-map "${featureDir}"` : "";
+  const manifestStatus = hasManifest
+    ? "Detected `proof-manifest.json` in trust directory."
+    : "No `proof-manifest.json` detected; compiler will synthesize from Feature Map or HEAD verification receipts.";
+
+  const systemMessage = [
+    `AStack PR proof workflow triggered (HEAD \`${(headSha ?? "none").slice(0, 7)}\`, freshness \`${freshness}\`).`,
+    manifestStatus,
+    `Run \`node skills/review-pr/scripts/pr-dossier.mjs --format github${artifactFlag}${featureFlag} --out <body-file>\` (pass \`--merge-body <body-file>\` to keep human sections) before opening or updating the PR.`,
+    "Pass `--body-file <body-file>` to `gh pr create` or pass the compiled Markdown body to `github-mcp-server`, keeping `## Why`, `## What changed`, `## Scope`, and `## Blast Radius` concise per `skills/astack-mode/playbooks/opening-a-pr.md`.",
+  ].join("\n");
+
+  return {
+    injectSteps: [
+      {
+        systemMessage: {
+          systemMessage,
+        },
+      },
+    ],
+  };
+}
+
+/**
+ * Checks whether a push or PR create/edit command or MCP call has fresh HEAD evidence and satisfies base PR-body policy.
  */
 export function evaluateEvidenceGate(event, options = {}) {
-  if (!event || event.kind !== "tool-command") {
-    return { decision: "allow" };
-  }
-  const cmd = String(event.command ?? "");
-  if (!/\bgit\s+push\b|\bgh\s+pr\s+create\b/i.test(cmd)) {
+  if (!event || (event.kind !== "tool-command" && event.kind !== "tool-mcp")) {
     return { decision: "allow" };
   }
 
+  let actions = [];
+  if (event.kind === "tool-command") {
+    actions = extractCliPrActions(event.command);
+  } else {
+    const mcpTool = String(event.toolName ?? "").toLowerCase();
+    if (mcpTool === "create_pull_request") {
+      actions = [{ kind: "mcp-pr-create", body: event.args?.body }];
+    } else if (mcpTool === "update_pull_request" && typeof event.args?.body === "string") {
+      actions = [{ kind: "mcp-pr-edit-body", body: event.args.body }];
+    }
+  }
+  if (actions.length === 0) {
+    return { decision: "allow" };
+  }
+
+  const hasExplicitTrust = Boolean(options.trustDir);
   const trustDir = options.trustDir ?? resolveTrustDir(event);
-  const evidence = readEvidenceSnapshot(trustDir);
-  const receipts = readMergedReceipts(trustDir);
+  const evidence = readWithFallback(trustDir, event.workspaceDir, hasExplicitTrust, readEvidenceSnapshot);
+  const receipts = readWithFallback(trustDir, event.workspaceDir, hasExplicitTrust, readMergedReceipts);
   const headSha = options.headSha ?? readHeadShaFast(event.workspaceDir);
   const headless = options.headless ?? false;
+  const policy =
+    options.policy ??
+    loadRiskPolicy(event.workspaceDir, {
+      baseRef: options.baseRef ?? resolveBaseRef(event.workspaceDir),
+    }).policy;
 
-  const receiptFreshness = computeFreshness({ receipts, headSha, priorEvidence: evidence });
-  let freshness;
-  if (evidence && headSha && evidence.headSha === headSha) {
-    if (evidence.freshness === "fresh" || evidence.freshness === "fresh_rebase_patch_id") {
-      const hasNewerWrite = receipts.some(
-        (r) => r.kind === "file_write" && String(r.ts ?? "") > String(evidence.generatedAt ?? ""),
-      );
-      freshness = hasNewerWrite ? "dirty_after_verify" : evidence.freshness;
-    } else if (receiptFreshness === "fresh" || receiptFreshness === "fresh_rebase_patch_id") {
-      freshness = receiptFreshness;
-    } else {
-      freshness = evidence.freshness;
-    }
-  } else {
-    freshness = receiptFreshness;
-  }
-
-  const maxRounds = options.maxReviewRounds ?? evidence?.maxReviewRounds ?? 3;
   const reasons = [];
-  if (!evidence && freshness === "missing_receipts") {
-    reasons.push("no verification receipts or evidence.json found for current branch");
-  } else if (freshness !== "fresh" && freshness !== "fresh_rebase_patch_id") {
-    reasons.push(`verification freshness is ${freshness}`);
+  const needsFreshness = actions.some(
+    (a) => a.kind === "git-push" || a.kind === "gh-pr-create" || a.kind === "mcp-pr-create",
+  );
+
+  if (needsFreshness) {
+    const receiptFreshness = computeFreshness({ receipts, headSha, priorEvidence: evidence });
+    let freshness;
+    if (evidence && headSha && evidence.headSha === headSha) {
+      if (evidence.freshness === "fresh" || evidence.freshness === "fresh_rebase_patch_id") {
+        const hasNewerWrite = receipts.some(
+          (r) => r.kind === "file_write" && String(r.ts ?? "") > String(evidence.generatedAt ?? ""),
+        );
+        freshness = hasNewerWrite ? "dirty_after_verify" : evidence.freshness;
+      } else if (receiptFreshness === "fresh" || receiptFreshness === "fresh_rebase_patch_id") {
+        freshness = receiptFreshness;
+      } else {
+        freshness = evidence.freshness;
+      }
+    } else {
+      freshness = receiptFreshness;
+    }
+
+    const maxRounds = options.maxReviewRounds ?? evidence?.maxReviewRounds ?? 3;
+    if (!evidence && freshness === "missing_receipts") {
+      reasons.push("no verification receipts or evidence.json found for current branch");
+    } else if (freshness !== "fresh" && freshness !== "fresh_rebase_patch_id") {
+      reasons.push(`verification freshness is ${freshness}`);
+    }
+    if (evidence?.assertionDelta?.flagged) {
+      reasons.push(`test assertions weakened (${evidence.assertionDelta.weakeningRatio})`);
+    }
+    if (isEscalatedEvidence(evidence, maxRounds)) {
+      reasons.push(
+        evidence?.verifier?.verdict === "ESCALATE_HUMAN"
+          ? "review remediation escalated for human review"
+          : `review remediation hit ${maxRounds}-round escalation cap`,
+      );
+    }
   }
-  if (evidence?.assertionDelta?.flagged) {
-    reasons.push(`test assertions weakened (${evidence.assertionDelta.weakeningRatio})`);
-  }
-  if (isEscalatedEvidence(evidence, maxRounds)) {
-    reasons.push(
-      evidence?.verifier?.verdict === "ESCALATE_HUMAN"
-        ? "review remediation escalated for human review"
-        : `review remediation hit ${maxRounds}-round escalation cap`,
-    );
+
+  const prContract = policy?.prDescriptionContract;
+  if (prContract?.enabled === true) {
+    for (const act of actions) {
+      if (act.kind === "git-push") continue;
+      let bodyText = "";
+      if (act.kind === "gh-pr-create" || act.kind === "gh-pr-edit-body") {
+        const extracted = extractGhBodyText(act.tokens, event.workspaceDir);
+        if (extracted.error) {
+          reasons.push(extracted.error);
+          continue;
+        }
+        bodyText = extracted.bodyText;
+      } else {
+        bodyText = String(act.body ?? "");
+      }
+      const check = validatePrBodyContract(bodyText, prContract);
+      if (!check.ok) {
+        reasons.push(`PR description contract violation (${check.violations.join("; ")})`);
+      }
+    }
   }
 
   if (reasons.length === 0) {
@@ -516,7 +814,7 @@ export function evaluateEvidenceGate(event, options = {}) {
     decision: headless ? "deny" : "force_ask",
     reason: headless
       ? `AStack evidence-gate: blocked push/PR in headless mode (${detail}).`
-      : `AStack evidence-gate: ${detail}. Run verification or pr-dossier.mjs before continuing.`,
+      : `AStack evidence-gate: ${detail}. Run verification or pr-dossier.mjs --format github before continuing.`,
   };
 }
 

@@ -13,6 +13,12 @@ export const DEFAULT_RISK_POLICY = {
     planApproval: "nontrivial",
     prReview: "always",
   },
+  prDescriptionContract: {
+    enabled: false,
+    requireStatechart: true,
+    requireProofTable: true,
+    forbidLocalLinks: true,
+  },
   tiers: {
     "0": {
       label: "low",
@@ -188,6 +194,12 @@ function mergeRiskPolicy(custom) {
     humanGates: {
       ...DEFAULT_RISK_POLICY.humanGates,
       ...(custom.humanGates ?? {}),
+    },
+    prDescriptionContract: {
+      ...DEFAULT_RISK_POLICY.prDescriptionContract,
+      ...(custom.prDescriptionContract && typeof custom.prDescriptionContract === "object"
+        ? custom.prDescriptionContract
+        : {}),
     },
     tiers: mergedTiers,
   };
@@ -537,7 +549,7 @@ function unwrapShellInvocation(segment) {
   return null;
 }
 
-function collectLeafSegments(command, depth = 0) {
+export function collectLeafSegments(command, depth = 0) {
   const segments = splitShellSegments(command);
   if (depth >= 4) return segments;
   const leaves = [];
@@ -552,7 +564,7 @@ function collectLeafSegments(command, depth = 0) {
   return leaves;
 }
 
-function tokenizeSimpleWords(segment) {
+export function tokenizeSimpleWords(segment) {
   const tokens = [];
   const tokenRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^']*)'|(\S+)/g;
   let match;

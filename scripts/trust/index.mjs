@@ -1,4 +1,5 @@
 import {
+  EVIDENCE_GATE_MATCHER,
   FILE_WRITE_TOOL_MATCHER,
   FILE_WRITE_TOOLS,
   SECRET_GUARD_MATCHER,
@@ -12,6 +13,7 @@ import {
   classifyCommandCategory,
   computeFreshness,
   evaluateEvidenceGate,
+  evaluatePrIntent,
   evaluateRoundLimit,
   evaluateRoundState,
   evaluateVerifyReminder,
@@ -60,6 +62,7 @@ export const TOOL_MATCHERS = {
   fileWriteTools: FILE_WRITE_TOOLS,
   fileWrite: FILE_WRITE_TOOL_MATCHER,
   secretGuard: SECRET_GUARD_MATCHER,
+  evidenceGate: EVIDENCE_GATE_MATCHER,
   command: "run_command",
 };
 
@@ -76,6 +79,7 @@ export {
   evaluateBoundaryWrite,
   evaluateEvidenceGate,
   evaluateIrreversible,
+  evaluatePrIntent,
   evaluateRoundLimit,
   evaluateRoundState,
   evaluateSecrets,
@@ -129,6 +133,12 @@ export function runHook(hookId) {
       runHookShell(
         (event) => evaluateSessionContext(event),
         { hint: "session-start", fallback: {} },
+      );
+      return;
+    case "pr-intent":
+      runHookShell(
+        (event) => evaluatePrIntent(event),
+        { hint: "pre-invocation", fallback: {} },
       );
       return;
     case "irreversible-guard":

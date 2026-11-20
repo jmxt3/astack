@@ -10,6 +10,7 @@ export const FILE_WRITE_TOOLS = [
 
 export const FILE_WRITE_TOOL_MATCHER = FILE_WRITE_TOOLS.join("|");
 export const SECRET_GUARD_MATCHER = `${FILE_WRITE_TOOL_MATCHER}|run_command`;
+export const EVIDENCE_GATE_MATCHER = "run_command|call_mcp_tool|mcp_.*";
 
 const FILE_WRITE_TOOL_SET = new Set(FILE_WRITE_TOOLS);
 
@@ -140,6 +141,54 @@ export function parseHookPayload(payload, hint) {
     );
     const chunks = extractTextChunks(safeArgs);
 
+    if (lowerTool === "call_mcp_tool" || lowerTool.startsWith("mcp_")) {
+      let serverName = String(
+        safeArgs.ServerName ?? safeArgs.serverName ?? safeArgs.server_name ?? "",
+      ).trim();
+      let toolName = String(
+        safeArgs.ToolName ?? safeArgs.toolName ?? safeArgs.tool_name ?? "",
+      ).trim();
+      const rawMcpArgs = safeArgs.Arguments ?? safeArgs.arguments;
+      let parsedMcpArgs = {};
+      if (typeof rawMcpArgs === "string") {
+        try {
+          const parsed = JSON.parse(rawMcpArgs);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            parsedMcpArgs = parsed;
+          }
+        } catch {
+          parsedMcpArgs = {};
+        }
+      } else if (rawMcpArgs && typeof rawMcpArgs === "object" && !Array.isArray(rawMcpArgs)) {
+        parsedMcpArgs = rawMcpArgs;
+      } else if (rawMcpArgs === undefined) {
+        parsedMcpArgs = safeArgs;
+      }
+      if (lowerTool.startsWith("mcp_") && !toolName) {
+        const prMatch = rawToolName.match(/^mcp_(.+?)_(create_pull_request|update_pull_request)$/i);
+        if (prMatch) {
+          serverName = serverName || prMatch[1];
+          toolName = prMatch[2];
+        } else {
+          const parts = rawToolName.slice(4).split("_");
+          serverName = serverName || parts[0] || "";
+          toolName = parts.slice(1).join("_");
+        }
+      }
+      return {
+        kind: "tool-mcp",
+        phase,
+        conversationId,
+        tool: rawToolName || "call_mcp_tool",
+        serverName,
+        toolName,
+        args: parsedMcpArgs,
+        error,
+        workspaceDir,
+        artifactDir,
+      };
+    }
+
     if (lowerTool === "run_command" || (!FILE_WRITE_TOOL_SET.has(lowerTool) && command && !filePath)) {
       return {
         kind: "tool-command",
@@ -173,6 +222,23 @@ export function parseHookPayload(payload, hint) {
       conversationId,
       tool: rawToolName || "unknown",
       error,
+      workspaceDir,
+      artifactDir,
+    };
+  }
+
+  const hookEvent = String(payload.hookEventName ?? "");
+  if (
+    hint === "pre-invocation" ||
+    hookEvent === "PreInvocation" ||
+    payload.invocationNum !== undefined ||
+    payload.initialNumSteps !== undefined
+  ) {
+    return {
+      kind: "pre-invocation",
+      conversationId,
+      lastUserInput: String(payload.lastUserInput ?? ""),
+      invocationNum: typeof payload.invocationNum === "number" ? payload.invocationNum : 0,
       workspaceDir,
       artifactDir,
     };
