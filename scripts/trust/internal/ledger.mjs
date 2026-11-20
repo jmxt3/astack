@@ -218,13 +218,14 @@ function isNonWorkspaceWritePath(filePath, { workspaceDir = "", artifactDir = ""
   if (!filePath) return false;
   const norm = String(filePath).replace(/\\/g, "/");
   if (EXTERNAL_ARTIFACT_PATH_RE.test(norm)) return true;
+  const resolvedFile = workspaceDir ? path.resolve(workspaceDir, filePath) : path.resolve(filePath);
   if (artifactDir) {
     const absArtifact = path.resolve(artifactDir).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-    const absFile = path.resolve(filePath).replace(/\\/g, "/").toLowerCase();
+    const absFile = resolvedFile.replace(/\\/g, "/").toLowerCase();
     if (absFile === absArtifact || absFile.startsWith(`${absArtifact}/`)) return true;
   }
-  if (workspaceDir && path.isAbsolute(filePath)) {
-    const rel = path.relative(path.resolve(workspaceDir), path.resolve(filePath));
+  if (workspaceDir) {
+    const rel = path.relative(path.resolve(workspaceDir), resolvedFile);
     if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return true;
   }
   return false;
@@ -783,7 +784,7 @@ export function evaluateEvidenceGate(event, options = {}) {
     if (evidence && headSha && evidence.headSha === headSha) {
       if (evidence.freshness === "fresh" || evidence.freshness === "fresh_rebase_patch_id") {
         const hasNewerWrite = receipts.some(
-          (r) => r.kind === "file_write" && String(r.ts ?? "") > String(evidence.generatedAt ?? ""),
+          (r) => r.kind === "file_write" && !isNonWorkspaceReceipt(r) && String(r.ts ?? "") > String(evidence.generatedAt ?? ""),
         );
         freshness = hasNewerWrite ? "dirty_after_verify" : evidence.freshness;
       } else if (receiptFreshness === "fresh" || receiptFreshness === "fresh_rebase_patch_id") {

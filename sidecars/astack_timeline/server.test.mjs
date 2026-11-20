@@ -185,6 +185,14 @@ test("createTimelineServer resolves workspaceUri on idle conversations, rejects 
     assert.equal(relPathSnap.setup.status, "unknown");
     assert.equal(relPathSnap.nextAction.command, "/plan");
 
+    for (const remoteTarget of ["file://evil.invalid/share", "\\\\evil.invalid\\share", "//evil.invalid/share"]) {
+      const remoteSnap = await (
+        await fetch(`${dynamicSrv.url}api/timeline?workspaceUri=${encodeURIComponent(remoteTarget)}`)
+      ).json();
+      assert.equal(remoteSnap.setup.status, "unknown");
+      assert.equal(remoteSnap.workspace, null);
+    }
+
     const pinnedSnap = await (await fetch(`${pinnedSrv.url}api/timeline?workspaceUri=${uncfgUri}`)).json();
     assert.equal(pinnedSnap.workspace, path.resolve(configuredRepo));
     assert.equal(pinnedSnap.setup.status, "ready");

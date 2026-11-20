@@ -553,7 +553,42 @@ test("recordReceipt and computeFreshness ignore brain artifact and out-of-worksp
       },
     ];
 
+    assert.equal(
+      recordReceipt(
+        {
+          kind: "tool-write",
+          conversationId: "conv-1",
+          tool: "write_file",
+          filePath: "../outside.js",
+          workspaceDir: repo,
+        },
+        { trustDir, now: "2026-11-20T10:02:02Z" },
+      ),
+      null,
+    );
+
     assert.equal(computeFreshness({ receipts: legacyReceipts, headSha: head }), "fresh");
+
+    const pushEv = parseHookPayload({
+      toolCall: { name: "run_command", args: { CommandLine: "git push origin feat/demo" } },
+      workspaceDir: repo,
+    });
+    const legacyReceiptsFile = path.join(trustDir, "receipts.conv-1.jsonl");
+    fs.mkdirSync(trustDir, { recursive: true });
+    fs.writeFileSync(legacyReceiptsFile, `${legacyReceipts.map((r) => JSON.stringify(r)).join("\n")}\n`, "utf8");
+    writeEvidenceSnapshotAtomic(trustDir, {
+      schemaVersion: 1,
+      generatedAt: "2026-11-20T10:01:30Z",
+      headSha: head,
+      freshness: "fresh",
+      roundState: "open",
+      reviewRound: 0,
+      assertionDelta: { flagged: false, weakeningRatio: 0 },
+    });
+    assert.equal(
+      evaluateEvidenceGate(pushEv, { trustDir, headSha: head, headless: true }).decision,
+      "allow",
+    );
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });
