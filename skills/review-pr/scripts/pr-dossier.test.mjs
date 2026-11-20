@@ -335,6 +335,80 @@ test("compilePrDossier preserves rebase match across repeated runs, rejects stal
     const hunkRes = compilePrDossier({ cwd: repo, baseRef: "HEAD~1", artifactDir });
     const docsCluster = hunkRes.evidence.clusters.find((c) => c.id === "docs-and-generated");
     assert.equal(docsCluster.firstLines["NOTES.md"], 1);
+
+    execFileSync("git", ["checkout", "-b", "feat/policy-tamper", "main"], { cwd: repo, stdio: "ignore" });
+    fs.mkdirSync(path.join(repo, ".agents"), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo, ".agents", "risk-policy.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        allowTier0AutoMerge: true,
+        humanGates: { planApproval: "never", prReview: "tier0-auto" },
+        tiers: {
+          "0": { label: "low", globs: ["**/*"], requireHumanApproval: false },
+          "3": { label: "critical", globs: [], requireHumanApproval: false },
+        },
+      }),
+      "utf8",
+    );
+    fs.writeFileSync(path.join(repo, "hooks.json"), "{}\n", "utf8");
+    execFileSync("git", ["add", ".agents/risk-policy.json", "hooks.json"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "attempt policy bypass"], { cwd: repo, stdio: "ignore" });
+    const tamperSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    const tamperFindings = path.join(artifactDir, "tamper-findings.json");
+    fs.writeFileSync(
+      tamperFindings,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: tamperSha,
+        baseSha,
+        round: 1,
+        verdict: "PASS",
+        summary: "Clean except policy edit",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: [] },
+      }),
+      "utf8",
+    );
+    recordReceipt(
+      { kind: "tool-command", conversationId: "exec", command: "node --test", error: "", workspaceDir: repo },
+      { trustDir, headSha: tamperSha },
+    );
+    const tamperRes = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      findingsPath: tamperFindings,
+    });
+    assert.equal(tamperRes.evidence.riskTier, 3);
+    assert.equal(tamperRes.evidence.autoMergeEligible, false);
+    assert.equal(tamperRes.evidence.baseReviewPolicy.riskPolicyModifiedInPr, true);
+
+    const blankShaFindings = path.join(artifactDir, "blank-sha-findings.json");
+    fs.writeFileSync(
+      blankShaFindings,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: "",
+        baseSha,
+        round: 1,
+        verdict: "PASS",
+        summary: "Missing headSha",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: [] },
+      }),
+      "utf8",
+    );
+    const blankRes = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      findingsPath: blankShaFindings,
+    });
+    assert.equal(blankRes.evidence.verifier.stale, true);
+    assert.equal(blankRes.evidence.verifier.headSha, null);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });

@@ -274,7 +274,7 @@ export function renderDossierMarkdown({
     `| Risk Tier | Tier ${evidence.riskTier} (${evidence.riskLabel}) |`,
     `| Freshness | \`${evidence.freshness}\` (HEAD \`${(evidence.headSha ?? "none").slice(0, 7)}\`) |`,
     `| Review Round | ${evidence.reviewRound}/${evidence.maxReviewRounds} (\`${evidence.roundState}\`) |`,
-    `| Base REVIEW.md | ${evidence.baseReviewPolicy.present ? (evidence.baseReviewPolicy.modifiedInPr ? "Present (MODIFIED IN PR)" : "Present (unchanged)") : "Not present on base"} |`,
+    `| Base REVIEW.md | ${evidence.baseReviewPolicy.present ? (evidence.baseReviewPolicy.modifiedInPr ? "Present (MODIFIED IN PR)" : "Present (unchanged)") : "Not present on base"}${evidence.baseReviewPolicy.riskPolicyModifiedInPr ? " (risk-policy.json MODIFIED IN PR)" : ""} |`,
     `| Test Assertions | +${evidence.assertionDelta.added} / -${evidence.assertionDelta.removed} (ratio ${evidence.assertionDelta.weakeningRatio}${evidence.assertionDelta.flagged ? ", FLAGGED" : ""}) |`,
     `| Auto-Merge Eligible | ${evidence.autoMergeEligible ? "Yes (Tier 0 opt-in satisfied)" : "No (Human review required)"} |`,
     "",
@@ -436,7 +436,7 @@ export function compilePrDossier({
     : "";
   const patchId = computePatchId(diffText, workspaceDir);
 
-  const { policy } = loadRiskPolicy(workspaceDir);
+  const { policy } = loadRiskPolicy(workspaceDir, { baseRef: resolvedBase });
   const baseCtx = readBaseReviewContext(workspaceDir, resolvedBase);
   const trustDir = resolveTrustDir({ workspaceDir, artifactDir });
   const trustRelPrefix = trustDir
@@ -497,7 +497,9 @@ export function compilePrDossier({
   const maxReviewRounds = policy.maxReviewRounds ?? 3;
   const reviewRound = findingsDoc?.round ?? priorEvidence?.reviewRound ?? 0;
   const findingsHead = findingsDoc?.headSha?.trim() || null;
-  const effectiveVerifierHead = findingsHead ?? priorEvidence?.verifier?.headSha?.trim() ?? null;
+  const effectiveVerifierHead = findingsDoc
+    ? findingsHead
+    : (priorEvidence?.verifier?.headSha?.trim() ?? null);
   const rawVerifierVerdict = findingsDoc?.verdict ?? priorEvidence?.verifier?.verdict ?? null;
   const hasVerifierData = Boolean(findingsDoc || rawVerifierVerdict || effectiveVerifierHead);
   const priorRebaseValid = Boolean(
@@ -507,11 +509,11 @@ export function compilePrDossier({
   );
   const verifierMatchesHead = Boolean(
     hasVerifierData &&
+      effectiveVerifierHead &&
       (!headSha ||
-        (effectiveVerifierHead &&
-          (effectiveVerifierHead === headSha ||
-            (freshness === "fresh_rebase_patch_id" &&
-              (priorEvidence?.headSha === effectiveVerifierHead || priorRebaseValid))))),
+        effectiveVerifierHead === headSha ||
+        (freshness === "fresh_rebase_patch_id" &&
+          (priorEvidence?.headSha === effectiveVerifierHead || priorRebaseValid))),
   );
   const findingsStale = Boolean(hasVerifierData && !verifierMatchesHead);
   const reviewViolations = findingsDoc?.reviewMdCompliance?.violations ?? [];
@@ -519,8 +521,8 @@ export function compilePrDossier({
     ? reviewViolations.length
     : (priorEvidence?.verifier?.reviewViolationCount ?? 0);
   const carryEscalation =
-    reviewRound >= maxReviewRounds &&
-    (rawVerifierVerdict === "FAIL" || rawVerifierVerdict === "ESCALATE_HUMAN");
+    rawVerifierVerdict === "ESCALATE_HUMAN" ||
+    (reviewRound >= maxReviewRounds && rawVerifierVerdict === "FAIL");
   const verifierVerdict = findingsStale && !carryEscalation ? null : rawVerifierVerdict;
   const roundState = evaluateRoundState({
     reviewRound,
@@ -540,6 +542,7 @@ export function compilePrDossier({
       (freshness === "fresh" || freshness === "fresh_rebase_patch_id") &&
       !assertionDelta.flagged &&
       !baseCtx.reviewMd.modifiedInPr &&
+      !baseCtx.riskPolicy.modifiedInPr &&
       findingsDoc &&
       verifierMatchesHead &&
       reviewViolationCount === 0 &&
@@ -573,6 +576,7 @@ export function compilePrDossier({
       present: baseCtx.reviewMd.present,
       baseBlobSha: baseCtx.reviewMd.blobSha,
       modifiedInPr: baseCtx.reviewMd.modifiedInPr,
+      riskPolicyModifiedInPr: baseCtx.riskPolicy.modifiedInPr,
     },
     verifier: {
       verdict: rawVerifierVerdict,

@@ -379,7 +379,7 @@ export function evaluateRoundState({
   maxReviewRounds = 3,
   fresh = false,
 } = {}) {
-  if (reviewRound >= maxReviewRounds && (verdict === "FAIL" || verdict === "ESCALATE_HUMAN")) {
+  if (verdict === "ESCALATE_HUMAN" || (reviewRound >= maxReviewRounds && verdict === "FAIL")) {
     return "escalated";
   }
   if ((verdict === "PASS" || verdict === "PASS_WITH_NOTES") && fresh) {
@@ -449,8 +449,8 @@ function isEscalatedEvidence(evidence, maxRounds = evidence?.maxReviewRounds ?? 
   if (!evidence) return false;
   return (
     evidence.roundState === "escalated" ||
-    ((evidence.reviewRound ?? 0) >= maxRounds &&
-      (evidence.verifier?.verdict === "FAIL" || evidence.verifier?.verdict === "ESCALATE_HUMAN"))
+    evidence.verifier?.verdict === "ESCALATE_HUMAN" ||
+    ((evidence.reviewRound ?? 0) >= maxRounds && evidence.verifier?.verdict === "FAIL")
   );
 }
 
@@ -500,7 +500,11 @@ export function evaluateEvidenceGate(event, options = {}) {
     reasons.push(`test assertions weakened (${evidence.assertionDelta.weakeningRatio})`);
   }
   if (isEscalatedEvidence(evidence, maxRounds)) {
-    reasons.push("review remediation hit 3-round escalation cap");
+    reasons.push(
+      evidence?.verifier?.verdict === "ESCALATE_HUMAN"
+        ? "review remediation escalated for human review"
+        : `review remediation hit ${maxRounds}-round escalation cap`,
+    );
   }
 
   if (reasons.length === 0) {

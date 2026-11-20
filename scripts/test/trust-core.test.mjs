@@ -293,6 +293,41 @@ test("evaluateEvidenceGate reacts to newer writes and passing test receipts on t
     const escalatedPush = evaluateEvidenceGate(pushEv, { trustDir: tmp, headSha: head, headless: true });
     assert.equal(escalatedPush.decision, "deny");
     assert.match(escalatedPush.reason, /escalation cap/);
+
+    assert.equal(evaluateRoundState({ reviewRound: 1, verdict: "ESCALATE_HUMAN", fresh: false }), "escalated");
+    writeEvidenceSnapshotAtomic(tmp, {
+      schemaVersion: 1,
+      generatedAt: "2026-11-20T10:09:00.000Z",
+      headSha: head,
+      freshness: "fresh",
+      roundState: "open",
+      reviewRound: 1,
+      maxReviewRounds: 3,
+      verifier: { verdict: "ESCALATE_HUMAN", headSha: head, stale: false },
+      assertionDelta: { flagged: false, weakeningRatio: 0 },
+    });
+    const earlyEscalatePush = evaluateEvidenceGate(pushEv, { trustDir: tmp, headSha: head, headless: true });
+    assert.equal(earlyEscalatePush.decision, "deny");
+    const earlyEscalateEdit = evaluateRoundLimit(
+      parseHookPayload({ toolCall: { name: "edit_file", args: { Path: "app.js", Replacement: "y" } } }),
+      { trustDir: tmp, headless: true },
+    );
+    assert.equal(earlyEscalateEdit.decision, "deny");
+
+    writeEvidenceSnapshotAtomic(tmp, {
+      schemaVersion: 1,
+      generatedAt: "2026-11-20T10:10:00.000Z",
+      headSha: head,
+      freshness: "fresh",
+      roundState: "open",
+      reviewRound: 5,
+      maxReviewRounds: 5,
+      verifier: { verdict: "FAIL", headSha: head, stale: false },
+      assertionDelta: { flagged: false, weakeningRatio: 0 },
+    });
+    const customCapPush = evaluateEvidenceGate(pushEv, { trustDir: tmp, headSha: head, headless: true });
+    assert.equal(customCapPush.decision, "deny");
+    assert.match(customCapPush.reason, /5-round escalation cap/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

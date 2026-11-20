@@ -40,6 +40,7 @@ export const DEFAULT_RISK_POLICY = {
         "scripts/hooks/**",
         "scripts/trust/**",
         ".github/workflows/**",
+        ".agents/**",
         "**/*auth*",
         "**/*billing*",
         "**/*payment*",
@@ -171,19 +172,7 @@ function readJsonIfExists(filePath) {
   }
 }
 
-/**
- * Loads `.agents/risk-policy.json` if present, merging cleanly onto `DEFAULT_RISK_POLICY`.
- */
-export function loadRiskPolicy(workspaceDir) {
-  if (!workspaceDir) {
-    return { present: false, path: null, policy: structuredClone(DEFAULT_RISK_POLICY) };
-  }
-  const filePath = path.join(workspaceDir, ".agents", "risk-policy.json");
-  const res = readJsonIfExists(filePath);
-  if (!res.present || !res.data || typeof res.data !== "object") {
-    return { present: res.present, path: filePath, policy: structuredClone(DEFAULT_RISK_POLICY), error: res.error };
-  }
-  const custom = res.data;
+function mergeRiskPolicy(custom) {
   const mergedTiers = { ...DEFAULT_RISK_POLICY.tiers };
   if (custom.tiers && typeof custom.tiers === "object") {
     for (const [k, v] of Object.entries(custom.tiers)) {
@@ -193,18 +182,58 @@ export function loadRiskPolicy(workspaceDir) {
     }
   }
   return {
+    ...DEFAULT_RISK_POLICY,
+    ...custom,
+    humanGates: {
+      ...DEFAULT_RISK_POLICY.humanGates,
+      ...(custom.humanGates ?? {}),
+    },
+    tiers: mergedTiers,
+  };
+}
+
+/**
+ * Loads `.agents/risk-policy.json` (from `baseRef` when supplied, otherwise workspace disk), merging onto `DEFAULT_RISK_POLICY`.
+ */
+export function loadRiskPolicy(workspaceDir, options = {}) {
+  if (!workspaceDir) {
+    return { present: false, path: null, policy: structuredClone(DEFAULT_RISK_POLICY) };
+  }
+  const hasBaseRefOption = options && Object.hasOwn(options, "baseRef");
+  if (hasBaseRefOption) {
+    if (!options.baseRef) {
+      return { present: false, path: ".agents/risk-policy.json", policy: structuredClone(DEFAULT_RISK_POLICY), error: null };
+    }
+    const raw = tryGit(workspaceDir, ["show", `${options.baseRef}:.agents/risk-policy.json`]);
+    if (raw === null) {
+      return { present: false, path: ".agents/risk-policy.json", policy: structuredClone(DEFAULT_RISK_POLICY), error: null };
+    }
+    try {
+      const custom = JSON.parse(raw);
+      if (!custom || typeof custom !== "object") {
+        return { present: true, path: ".agents/risk-policy.json", policy: structuredClone(DEFAULT_RISK_POLICY), error: null };
+      }
+      return {
+        present: true,
+        path: ".agents/risk-policy.json",
+        error: null,
+        policy: mergeRiskPolicy(custom),
+      };
+    } catch (err) {
+      return { present: true, path: ".agents/risk-policy.json", policy: structuredClone(DEFAULT_RISK_POLICY), error: err.message };
+    }
+  }
+
+  const filePath = path.join(workspaceDir, ".agents", "risk-policy.json");
+  const res = readJsonIfExists(filePath);
+  if (!res.present || !res.data || typeof res.data !== "object") {
+    return { present: res.present, path: filePath, policy: structuredClone(DEFAULT_RISK_POLICY), error: res.error };
+  }
+  return {
     present: true,
     path: filePath,
     error: null,
-    policy: {
-      ...DEFAULT_RISK_POLICY,
-      ...custom,
-      humanGates: {
-        ...DEFAULT_RISK_POLICY.humanGates,
-        ...(custom.humanGates ?? {}),
-      },
-      tiers: mergedTiers,
-    },
+    policy: mergeRiskPolicy(res.data),
   };
 }
 
@@ -296,6 +325,7 @@ export function readBaseReviewContext(workspaceDir, explicitBase) {
       baseRef: null,
       reviewMd: { present: false, content: "", blobSha: null, modifiedInPr: false },
       glossaryMd: { present: false, content: "", blobSha: null, modifiedInPr: false },
+      riskPolicy: { present: false, content: "", blobSha: null, modifiedInPr: false },
     };
   }
 
@@ -333,6 +363,7 @@ export function readBaseReviewContext(workspaceDir, explicitBase) {
     baseRef,
     reviewMd: readBaseFile("REVIEW.md"),
     glossaryMd: readBaseFile("GLOSSARY.md"),
+    riskPolicy: readBaseFile(".agents/risk-policy.json"),
   };
 }
 
@@ -352,6 +383,9 @@ export function evaluateSessionContext(event) {
     if (ctx.reviewMd.modifiedInPr) {
       parts.push("\nWARNING: Working branch edits REVIEW.md. Evaluate strictly against base-branch REVIEW.md.");
     }
+  }
+  if (ctx.riskPolicy?.modifiedInPr) {
+    parts.push("\nWARNING: Working branch edits .agents/risk-policy.json. Evaluate strictly against base-branch risk policy.");
   }
   if (ctx.glossaryMd.present) {
     parts.push(`\n## Base-branch GLOSSARY.md\n${ctx.glossaryMd.content.slice(0, 2500)}`);
