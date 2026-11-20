@@ -705,6 +705,25 @@ test("validateProofManifest enforces schema and compilePrDossier GitHub format c
     const mergedSecond = fs.readFileSync(prBodyFile, "utf8");
     assert.equal(mergedSecond, mergedFirst);
 
+    recordReceipt(
+      {
+        kind: "tool-command",
+        conversationId: "cli",
+        command: "node --test --grep '$& $$ $1'",
+        error: "",
+        workspaceDir: repo,
+      },
+      { headSha },
+    );
+    execFileSync(
+      process.execPath,
+      [cliPath, "--cwd", repo, "--base", "main", "--artifact-dir", artifactDir, "--format", "github", "--merge-body", prBodyFile, "--out", prBodyFile],
+      { encoding: "utf8" },
+    );
+    const mergedDollar = fs.readFileSync(prBodyFile, "utf8");
+    assert.ok(mergedDollar.includes("$& $$ $1"), "Expected literal $ replacement tokens to survive --merge-body");
+    assert.equal(mergedDollar.match(/<!--\s*astack:pr-proof:start\s*-->/g)?.length, 1);
+
     const checkGood = spawnSync(
       process.execPath,
       [cliPath, "--check-pr-body", "-", "--json"],
