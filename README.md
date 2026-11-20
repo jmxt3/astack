@@ -27,8 +27,8 @@ fork it. improve it. make it yours. PRs are welcome!
   <a href="#why-trust-is-the-limiting-step-loops-you-can-trust">Earned trust</a> ·
   <a href="#install">Install</a> ·
   <a href="#quick-start">Quick start</a> ·
-  <a href="#interactive-plan-review--execute-workflow">Plan &amp; review</a> ·
-  <a href="#how-it-fits-together">How it fits</a> ·
+  <a href="#developer-workflow-slide--phase-by-phase-commands">Workflow slide</a> ·
+  <a href="#trust-gates-risk-tiers--split-hooks">Trust &amp; hooks</a> ·
   <a href="#skill-catalog">65 skills</a> ·
   <a href="./docs/user-guide.md">User guide</a> ·
   <a href="./docs/tutorials/README.md">Tutorials</a> ·
@@ -115,39 +115,129 @@ To approve the plan before any file changes, put `/plan` in front of `/astack-mo
 
 If your idea is still rough, start with `/plan /grill-me <idea>`. The agent asks you one question at a time and then writes the plan. [Part 2 of the User Guide](./docs/user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute) has more examples.
 
-## How it fits together
+## Developer workflow slide & phase-by-phase commands
 
-Most work flows through a deterministic 6-stage pipeline when you invoke [`/astack-mode`](./skills/astack-mode/SKILL.md). Stages 1, 3, 4, and 5 advance automatically (`[AUTO]`), while Stage 2 (Implementation Plan) and Stage 6 (Visual PR Review) enforce human gates (`[HUMAN GATE]`) unless a repo explicitly opts Tier 0 into auto-merge:
+When you type [`/astack-mode`](./skills/astack-mode/SKILL.md), AStack prints a deterministic 6-stage flight rail and moves your task from context grounding through visual PR review. You stay in control at two explicit checkpoints while AStack automates research, builds, cleanup, and runtime proof.
+
+<p align="center">
+  <img src="./assets/astack-workflow-slide.svg" alt="AStack v0.4 developer workflow slide showing Phase 0 onboarding and the 6 deterministic stages with commands and human gates" width="100%">
+</p>
+
+### Full lifecycle flow and commands
 
 ```mermaid
-flowchart LR
-    subgraph Router["/astack-mode · 6-stage deterministic pipeline rail"]
-        direction LR
-        S1["`1. AUTO: Understand
-/how · /why · base REVIEW.md`"]
-        S2["`2. HUMAN GATE: Plan
-/plan · Proceed`"]
-        S3["`3. AUTO: Build & Guard
-astack-agent · /tdd · hooks`"]
-        S4["`4. AUTO: Clean
-/deslop · /no-comments`"]
-        S5["`5. AUTO: Prove & AI Review
-control-ui/cli · pr-verifier`"]
-        S6["`6. HUMAN GATE: Visual PR
-/review-pr · Review pane`"]
+flowchart TD
+    P0["`Phase 0 · Once per repo
+    /setup-astack · /create-verification-skill
+    node skills/setup-astack/scripts/init-repo-policy.mjs`"]
 
-        S1 --> S2 --> S3 --> S4 --> S5 --> S6
-    end
+    S1["`1. AUTO · Understand & Align
+    /astack-mode <goal + done check>
+    /how · /why · loads base REVIEW.md & GLOSSARY.md`"]
 
-    style Router fill:transparent,stroke:#eab308,stroke-width:1.5px,stroke-dasharray:5 5
-    classDef stage fill:#111827,stroke:#38bdf8,stroke-width:1.5px,color:#f9fafb
-    classDef gate fill:#111827,stroke:#eab308,stroke-width:2px,color:#f9fafb
-    classDef verify fill:#111827,stroke:#22c55e,stroke-width:2px,color:#f9fafb
-    class S1,S3,S4,S5 stage
-    class S2,S6 gate
+    S2{"`2. HUMAN GATE · Plan
+    /plan /astack-mode or /plan /grill-me
+    Review implementation_plan.md & click Proceed`"}
+
+    S3["`3. AUTO · Build & Guard
+    astack-agent · /tdd · /swarm · /boost
+    Passive receipts logged per conversationId`"]
+
+    S4["`4. AUTO · Clean & Audit
+    /deslop · /no-comments · /unslop
+    /audit-architecture · /security-audit`"]
+
+    S5["`5. AUTO · Prove & AI Review
+    verify-<app> · /control-ui · /control-cli
+    /interrogate · pr-verifier`"]
+
+    VGate{"`pr-verifier verdict
+    Round <= 3?`"}
+
+    Esc["`Escalated to Human
+    roundState: escalated`"]
+
+    S6{"`6. HUMAN GATE · Visual PR Review
+    /review-pr -> pr-review.md + findings.json
+    Risk Tier 0-3 · open the pr · babysit`"}
+
+    Ship["`Ship & Compound
+    /astack-mode land · /correct`"]
+
+    P0 --> S1
+    S1 --> S2
+    S2 -->|"Proceed"| S3
+    S3 --> S4
+    S4 --> S5
+    S5 --> VGate
+    VGate -->|"FAIL & round < 3"| S3
+    VGate -->|"Round 3 FAIL or ESCALATE_HUMAN"| Esc
+    Esc --> S6
+    VGate -->|"PASS / PASS_WITH_NOTES"| S6
+    S6 -->|"Human approves (or Tier 0 opt-in auto)"| Ship
+
+    classDef once fill:#111827,stroke:#818cf8,stroke-width:1.5px,color:#f9fafb
+    classDef auto fill:#111827,stroke:#38bdf8,stroke-width:1.5px,color:#f9fafb
+    classDef gate fill:#111827,stroke:#f59e0b,stroke-width:2px,color:#f9fafb
+    classDef ship fill:#111827,stroke:#22c55e,stroke-width:2px,color:#f9fafb
+    class P0 once
+    class S1,S3,S4,S5,VGate auto
+    class S2,S6,Esc gate
+    class Ship ship
 ```
 
-To follow that path visually inside Google Antigravity, enable the optional [`AStack Timeline`](./sidecars/astack_timeline/sidecar.json) sidecar panel under **Extensions**. It shows only the five primary developer commands (`/setup-astack`, `/plan` with `/grill-me`, `/astack-mode` with `/interrogate`, `/review-pr`, and `open the pr`) with green check marks, amber gates or stale warnings, click-to-copy next steps, and native artifact links.
+### What to run in each phase
+
+| Phase | Control | Command to run | What AStack does | Artifact or gate |
+|---|---|---|---|---|
+| **0. Setup once** | Human once per repo | `/setup-astack` | Audits workspace health (`--doctor`), scaffolds `.agents/skills/verify-<app>/`, and offers optional repo policies via `init-repo-policy.mjs`. | `verify-<app>/SKILL.md`, optional `REVIEW.md`, `GLOSSARY.md`, `.agents/risk-policy.json`, `.agents/boundaries.json` |
+| **1. Understand** | `[AUTO]` | `/astack-mode <goal + done check>` (or `/how`, `/why`, `/teach`, `/recall`) | Restates your goal, reads base-branch `REVIEW.md` and `GLOSSARY.md`, picks 1 of 26 playbooks, and checks downstream code. | Printed 6-stage flight rail + playbook checklist |
+| **2. Plan & approve** | `[HUMAN GATE]` | `/plan /astack-mode <goal>` or `/plan /grill-me <idea>` (or `/architect with checkpoint`) | Explores read-only with zero file edits, resolves forks via 1 question at a time, and pauses before editing code. | `<artifact-dir>/implementation_plan.md` waiting on **Proceed** |
+| **3. Build & guard** | `[AUTO]` | Runs on **Proceed** (`astack-agent`, `/tdd`, `/fanout`, `/arena`, `/swarm`, `/boost`, `/goal`) | Writes code in small verifiable units while passive `receipt-ledger` logs test runs and opt-in hooks block secret leaks or boundary violations. | Verified local commits + per-actor `receipts.<id>.jsonl` |
+| **4. Clean & audit** | `[AUTO]` | `/deslop`, `/no-comments`, `/unslop`, `/audit-architecture`, `/security-audit` | Removes shims, bloat, and noise comments (`comment-sicko`), checks `.agents/boundaries.json` rules, and re-runs tests after the last edit. | Clean diff + passing `arch-audit.mjs --strict` |
+| **5. Prove & AI review** | `[AUTO]` | `/control-ui`, `/control-cli`, `verify-<app>`, `/interrogate`, `pr-verifier` | Exercises the running UI or CLI, binds `evidence.json` freshness to `HEAD`, and runs an isolated read-only `pr-verifier` pass (`<= 3` rounds or `ESCALATE_HUMAN`). | `evidence.json` + validated `findings.json` |
+| **6. Visual PR & ship** | `[HUMAN GATE]` | `/review-pr`, then `open the pr`, `babysit`, and `land` (finish with `/correct`) | Renders `pr-review.md` (Mermaid blast-radius map, screenshot carousel, clickable lines, Risk Tier `0..3`), drives CI via `watch-pr.mjs`, and turns repeat bugs into rules. | `<artifact-dir>/pr-review.md` + ready GitHub PR |
+
+To watch your progress through the five primary commands without reading raw sub-steps, enable the optional [`AStack Timeline`](./sidecars/astack_timeline/sidecar.json) sidecar panel under **Extensions** in Antigravity.
+
+## Trust gates, Risk Tiers & split hooks
+
+AStack enforces governance checks inside [`scripts/trust/`](./scripts/trust/index.mjs) with zero external npm dependencies.
+
+### Base-branch governance and Risk Tiers (0–3)
+
+When compiling a PR dossier or starting a session, AStack reads `REVIEW.md`, `GLOSSARY.md`, and `.agents/risk-policy.json` strictly from the git base ref (`git show <base>:...`), never from the PR branch under review. Editing `REVIEW.md` or `.agents/risk-policy.json` in a PR cannot weaken review criteria or grant self-approval.
+
+| Risk Tier | Label | Default matched paths | Human gate rule |
+|---|---|---|---|
+| **Tier 0** | `low` | `**/*.md`, `**/*.txt`, `docs/**`, `.github/ISSUE_TEMPLATE/**` | Requires human review by default. Opt-in auto-merge unlocks only when base `.agents/risk-policy.json` enables `allowTier0AutoMerge` + `tier0-auto`, `evidence.json` is `fresh` on `HEAD`, `pr-verifier` passes with 0 `important` findings, and base governance files stay untouched. |
+| **Tier 1** | `medium` | `skills/**`, `src/**`, `app/**` (and unmatched files) | Always requires human sign-off. |
+| **Tier 2** | `high` | `scripts/**`, `agents/**`, `rules/**`, `package.json`, `plugin.json` | Always requires human sign-off. |
+| **Tier 3** | `critical` | `hooks.json`, `scripts/hooks/**`, `scripts/trust/**`, `.github/workflows/**`, `.agents/**`, `REVIEW.md`, auth, billing, payment, migration, and security paths | Always requires explicit human sign-off and independent proof. |
+
+Before allowing push or auto-merge, [`pr-dossier.mjs`](./skills/review-pr/scripts/pr-dossier.mjs) also checks test assertion integrity per file (`weakeningRatio`) and preserves `fresh_rebase_patch_id` verification across clean commit rebases while invalidating stale snapshots on new code writes.
+
+### Split-default lifecycle hooks (`hooks.json`)
+
+[`hooks.json`](./hooks.json) enables two passive observe-only hooks by default and keeps all six blocking gates opt-in (`"enabled": false`) so existing repositories never break unexpectedly:
+
+| Hook | Event | Default | Purpose |
+|---|---|---|---|
+| `astack-receipt-ledger` | `PostToolUse` | Enabled (`true`) | Logs redacted test, verify, lint, build, and edit receipts per `conversationId`. |
+| `astack-session-context` | `SessionStart` | Enabled (`true`) | Injects base-branch `REVIEW.md`, `GLOSSARY.md`, and `.agents/risk-policy.json` tamper warnings. |
+| `astack-irreversible-guard` | `PreToolUse` | Opt-in (`false`) | Guards destructive shell commands, SQL `DROP`/`TRUNCATE`, and force or trunk pushes. |
+| `astack-secret-guard` | `PreToolUse` | Opt-in (`false`) | Blocks `.env` writes and credential patterns across CLI and App/IDE file tools. |
+| `astack-boundary-guard` | `PreToolUse` | Opt-in (`false`) | Enforces `.agents/boundaries.json` import zones and banned patterns on pending edits. |
+| `astack-evidence-gate` | `PreToolUse` | Opt-in (`false`) | Requires fresh verification receipts on `HEAD` and clean escalation state before push or `gh pr create`. |
+| `astack-round-limiter` | `PreToolUse` | Opt-in (`false`) | Halts autonomous edits after `maxReviewRounds` failures (`3`) or `ESCALATE_HUMAN` so a human decides next steps. |
+| `astack-verify-reminder` | `Stop` | Opt-in (`false`) | Nudges for empirical verification when `ASTACK_REQUIRE_VERIFY=1` and non-doc code remains uncommitted. |
+
+### Four habits to get the most out of AStack
+
+1. **Always include a pass-or-fail check in your prompt.** Tell `/astack-mode` what proves the change works on your running CLI, API, or browser UI.
+2. **Prefix risky tasks with `/plan` (or `/plan /grill-me`).** Catch wrong premises and vertical-slice boundaries in `implementation_plan.md` before code is written.
+3. **Inspect `<artifact-dir>/pr-review.md` alongside Antigravity's Review pane.** Follow the Mermaid blast-radius map and ordered file links instead of reading diffs top to bottom.
+4. **Run `/correct` whenever an agent repeats a mistake.** Move the lesson up into types, lints, `.agents/boundaries.json`, or behavioral tests instead of longer prose rules.
 
 ## Skill catalog
 
@@ -300,7 +390,7 @@ AStack ships **65 skills** (`skills/`), **3 agents** (`agents/`), **1 routing ru
 
 | Goal | Documents |
 |---|---|
-| Single-page quickstart, plan-approve-execute workflow, 5-stage guide, and power moves | [AStack User Guide](./docs/user-guide.md) · [Plan-First Workflow](./docs/user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute) |
+| Single-page quickstart, plan-approve-execute workflow, 6-stage guide, and power moves | [AStack User Guide](./docs/user-guide.md) · [Plan-First Workflow](./docs/user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute) |
 | Chronological agent reference covering all main commands, practical examples, and tutorial links | [Agent Command Timeline](./docs/agent-timeline.md) |
 | Hands-on daily walkthroughs along the full delivery timeline (tickets, setup, feature gates, pre-PR UI/migration/security audits, PR babysit & release, batch reviews) | [Hands-On Daily Tutorials](./docs/tutorials/README.md) |
 | Step-by-step 10-chapter onboarding course | [The AStack Guide](./docs/guide/README.md) |

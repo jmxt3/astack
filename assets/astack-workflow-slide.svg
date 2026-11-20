@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" role="img" aria-labelledby="title desc">
+  <title id="title">AStack v0.4 Developer Workflow Slide</title>
+  <desc id="desc">Visual workflow showing Phase 0 onboarding and the 6 deterministic /astack-mode stages, human gates, and commands.</desc>
+  <defs>
+    <marker id="arrow-cyan" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#38BDF8"/>
+    </marker>
+    <marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#F59E0B"/>
+    </marker>
+    <style>
+      .sans { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="720" fill="#0B1120" rx="16"/>
+  <rect x="16" y="16" width="1248" height="688" rx="14" fill="#0F172A" stroke="#1E293B" stroke-width="1.5"/>
+
+  <text x="44" y="58" class="sans" font-size="26" font-weight="700" fill="#F8FAFC">AStack v0.4 · Developer Lifecycle Slide</text>
+  <text x="44" y="84" class="sans" font-size="14" fill="#94A3B8">State your goal and approve 2 human gates. AStack automates research, builds, cleanup, and live proof.</text>
+
+  <rect x="812" y="42" width="136" height="28" rx="14" fill="#1E1B4B" stroke="#818CF8" stroke-width="1.5"/>
+  <text x="880" y="60" text-anchor="middle" class="mono" font-size="11.5" font-weight="700" fill="#C7D2FE">ONCE PER REPO</text>
+
+  <rect x="960" y="42" width="124" height="28" rx="14" fill="#0C2438" stroke="#38BDF8" stroke-width="1.5"/>
+  <text x="1022" y="60" text-anchor="middle" class="mono" font-size="11.5" font-weight="700" fill="#7DD3FC">AUTO STAGE</text>
+
+  <rect x="1096" y="42" width="140" height="28" rx="14" fill="#2D1F07" stroke="#F59E0B" stroke-width="1.5"/>
+  <text x="1166" y="60" text-anchor="middle" class="mono" font-size="11.5" font-weight="700" fill="#FCD34D">HUMAN GATE</text>
+
+  <rect x="44" y="106" width="1192" height="76" rx="12" fill="#111827" stroke="#818CF8" stroke-width="1.5"/>
+  <rect x="60" y="120" width="154" height="22" rx="6" fill="#1E1B4B" stroke="#818CF8" stroke-width="1"/>
+  <text x="137" y="135" text-anchor="middle" class="mono" font-size="11" font-weight="700" fill="#C7D2FE">PHASE 0 · SETUP ONCE</text>
+  <text x="228" y="136" class="sans" font-size="15.5" font-weight="700" fill="#F8FAFC">Teach AStack how to boot, test, and govern your repository</text>
+  <rect x="60" y="148" width="690" height="24" rx="6" fill="#0B1120" stroke="#1E293B" stroke-width="1"/>
+  <text x="72" y="164" class="mono" font-size="12" fill="#7DD3FC">/setup-astack   |   /create-verification-skill   |   init-repo-policy.mjs   |   --doctor</text>
+  <text x="772" y="137" class="sans" font-size="12.5" fill="#CBD5E1">Scaffolds .agents/skills/verify-&lt;app&gt;/ + feature map</text>
+  <text x="772" y="160" class="sans" font-size="12.5" fill="#94A3B8">Optional: enable AStack Timeline sidecar in Extensions</text>
+
+  <rect x="44" y="204" width="372" height="196" rx="12" fill="#111827" stroke="#38BDF8" stroke-width="1.5"/>
+  <text x="60" y="232" class="sans" font-size="16" font-weight="700" fill="#F8FAFC">1. Understand &amp; Align</text>
+  <rect x="334" y="214" width="66" height="22" rx="11" fill="#0C2438" stroke="#38BDF8" stroke-width="1"/>
+  <text x="367" y="229" text-anchor="middle" class="mono" font-size="11" font-weight="700" fill="#7DD3FC">AUTO</text>
+  <line x1="60" y1="246" x2="400" y2="246" stroke="#1E293B" stroke-width="1"/>
+  <rect x="60" y="256" width="340" height="46" rx="8" fill="#0B1120" stroke="#1E293B" stroke-width="1"/>
+  <text x="72" y="275" class="mono" font-size="12" fill="#7DD3FC">/astack-mode &lt;goal + done check&gt;</text>
+  <text x="72" y="294" class="mono" font-size="12" fill="#CBD5E1">/how   |   /why   |   /teach   |   /recall</text>
+  <text x="60" y="326" class="sans" font-size="13" fill="#CBD5E1">Reads base-branch REVIEW.md &amp; GLOSSARY.md</text>
+  <text x="60" y="350" class="sans" font-size="13" fill="#94A3B8">Matches 1 of 26 playbooks and prints flight rail</text>
+  <text x="60" y="374" class="sans" font-size="12.5" fill="#64748B">Read-only context grounding before any edits</text>
+
+  <line x1="418" y1="302" x2="450" y2="302" stroke="#38BDF8" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+
+  <rect x="454" y="204" width="372" height="196" rx="12" fill="#111827" stroke="#F59E0B" stroke-width="2"/>
+  <text x="470" y="232" class="sans" font-size="16" font-weight="700" fill="#F8FAFC">2. Plan &amp; Approve</text>
+  <rect x="708" y="214" width="102" height="22" rx="11" fill="#2D1F07" stroke="#F59E0B" stroke-width="1"/>
+  <text x="759" y="229" text-anchor="middle" class="mono" font-size="11" font-weight="700" fill="#FCD34D">HUMAN GATE</text>
+  <line x1="470" y1="246" x2="810" y2="246" stroke="#1E293B" stroke-width="1"/>
+  <rect x="470" y="256" width="340" height="46" rx="8" fill="#0B1120" stroke="#1E293B" stroke-width="1"/>
+  <text x="482" y="275" class="mono" font-size="12" fill="#FCD34D">/plan /astack-mode &lt;goal&gt;</text>
+  <text x="482" y="294" class="mono" font-size="12" fill="#CBD5E1">/plan /grill-me   |   /architect with checkpoint</text>
+  <text x="470" y="326" class="sans" font-size="13" fill="#CBD5E1">Writes implementation_plan.md with zero edits</text>
+  <text x="470" y="350" class="sans" font-size="13" fill="#94A3B8">Resolves edge cases via 1 question at a time</text>
+  <text x="470" y="374" class="sans" font-size="12.5" fill="#F59E0B">You comment inline and click Proceed to run</text>
+
+  <line x1="828" y1="302" x2="860" y2="302" stroke="#F59E0B" stroke-width="2" marker-end="url(#arrow-amber)"/>
+
+  <rect x="864" y="204" width="372" height="196" rx="12" fill="#111827" stroke="#38BDF8" stroke-width="1.5"/>
+  <text x="880" y="232" class="sans" font-size="16" font-weight="700" fill="#F8FAFC">3. Build &amp; Guard</text>
+  <rect x="1154" y="214" width="66" height="22" rx="11" fill="#0C2438" stroke="#38BDF8" stroke-width="1"/>
+  <text x="1187" y="229" text-anchor="middle" class="mono" font-size="11" font-weight="700" fill="#7DD3FC">AUTO</text>
+  <line x1="880" y1="246" x2="1220" y2="246" stroke="#1E293B" stroke-width="1"/>
+  <rect x="880" y="256" width="340" height="46" rx="8" fill="#0B1120" stroke="#1E293B" stroke-width="1"/>
+  <text x="892" y="275" class="mono" font-size="12" fill="#7DD3FC">astack-agent   |   /tdd   |   /boost</text>
+  <text x="892" y="294" class="mono" font-size="12" fill="#CBD5E1">/fanout   |   /arena   |   /swarm   |   /goal</text>
+  <text x="880" y="326" class="sans" font-size="13" fill="#CBD5E1">Writes small units verified step by step</text>
+  <text x="880" y="350" class="sans" font-size="13" fill="#94A3B8">Logs per-actor receipts on PostToolUse</text>
+  <text x="880" y="374" class="sans" font-size="12.5" fill="#64748B">Optional secret, boundary &amp; round-limit guards</text>
+
+  <path d="M 1050 402 L 1050 418 L 230 418 L 230 434" fill="none" stroke="#38BDF8" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+
+  <rect x="44" y="438" width="372" height="196" rx="12" fill="#111827" stroke="#38BDF8" stroke-width="1.5"/>
+  <text x="60" y="466" class="sans" font-size="16" font-weight="700" fill="#F8FAFC">4. Clean &amp; Audit</text>
+  <rect x="334" y="448" width="66" height="22" rx="11" fill="#0C2438" stroke="#38BDF8" stroke-width="1"/>
+  <text x="367" y="463" text-anchor="middle" class="mono" font-size="11" font-weight="700" fill="#7DD3FC">AUTO</text>
+  <line x1="60" y1="480" x2="400" y2="480" stroke="#1E293B" stroke-width="1"/>
+  <rect x="60" y="490" width="340" height="46" rx="8" fill="#0B1120" stroke="#1E293B" stroke-width="1"/>
+  <text x="72" y="509" class="mono" font-size="12" fill="#7DD3FC">/deslop   |   /no-comments   |   /unslop</text>
+  <text x="72" y="528" class="mono" font-size="12" fill="#CBD5E1">/audit-architecture   |   /security-audit</text>
+  <text x="60" y="560" class="sans" font-size="13" fill="#CBD5E1">Deletes shims, noise comments &amp; bloat</text>
+  <text x="60" y="584" class="sans" font-size="13" fill="#94A3B8">Checks .agents/boundaries.json &amp; shallow APIs</text>
+  <text x="60" y="608" class="sans" font-size="12.5" fill="#64748B">Re-runs full test suite after final cleanup</text>
+
+  <line x1="418" y1="536" x2="450" y2="536" stroke="#38BDF8" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+
+  <rect x="454" y="438" width="372" height="196" rx="12" fill="#111827" stroke="#22C55E" stroke-width="1.5"/>
+  <text x="470" y="466" class="sans" font-size="16" font-weight="700" fill="#F8FAFC">5. Prove &amp; AI Review</text>
+  <rect x="744" y="448" width="66" height="22" rx="11" fill="#0C2438" stroke="#38BDF8" stroke-width="1"/>
+  <text x="777" y="463" text-anchor="middle" class="mono" font-size="11" font-weight="700" fill="#7DD3FC">AUTO</text>
+  <line x1="470" y1="480" x2="810" y2="480" stroke="#1E293B" stroke-width="1"/>
+  <rect x="470" y="490" width="340" height="46" rx="8" fill="#0B1120" stroke="#1E293B" stroke-width="1"/>
+  <text x="482" y="509" class="mono" font-size="12" fill="#4ADE80">verify-&lt;app&gt;   |   /control-ui   |   /control-cli</text>
+  <text x="482" y="528" class="mono" font-size="12" fill="#CBD5E1">/interrogate   |   pr-verifier (&lt;= 3 rounds)</text>
+  <text x="470" y="560" class="sans" font-size="13" fill="#CBD5E1">Exercises real UI, CLI, or daemon + captures proof</text>
+  <text x="470" y="584" class="sans" font-size="13" fill="#94A3B8">Binds evidence.json freshness &amp; tests to HEAD</text>
+  <text x="470" y="608" class="sans" font-size="12.5" fill="#4ADE80">Read-only pr-verifier emits findings.json</text>
+
+  <line x1="828" y1="536" x2="860" y2="536" stroke="#38BDF8" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+
+  <rect x="864" y="438" width="372" height="196" rx="12" fill="#111827" stroke="#F59E0B" stroke-width="2"/>
+  <text x="880" y="466" class="sans" font-size="16" font-weight="700" fill="#F8FAFC">6. Visual PR &amp; Ship</text>
+  <rect x="1118" y="448" width="102" height="22" rx="11" fill="#2D1F07" stroke="#F59E0B" stroke-width="1"/>
+  <text x="1169" y="463" text-anchor="middle" class="mono" font-size="11" font-weight="700" fill="#FCD34D">HUMAN GATE</text>
+  <line x1="880" y1="480" x2="1220" y2="480" stroke="#1E293B" stroke-width="1"/>
+  <rect x="880" y="490" width="340" height="46" rx="8" fill="#0B1120" stroke="#1E293B" stroke-width="1"/>
+  <text x="892" y="509" class="mono" font-size="12" fill="#FCD34D">/review-pr   |   open the pr</text>
+  <text x="892" y="528" class="mono" font-size="12" fill="#CBD5E1">babysit (watch-pr.mjs)   |   land   |   /correct</text>
+  <text x="880" y="560" class="sans" font-size="13" fill="#CBD5E1">Builds pr-review.md (Mermaid + screenshot slide)</text>
+  <text x="880" y="584" class="sans" font-size="13" fill="#94A3B8">Tier 1-3 wait on you; Tier 0 auto is opt-in</text>
+  <text x="880" y="608" class="sans" font-size="12.5" fill="#F59E0B">Babysit gets CI green; /correct encodes lessons</text>
+
+  <rect x="44" y="650" width="1192" height="40" rx="10" fill="#111827" stroke="#1E293B" stroke-width="1"/>
+  <text x="60" y="675" class="mono" font-size="12" fill="#CBD5E1">Risk Tiers: Tier 0 Docs (opt-in auto) · Tier 1 Features · Tier 2 Core &amp; Config · Tier 3 Hooks, CI, .agents/**, REVIEW.md, Auth</text>
+  <text x="1220" y="675" text-anchor="end" class="mono" font-size="12" fill="#4ADE80">Zero npm deps · Any Antigravity model</text>
+</svg>
