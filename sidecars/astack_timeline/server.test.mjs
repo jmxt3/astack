@@ -56,11 +56,14 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     const htmlRes = await fetch(`${srv.url}`);
     assert.equal(htmlRes.status, 200);
     assert.match(htmlRes.headers.get("content-type") ?? "", /text\/html/);
-    assert.match(await htmlRes.text(), /AStack Timeline/);
+    const htmlText = await htmlRes.text();
+    assert.match(htmlText, /AStack Timeline/);
+    assert.match(htmlText, /data-testid="cmd-popover"/);
 
     const cssRes = await fetch(`${srv.url}styles.css`);
     assert.equal(cssRes.status, 200);
     assert.match(cssRes.headers.get("content-type") ?? "", /text\/css/);
+    assert.match(await cssRes.text(), /--tl-done:/);
 
     const jsRes = await fetch(`${srv.url}app.js`);
     assert.equal(jsRes.status, 200);

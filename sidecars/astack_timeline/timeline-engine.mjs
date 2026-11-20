@@ -15,12 +15,60 @@ import {
 } from "../../scripts/trust/index.mjs";
 
 const STAGE_BY_ID = new Map(PIPELINE_STAGES.map((stage) => [stage.id, stage]));
+const GITHUB_DOCS_BASE = "https://github.com/jmxt3/astack/blob/main";
+
+export const COMMAND_DOCS = {
+  "/setup-astack": {
+    description: "Scaffold verify-<app> skills and repo guardrails once per project.",
+    docsUrl: `${GITHUB_DOCS_BASE}/skills/setup-astack/SKILL.md`,
+  },
+  "/plan": {
+    description: "Investigate read-only and write implementation_plan.md before editing files.",
+    docsUrl: `${GITHUB_DOCS_BASE}/skills/astack-mode/references/plan-contract.md`,
+  },
+  "/grill-me": {
+    description: "Interview you one question at a time to sharpen a rough idea before planning.",
+    docsUrl: `${GITHUB_DOCS_BASE}/docs/user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute`,
+  },
+  "/astack-mode": {
+    description: "Run the full playbook: implement, clean the diff, and prove it works live.",
+    docsUrl: `${GITHUB_DOCS_BASE}/skills/astack-mode/SKILL.md`,
+  },
+  "/interrogate": {
+    description: "Run multi-model adversarial review on a contested design or diff.",
+    docsUrl: `${GITHUB_DOCS_BASE}/skills/interrogate/SKILL.md`,
+  },
+  "/review-pr": {
+    description: "Compile pr-review.md and run an isolated verifier pass before opening a PR.",
+    docsUrl: `${GITHUB_DOCS_BASE}/skills/review-pr/SKILL.md`,
+  },
+  "/astack-mode open the pr": {
+    description: "Prepare clean commits, compile the PR proof block, and open the PR.",
+    docsUrl: `${GITHUB_DOCS_BASE}/skills/astack-mode/playbooks/opening-a-pr.md`,
+  },
+  babysit: {
+    description: "Watch CI, triage review threads skeptically, and drive the PR to merge-ready.",
+    docsUrl: `${GITHUB_DOCS_BASE}/skills/astack-mode/playbooks/babysit.md`,
+  },
+};
+
+function makeCommandItem(command, state, optional = false) {
+  const doc = COMMAND_DOCS[command] ?? {};
+  return {
+    command,
+    state,
+    optional,
+    description: doc.description ?? "",
+    docsUrl: doc.docsUrl ?? null,
+  };
+}
 
 export const TIMELINE_STEPS = [
   {
     id: "setup",
     number: 1,
     label: "Setup",
+    summary: "Configure repo verification skills and guardrails once.",
     gate: "SETUP",
     primaryCommand: "/setup-astack",
     optionalCommands: [],
@@ -30,6 +78,7 @@ export const TIMELINE_STEPS = [
     id: "plan",
     number: 2,
     label: "Plan",
+    summary: "Agree on a written plan before editing code.",
     gate: "GATE",
     primaryCommand: "/plan",
     optionalCommands: ["/grill-me"],
@@ -39,6 +88,7 @@ export const TIMELINE_STEPS = [
     id: "build",
     number: 3,
     label: "Build & Prove",
+    summary: "Implement, clean the diff, and prove it works.",
     gate: "AUTO",
     primaryCommand: "/astack-mode",
     optionalCommands: ["/interrogate"],
@@ -52,6 +102,7 @@ export const TIMELINE_STEPS = [
     id: "review",
     number: 4,
     label: "PR Review",
+    summary: "Compile PR proof and run isolated verification.",
     gate: "GATE",
     primaryCommand: "/review-pr",
     optionalCommands: [],
@@ -61,6 +112,7 @@ export const TIMELINE_STEPS = [
     id: "ship",
     number: 5,
     label: "Ship",
+    summary: "Open the PR and track CI to merge-ready.",
     gate: "AUTO",
     primaryCommand: "/astack-mode open the pr",
     optionalCommands: ["babysit"],
@@ -454,7 +506,7 @@ function buildSetupStage(setup, sig) {
   return {
     ...TIMELINE_STEPS[0],
     status,
-    commands: [{ command: "/setup-astack", state: done ? "done" : status === "next" ? "next" : "pending", optional: false }],
+    commands: [makeCommandItem("/setup-astack", done ? "done" : status === "next" ? "next" : "pending")],
     subChecks: [],
     detail,
     artifact: null,
@@ -489,12 +541,8 @@ function buildPlanStage({ setupStatus, sig, planArtifact, planWrittenMarker, lat
     ...TIMELINE_STEPS[1],
     status,
     commands: [
-      {
-        command: "/plan",
-        state: planWrittenMarker ? "done" : status === "active" ? "active" : status === "next" ? "next" : "pending",
-        optional: false,
-      },
-      { command: "/grill-me", state: grillMe ? "done" : "pending", optional: true },
+      makeCommandItem("/plan", planWrittenMarker ? "done" : status === "active" ? "active" : status === "next" ? "next" : "pending"),
+      makeCommandItem("/grill-me", grillMe ? "done" : "pending", true),
     ],
     subChecks: [],
     detail,
@@ -540,12 +588,11 @@ function buildBuildStage({
     ...TIMELINE_STEPS[2],
     status,
     commands: [
-      {
-        command: "/astack-mode",
-        state: status === "done" ? "done" : status === "stale" ? "stale" : astackModeActive ? "active" : status === "next" ? "next" : "pending",
-        optional: false,
-      },
-      { command: "/interrogate", state: sig.interrogateAt ? "done" : "pending", optional: true },
+      makeCommandItem(
+        "/astack-mode",
+        status === "done" ? "done" : status === "stale" ? "stale" : astackModeActive ? "active" : status === "next" ? "next" : "pending",
+      ),
+      makeCommandItem("/interrogate", sig.interrogateAt ? "done" : "pending", true),
     ],
     subChecks,
     detail,
@@ -581,20 +628,18 @@ function buildReviewStage({ buildStatus, reviewStarted, staleFromReceipts, revie
     ...TIMELINE_STEPS[3],
     status,
     commands: [
-      {
-        command: "/review-pr",
-        state:
-          status === "done" || status === "waiting_gate"
-            ? "done"
-            : status === "stale" || status === "error"
-              ? "stale"
-              : status === "active"
-                ? "active"
-                : status === "next"
-                  ? "next"
-                  : "pending",
-        optional: false,
-      },
+      makeCommandItem(
+        "/review-pr",
+        status === "done" || status === "waiting_gate"
+          ? "done"
+          : status === "stale" || status === "error"
+            ? "stale"
+            : status === "active"
+              ? "active"
+              : status === "next"
+                ? "next"
+                : "pending",
+      ),
     ],
     subChecks: [],
     detail,
@@ -618,12 +663,8 @@ function buildShipStage({ reviewStatus, shipped, sig }) {
     ...TIMELINE_STEPS[4],
     status,
     commands: [
-      {
-        command: "/astack-mode open the pr",
-        state: shipped ? "done" : status === "next" ? "next" : "pending",
-        optional: false,
-      },
-      { command: "babysit", state: sig.babysitAt ? "done" : "pending", optional: true },
+      makeCommandItem("/astack-mode open the pr", shipped ? "done" : status === "next" ? "next" : "pending"),
+      makeCommandItem("babysit", sig.babysitAt ? "done" : "pending", true),
     ],
     subChecks: [],
     detail,

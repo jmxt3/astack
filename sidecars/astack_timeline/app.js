@@ -1,6 +1,8 @@
 (() => {
   const POLL_MS = 1800;
   const ATTENTION_STATUSES = new Set(["waiting_gate", "stale", "error", "next", "active"]);
+  const AUTO_EXPAND_STATUSES = new Set(["waiting_gate", "stale", "error"]);
+  const DOCS_URL_PREFIX = "https://github.com/jmxt3/astack/";
   const params = new URLSearchParams(location.search);
   const state = {
     etag: "",
@@ -8,6 +10,8 @@
     expanded: new Set(),
     userToggled: false,
     toastTimer: null,
+    popoverHideTimer: null,
+    popoverAnchor: null,
   };
 
   function syncScheme() {
@@ -46,11 +50,12 @@
     svg.setAttribute("viewBox", "0 0 16 16");
     svg.setAttribute("fill", "none");
     svg.setAttribute("stroke", "currentColor");
-    svg.setAttribute("stroke-width", "1.7");
+    const strokeWidth = kind === "check" ? "2.5" : kind === "check-sm" ? "2.3" : kind === "external" ? "1.8" : "1.7";
+    svg.setAttribute("stroke-width", strokeWidth);
     svg.setAttribute("stroke-linecap", "round");
     svg.setAttribute("stroke-linejoin", "round");
     svg.setAttribute("aria-hidden", "true");
-    const size = kind === "check-sm" ? "10px" : "12px";
+    const size = kind === "check-sm" || kind === "external" ? "11px" : "12px";
     svg.style.width = size;
     svg.style.height = size;
     svg.style.flex = "none";
@@ -71,6 +76,9 @@
     } else if (kind === "doc") {
       add("path", { d: "M4.5 2.5h5l2.5 2.5v8.5h-7.5z" });
       add("path", { d: "M9.5 2.5V5H12" });
+    } else if (kind === "external") {
+      add("path", { d: "M5 11 11 5" });
+      add("path", { d: "M6.5 5H11v4.5" });
     } else if (kind === "copy") {
       add("rect", { x: "5.5", y: "5.5", width: "7.5", height: "7.5", rx: "1.4" });
       add("path", { d: "M10 5.5V4a1.2 1.2 0 0 0-1.2-1.2H4A1.2 1.2 0 0 0 2.8 4v4.8A1.2 1.2 0 0 0 4 10h1.5" });
@@ -101,6 +109,92 @@
       return;
     }
     copyText(artifact.uri, `Copied ${artifact.name} path`);
+  }
+
+  function cancelHidePopover() {
+    if (state.popoverHideTimer) {
+      clearTimeout(state.popoverHideTimer);
+      state.popoverHideTimer = null;
+    }
+  }
+
+  function hideCommandPopover() {
+    cancelHidePopover();
+    const pop = document.getElementById("cmd-popover");
+    if (!pop) return;
+    pop.classList.add("hidden");
+    pop.replaceChildren();
+    if (state.popoverAnchor) {
+      state.popoverAnchor.removeAttribute("aria-describedby");
+      state.popoverAnchor = null;
+    }
+  }
+
+  function scheduleHidePopover() {
+    cancelHidePopover();
+    state.popoverHideTimer = setTimeout(hideCommandPopover, 180);
+  }
+
+  function findCommandMeta(snap, command) {
+    for (const stage of snap?.stages || []) {
+      const found = stage.commands?.find((c) => c.command === command);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function positionCommandPopover(pop, anchorEl) {
+    const pad = 12;
+    const anchorRect = anchorEl.getBoundingClientRect();
+    const popRect = pop.getBoundingClientRect();
+    const maxLeft = Math.max(pad, window.innerWidth - popRect.width - pad);
+    const left = Math.min(Math.max(pad, anchorRect.left), maxLeft);
+    const fitsBelow = anchorRect.bottom + 6 + popRect.height <= window.innerHeight - pad;
+    const top = fitsBelow
+      ? anchorRect.bottom + 6
+      : Math.max(pad, anchorRect.top - popRect.height - 6);
+    pop.style.left = `${Math.round(left)}px`;
+    pop.style.top = `${Math.round(top)}px`;
+  }
+
+  function showCommandPopover(anchorEl, item) {
+    if (!item?.description) return;
+    const pop = document.getElementById("cmd-popover");
+    if (!pop) return;
+    cancelHidePopover();
+    if (state.popoverAnchor && state.popoverAnchor !== anchorEl) {
+      state.popoverAnchor.removeAttribute("aria-describedby");
+    }
+    state.popoverAnchor = anchorEl;
+    anchorEl.setAttribute("aria-describedby", "cmd-popover");
+
+    const head = el("div", "cmd-popover-head");
+    head.appendChild(el("span", "cmd-popover-name", item.command));
+    if (typeof item.docsUrl === "string" && item.docsUrl.startsWith(DOCS_URL_PREFIX)) {
+      const link = el("a", "cmd-popover-doc");
+      link.href = item.docsUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.appendChild(el("span", "", "Docs"));
+      link.appendChild(svgIcon("external"));
+      head.appendChild(link);
+    }
+
+    pop.replaceChildren(
+      head,
+      el("p", "cmd-popover-desc", item.description),
+      el("div", "cmd-popover-foot", "Click chip to copy command"),
+    );
+    pop.classList.remove("hidden");
+    positionCommandPopover(pop, anchorEl);
+  }
+
+  function attachCommandPopover(elNode, item) {
+    if (!item?.description) return;
+    elNode.addEventListener("mouseenter", () => showCommandPopover(elNode, item));
+    elNode.addEventListener("mouseleave", scheduleHidePopover);
+    elNode.addEventListener("focus", () => showCommandPopover(elNode, item));
+    elNode.addEventListener("blur", scheduleHidePopover);
   }
 
   function statusPill(status) {
@@ -153,7 +247,13 @@
 
       const cmdBtn = el("button", "chip next");
       cmdBtn.type = "button";
-      cmdBtn.title = `Copy ${snap.nextAction.command}`;
+      const nextMeta = findCommandMeta(snap, snap.nextAction.command);
+      if (nextMeta?.description) {
+        cmdBtn.setAttribute("aria-label", `Copy ${snap.nextAction.command}`);
+        attachCommandPopover(cmdBtn, nextMeta);
+      } else {
+        cmdBtn.title = `Copy ${snap.nextAction.command}`;
+      }
       cmdBtn.appendChild(el("span", "", snap.nextAction.command));
       cmdBtn.appendChild(svgIcon("copy"));
       cmdBtn.addEventListener("click", () => copyText(snap.nextAction.command));
@@ -164,7 +264,7 @@
 
     if (!state.userToggled) {
       state.expanded.clear();
-      const focus = snap.stages.find((s) => ATTENTION_STATUSES.has(s.status));
+      const focus = snap.stages.find((s) => AUTO_EXPAND_STATUSES.has(s.status));
       if (focus) state.expanded.add(focus.id);
     }
 
@@ -215,12 +315,21 @@
       stepBtn.appendChild(chev);
       body.appendChild(stepBtn);
 
+      if (stage.summary) {
+        body.appendChild(el("p", "stage-summary", stage.summary));
+      }
+
       const chips = el("div", "chips");
       for (const item of stage.commands) {
         const cls = item.optional ? `chip optional ${item.state}` : `chip ${item.state}`;
         const chip = el("button", cls);
         chip.type = "button";
-        chip.title = `Copy ${item.command}`;
+        if (item.description) {
+          chip.setAttribute("aria-label", `Copy ${item.command}`);
+          attachCommandPopover(chip, item);
+        } else {
+          chip.title = `Copy ${item.command}`;
+        }
         if (item.state === "done") {
           const ic = svgIcon("check-sm");
           ic.classList.add("chip-icon");
@@ -264,6 +373,10 @@
       li.appendChild(body);
       list.appendChild(li);
     });
+
+    if (state.popoverAnchor && !document.contains(state.popoverAnchor)) {
+      hideCommandPopover();
+    }
   }
 
   async function poll() {
@@ -289,6 +402,24 @@
       document.getElementById("live-label").textContent = "Offline";
     }
   }
+
+  const popEl = document.getElementById("cmd-popover");
+  if (popEl) {
+    popEl.addEventListener("mouseenter", cancelHidePopover);
+    popEl.addEventListener("mouseleave", scheduleHidePopover);
+    popEl.addEventListener("focusin", cancelHidePopover);
+    popEl.addEventListener("focusout", scheduleHidePopover);
+  }
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") hideCommandPopover();
+  });
+  document.addEventListener("scroll", hideCommandPopover, { capture: true, passive: true });
+  document.addEventListener("click", (ev) => {
+    if (!popEl || popEl.classList.contains("hidden")) return;
+    if (popEl.contains(ev.target)) return;
+    if (state.popoverAnchor && state.popoverAnchor.contains(ev.target)) return;
+    hideCommandPopover();
+  });
 
   poll();
   setInterval(poll, POLL_MS);

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { evaluateTimelineSnapshot, resolveSafeArtifactUri, TIMELINE_STEPS } from "./timeline-engine.mjs";
+import { COMMAND_DOCS, evaluateTimelineSnapshot, resolveSafeArtifactUri, TIMELINE_STEPS } from "./timeline-engine.mjs";
 
 function makeFixture(prefix = "astack-tl-") {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -35,6 +35,27 @@ test("TIMELINE_STEPS defines 5 concise developer stages without internal tool cl
     TIMELINE_STEPS.map((s) => s.primaryCommand),
     ["/setup-astack", "/plan", "/astack-mode", "/review-pr", "/astack-mode open the pr"],
   );
+  for (const step of TIMELINE_STEPS) {
+    assert.ok(typeof step.summary === "string" && step.summary.trim().length > 0, `Missing summary for ${step.id}`);
+  }
+});
+
+test("every stage command exposes description and GitHub docsUrl across snapshots", () => {
+  const { root, brainDir, workspaceDir } = makeFixture();
+  try {
+    const snap = evaluateTimelineSnapshot({ conversationId: "conv-docs", brainDir, workspaceDir });
+    assert.equal(snap.stages.length, 5);
+    for (const stage of snap.stages) {
+      assert.ok(typeof stage.summary === "string" && stage.summary.trim().length > 0);
+      for (const cmd of stage.commands) {
+        assert.ok(COMMAND_DOCS[cmd.command], `Missing COMMAND_DOCS entry for ${cmd.command}`);
+        assert.ok(typeof cmd.description === "string" && cmd.description.trim().length > 0);
+        assert.match(cmd.docsUrl ?? "", /^https:\/\/github\.com\/jmxt3\/astack\/blob\/main\//);
+      }
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("fresh unconfigured repo highlights Setup as next step", () => {
