@@ -447,9 +447,14 @@ test("marks Build & Prove done on Proceed + fresh verify + walkthrough without /
         created_at: "2026-11-20T10:00:20Z",
         content: "<USER_REQUEST>Proceeded with implementation_plan.md</USER_REQUEST>",
       },
+      {
+        step_index: 3,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-20T10:00:25Z",
+        tool_calls: [{ name: "read_file", args: { Path: path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md") } }],
+      },
     ]);
 
-    // Walkthrough without passing verification must NOT mark Build & Prove done.
     writeReceipt(brainDir, convId, [
       {
         schemaVersion: 1,
@@ -465,9 +470,8 @@ test("marks Build & Prove done on Proceed + fresh verify + walkthrough without /
     ]);
     const unverified = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(unverified.stages[0].status, "done");
-    assert.equal(unverified.stages[1].status, "active");
+    assert.equal(unverified.stages[1].status, "active", "Walkthrough without fresh verification must not mark Build & Prove done");
 
-    // Once tests pass on HEAD — even if a legacy brain-artifact write receipt landed afterward — Build & Prove is done.
     writeReceipt(brainDir, convId, [
       {
         schemaVersion: 1,
@@ -504,7 +508,7 @@ test("marks Build & Prove done on Proceed + fresh verify + walkthrough without /
       },
     ]);
     const verified = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
-    assert.equal(verified.stages[1].status, "done");
+    assert.equal(verified.stages[1].status, "done", "Fresh test receipt plus walkthrough must clear earlier verify-skill reads");
     assert.equal(verified.freshness, "fresh");
     assert.equal(verified.stages[2].status, "next");
   } finally {

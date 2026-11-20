@@ -254,15 +254,18 @@ function extractLeadingSlashCommands(rawContent) {
 function isWorkspaceFileTarget(rawPath, workspaceDir, brainConvDir) {
   if (!rawPath) return false;
   const norm = normalizePosix(rawPath);
-  if (norm.includes("/.system_generated/") || norm.includes("/.gemini/")) return false;
+  if (/(?:^|\/)(?:\.system_generated|\.gemini)(?:\/|$)/i.test(norm)) return false;
+  const resolved = workspaceDir ? path.resolve(workspaceDir, rawPath) : path.resolve(rawPath);
   if (brainConvDir) {
-    const convNorm = normalizePosix(path.resolve(brainConvDir));
-    if (norm.toLowerCase().startsWith(convNorm.toLowerCase())) return false;
+    const convNorm = normalizePosix(path.resolve(brainConvDir)).replace(/\/$/, "").toLowerCase();
+    const fileNorm = normalizePosix(resolved).toLowerCase();
+    if (fileNorm === convNorm || fileNorm.startsWith(`${convNorm}/`)) return false;
   }
-  if (!path.isAbsolute(rawPath)) return true;
-  if (!workspaceDir) return false;
-  const wsNorm = normalizePosix(path.resolve(workspaceDir)).replace(/\/$/, "");
-  return norm.toLowerCase().startsWith(`${wsNorm.toLowerCase()}/`);
+  if (workspaceDir) {
+    const rel = path.relative(path.resolve(workspaceDir), resolved);
+    return rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+  }
+  return !path.isAbsolute(rawPath) && norm !== ".." && !norm.startsWith("../");
 }
 
 function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
@@ -380,7 +383,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
         else if (/\/skills\/interrogate\/SKILL\.md$/i.test(p)) sig.interrogateAt = latestMarker(sig.interrogateAt, marker);
         else if (/\/skills\/(?:deslop|no-comments)\/SKILL\.md$/i.test(p)) sig.cleanAt = latestMarker(sig.cleanAt, marker);
         else if (/\/skills\/(?:control-ui|control-cli)\/SKILL\.md$/i.test(p) || /\/\.agents\/skills\/verify-[^/]+\/SKILL\.md$/i.test(p)) {
-          sig.verifyRunAt = latestMarker(sig.verifyRunAt, marker);
+          sig.astackModeAt = latestMarker(sig.astackModeAt, marker);
         } else if (/\/skills\/review-pr\/SKILL\.md$/i.test(p)) {
           sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
         } else if (/\/skills\/astack-mode\/playbooks\/opening-a-pr\.md$/i.test(p)) {
@@ -554,7 +557,11 @@ function buildSetupReadiness(setup, sig) {
 function buildPlanStage({ hasConv, setupState, sig, planArtifact, planWrittenMarker, latestAnyWrite }) {
   const editsAfterPlan = Boolean(planWrittenMarker && latestAnyWrite && isMarkerAfter(latestAnyWrite, planWrittenMarker));
   const diskPlanApproved = Boolean(!sig.planWrittenAt && planArtifact && sig.approvalIntentAt);
-  const planApproved = Boolean(sig.planApprovedAt || diskPlanApproved || editsAfterPlan);
+  const planApproved = Boolean(
+    (sig.planApprovedAt && (!planWrittenMarker || isMarkerAfter(sig.planApprovedAt, planWrittenMarker))) ||
+      diskPlanApproved ||
+      editsAfterPlan,
+  );
   const grillMe = Boolean(sig.grillMeAt || (sig.planContractAt && sig.askQuestionAt));
   const triggered = Boolean(sig.planCmdAt || sig.planContractAt || planWrittenMarker);
 
@@ -717,7 +724,7 @@ function buildShipStage({ reviewStatus, shipped, sig }) {
 function selectNextAction(stepViews, setupState) {
   const [plan, build, review, ship] = stepViews;
   if (review.status === "error") {
-    return { stageId: "review", stageLabel: "PR Review", command: "/review-pr", hint: "Escalated at 3 rounds. Inspect findings in pr-review.md." };
+    return { stageId: "review", stageLabel: "PR Review", command: "/review-pr", hint: review.detail };
   }
   if (build.status === "stale") {
     return { stageId: "build", stageLabel: "Build & Prove", command: "/astack-mode", hint: "Edits landed after verify. Re-clean and re-verify on HEAD." };
@@ -852,7 +859,7 @@ export function evaluateTimelineSnapshot({
     : Boolean(verifyFreshFromTranscript || (evidence && verifyFreshFromReceipts));
 
   const staleFromReceipts = hasEdits && (receiptFreshness === "dirty_after_verify" || receiptFreshness === "stale_sha");
-  const buildStale = staleFromReceipts || Boolean(cleanDone && !cleanFresh) || Boolean(sig.verifyRunAt && !verifyFreshFromTranscript && hasCodeEdits);
+  const buildStale = staleFromReceipts || Boolean(cleanDone && !cleanFresh) || Boolean(sig.verifyRunAt && !verifyFresh && hasCodeEdits);
 
   const reviewStarted = Boolean(sig.reviewPrAt || reviewArtifact || evidence?.verifier?.verdict);
   const reviewRound = evidence?.reviewRound ?? 0;

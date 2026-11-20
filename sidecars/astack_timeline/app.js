@@ -352,12 +352,16 @@
     }
   }
 
-  function render(snap) {
-    document.getElementById("progress").textContent = `${snap.doneCount} / ${snap.totalCount}`;
+  function applyLiveStatus(snap) {
     const live = document.getElementById("live");
     const liveMode = !snap.hasConversation ? "idle" : snap.liveState;
     live.className = `live ${liveMode}`;
     document.getElementById("live-label").textContent = snap.liveLabel;
+  }
+
+  function render(snap) {
+    document.getElementById("progress").textContent = `${snap.doneCount} / ${snap.totalCount}`;
+    applyLiveStatus(snap);
 
     const metaParts = [];
     if (snap.workspaceName) {
@@ -576,7 +580,10 @@
       const res = await f(url, { method: "GET" });
       if (!res.ok) return;
       const data = await res.json();
-      if (data.unchanged) return;
+      if (data.unchanged) {
+        if (state.snap) applyLiveStatus(state.snap);
+        return;
+      }
       state.etag = data.etag || "";
       state.snap = data;
       render(data);
