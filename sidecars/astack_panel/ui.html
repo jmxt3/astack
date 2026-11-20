@@ -14,6 +14,8 @@
         --muted: #939bb0;
         --accent: #38bdf8;
         --green: #22c55e;
+        --amber: #eab308;
+        --red: #ef4444;
         --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
         --sans: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       }
@@ -32,7 +34,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 8px;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
       }
       .title {
         font-size: 15px;
@@ -50,16 +52,159 @@
         color: var(--accent);
         border: 1px solid rgba(56, 189, 248, 0.3);
       }
-      .desc {
-        color: var(--muted);
-        margin: 0 0 14px;
+      .conv-bar {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 12px;
+      }
+      select.conv-select {
+        flex: 1;
+        min-width: 0;
+        padding: 6px 8px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
         font-size: 12px;
+      }
+      button.btn {
+        background: var(--surface);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        padding: 5px 9px;
+        font-size: 11px;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      button.btn:hover { border-color: var(--accent); }
+      .section-title {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin: 14px 0 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .rail {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .stage {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 7px 10px;
+      }
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        margin-top: 5px;
+        flex-shrink: 0;
+        background: var(--muted);
+      }
+      .stage[data-status="done"] .dot { background: var(--green); }
+      .stage[data-status="active"] .dot,
+      .stage[data-status="waiting"] .dot { background: var(--accent); }
+      .stage[data-status="skipped"] .dot { background: var(--amber); }
+      .stage[data-status="missed"] .dot,
+      .stage[data-status="failed"] .dot { background: var(--red); }
+      .stage-main { flex: 1; min-width: 0; }
+      .stage-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        font-weight: 600;
+        font-size: 12px;
+      }
+      .stage-tag {
+        font-family: var(--mono);
+        font-size: 10px;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .stage[data-status="done"] .stage-tag { color: var(--green); }
+      .stage[data-status="missed"] .stage-tag,
+      .stage[data-status="failed"] .stage-tag { color: var(--red); }
+      .stage[data-status="skipped"] .stage-tag { color: var(--amber); }
+      .stage-detail {
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 2px;
+      }
+      .gaps {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .gap {
+        border-radius: 8px;
+        padding: 7px 10px;
+        font-size: 12px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+      }
+      .gap.error { border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; }
+      .gap.warn { border-color: rgba(234, 179, 8, 0.45); color: #fde047; }
+      .gap.info { border-color: rgba(56, 189, 248, 0.35); color: var(--muted); }
+      .gap.ok { border-color: rgba(34, 197, 94, 0.4); color: #86efac; }
+      .trust-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .chip {
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 2px 7px;
+        border-radius: 6px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
+      }
+      .timeline {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 280px;
+        overflow-y: auto;
+      }
+      .event {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 6px 9px;
+      }
+      .event-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .event-time {
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--muted);
+      }
+      .event-detail {
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 2px;
+        word-break: break-word;
       }
       .stats {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         gap: 8px;
-        margin-bottom: 16px;
       }
       .stat {
         background: var(--surface);
@@ -68,20 +213,13 @@
         padding: 8px 10px;
       }
       .stat-val {
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 600;
         font-family: var(--mono);
       }
       .stat-label {
         font-size: 11px;
         color: var(--muted);
-      }
-      .section-title {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: var(--muted);
-        margin: 14px 0 8px;
       }
       .cmd-list {
         display: flex;
@@ -96,7 +234,7 @@
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: 8px;
-        padding: 8px 10px;
+        padding: 7px 10px;
       }
       .cmd code {
         font-family: var(--mono);
@@ -107,30 +245,29 @@
         display: block;
         color: var(--muted);
         font-size: 11px;
-        margin-top: 2px;
       }
-      button.copy {
-        background: var(--surface-hover);
-        color: var(--text);
+      details {
+        margin-top: 12px;
         border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 4px 8px;
-        font-size: 11px;
-        cursor: pointer;
-        flex-shrink: 0;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: var(--surface);
       }
-      button.copy:hover {
-        border-color: var(--accent);
+      summary {
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
       }
       .search {
         width: 100%;
         padding: 7px 10px;
         border-radius: 8px;
         border: 1px solid var(--border);
-        background: var(--surface);
+        background: var(--bg);
         color: var(--text);
         font-size: 12px;
-        margin-bottom: 8px;
+        margin: 8px 0;
       }
       .pills {
         display: flex;
@@ -140,15 +277,13 @@
       .pill {
         font-family: var(--mono);
         font-size: 11px;
-        padding: 3px 8px;
+        padding: 3px 7px;
         border-radius: 6px;
-        background: var(--surface);
+        background: var(--bg);
         border: 1px solid var(--border);
         color: var(--text);
       }
-      .pill.playbook {
-        border-color: rgba(34, 197, 94, 0.35);
-      }
+      .pill.playbook { border-color: rgba(34, 197, 94, 0.35); }
     </style>
   </head>
   <body>
@@ -157,9 +292,30 @@
         <span id="name">AStack</span>
         <span class="badge" id="version">v0.4.0</span>
       </div>
+      <button class="btn" id="refresh-btn" type="button">Refresh</button>
     </div>
-    <p class="desc" id="desc">Loading AStack plugin metadata...</p>
 
+    <div class="conv-bar">
+      <select class="conv-select" id="conv-select" aria-label="Active conversation"></select>
+    </div>
+
+    <div class="section-title">
+      <span>Pipeline Status</span>
+      <span id="stage-summary">Scanning...</span>
+    </div>
+    <div class="rail" id="rail"></div>
+    <div class="trust-row" id="trust-row"></div>
+
+    <div class="section-title">Checks &amp; Missed Steps</div>
+    <div class="gaps" id="gaps"></div>
+
+    <div class="section-title">
+      <span>Conversation Timeline</span>
+      <span id="step-count"></span>
+    </div>
+    <div class="timeline" id="timeline"></div>
+
+    <div class="section-title">Plugin Inventory</div>
     <div class="stats">
       <div class="stat"><div class="stat-val" id="c-skills">-</div><div class="stat-label">Skills</div></div>
       <div class="stat"><div class="stat-val" id="c-playbooks">-</div><div class="stat-label">Playbooks</div></div>
@@ -167,33 +323,43 @@
       <div class="stat"><div class="stat-val" id="c-hooks">-</div><div class="stat-label">Hooks</div></div>
     </div>
 
-    <div class="section-title">Quick Commands</div>
-    <div class="cmd-list">
-      <div class="cmd">
-        <div><code>/setup-astack</code><small>Bootstrap verification skills & guardrails for a repo</small></div>
-        <button class="copy" data-copy="/setup-astack">Copy</button>
+    <details>
+      <summary>Quick Commands &amp; Catalog</summary>
+      <div class="section-title">Quick Commands</div>
+      <div class="cmd-list">
+        <div class="cmd">
+          <div><code>/setup-astack</code><small>Bootstrap verification skills &amp; guardrails</small></div>
+          <button class="btn copy" data-copy="/setup-astack">Copy</button>
+        </div>
+        <div class="cmd">
+          <div><code>/plan /astack-mode</code><small>Design a verifiable plan before edits</small></div>
+          <button class="btn copy" data-copy="/plan /astack-mode ">Copy</button>
+        </div>
+        <div class="cmd">
+          <div><code>/astack-mode</code><small>Run end-to-end playbook with live proof</small></div>
+          <button class="btn copy" data-copy="/astack-mode ">Copy</button>
+        </div>
+        <div class="cmd">
+          <div><code>/astack-help</code><small>Pick the right skill, playbook, or tier</small></div>
+          <button class="btn copy" data-copy="/astack-help ">Copy</button>
+        </div>
       </div>
-      <div class="cmd">
-        <div><code>/plan /astack-mode</code><small>Design a verifiable plan before editing files</small></div>
-        <button class="copy" data-copy="/plan /astack-mode ">Copy</button>
-      </div>
-      <div class="cmd">
-        <div><code>/astack-mode</code><small>Run end-to-end playbook with live proof</small></div>
-        <button class="copy" data-copy="/astack-mode ">Copy</button>
-      </div>
-      <div class="cmd">
-        <div><code>/astack-help</code><small>Pick the right skill, playbook, or multi-agent tier</small></div>
-        <button class="copy" data-copy="/astack-help ">Copy</button>
-      </div>
-    </div>
-
-    <div class="section-title">Playbooks & Skills</div>
-    <input class="search" id="filter" type="search" placeholder="Filter skills & playbooks..." />
-    <div class="pills" id="items"></div>
+      <input class="search" id="filter" type="search" placeholder="Filter skills &amp; playbooks..." />
+      <div class="pills" id="items"></div>
+    </details>
 
     <script>
-      const token = new URLSearchParams(window.location.search).get('token');
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
       const headers = token ? { 'X-Sidecar-Token': token } : {};
+      let selectedConvId = params.get('conversationId') || params.get('conversation_id') || '';
+      let allItems = [];
+
+      async function apiGet(path) {
+        const res = await fetch(path, { headers });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      }
 
       document.querySelectorAll('button.copy').forEach((btn) => {
         btn.addEventListener('click', async () => {
@@ -206,7 +372,6 @@
         });
       });
 
-      let allItems = [];
       function renderItems(query = '') {
         const q = query.trim().toLowerCase();
         const container = document.getElementById('items');
@@ -224,15 +389,142 @@
         renderItems(e.target.value);
       });
 
-      fetch('/api/overview', { headers })
-        .then((r) => {
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return r.json();
-        })
+      function formatTime(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      }
+
+      function renderConversation(data) {
+        const summaryEl = document.getElementById('stage-summary');
+        summaryEl.textContent = data.currentStage
+          ? `Stage ${data.currentStage.number}/6 · ${data.currentStage.status}`
+          : '';
+
+        const rail = document.getElementById('rail');
+        rail.innerHTML = '';
+        for (const st of data.stages || []) {
+          const row = document.createElement('div');
+          row.className = 'stage';
+          row.dataset.status = st.status;
+          const dot = document.createElement('span');
+          dot.className = 'dot';
+          const main = document.createElement('div');
+          main.className = 'stage-main';
+          const top = document.createElement('div');
+          top.className = 'stage-top';
+          const name = document.createElement('span');
+          name.textContent = `${st.number}. ${st.name}`;
+          const tag = document.createElement('span');
+          tag.className = 'stage-tag';
+          tag.textContent = st.status;
+          top.appendChild(name);
+          top.appendChild(tag);
+          const detail = document.createElement('div');
+          detail.className = 'stage-detail';
+          detail.textContent = st.detail || '';
+          main.appendChild(top);
+          main.appendChild(detail);
+          row.appendChild(dot);
+          row.appendChild(main);
+          rail.appendChild(row);
+        }
+
+        const trustRow = document.getElementById('trust-row');
+        trustRow.innerHTML = '';
+        const t = data.trust || {};
+        const chips = [];
+        if (t.riskTier !== null && t.riskTier !== undefined) chips.push(`Tier ${t.riskTier} (${t.riskLabel || ''})`);
+        if (t.verifierVerdict) chips.push(`verifier:${t.verifierVerdict}`);
+        if (t.freshness) chips.push(`freshness:${t.freshness}`);
+        if (t.headSha) chips.push(`HEAD:${t.headSha}`);
+        if (t.receiptCount) chips.push(`receipts:${t.receiptCount}`);
+        for (const text of chips) {
+          const chip = document.createElement('span');
+          chip.className = 'chip';
+          chip.textContent = text;
+          trustRow.appendChild(chip);
+        }
+
+        const gapsEl = document.getElementById('gaps');
+        gapsEl.innerHTML = '';
+        if (!data.gaps || data.gaps.length === 0) {
+          const ok = document.createElement('div');
+          ok.className = 'gap ok';
+          ok.textContent = 'No missed gates detected in this conversation.';
+          gapsEl.appendChild(ok);
+        } else {
+          for (const g of data.gaps) {
+            const box = document.createElement('div');
+            box.className = `gap ${g.severity || 'info'}`;
+            box.textContent = g.message || '';
+            gapsEl.appendChild(box);
+          }
+        }
+
+        document.getElementById('step-count').textContent = `${data.stepCount || 0} steps`;
+        const timelineEl = document.getElementById('timeline');
+        timelineEl.innerHTML = '';
+        for (const ev of data.timeline || []) {
+          const item = document.createElement('div');
+          item.className = 'event';
+          const top = document.createElement('div');
+          top.className = 'event-top';
+          const lbl = document.createElement('span');
+          lbl.textContent = ev.label || ev.kind;
+          const time = document.createElement('span');
+          time.className = 'event-time';
+          time.textContent = formatTime(ev.ts);
+          top.appendChild(lbl);
+          top.appendChild(time);
+          const det = document.createElement('div');
+          det.className = 'event-detail';
+          det.textContent = ev.detail || '';
+          item.appendChild(top);
+          item.appendChild(det);
+          timelineEl.appendChild(item);
+        }
+      }
+
+      async function loadConversationsAndScan() {
+        try {
+          const list = await apiGet('/api/conversations');
+          const select = document.getElementById('conv-select');
+          select.innerHTML = '';
+          const convs = list.conversations || [];
+          if (!selectedConvId || !convs.some((c) => c.id === selectedConvId)) {
+            selectedConvId = list.activeId || convs[0]?.id || '';
+          }
+          for (const c of convs) {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = `${c.title} (${c.id.slice(0, 6)})`;
+            if (c.id === selectedConvId) opt.selected = true;
+            select.appendChild(opt);
+          }
+          if (selectedConvId) {
+            const scanned = await apiGet(`/api/conversation?id=${encodeURIComponent(selectedConvId)}`);
+            renderConversation(scanned);
+          }
+        } catch {
+          document.getElementById('stage-summary').textContent = 'No conversation found';
+        }
+      }
+
+      document.getElementById('conv-select').addEventListener('change', (e) => {
+        selectedConvId = e.target.value;
+        loadConversationsAndScan();
+      });
+
+      document.getElementById('refresh-btn').addEventListener('click', () => {
+        loadConversationsAndScan();
+      });
+
+      apiGet('/api/overview')
         .then((data) => {
           document.getElementById('name').textContent = data.displayName || data.name;
           document.getElementById('version').textContent = `v${data.version}`;
-          document.getElementById('desc').textContent = data.description || '';
           document.getElementById('c-skills').textContent = data.counts?.skills ?? 0;
           document.getElementById('c-playbooks').textContent = data.counts?.playbooks ?? 0;
           document.getElementById('c-agents').textContent = data.counts?.agents ?? 0;
@@ -243,9 +535,10 @@
           ];
           renderItems();
         })
-        .catch(() => {
-          document.getElementById('desc').textContent = 'Unable to load AStack overview.';
-        });
+        .catch(() => {});
+
+      loadConversationsAndScan();
+      setInterval(loadConversationsAndScan, 4000);
     </script>
   </body>
 </html>
