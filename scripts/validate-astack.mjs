@@ -552,6 +552,7 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
   const trustScanDirs = [
     ...collectFiles(path.join(rootDir, "scripts"), [".mjs", ".js", ".ts", ".cjs"]),
     ...collectFiles(path.join(rootDir, "skills"), [".mjs", ".js", ".ts", ".cjs"]),
+    ...collectFiles(path.join(rootDir, "sidecars"), [".mjs", ".js", ".ts", ".cjs"]),
   ];
   for (const codeFile of trustScanDirs) {
     const rel = toRel(rootDir, codeFile);
@@ -562,6 +563,54 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
         file: rel,
         message: "Direct import of scripts/trust/internal/* is forbidden; import scripts/trust/index.mjs instead",
       });
+    }
+  }
+
+  const sidecarsRoot = path.join(rootDir, "sidecars");
+  let sidecarCount = 0;
+  if (fs.existsSync(sidecarsRoot)) {
+    for (const entry of fs.readdirSync(sidecarsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const manifestFile = path.join(sidecarsRoot, entry.name, "sidecar.json");
+      const rel = `sidecars/${entry.name}/sidecar.json`;
+      if (!fs.existsSync(manifestFile)) {
+        errors.push({ file: `sidecars/${entry.name}`, message: "Sidecar directory missing sidecar.json" });
+        continue;
+      }
+      sidecarCount++;
+      let cfg;
+      try {
+        cfg = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+      } catch (err) {
+        errors.push({ file: rel, message: `Invalid JSON: ${err.message}` });
+        continue;
+      }
+      const hasCmd = typeof cfg?.command === "string" && cfg.command.trim().length > 0;
+      const hasBuiltin = typeof cfg?.builtin === "string" && cfg.builtin.trim().length > 0;
+      if (hasCmd === hasBuiltin) {
+        errors.push({ file: rel, message: "sidecar.json must define exactly one of command or builtin" });
+      }
+      if (hasCmd && cfg.command === "node" && Array.isArray(cfg.args) && typeof cfg.args[0] === "string") {
+        const scriptArg = cfg.args[0];
+        if (!scriptArg.startsWith("-") && !path.isAbsolute(scriptArg)) {
+          const targetScript = path.join(sidecarsRoot, entry.name, ...scriptArg.split("/"));
+          if (!fs.existsSync(targetScript)) {
+            errors.push({ file: rel, message: `Sidecar references missing script: ${scriptArg}` });
+          }
+        }
+      }
+      if (cfg?.has_web_ui === true) {
+        const views = cfg?.ui_config?.views;
+        if (!Array.isArray(views) || views.length === 0) {
+          errors.push({ file: rel, message: "has_web_ui sidecar must declare non-empty ui_config.views" });
+        } else {
+          for (const view of views) {
+            if (typeof view?.path !== "string" || typeof view?.entrypoint !== "string" || !view.entrypoint.startsWith("SIDECAR_UI_ENTRYPOINT_")) {
+              errors.push({ file: rel, message: "Each sidecar ui_config.views entry must declare path and SIDECAR_UI_ENTRYPOINT_*" });
+            }
+          }
+        }
+      }
     }
   }
 
@@ -671,6 +720,7 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
       autoInvokeDescriptionBytes,
       agents: agentCount,
       rules: ruleCount,
+      sidecars: sidecarCount,
       markdownFilesChecked: mdScanTargets.length,
     },
     agyReport,
@@ -717,7 +767,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(JSON.stringify(result, null, 2));
   } else {
     console.log(
-      `[validate-astack] skills=${result.stats.skills} auto=${result.stats.autoInvokeSkills} autoBytes=${result.stats.autoInvokeDescriptionBytes} agents=${result.stats.agents} rules=${result.stats.rules} md=${result.stats.markdownFilesChecked} errors=${result.errors.length} warnings=${result.warnings.length}`,
+      `[validate-astack] skills=${result.stats.skills} auto=${result.stats.autoInvokeSkills} autoBytes=${result.stats.autoInvokeDescriptionBytes} agents=${result.stats.agents} rules=${result.stats.rules} sidecars=${result.stats.sidecars} md=${result.stats.markdownFilesChecked} errors=${result.errors.length} warnings=${result.warnings.length}`,
     );
     for (const err of result.errors) {
       console.error(`ERROR ${err.file}: ${err.message}`);
