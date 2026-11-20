@@ -51,8 +51,9 @@ Then ask concisely with `ask_question` (pass unnumbered options without adding a
 
 1. **Project verification & guardrails** (`is_multi_select: true`, tailored to what Step 1 found):
    - `(Recommended) Generate runtime verification skill (/create-verification-skill)`: scaffolds `.agents/skills/verify-<app>/` and a `features/` map so agents can drive and prove your app end-to-end (or offer `/maintain-verification-skill` if a `verify-*/SKILL.md` already exists).
+   - `(Recommended) Scaffold repo trust policies (init-repo-policy.mjs)`: creates `.agents/risk-policy.json`, `.agents/boundaries.json`, `REVIEW.md`, and `GLOSSARY.md` idempotently without overwriting existing files.
    - `Generate formal TLA+ / invariant verification skill (/create-formal-verification-skill)`: powered by `/statechart`, ideal for state machines, retries, concurrency, or parsers.
-   - `Review opt-in safety & verification hooks (hooks.json)`: review `astack-irreversible-guard` (`PreToolUse`) and `astack-verify-reminder` (`Stop`).
+   - `Review split lifecycle hooks (hooks.json)`: inspect passive observe-only hooks (`astack-receipt-ledger`, `astack-session-context` enabled by default) and opt-in blocking gates (`astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, `astack-round-limiter`).
 2. **Conditional (ONLY ask if Step 1 found an existing `astack-models.md` OR the user explicitly asked to customize subagent tiers)**:
    - `(Recommended) Remove/reset astack-models.md`: clear static overrides so all subagents and `/swarm` workers inherit your active Antigravity UI model picker / **Orchestrator**.
    - `Keep lightweight evergreen invoke_subagent tier aliases`: write only capability aliases (`inherit`, `flash`, `flash_lite`, `pro`) into `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` (with `trigger: model_decision` frontmatter, under 60 lines), never pinning versioned model slugs.
@@ -60,7 +61,8 @@ Then ask concisely with `ask_question` (pass unnumbered options without adding a
 ## 3. Run Selected Follow-Up Steps & Report
 
 - If the user selected `/create-verification-skill`, `/maintain-verification-skill`, or `/create-formal-verification-skill`, invoke that skill immediately (no chat restart required).
-- If the user selected `Review opt-in safety & verification hooks`, explain that [`hooks.json`](../../hooks.json) ships `"enabled": false` by default and show how to opt in to `"enabled": true` for `astack-irreversible-guard` and `astack-verify-reminder`. Open plugin details anytime in the Antigravity App via [astack](customization://astack).
+- If the user selected `Scaffold repo trust policies`, run `node "<skill-dir>/scripts/init-repo-policy.mjs" --cwd . --json` and summarize created vs skipped files.
+- If the user selected `Review split lifecycle hooks`, explain that [`hooks.json`](../../hooks.json) enables the two passive observe-only hooks by default while keeping all six blocking gates `"enabled": false` until opted in via `hooks.json` or `/hooks`. Open plugin details anytime in the Antigravity App via [astack](customization://astack).
 - If the user chose to remove/reset an existing `astack-models.md` (and confirmed the change), remove or update it cleanly as requested.
 - Close with quick next-step commands:
   - `/astack-mode <task>`: classify task into a playbook and orchestrate rigor end-to-end

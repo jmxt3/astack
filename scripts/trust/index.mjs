@@ -48,6 +48,7 @@ import {
   renderDossierMarkdown,
   validateFindingsDocument,
 } from "./internal/dossier.mjs";
+import { runArchitectureAudit } from "./internal/audit.mjs";
 
 export const TOOL_MATCHERS = {
   fileWriteTools: FILE_WRITE_TOOLS,
@@ -93,6 +94,7 @@ export {
   resolveBaseRef,
   resolveRelativeImportPath,
   resolveTrustDir,
+  runArchitectureAudit,
   runHookShell,
   validateFindingsDocument,
   writeEvidenceSnapshotAtomic,

@@ -617,10 +617,11 @@ function fileMatchesZone(relPath, zoneSpec) {
 }
 
 /**
- * Checks a pending file edit against `.agents/boundaries.json` importRules and bannedPatterns.
+ * Collects all `.agents/boundaries.json` importRules and bannedPatterns violations for a file.
  */
-export function evaluateBoundaryViolation({ relPath, content, boundaries }) {
-  if (!boundaries || !relPath) return null;
+export function evaluateBoundaryViolations({ relPath, content, boundaries }) {
+  const hits = [];
+  if (!boundaries || !relPath) return hits;
   const normalizedPath = String(relPath).replace(/\\/g, "/").replace(/^\.\//, "");
   const zones = boundaries.zones ?? {};
 
@@ -651,7 +652,10 @@ export function evaluateBoundaryViolation({ relPath, content, boundaries }) {
           if (resolved && publicEntries.some((entry) => resolved === entry || matchesAnyGlob(resolved, [entry]))) {
             continue;
           }
-          return `${rule.id ?? "boundary"}: ${normalizedPath}:${imp.line} imports forbidden target "${imp.specifier}" (${rule.reason ?? "boundary violation"})`;
+          hits.push({
+            kind: "import",
+            detail: `${rule.id ?? "boundary"}: ${normalizedPath}:${imp.line} imports forbidden target "${imp.specifier}" (${rule.reason ?? "boundary violation"})`,
+          });
         }
       }
     }
@@ -675,13 +679,23 @@ export function evaluateBoundaryViolation({ relPath, content, boundaries }) {
       }
       for (let i = 0; i < lines.length; i++) {
         if (re.test(lines[i])) {
-          return `${pat.id ?? "banned-pattern"}: ${normalizedPath}:${i + 1} matched banned pattern (${pat.reason ?? pat.regex})`;
+          hits.push({
+            kind: "banned",
+            detail: `${pat.id ?? "banned-pattern"}: ${normalizedPath}:${i + 1} matched banned pattern (${pat.reason ?? pat.regex})`,
+          });
         }
       }
     }
   }
 
-  return null;
+  return hits;
+}
+
+/**
+ * Checks a pending file edit against `.agents/boundaries.json` importRules and bannedPatterns.
+ */
+export function evaluateBoundaryViolation({ relPath, content, boundaries }) {
+  return evaluateBoundaryViolations({ relPath, content, boundaries })[0]?.detail ?? null;
 }
 
 /**

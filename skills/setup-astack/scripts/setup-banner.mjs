@@ -82,6 +82,10 @@ export function inspectWorkspace({
 
   let totalHooks = 0;
   let enabledHooks = 0;
+  let passiveEnabled = 0;
+  let passiveTotal = 0;
+  let blockingEnabled = 0;
+  let blockingTotal = 0;
   let hooksError = null;
   const hooksPath = path.join(pluginRoot, "hooks.json");
   if (fs.existsSync(hooksPath)) {
@@ -90,13 +94,32 @@ export function inspectWorkspace({
       for (const value of Object.values(parsed)) {
         if (value && typeof value === "object" && !Array.isArray(value)) {
           totalHooks++;
-          if (value.enabled === true) enabledHooks++;
+          const isEnabled = value.enabled === true;
+          if (isEnabled) enabledHooks++;
+          const isPassive =
+            (Array.isArray(value.PostToolUse) || Array.isArray(value.SessionStart)) &&
+            !Array.isArray(value.PreToolUse) &&
+            !Array.isArray(value.Stop);
+          if (isPassive) {
+            passiveTotal++;
+            if (isEnabled) passiveEnabled++;
+          } else {
+            blockingTotal++;
+            if (isEnabled) blockingEnabled++;
+          }
         }
       }
     } catch (err) {
       hooksError = err.message;
     }
   }
+
+  const policies = {
+    riskPolicy: fs.existsSync(path.join(resolvedCwd, ".agents", "risk-policy.json")),
+    boundaries: fs.existsSync(path.join(resolvedCwd, ".agents", "boundaries.json")),
+    reviewMd: fs.existsSync(path.join(resolvedCwd, "REVIEW.md")),
+    glossaryMd: fs.existsSync(path.join(resolvedCwd, "GLOSSARY.md")),
+  };
 
   const modelRules = [];
   const globalRule = path.join(homeDir, ".gemini", "config", "rules", "astack-models.md");
@@ -111,6 +134,8 @@ export function inspectWorkspace({
     formalSkills,
     tlaFiles,
     hooks: { enabled: enabledHooks, total: totalHooks },
+    hookBreakdown: { passiveEnabled, passiveTotal, blockingEnabled, blockingTotal },
+    policies,
     ...(hooksError ? { hooksError } : {}),
     modelRules,
   };
@@ -125,12 +150,16 @@ export function formatSetupBanner(status) {
   const formalText = formalParts.length > 0 ? formalParts.join(", ") : "none";
   const hooksText =
     status.hooks.total > 0
-      ? `opt-in (${status.hooks.enabled}/${status.hooks.total} enabled)`
+      ? `opt-in (${status.hooks.enabled}/${status.hooks.total} enabled; passive ${status.hookBreakdown?.passiveEnabled ?? 0}/${status.hookBreakdown?.passiveTotal ?? 0}, blocking ${status.hookBreakdown?.blockingEnabled ?? 0}/${status.hookBreakdown?.blockingTotal ?? 0})`
       : "none";
   const modelText =
     status.modelRules.length > 0
       ? `custom override (${status.modelRules.join(", ")})`
       : "native UI / Orchestrator (zero-config)";
+  const activePolicies = Object.entries(status.policies ?? {})
+    .filter(([, present]) => present)
+    .map(([key]) => key);
+  const policiesText = activePolicies.length > 0 ? activePolicies.join(", ") : "defaults (unconfigured)";
 
   return [
     ASTACK_ASCII_LOGO,
@@ -139,6 +168,7 @@ export function formatSetupBanner(status) {
     `  verify skills : ${verifyText}`,
     `  formal verify : ${formalText}`,
     `  safety hooks  : ${hooksText}`,
+    `  repo policies : ${policiesText}`,
     `  model routing : ${modelText}`,
   ].join("\n");
 }
@@ -232,10 +262,21 @@ export function runWorkspaceDoctor({
             ? `${status.hooks.enabled}/${status.hooks.total} opt-in hooks enabled in hooks.json`
             : "No hooks.json found",
       };
+  const activePolicies = Object.entries(status.policies ?? {})
+    .filter(([, present]) => present)
+    .map(([key]) => key);
   const checks = [
     checkNodeVersion(),
     checkVerifyFreshness(status.cwd, status.verifySkills),
     hooksCheck,
+    {
+      id: "repo-policies",
+      status: activePolicies.length > 0 ? "pass" : "info",
+      detail:
+        activePolicies.length > 0
+          ? `Configured (${activePolicies.join(", ")})`
+          : "Using built-in defaults; run init-repo-policy.mjs to customize .agents/risk-policy.json, .agents/boundaries.json, REVIEW.md, or GLOSSARY.md.",
+    },
     {
       id: "model-routing",
       status: status.modelRules.length > 0 ? "warn" : "pass",

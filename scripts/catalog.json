@@ -3,6 +3,7 @@
   "maxAutoInvokeDescriptionBytes": 8500,
   "manualOnlySkills": [
     "astack-mode",
+    "audit-architecture",
     "automate-me",
     "bro",
     "design-audit",
