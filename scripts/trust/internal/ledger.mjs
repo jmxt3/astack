@@ -205,6 +205,7 @@ function redactSummary(text) {
 }
 
 const EXTERNAL_ARTIFACT_PATH_RE = /(?:^|\/)(?:\.gemini|\.system_generated)(?:\/|$)/i;
+const BRAIN_OR_GENERATED_RE = /(?:^|\/)(?:\.gemini\/antigravity(?:-cli)?\/brain|\.system_generated)(?:\/|$)/i;
 
 function normalizeRelPath(workspaceDir, filePath) {
   if (!filePath) return "";
@@ -217,7 +218,7 @@ function normalizeRelPath(workspaceDir, filePath) {
 function isNonWorkspaceWritePath(filePath, { workspaceDir = "", artifactDir = "" } = {}) {
   if (!filePath) return false;
   const norm = String(filePath).replace(/\\/g, "/");
-  if (EXTERNAL_ARTIFACT_PATH_RE.test(norm)) return true;
+  if (BRAIN_OR_GENERATED_RE.test(norm)) return true;
   const resolvedFile = workspaceDir ? path.resolve(workspaceDir, filePath) : path.resolve(filePath);
   if (artifactDir) {
     const absArtifact = path.resolve(artifactDir).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
@@ -227,8 +228,9 @@ function isNonWorkspaceWritePath(filePath, { workspaceDir = "", artifactDir = ""
   if (workspaceDir) {
     const rel = path.relative(path.resolve(workspaceDir), resolvedFile);
     if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return true;
+    return EXTERNAL_ARTIFACT_PATH_RE.test(rel.replace(/\\/g, "/"));
   }
-  return false;
+  return EXTERNAL_ARTIFACT_PATH_RE.test(norm);
 }
 
 function isNonWorkspaceReceipt(receipt) {

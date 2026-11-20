@@ -589,6 +589,21 @@ test("recordReceipt and computeFreshness ignore brain artifact and out-of-worksp
       evaluateEvidenceGate(pushEv, { trustDir, headSha: head, headless: true }).decision,
       "allow",
     );
+
+    const worktreeRoot = path.join(artifactDir, ".gemini", "antigravity", "worktrees", "conv-1", "subagent-ws");
+    fs.mkdirSync(path.join(worktreeRoot, "src"), { recursive: true });
+    const worktreeReceipt = recordReceipt(
+      {
+        kind: "tool-write",
+        conversationId: "conv-wt",
+        tool: "edit_file",
+        filePath: path.join(worktreeRoot, "src", "app.js"),
+        workspaceDir: worktreeRoot,
+      },
+      { trustDir, headSha: head, now: "2026-11-20T10:02:03Z" },
+    );
+    assert.ok(worktreeReceipt, "Legitimate writes inside ~/.gemini/antigravity/worktrees/... must still record receipts");
+    assert.deepEqual(worktreeReceipt.paths, ["src/app.js"]);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });
