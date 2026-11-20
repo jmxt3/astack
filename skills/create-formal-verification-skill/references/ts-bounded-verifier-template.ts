@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -47,12 +48,37 @@ function checkFiniteTruthTable(): readonly TransitionFinding<DemoState>[] {
   return findings;
 }
 
-function checkBoundedBfs(maxDepth = 4): { visited: number; findings: readonly TransitionFinding<DemoState>[] } {
+export interface BoundedEdge {
+  readonly from: string;
+  readonly to: string;
+  readonly label: string;
+  readonly violated: boolean;
+}
+
+export interface BoundedCheckResult {
+  readonly visited: number;
+  readonly findings: readonly TransitionFinding<DemoState>[];
+  readonly mermaid: string;
+}
+
+function stateNodeId(s: DemoState): string {
+  return `s_${s.phase}_${s.changesRequested ? "chg" : "ok"}_${s.allowMerge ? "merge" : "hold"}`;
+}
+
+function stateLabel(s: DemoState): string {
+  const flags = [s.changesRequested ? "changes" : "clean", s.allowMerge ? "mergeable" : "gated"];
+  return `${s.phase} (${flags.join(", ")})`;
+}
+
+function checkBoundedBfs(maxDepth = 4): BoundedCheckResult {
   const initial: DemoState = { phase: "draft", changesRequested: false, allowMerge: false };
   const encode = (s: DemoState) => `${s.phase}|${s.changesRequested}|${s.allowMerge}`;
   const seen = new Set<string>([encode(initial)]);
   const queue: Array<{ state: DemoState; trace: string[] }> = [{ state: initial, trace: ["init"] }];
   const findings: TransitionFinding<DemoState>[] = [];
+  const nodeLabels = new Map<string, string>([[stateNodeId(initial), stateLabel(initial)]]);
+  const edges = new Map<string, BoundedEdge>();
+  const violatedIds = new Set<string>();
 
   while (queue.length > 0) {
     const current = queue.shift()!;
@@ -82,8 +108,13 @@ function checkBoundedBfs(maxDepth = 4): { visited: number; findings: readonly Tr
       });
     }
 
+    const fromId = stateNodeId(current.state);
     for (const edge of nextEdges) {
-      if (edge.next.phase === "merged" && edge.next.changesRequested) {
+      const toId = stateNodeId(edge.next);
+      nodeLabels.set(toId, stateLabel(edge.next));
+      const violated = edge.next.phase === "merged" && edge.next.changesRequested;
+      if (violated) {
+        violatedIds.add(toId);
         findings.push({
           property: "NeverMergeWithOutstandingChanges",
           summary: "Reached merged phase while changesRequested remained true",
@@ -94,6 +125,10 @@ function checkBoundedBfs(maxDepth = 4): { visited: number; findings: readonly Tr
           },
         });
       }
+      const edgeKey = `${fromId}|${toId}|${edge.label}`;
+      if (!edges.has(edgeKey)) {
+        edges.set(edgeKey, { from: fromId, to: toId, label: edge.label, violated });
+      }
       const key = encode(edge.next);
       if (!seen.has(key)) {
         seen.add(key);
@@ -102,10 +137,26 @@ function checkBoundedBfs(maxDepth = 4): { visited: number; findings: readonly Tr
     }
   }
 
-  return { visited: seen.size, findings };
+  const lines = [
+    "%% provenance: formal-ts",
+    "stateDiagram-v2",
+    "  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834",
+    `  [*] --> ${stateNodeId(initial)}`,
+  ];
+  for (const [id, label] of nodeLabels.entries()) {
+    lines.push(`  ${id}: ${label}`);
+  }
+  for (const e of edges.values()) {
+    lines.push(`  ${e.from} --> ${e.to}: ${e.label}`);
+  }
+  for (const id of violatedIds) {
+    lines.push(`  class ${id} breaks`);
+  }
+
+  return { visited: seen.size, findings, mermaid: `${lines.join("\n")}\n` };
 }
 
-export function runFormalVerification(): BoundedCheckReport {
+export function runFormalVerification(): BoundedCheckReport & { readonly mermaid: string } {
   const truthFindings = checkFiniteTruthTable();
   const bfsResult = checkBoundedBfs();
   const findings = [...truthFindings, ...bfsResult.findings];
@@ -122,18 +173,21 @@ export function runFormalVerification(): BoundedCheckReport {
       },
     },
     findings,
+    mermaid: bfsResult.mermaid,
   };
 }
 
 const USAGE = `Usage: node --experimental-strip-types --disable-warning=ExperimentalWarning ts-bounded-verifier-template.ts [options]
 
 Options:
-  --json       Emit machine-readable JSON verification report (default)
-  -h, --help   Show this help text and exit 0`;
+  --emit-mermaid <path>  Write explored stateDiagram-v2 chart for PR descriptions
+  --json                 Emit machine-readable JSON verification report (default)
+  -h, --help             Show this help text and exit 0`;
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { values } = parseArgs({
     options: {
+      "emit-mermaid": { type: "string" },
       json: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -143,6 +197,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exit(0);
   }
   const report = runFormalVerification();
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  if (values["emit-mermaid"]) {
+    const outFile = path.resolve(process.cwd(), values["emit-mermaid"]);
+    fs.mkdirSync(path.dirname(outFile), { recursive: true });
+    fs.writeFileSync(outFile, report.mermaid, "utf8");
+  }
+  const { mermaid: _chart, ...jsonReport } = report;
+  process.stdout.write(`${JSON.stringify(jsonReport, null, 2)}\n`);
   process.exit(report.ok ? 0 : 1);
 }

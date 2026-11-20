@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import { parseArgs } from "node:util";
 import {
   applyQueueSnapshot,
   assessGitHubMerge,
@@ -546,6 +549,7 @@ function verifyQueuedBfsBounded(): {
   visitedStates: number;
   transitions: number;
   firstFinding: Finding | null;
+  mermaid: string;
 } {
   const opts: PollingOptions = {
     interval: 1,
@@ -611,7 +615,29 @@ function verifyQueuedBfsBounded(): {
     return `${now}|${work}|${s.nextSweepAt}|${s.frontier?.number ?? "none"}|${snapTag(s.snapshots.get(parsePrNumber(101)))}|${snapTag(s.snapshots.get(parsePrNumber(102)))}`;
   };
 
+  const toAbstractNode = (
+    mode: string,
+    s: ReturnType<typeof createQueueState>,
+  ): { id: string; label: string } => {
+    const t101 = snapTag(s.snapshots.get(parsePrNumber(101)));
+    const t102 = snapTag(s.snapshots.get(parsePrNumber(102)));
+    const rawId = `${mode}_${t101}_${t102}`.replace(/[^A-Za-z0-9_]/g, "_");
+    const label = `${mode} (101=${t101}, 102=${t102})`;
+    return { id: rawId, label };
+  };
+
   const init = createQueueState(queue, 0);
+  const initPlanned = planQueue(init, 0);
+  const initNode = toAbstractNode(
+    initPlanned.work?.kind === "whole-stack-sweep" ? "sweep" : `poll_${initPlanned.work?.frontier.number ?? 101}`,
+    initPlanned,
+  );
+  const nodeLabels = new Map<string, string>([[initNode.id, initNode.label]]);
+  const abstractEdges = new Map<string, { from: string; to: string; label: string }>();
+  const brokenNodes = new Set<string>();
+  const passNodes = new Set<string>();
+  const timeoutNodes = new Set<string>();
+
   const seen = new Set<string>([stateKey(init, 0)]);
   const bfs: Node[] = [{ state: init, now: 0, trace: [] }];
   let transitions = 0;
@@ -629,6 +655,11 @@ function verifyQueuedBfsBounded(): {
       continue;
     }
 
+    const fromMode =
+      planned.work.kind === "whole-stack-sweep" ? "sweep" : `poll_${planned.work.frontier.number}`;
+    const fromNode = toAbstractNode(fromMode, planned);
+    nodeLabels.set(fromNode.id, fromNode.label);
+
     if (planned.work.kind === "whole-stack-sweep") {
       for (const p of planned.work.remaining) {
         if (planned.snapshots.get(p.number)?.kind === "merged") {
@@ -637,6 +668,7 @@ function verifyQueuedBfsBounded(): {
             summary: `Sweep re-included already-merged PR #${p.number}`,
             counterexample: { trace: cur.trace },
           };
+          brokenNodes.add(fromNode.id);
         }
       }
     }
@@ -650,8 +682,21 @@ function verifyQueuedBfsBounded(): {
       transitions++;
       const applied = applyQueueSnapshot(planned, snap, cur.now, opts);
       const nextTrace = [...cur.trace, `${planned.work.kind}(#${targetPr}->${snapTag(snap)}@t=${cur.now})`];
+      const actionVerb = planned.work.kind === "whole-stack-sweep" ? "sweep" : "poll";
+      const edgeLabel = `${actionVerb} #${targetPr} ${snapTag(snap)}`;
 
       if (applied.state.work !== null) {
+        const nextMode =
+          applied.state.work.kind === "whole-stack-sweep"
+            ? "sweep"
+            : `poll_${applied.state.work.frontier.number}`;
+        const toNode = toAbstractNode(nextMode, applied.state);
+        nodeLabels.set(toNode.id, toNode.label);
+        const edgeKey = `${fromNode.id}|${toNode.id}|${edgeLabel}`;
+        if (!abstractEdges.has(edgeKey)) {
+          abstractEdges.set(edgeKey, { from: fromNode.id, to: toNode.id, label: edgeLabel });
+        }
+
         const key = stateKey(applied.state, cur.now);
         if (!seen.has(key)) {
           seen.add(key);
@@ -661,9 +706,24 @@ function verifyQueuedBfsBounded(): {
       }
 
       const ev = evaluateQueue(applied.state, cur.now, opts);
+      let toMode = ev.kind;
+      let toState = ev.state;
+      if (ev.kind === "advance" || ev.kind === "waiting") {
+        toMode = `poll_${ev.frontier.number}`;
+      }
+      const toNode = toAbstractNode(toMode, toState);
+      nodeLabels.set(toNode.id, toNode.label);
+      const edgeKey = `${fromNode.id}|${toNode.id}|${edgeLabel}`;
+      if (!abstractEdges.has(edgeKey)) {
+        abstractEdges.set(edgeKey, { from: fromNode.id, to: toNode.id, label: edgeLabel });
+      }
+      if (ev.kind === "complete") passNodes.add(toNode.id);
+      if (ev.kind === "timeout") timeoutNodes.add(toNode.id);
+
       if (ev.kind === "complete") {
         for (const p of queue) {
           if (ev.state.snapshots.get(p.number)?.kind !== "merged") {
+            brokenNodes.add(toNode.id);
             firstFinding ??= {
               property: "QueuedStackStateMachineBFS",
               summary: `Premature COMPLETE with non-merged PR #${p.number}`,
@@ -673,6 +733,7 @@ function verifyQueuedBfsBounded(): {
         }
       } else if (ev.kind === "timeout") {
         if (cur.now < opts.timeout) {
+          brokenNodes.add(toNode.id);
           firstFinding ??= {
             property: "QueuedStackStateMachineBFS",
             summary: `Premature timeout at t=${cur.now}`,
@@ -684,6 +745,7 @@ function verifyQueuedBfsBounded(): {
           ev.frontier.number !== 102 ||
           ev.state.snapshots.get(parsePrNumber(101))?.kind !== "merged"
         ) {
+          brokenNodes.add(toNode.id);
           firstFinding ??= {
             property: "QueuedStackStateMachineBFS",
             summary: "Invalid frontier advance",
@@ -700,6 +762,7 @@ function verifyQueuedBfsBounded(): {
         const expectedFrontier =
           ev.state.snapshots.get(parsePrNumber(101))?.kind === "merged" ? 102 : 101;
         if (ev.frontier.number !== expectedFrontier) {
+          brokenNodes.add(toNode.id);
           firstFinding ??= {
             property: "QueuedStackStateMachineBFS",
             summary: `Frontier mismatch: got #${ev.frontier.number}, expected #${expectedFrontier}`,
@@ -718,7 +781,45 @@ function verifyQueuedBfsBounded(): {
     }
   }
 
-  return { visitedStates: seen.size, transitions, firstFinding };
+  const lines = [
+    "%% provenance: formal-ts",
+    "stateDiagram-v2",
+    "  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834",
+    "  classDef pass fill:#e6f6ec,stroke:#1a7f37,color:#116329",
+    "  classDef skip fill:#fff8c5,stroke:#9a6700,color:#4d2d00",
+    `  [*] --> ${initNode.id}`,
+  ];
+  for (const [id, label] of nodeLabels.entries()) {
+    lines.push(`  ${id}: ${label}`);
+  }
+  for (const e of abstractEdges.values()) {
+    lines.push(`  ${e.from} --> ${e.to}: ${e.label}`);
+  }
+  for (const id of passNodes) lines.push(`  class ${id} pass`);
+  for (const id of timeoutNodes) lines.push(`  class ${id} skip`);
+  for (const id of brokenNodes) lines.push(`  class ${id} breaks`);
+
+  return { visitedStates: seen.size, transitions, firstFinding, mermaid: `${lines.join("\n")}\n` };
+}
+
+const USAGE = `Usage: node --experimental-strip-types --disable-warning=ExperimentalWarning .agents/skills/verify-watch-pr-formal/scripts/verify-policy.ts [options]
+
+Options:
+  --emit-mermaid <path>  Write explored stateDiagram-v2 chart for PR descriptions
+  --json                 Emit machine-readable JSON verification report (default)
+  -h, --help             Show this help text and exit 0`;
+
+const { values } = parseArgs({
+  options: {
+    "emit-mermaid": { type: "string" },
+    json: { type: "boolean", default: false },
+    help: { type: "boolean", short: "h", default: false },
+  },
+});
+
+if (values.help) {
+  console.log(USAGE);
+  process.exit(0);
 }
 
 const r1 = verifyAssessGitHubMerge();
@@ -732,6 +833,12 @@ const findings = [
   r3.firstFinding,
   r4.firstFinding,
 ].filter((f): f is Finding => f !== null);
+
+if (values["emit-mermaid"]) {
+  const outFile = path.resolve(process.cwd(), values["emit-mermaid"]);
+  fs.mkdirSync(path.dirname(outFile), { recursive: true });
+  fs.writeFileSync(outFile, r4.mermaid, "utf8");
+}
 
 const report = {
   ok: findings.length === 0,
