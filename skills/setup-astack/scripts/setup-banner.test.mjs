@@ -124,9 +124,9 @@ test("setup-banner CLI prints ASCII banner and JSON status for --cwd", () => {
     assert.equal(parsed.workspace, "cli-target");
     assert.deepEqual(parsed.verifySkills, ["verify-api"]);
     assert.deepEqual(parsed.tlaFiles, ["Protocol.tla"]);
-    assert.equal(parsed.hooks.total, 8);
-    assert.equal(parsed.hookBreakdown.passiveTotal, 2);
-    assert.equal(parsed.hookBreakdown.passiveEnabled, 2);
+    assert.equal(parsed.hooks.total, 9);
+    assert.equal(parsed.hookBreakdown.passiveTotal, 3);
+    assert.equal(parsed.hookBreakdown.passiveEnabled, 3);
     assert.equal(parsed.hookBreakdown.blockingTotal, 6);
     assert.equal(parsed.hookBreakdown.blockingEnabled, 0);
     assert.equal(parsed.policies.boundaries, false);
@@ -230,6 +230,19 @@ test("scaffoldRepoPolicies creates defaults idempotently and supports --dry-run 
       }),
     );
     assert.deepEqual(forceCli.overwritten, ["REVIEW.md"]);
+
+    const prTplCli = JSON.parse(
+      execFileSync(process.execPath, [initPolicyScript, "--cwd", cliDir, "--targets", "pr-template", "--json"], {
+        encoding: "utf8",
+      }),
+    );
+    assert.deepEqual(prTplCli.created, [".github/PULL_REQUEST_TEMPLATE.md"]);
+    const prTplRerun = JSON.parse(
+      execFileSync(process.execPath, [initPolicyScript, "--cwd", cliDir, "--targets", "pr-template", "--json"], {
+        encoding: "utf8",
+      }),
+    );
+    assert.deepEqual(prTplRerun.skipped, [".github/PULL_REQUEST_TEMPLATE.md"]);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

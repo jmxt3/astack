@@ -97,7 +97,9 @@ export function inspectWorkspace({
           const isEnabled = value.enabled === true;
           if (isEnabled) enabledHooks++;
           const isPassive =
-            (Array.isArray(value.PostToolUse) || Array.isArray(value.SessionStart)) &&
+            (Array.isArray(value.PostToolUse) ||
+              Array.isArray(value.SessionStart) ||
+              Array.isArray(value.PreInvocation)) &&
             !Array.isArray(value.PreToolUse) &&
             !Array.isArray(value.Stop);
           if (isPassive) {
