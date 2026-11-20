@@ -5,7 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { TOOL_MATCHERS, writeEvidenceSnapshotAtomic } from "../trust/index.mjs";
+import {
+  TOOL_MATCHERS,
+  compilePrDossier,
+  recordReceipt,
+  writeEvidenceSnapshotAtomic,
+} from "../trust/index.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const guardScript = path.resolve(here, "../hooks/irreversible-guard.mjs");
@@ -13,6 +18,7 @@ const stopScript = path.resolve(here, "../hooks/verify-reminder.mjs");
 const secretScript = path.resolve(here, "../hooks/secret-guard.mjs");
 const receiptScript = path.resolve(here, "../hooks/receipt-ledger.mjs");
 const sessionScript = path.resolve(here, "../hooks/session-context.mjs");
+const prIntentScript = path.resolve(here, "../hooks/pr-intent.mjs");
 const evidenceScript = path.resolve(here, "../hooks/evidence-gate.mjs");
 const boundaryScript = path.resolve(here, "../hooks/boundary-guard.mjs");
 const roundScript = path.resolve(here, "../hooks/round-limiter.mjs");
@@ -38,12 +44,14 @@ function makeTempGitRepo(prefix = "astack-hook-") {
   return tmp;
 }
 
-test("hooks.json uses split defaults (2 passive enabled, 6 blocking opt-in) and synced tool matchers", () => {
+test("hooks.json uses split defaults (3 passive enabled, 6 blocking opt-in) and synced tool matchers", () => {
   const cfg = JSON.parse(fs.readFileSync(hooksJsonPath, "utf8"));
   assert.equal(cfg["astack-receipt-ledger"]?.enabled, true);
   assert.equal(cfg["astack-session-context"]?.enabled, true);
+  assert.equal(cfg["astack-pr-intent"]?.enabled, true);
   assert.ok(Array.isArray(cfg["astack-receipt-ledger"]?.PostToolUse));
   assert.ok(Array.isArray(cfg["astack-session-context"]?.SessionStart));
+  assert.ok(Array.isArray(cfg["astack-pr-intent"]?.PreInvocation));
   assert.equal(cfg["astack-receipt-ledger"].PostToolUse[0]?.matcher, TOOL_MATCHERS.secretGuard);
 
   for (const key of [
@@ -57,6 +65,7 @@ test("hooks.json uses split defaults (2 passive enabled, 6 blocking opt-in) and 
     assert.equal(cfg[key]?.enabled, false, `${key} must ship disabled`);
   }
   assert.equal(cfg["astack-secret-guard"].PreToolUse[0]?.matcher, TOOL_MATCHERS.secretGuard);
+  assert.equal(cfg["astack-evidence-gate"].PreToolUse[0]?.matcher, TOOL_MATCHERS.evidenceGate);
   assert.equal(cfg["astack-boundary-guard"].PreToolUse[0]?.matcher, TOOL_MATCHERS.fileWrite);
   assert.equal(cfg["astack-round-limiter"].PreToolUse[0]?.matcher, TOOL_MATCHERS.fileWrite);
   assert.equal(cfg["astack-verify-reminder"].Stop[0]?.type, "command");
@@ -338,5 +347,205 @@ test("evidence-gate, boundary-guard, and round-limiter block violations and hono
     assert.match(limitHit.reason, /3\/3 failed review rounds/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("pr-intent PreInvocation injects PR proof workflow once per prompt and ignores non-PR prompts", () => {
+  const tmp = makeTempGitRepo("astack-pr-intent-");
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-pr-intent-art-"));
+  try {
+    const nonPr = runHook(
+      prIntentScript,
+      JSON.stringify({
+        conversationId: "c-intent",
+        hookEventName: "PreInvocation",
+        invocationNum: 1,
+        lastUserInput: "Fix the failing unit test",
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+      }),
+    );
+    assert.deepEqual(nonPr, {});
+
+    const prPayload = JSON.stringify({
+      conversationId: "c-intent",
+      hookEventName: "PreInvocation",
+      invocationNum: 2,
+      lastUserInput: "okay, open a PR",
+      workspacePaths: [tmp],
+      artifactDirectoryPath: artifactDir,
+    });
+    const first = runHook(prIntentScript, prPayload);
+    assert.ok(Array.isArray(first.injectSteps));
+    const injected = first.injectSteps[0].systemMessage.systemMessage;
+    assert.match(injected, /pr-dossier\.mjs --format github/);
+    assert.match(injected, /--artifact-dir/);
+
+    const second = runHook(prIntentScript, prPayload);
+    assert.deepEqual(second, {});
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
+  }
+});
+
+test("evidence-gate validates gh CLI and MCP PR bodies against base-branch policy without false positives", () => {
+  const tmp = makeTempGitRepo("astack-pr-gate-");
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-pr-gate-art-"));
+  const trustDir = path.join(artifactDir, "astack-trust");
+  try {
+    fs.mkdirSync(path.join(tmp, ".agents"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, ".agents", "risk-policy.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        prDescriptionContract: {
+          enabled: true,
+          requireStatechart: true,
+          requireProofTable: true,
+          forbidLocalLinks: true,
+        },
+      }),
+      "utf8",
+    );
+    execFileSync("git", ["add", ".agents/risk-policy.json"], { cwd: tmp, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "enable pr description contract"], { cwd: tmp, stdio: "ignore" });
+
+    execFileSync("git", ["checkout", "-b", "feat/pr-gate"], { cwd: tmp, stdio: "ignore" });
+    fs.writeFileSync(
+      path.join(tmp, ".agents", "risk-policy.json"),
+      JSON.stringify({ schemaVersion: 1, prDescriptionContract: { enabled: false } }),
+      "utf8",
+    );
+    fs.writeFileSync(path.join(tmp, "app.js"), "console.log(42);\n", "utf8");
+    execFileSync("git", ["add", ".agents/risk-policy.json", "app.js"], { cwd: tmp, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "attempt tamper and update app"], { cwd: tmp, stdio: "ignore" });
+
+    const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: tmp, encoding: "utf8" }).trim();
+    recordReceipt(
+      { kind: "tool-command", conversationId: "exec", command: "node --test", error: "", workspaceDir: tmp },
+      { trustDir, headSha },
+    );
+    const bodyFile = path.join(artifactDir, "compiled-pr-body.md");
+    compilePrDossier({
+      cwd: tmp,
+      baseRef: "main",
+      artifactDir,
+      format: "github",
+      outPath: bodyFile,
+    });
+    const compiledBody = fs.readFileSync(bodyFile, "utf8");
+
+    assert.deepEqual(
+      runHook(
+        evidenceScript,
+        JSON.stringify({
+          workspacePaths: [tmp],
+          artifactDirectoryPath: artifactDir,
+          toolCall: { name: "run_command", args: { CommandLine: 'echo "gh pr create"' } },
+        }),
+        { CI: "true" },
+      ),
+      { decision: "allow" },
+    );
+
+    assert.deepEqual(
+      runHook(
+        evidenceScript,
+        JSON.stringify({
+          workspacePaths: [tmp],
+          artifactDirectoryPath: artifactDir,
+          toolCall: { name: "run_command", args: { CommandLine: "gh pr edit 12 --add-label docs" } },
+        }),
+        { CI: "true" },
+      ),
+      { decision: "allow" },
+    );
+
+    const fillBlocked = runHook(
+      evidenceScript,
+      JSON.stringify({
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        toolCall: { name: "run_command", args: { CommandLine: "gh pr create --title Test --fill" } },
+      }),
+      { CI: "true" },
+    );
+    assert.equal(fillBlocked.decision, "deny");
+    assert.match(fillBlocked.reason, /--fill/);
+
+    const newPlainBlocked = runHook(
+      evidenceScript,
+      JSON.stringify({
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        toolCall: { name: "run_command", args: { CommandLine: 'gh pr new --title Test --body "plain"' } },
+      }),
+      { CI: "", NON_INTERACTIVE: "" },
+    );
+    assert.equal(newPlainBlocked.decision, "force_ask");
+    assert.match(newPlainBlocked.reason, /PR description contract violation/);
+
+    const editBodyBlocked = runHook(
+      evidenceScript,
+      JSON.stringify({
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        toolCall: { name: "run_command", args: { CommandLine: 'gh pr edit 12 --body "plain"' } },
+      }),
+      { CI: "true" },
+    );
+    assert.equal(editBodyBlocked.decision, "deny");
+
+    const cliAllowed = runHook(
+      evidenceScript,
+      JSON.stringify({
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        toolCall: { name: "run_command", args: { CommandLine: `gh pr create --title Test --body-file "${bodyFile}"` } },
+      }),
+      { CI: "true" },
+    );
+    assert.deepEqual(cliAllowed, { decision: "allow" });
+
+    const mcpBlocked = runHook(
+      evidenceScript,
+      JSON.stringify({
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        toolCall: {
+          name: "call_mcp_tool",
+          args: {
+            ServerName: "github-mcp-server",
+            ToolName: "create_pull_request",
+            Arguments: { owner: "acme", repo: "demo", title: "Test", head: "feat/pr-gate", base: "main", body: "plain" },
+          },
+        },
+      }),
+      { CI: "true" },
+    );
+    assert.equal(mcpBlocked.decision, "deny");
+    assert.match(mcpBlocked.reason, /PR description contract violation/);
+
+    const mcpAllowed = runHook(
+      evidenceScript,
+      JSON.stringify({
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        toolCall: {
+          name: "call_mcp_tool",
+          args: {
+            ServerName: "github-mcp-server",
+            ToolName: "create_pull_request",
+            Arguments: { owner: "acme", repo: "demo", title: "Test", head: "feat/pr-gate", base: "main", body: compiledBody },
+          },
+        },
+      }),
+      { CI: "true" },
+    );
+    assert.deepEqual(mcpAllowed, { decision: "allow" });
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
   }
 });
