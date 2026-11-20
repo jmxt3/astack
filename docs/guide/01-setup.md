@@ -11,7 +11,7 @@ agy plugin install https://github.com/jmxt3/astack
 agy plugin list --json
 ```
 
-(To install from a local clone instead, run `agy plugin install ./astack` or `agy plugin install .`. On Windows, if updating while Antigravity is running fails with `Access is denied`, run `agy plugin uninstall astack` before reinstalling.) For workspace-level customization, you can also copy individual skills into `.agents/skills/`. AStack sets `disable-model-invocation: true` on `34` manual-only/principle skills so only `29` auto-invocable workflow skills sit in your prompt index, and never shadows any native command or built-in skill. See [Architecture & Swarm](../architecture-and-swarm.md) for how plugin skills route to Antigravity's 16 native slash commands (`/plan`, `/grill-me`, `/run-workflow`, `/boost`, `/swarm`, `/teamwork`, `/goal`, `/schedule`, `/automation`, `/browser`).
+(To install from a local clone instead, run `agy plugin install ./astack` or `agy plugin install .`. On Windows, if updating while Antigravity is running fails with `Access is denied`, run `agy plugin uninstall astack` before reinstalling.) For workspace-level customization, you can also copy individual skills into `.agents/skills/`. AStack sets `disable-model-invocation: true` on `36` manual-only/principle skills so only `29` auto-invocable workflow skills sit in your prompt index, and never shadows any native command or built-in skill. See [Architecture & Swarm](../architecture-and-swarm.md) for how plugin skills route to Antigravity's 16 native slash commands (`/plan`, `/grill-me`, `/run-workflow`, `/boost`, `/swarm`, `/teamwork`, `/goal`, `/schedule`, `/automation`, `/browser`).
 
 ## Works with any model & plan (zero config)
 
@@ -29,11 +29,12 @@ Inside an application repository, run:
 /setup-astack
 ```
 
-[`/setup-astack`](../../skills/setup-astack/SKILL.md) inspects what your repository already has and offers to set up empirical verification and safety guardrails:
+[`/setup-astack`](../../skills/setup-astack/SKILL.md) inspects what your repository already has and offers to set up empirical verification, governance policies, and safety guardrails:
 
 1. **Runtime verification skill ([`/create-verification-skill`](../../skills/create-verification-skill/SKILL.md))**: writes `.agents/skills/verify-<app>/` and a `features/` sitemap so agents drive and prove your app the way a user does, and verifies the skill once before handing it over. [Verify and ship](./06-verify-and-ship.md#create-a-project-verification-skill) covers it in depth. If you're new to astack, say yes: an agent that can check its own work keeps going until the check passes, instead of handing every result back to you to check by hand.
 2. **Formal verification skill ([`/create-formal-verification-skill`](../../skills/create-formal-verification-skill/SKILL.md))**: checks a critical invariant with TLA+ when your code has concurrency, retries, a state machine, or a parser where tests rarely reach the breaking case. [Verify and ship](./06-verify-and-ship.md#prove-a-property-with-a-formal-verification-skill) covers it.
-3. **Opt-in lifecycle hooks (`hooks.json`)**: review `astack-irreversible-guard` and `astack-verify-reminder`, which ship disabled (`"enabled": false`) by default.
+3. **Repo governance policies (`init-repo-policy.mjs`) & split-default hooks (`hooks.json`)**: scaffold optional `.agents/risk-policy.json`, `.agents/boundaries.json`, `REVIEW.md`, and `GLOSSARY.md` (`node skills/setup-astack/scripts/init-repo-policy.mjs`), keep `2` passive observe-only hooks enabled (`astack-receipt-ledger`, `astack-session-context`), and decide which of the `6` opt-in blocking gates (`astack-irreversible-guard`, `astack-secret-guard`, `astack-boundary-guard`, `astack-evidence-gate`, `astack-round-limiter`, `astack-verify-reminder`) to enable.
+4. **Optional `AStack Timeline` sidecar UI**: enable **AStack Timeline** under **Extensions** in Antigravity to follow the five primary developer stages visually read-only.
 
 No chat restart is needed after `/setup-astack`.
 

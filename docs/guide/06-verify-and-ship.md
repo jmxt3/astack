@@ -125,6 +125,17 @@ A counterexample in model terms convinces you. The PM or designer who owns the b
 
 [`/statechart`](../../skills/statechart/SKILL.md) draws a Mermaid statechart of what the user sees, generated from a TLA+ model, so the picture and the checked model can't drift apart. The reader's rules ("you never see Synced while you're offline") become invariants. The chart marks each state that breaks a rule, and the report gives the shortest path to it in the reader's words. Before the hand-off, the agent reproduces each bug path in the real code, so a modeling error doesn't reach the reader as a bug.
 
+## Audit boundaries & compile a visual PR dossier
+
+Before opening or reviewing a PR, audit module boundaries with [`/audit-architecture`](../../skills/audit-architecture/SKILL.md) (`arch-audit.mjs --strict`) and compile a visual review dossier with [`/review-pr`](../../skills/review-pr/SKILL.md) (`pr-dossier.mjs`):
+
+```text
+/audit-architecture
+/review-pr
+```
+
+[`pr-dossier.mjs`](../../skills/review-pr/scripts/pr-dossier.mjs) classifies Risk Tiers (`0..3`) strictly against base-branch `.agents/risk-policy.json` (classifying `.agents/**` and `REVIEW.md` edits as Risk Tier 3), tracks per-file test assertion weakening, binds `evidence.json` freshness to `HEAD`, spawns the read-only [`pr-verifier`](../../agents/pr-verifier.md) agent (`<= 3` remediation rounds or immediate `ESCALATE_HUMAN`), and writes `<artifact-dir>/pr-review.md` with a Mermaid blast-radius map, UI screenshot carousel, and ordered clickable file links. Tier 1 through Tier 3 changes always pause for human approval; Tier 0 auto-merge is opt-in per repo.
+
 ## Open the PR
 
 ```text
@@ -141,7 +152,7 @@ An open PR starts collecting blockers immediately. Checks fail, reviewers commen
 /astack-mode babysit this pr. get it green.
 ```
 
-Babysit watches the PR, with a bundled watcher on GitHub or the Origin CLI when it's available, and takes blockers in order: conflicts, then review threads, then CI. Every known fix batches into one push, so the checks restart once instead of after every fix. The comment triage is skeptical, because humans and bots file real catches and noise in the same list. A real finding gets a fix, and noise gets dismissed with the disproof posted on the thread. When all you want is status, ask smaller and Babysit answers without starting the loop:
+Babysit watches the PR on GitHub (`gh` CLI and `github-mcp-server`) using `watch-pr.mjs` and takes blockers in order: conflicts, then review threads, then CI. Every known fix batches into one push, so the checks restart once instead of after every fix. The comment triage is skeptical, because humans and bots file real catches and noise in the same list. A real finding gets a fix, and noise gets dismissed with the disproof posted on the thread. When all you want is status, ask smaller and Babysit answers without starting the loop:
 
 ```text
 /astack-mode check on pr 123. anything outstanding?
@@ -157,6 +168,6 @@ Green is not the same as safe. When you're ready to land, say so:
 /astack-mode land the stack.
 ```
 
-The [Shipping playbook](../../skills/astack-mode/playbooks/shipping.md) verifies each PR independently before it arms anything. One fresh agent per PR proves the behavior live, and the agent that judges a change is never the one that wrote it. Then Shipping lands only the contiguous verified run from the bottom, one PR at a time through GitHub by default or Origin when its CLI is available, and reports the first PR that breaks the chain. A verified PR sitting above an unverified one waits, because merging it would pull the gap in underneath.
+The [Shipping playbook](../../skills/astack-mode/playbooks/shipping.md) verifies each PR independently before it arms anything. One fresh agent per PR proves the behavior live, and the agent that judges a change is never the one that wrote it. Then Shipping lands only the contiguous verified run from the bottom, one PR at a time through GitHub (`gh`), and reports the first PR that breaks the chain. A verified PR sitting above an unverified one waits, because merging it would pull the gap in underneath.
 
 Next: [Run work while you sleep](./07-overnight.md).

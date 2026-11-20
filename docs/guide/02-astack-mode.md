@@ -1,6 +1,6 @@
 # Route work through `/astack-mode`
 
-`/astack-mode` is the front door. You give it a goal, it matches one of twenty-three playbooks, copies that playbook's steps into the todo list, and calls the other skills as the steps need them. In this page you learn what a good prompt looks like, and how little of one you actually need.
+`/astack-mode` is the front door. You give it a goal, it prints a deterministic 6-stage pipeline rail (`[AUTO]` stages 1, 3, 4, and 5 plus `[HUMAN GATE]` stages 2 and 6), matches one of 26 playbooks, copies that playbook's steps into the todo list, and calls the other skills as the steps need them. In this page you learn what a good prompt looks like, and how little of one you actually need.
 
 ![A dispatcher pulls a switch lever to route robots on rail handcars toward lit gates, under a /astack-mode departure board listing BUG FIX, FEATURE, and INVESTIGATION.](./images/router.jpg)
 

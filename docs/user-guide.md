@@ -8,7 +8,7 @@
 **Contents:**
 - [Part 1: Start using AStack in 1 minute](#part-1-start-using-astack-in-1-minute)
 - [Part 2: Plan-first workflow (write a plan, approve, then execute)](#part-2-plan-first-workflow-write-a-plan-approve-then-execute)
-- [Part 3: Day-to-day 5-stage workflow](#part-3-day-to-day-5-stage-workflow)
+- [Part 3: Day-to-day 6-stage workflow](#part-3-day-to-day-6-stage-workflow)
 - [Part 4: Multi-agent modes and power moves](#part-4-multi-agent-modes-and-power-moves)
 
 ---
@@ -37,7 +37,7 @@ Open your project workspace and run:
 Select the **`(Recommended)`** option when prompted so [`/setup-astack`](../skills/setup-astack/SKILL.md) teaches agents how to launch and verify your app automatically.
 
 > [!TIP]
-> AStack works out of the box with **any model on any Antigravity plan**, with zero model config or chat restart needed. `34` manual-only/principle skills set `disable-model-invocation: true` so only `29` workflow skills sit in your model index, broad sweeps use `flash`, `/arena` checks live models via `swarm{action: "models"}`, and **Orchestrator (Carbon)** (Google AI Ultra) or **Orchestrator (Argon)** (Google AI Pro and Ultra) runs dynamic bidirectional routing with [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/) automatically.
+> AStack works out of the box with **any model on any Antigravity plan**, with zero model config or chat restart needed. `36` manual-only/principle skills set `disable-model-invocation: true` so only `29` workflow skills sit in your model index, broad sweeps use `flash`, `/arena` checks live models via `swarm{action: "models"}`, and **Orchestrator (Carbon)** (Google AI Ultra) or **Orchestrator (Argon)** (Google AI Pro and Ultra) runs dynamic bidirectional routing with [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/) automatically.
 
 ### Step 3: Run Tasks With `/astack-mode`
 
@@ -128,34 +128,37 @@ Use short overrides only when you want different behavior:
 
 ---
 
-## Part 3: Day-to-day 5-stage workflow
+## Part 3: Day-to-day 6-stage workflow
 
-Most engineering tasks flow naturally through five stages. You don't have to memorize or chain these commands manually. `/astack-mode` invokes them automatically when needed, and knowing each stage lets you call any skill directly when you want focused control.
+Every [`/astack-mode`](../skills/astack-mode/SKILL.md) run follows a deterministic 6-stage flight rail (`[AUTO]` stages 1, 3, 4, and 5 plus `[HUMAN GATE]` stages 2 and 6). You don't have to memorize or chain these commands manually. Knowing each stage lets you call any skill or gate directly when you want focused control.
 
 ```mermaid
 flowchart LR
-    S1["`**1. Understand**
-/how · /why
-/teach · /recall`"]
-    S2["`**2. Design**
-/architect · /arena
-/interrogate`"]
-    S3["`**3. Build**
-/astack-mode
-playbooks + /tdd`"]
-    S4["`**4. Clean**
+    S1["`**1. AUTO: Understand**
+/how · /why · /teach · /recall
+Base REVIEW.md + GLOSSARY.md`"]
+    S2["`**2. HUMAN GATE: Plan**
+/plan · /grill-me
+/architect with checkpoint`"]
+    S3["`**3. AUTO: Build & Guard**
+astack-agent · /tdd · /swarm
+Passive ledger + opt-in hooks`"]
+    S4["`**4. AUTO: Clean & Audit**
 /deslop · /no-comments
-/unslop`"]
-    S5["`**5. Verify & ship**
-/control-ui · /control-cli
-verify-app · /blast-radius`"]
+/audit-architecture · /unslop`"]
+    S5["`**5. AUTO: Prove & AI Review**
+verify-app · /control-ui · /control-cli
+/interrogate · pr-verifier (<=3)`"]
+    S6["`**6. HUMAN GATE: Visual PR**
+/review-pr (Mermaid + carousel)
+Tier 0-3 · open PR · babysit`"]
 
-    S1 --> S2 --> S3 --> S4 --> S5
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6
 ```
 
-### Stage 1: Understand Before Changing Code
+### Stage 1: Understand Before Changing Code (`[AUTO]`)
 
-Editing unfamiliar code causes regressions. Use read-only exploration first:
+Editing unfamiliar code causes regressions. [`/astack-mode`](../skills/astack-mode/SKILL.md) also loads base-branch `REVIEW.md` and `GLOSSARY.md` first via `astack-session-context` so PR diffs cannot relax review rules. Use read-only exploration when you need clarity:
 
 1. **Trace how code works now:** `/how` ([SKILL.md](../skills/how/SKILL.md)) gives an onboarding-grade mental model of runtime flow, ownership, and gotchas.
    ```text
@@ -175,13 +178,14 @@ Editing unfamiliar code causes regressions. Use read-only exploration first:
    /astack-mode investigate why workers stall under load. give me confirmed facts, files read, and falsifiable hypotheses. don't change any code yet.
    ```
 
-### Stage 2: Design Before Locking In Structure
+### Stage 2: Plan, Interview & Design Checkpoints (`[HUMAN GATE]`)
 
-One attempt locks in the first shape the model thinks of. For boundary-crossing work, force competition before committing to code:
+One attempt locks in the first shape the model thinks of. Gate structural or risky work behind `/plan` or `/architect`:
 
-- **Cross-boundary API & architecture design:** `/architect` ([SKILL.md](../skills/architect/SKILL.md)) grounds constraints in real callers, spawns parallel design candidates (caller usage first, data shape first), screens for Ousterhout design red flags, and synthesizes one clean architecture.
+- **Plan approval gate (`/plan /astack-mode`):** Writes `<artifact-dir>/implementation_plan.md` with zero file edits and pauses until you click **Proceed**. Add `/grill-me` first when requirements are still fuzzy.
+- **Cross-boundary API & architecture design:** `/architect` ([SKILL.md](../skills/architect/SKILL.md)) grounds constraints in real callers, spawns parallel design candidates (caller usage first, data shape first), screens for Ousterhout design red flags, and synthesizes one clean architecture. Pass `with checkpoint` to pause for review before implementation:
   ```text
-  /architect design the webhook rate limiter across our API gateway. stop and show me the design before implementing.
+  /architect design the webhook rate limiter across our API gateway. with checkpoint. stop and show me the design before implementing.
   ```
 - **Competitive multi-candidate bakeoff:** `/arena` ([SKILL.md](../skills/arena/SKILL.md)) runs 2–3 isolated implementations in parallel, screens them against the same empirical pass predicate, picks **one clean base**, and grafts 1–2 non-conflicting wins.
   ```text
@@ -192,9 +196,9 @@ One attempt locks in the first shape the model thinks of. For boundary-crossing 
   /astack-mode prototype two layouts for the filter bar in a scratch folder and show screenshots via /control-ui.
   ```
 
-### Stage 3: Build With `/astack-mode`
+### Stage 3: Build & Guard With `/astack-mode` (`[AUTO]`)
 
-[`/astack-mode`](../skills/astack-mode/SKILL.md) selects the matching playbook automatically from how you phrase your goal:
+[`/astack-mode`](../skills/astack-mode/SKILL.md) delegates implementation to `astack-agent` (paired with anti-rationalization discipline), matches the right playbook automatically from how you phrase your goal, logs passive per-actor tool receipts (`astack-receipt-ledger`), and enforces opt-in secret, boundary, and 3-round escalation guards:
 
 | Task Type | Copy-Pasteable Prompt Pattern | Playbook / Skill Triggered |
 |---|---|---|
@@ -207,23 +211,30 @@ One attempt locks in the first shape the model thinks of. For boundary-crossing 
 > [!NOTE]
 > When editing TypeScript (`.ts` / `.tsx`), explicitly mention `/typescript-best-practices` ([SKILL.md](../skills/typescript-best-practices/SKILL.md)) to enforce discriminated unions, `unknown` boundary parsing, and exhaustive matching. For cheap local failing-test-first iterations, run `/tdd` ([SKILL.md](../skills/tdd/SKILL.md)) directly.
 
-### Stage 4: Clean the Diff Before Commit & Review
+### Stage 4: Clean & Audit the Diff (`[AUTO]`)
 
-AStack separates code cleanup, comment removal, and prose cleanup into three specialized passes:
+AStack separates code cleanup, comment removal, boundary auditing, and prose cleanup before verification signs off:
 
 1. **`/deslop` ([SKILL.md](../skills/deslop/SKILL.md)) strip code bloat:** Inlines single-caller wrappers, deletes unsupported defensive fallbacks and dead compatibility layers, removes unrelated changes, and re-runs verification.
 2. **`/no-comments` ([SKILL.md](../skills/no-comments/SKILL.md)) fresh-eyes comment & suppression audit:** Spawns [`comment-sicko`](../agents/comment-sicko.md) (`TypeName: "comment-sicko"`) to delete narrating comments, flag workaround comments for root-cause fixes, and offer structural encodings (types/lints/tests) for claimed constraints.
-3. **`/unslop` ([SKILL.md](../skills/unslop/SKILL.md)) & `/technical-writing` ([SKILL.md](../skills/technical-writing/SKILL.md)) tighten prose:** Removes AI writing tells, filler, long dashes, and mid-sentence colons from docs, READMEs, RFCs, PR descriptions, and commit messages.
+3. **`/audit-architecture` ([SKILL.md](../skills/audit-architecture/SKILL.md)) enforce boundaries:** Runs `arch-audit.mjs` to catch `.agents/boundaries.json` import-zone or banned-pattern hits, shallow modules, and suppression or zero-delay-timer workarounds.
+4. **`/unslop` ([SKILL.md](../skills/unslop/SKILL.md)) & `/technical-writing` ([SKILL.md](../skills/technical-writing/SKILL.md)) tighten prose:** Removes AI writing tells, filler, long dashes, and mid-sentence colons from docs, READMEs, RFCs, PR descriptions, and commit messages.
 
-### Stage 5: Verify on the Real Surface & Ship
+### Stage 5: Prove Live & Run AI Verification (`[AUTO]`)
 
 "It compiles" or mocked unit tests alone are never accepted as proof:
 
 - **Prove behavior live:** Use `.agents/skills/verify-<app>/`, [`/control-ui`](../skills/control-ui/SKILL.md) (browser/Electron via Antigravity's `browser` subagent + Chrome DevTools MCP), or [`/control-cli`](../skills/control-cli/SKILL.md) (isolated temp dirs, exit codes, stdout/stderr contracts, and background daemon cleanup).
 - **Check hidden ripple effects:** Run `/blast-radius` ([SKILL.md](../skills/blast-radius/SKILL.md)) on small risky diffs to prove safety with real execution.
-- **Adversarial pre-ship review:** Run `/interrogate` ([SKILL.md](../skills/interrogate/SKILL.md)) over a branch; only findings backed by a failing rerun survive.
-- **Babysit and land PRs:**
-  - `/astack-mode babysit pr <number> to green.`
+- **Adversarial & independent PR verification:** Run `/interrogate` ([SKILL.md](../skills/interrogate/SKILL.md)) or let `/review-pr` spawn the read-only fresh-context [`pr-verifier`](../agents/pr-verifier.md) agent (emits schema-checked `findings.json`, capped at 3 autonomous remediation rounds or immediate `ESCALATE_HUMAN`).
+
+### Stage 6: Visual PR Review & Ship (`[HUMAN GATE]`)
+
+- **Compile visual PR dossier:** [`/review-pr`](../skills/review-pr/SKILL.md) (`pr-dossier.mjs`) writes `<artifact-dir>/pr-review.md` with a Mermaid blast-radius map, UI screenshot carousel, ordered clickable file links, `evidence.json` SHA-freshness checks, per-file test-assertion delta tracking, and Blast-Radius **Risk Tier `0..3`** classification evaluated strictly against base-branch `.agents/risk-policy.json` and `REVIEW.md`.
+- **Tiered human sign-off:** Tier 1 through Tier 3 changes (including PRs editing `REVIEW.md` or `.agents/**`) always pause for human approval; Tier 0 skips manual merge approval only when base `.agents/risk-policy.json` explicitly enables opt-in auto-merge and all checks are green.
+- **Open, babysit, and land PRs:**
+  - `/astack-mode open the pr`
+  - `/astack-mode babysit pr <number> to green.` (`watch-pr.mjs`)
   - `/astack-mode land the verified stack.`
 
 ---
@@ -262,7 +273,7 @@ AStack gets exponentially faster the longer you use it in a repo because each ru
 2. **Prove tricky state machines formally:** Run [`/create-formal-verification-skill`](../skills/create-formal-verification-skill/SKILL.md) and [`/statechart`](../skills/statechart/SKILL.md) where unit tests miss subtle interleavings.
 3. **Never correct the same mistake twice:** Run [`/correct`](../skills/correct/SKILL.md) to push repeated agent errors up the 5-layer hierarchy (architecture/types -> lint/CI error naming the fix -> tests -> rules/hooks, using `/learn` `learning_proposal.md` for persistent rules).
 4. **Capture durable workflow wins:** After a hard session, run [`/reflect`](../skills/reflect/SKILL.md) (`learning_proposal.md` gate for new skills or rules), or [`/automate-me`](../skills/automate-me/SKILL.md) (powered by `/agy-customizations`) to distill your personal coding preferences out of your transcripts.
-5. **Opt into safety guardrails ([hooks.json](../hooks.json)):** Flip `"enabled": true` on `astack-irreversible-guard` to require explicit confirmation on destructive commands (`git push --force`, `git reset --hard`, `DROP TABLE`), and `astack-verify-reminder` when you want a stop-time verification check.
+5. **Scaffold repo governance & enable safety hooks:** Run `node skills/setup-astack/scripts/init-repo-policy.mjs` to scaffold `.agents/risk-policy.json`, `.agents/boundaries.json`, `REVIEW.md`, and `GLOSSARY.md`. In [`hooks.json`](../hooks.json), two passive observe-only hooks (`astack-receipt-ledger` and `astack-session-context`) run enabled by default, while six blocking gates (`astack-irreversible-guard`, `astack-secret-guard`, `astack-boundary-guard`, `astack-evidence-gate`, `astack-round-limiter`, and `astack-verify-reminder`) ship disabled (`"enabled": false`) until opted in.
 
 ### 4. Steer Mid-Chat With One-Line Principle Shortcuts
 

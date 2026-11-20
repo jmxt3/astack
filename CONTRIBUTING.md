@@ -5,11 +5,12 @@ Thank you for contributing to AStack (`jmxt3/astack`). Pull requests, bug report
 ## Repository layout
 
 - [`plugin.json`](./plugin.json): Antigravity plugin manifest, version, and suggested prompts.
-- [`skills/`](./skills): 61 Antigravity skills (`SKILL.md` entrypoints, playbooks, references, and Node 22+ helper scripts).
-- [`agents/`](./agents): Custom subagent definitions (`astack-agent` and `comment-sicko`).
-- [`rules/`](./rules): Model-decision routing rules (`astack-orchestration.md`).
-- [`hooks.json`](./hooks.json) and [`scripts/hooks/`](./scripts/hooks): Opt-in `PreToolUse` and `Stop` lifecycle hooks, shipped with `"enabled": false`.
-- [`scripts/`](./scripts): Repository validator ([`validate-astack.mjs`](./scripts/validate-astack.mjs)), catalog invariants ([`catalog.mjs`](./scripts/catalog.mjs), [`catalog.json`](./scripts/catalog.json)), read-only upstream watch ([`upstream-watch.mjs`](./scripts/upstream-watch.mjs), [`upstream-watch.json`](./scripts/upstream-watch.json)), and unit tests.
+- [`skills/`](./skills): 65 Antigravity skills (`SKILL.md` entrypoints, playbooks, references, and Node 22+ helper scripts).
+- [`agents/`](./agents): Custom agent definitions (`astack-agent`, `pr-verifier`, and `comment-sicko`).
+- [`rules/`](./rules): Conditional routing rules (`astack-orchestration.md`).
+- [`hooks.json`](./hooks.json) and [`scripts/hooks/`](./scripts/hooks): Split-default lifecycle hooks (`2` passive observe-only hooks enabled by default, `6` blocking gates `"enabled": false`).
+- [`sidecars/`](./sidecars): Optional read-only local sidecar UI (`astack_timeline`).
+- [`scripts/`](./scripts): Repository validator ([`validate-astack.mjs`](./scripts/validate-astack.mjs)), zero-dependency trust core ([`scripts/trust/index.mjs`](./scripts/trust/index.mjs)), catalog invariants ([`catalog.mjs`](./scripts/catalog.mjs), [`catalog.json`](./scripts/catalog.json)), read-only upstream watch ([`upstream-watch.mjs`](./scripts/upstream-watch.mjs), [`upstream-watch.json`](./scripts/upstream-watch.json)), and unit tests.
 - [`docs/`](./docs): User guide, 10-part tutorial, architecture guide, and dormant automation templates.
 - [`.agents/skills/verify-astack/`](./.agents/skills/verify-astack/SKILL.md): Project-local runtime verification skill for driving AStack CLIs and hooks against isolated scratch fixtures.
 
@@ -17,8 +18,8 @@ Thank you for contributing to AStack (`jmxt3/astack`). Pull requests, bug report
 
 [`scripts/validate-astack.mjs`](./scripts/validate-astack.mjs) and `agy plugin validate --strict` enforce these rules on every change:
 
-1. **Skill frontmatter**: Every `skills/<name>/SKILL.md` allows only official keys (`name`, `description`, boolean `disable-model-invocation`, `license`, `compatibility`), `name` must match the folder name, and the body must stay at or below 24,000 bytes. Manual-only skills (`33` total: `24` `principle-*` plus `9` explicit slash skills listed in `manualOnlySkills` in [`catalog.json`](./scripts/catalog.json)) set `disable-model-invocation: true`; the remaining `28` stay auto-invocable.
-2. **Agent frontmatter**: Every `agents/<name>.md` allows only Antigravity agent keys (`name`, `description`, `mainAgent`, `subagent`, `model`, `tools`, `commandExecutionPolicy`, `skills`, `inheritMcp`, `inheritCustomizations`), with `name` matching the filename stem. Plugin subagents declare `mainAgent: false`, `subagent: true`, and `model: inherit`.
+1. **Skill frontmatter**: Every `skills/<name>/SKILL.md` allows only official keys (`name`, `description`, boolean `disable-model-invocation`, `license`, `compatibility`), `name` must match the folder name, and the body must stay at or below 24,000 bytes. Manual-only skills (`36` total: `24` `principle-*` plus `12` explicit slash skills listed in `manualOnlySkills` in [`catalog.json`](./scripts/catalog.json)) set `disable-model-invocation: true`; the remaining `29` stay auto-invocable.
+2. **Agent frontmatter**: Every `agents/<name>.md` allows only Antigravity agent keys (`name`, `description`, `mainAgent`, `subagent`, `model`, `tools`, `commandExecutionPolicy`, `skills`, `inheritMcp`, `inheritCustomizations`), with `name` matching the filename stem. `pr-verifier` sets `mainAgent: true`, `subagent: true`, and intentionally omits `tools:` to avoid App vs CLI tool-validation hangs; `comment-sicko` sets `mainAgent: false`, `subagent: true`, and `model: inherit`.
 3. **Never shadow native commands or built-in skills**: Never add a skill whose folder matches any of the 16 native slash commands or 15 built-in reserved names (`RESERVED_SKILL_NAMES` in [`catalog.mjs`](./scripts/catalog.mjs)). Keep slice fan-out in [`skills/fanout/`](./skills/fanout/SKILL.md) and update [`native-commands.json`](./skills/astack-mode/references/native-commands.json) + `node scripts/validate-astack.mjs --write-native-commands` if Antigravity's command catalog changes.
 4. **Cross-platform Node 22+ scripts**: All bundled CLIs and hooks run with `node` (`>= 22.6` for `--experimental-strip-types`) on Windows, macOS, and Linux with no Bun requirement.
 5. **No broken links or Cursor leaks**: Every relative link across markdown files must resolve to an existing file, and markdown content must pass `CURSOR_LEAK_PATTERNS` in [`scripts/validate-astack.mjs`](./scripts/validate-astack.mjs).
@@ -40,11 +41,12 @@ node scripts/validate-astack.mjs --apply-frontmatter-policy
 
 ## Verify your changes locally
 
-Run the structural validator, strict Antigravity CLI check, and full Node 22+ suites (`test:plugin`, `test:helpers`, `test:watch-pr`, and `test:statechart`) via root [`package.json`](./package.json) before opening a PR:
+Run the structural validator, strict Antigravity CLI check, architecture boundary audit, and full Node 22+ suites (`test:plugin`, `test:sidecar`, `test:trust`, `test:helpers`, `test:watch-pr`, `test:statechart`, `test:security-audit`, and `test:eval`) via root [`package.json`](./package.json) before opening a PR:
 
 ```bash
 node --run validate
 node --run test
+node skills/audit-architecture/scripts/arch-audit.mjs --cwd . --strict
 agy plugin validate --strict --json .
 node scripts/validate-astack.mjs --write-native-commands
 ```
