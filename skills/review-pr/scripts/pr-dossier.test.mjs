@@ -536,6 +536,24 @@ test("validateProofManifest enforces schema and compilePrDossier GitHub format c
     assert.doesNotMatch(tierC.markdown, /[\u2013\u2014]/);
     assert.equal(validatePrBodyContract(tierC.markdown).ok, true);
 
+    const eofFeatureDir = path.join(repo, ".agents", "skills", "verify-eof", "features");
+    fs.mkdirSync(eofFeatureDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(eofFeatureDir, "eof-only.md"),
+      "# EOF Feature\n\n## Sub-features\n\n- Alpha bullet\n- Beta bullet\n",
+      "utf8",
+    );
+    const tierB2Eof = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir: path.join(artifactDir, "empty-art"),
+      format: "github",
+      featureMapDir: eofFeatureDir,
+    });
+    assert.equal(tierB2Eof.evidence.statechartSource, "feature-map-coverage");
+    assert.match(tierB2Eof.markdown, /Alpha bullet \[SKIP\]/);
+    assert.match(tierB2Eof.markdown, /Beta bullet \[SKIP\]/);
+
     const featureDir = path.join(repo, ".agents", "skills", "verify-demo", "features");
     fs.mkdirSync(featureDir, { recursive: true });
     fs.writeFileSync(

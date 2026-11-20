@@ -196,10 +196,13 @@ function readFeatureMapEntries(featuresDir) {
     const raw = fs.readFileSync(path.join(featuresDir, file), "utf8");
     const h1 = raw.match(/^#\s+(.+)$/m);
     const title = h1 ? h1[1].trim() : featureId;
-    const subMatch = raw.match(/^##\s+Sub-features\b[\r\n]+([\s\S]*?)(?=^##\s|\Z)/m);
+    const subHeader = raw.match(/^##\s+Sub-features\b[^\r\n]*[\r\n]+/m);
     const subFeatures = [];
-    if (subMatch) {
-      for (const line of subMatch[1].split(/\r?\n/)) {
+    if (subHeader && subHeader.index !== undefined) {
+      const after = raw.slice(subHeader.index + subHeader[0].length);
+      const nextHeading = after.search(/^##\s/m);
+      const subSection = nextHeading === -1 ? after : after.slice(0, nextHeading);
+      for (const line of subSection.split(/\r?\n/)) {
         const bullet = line.match(/^\s*[-*]\s+(.+)$/);
         if (bullet) {
           const clean = bullet[1]
