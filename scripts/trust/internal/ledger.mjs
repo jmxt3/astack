@@ -204,6 +204,8 @@ function redactSummary(text) {
     .slice(0, 200);
 }
 
+const EXTERNAL_ARTIFACT_PATH_RE = /(?:^|\/)(?:\.gemini|\.system_generated)(?:\/|$)/i;
+
 function normalizeRelPath(workspaceDir, filePath) {
   if (!filePath) return "";
   if (!workspaceDir) return filePath.replace(/\\/g, "/");
@@ -212,11 +214,39 @@ function normalizeRelPath(workspaceDir, filePath) {
   return rel && !rel.startsWith("..") ? rel : filePath.replace(/\\/g, "/");
 }
 
+function isNonWorkspaceWritePath(filePath, { workspaceDir = "", artifactDir = "" } = {}) {
+  if (!filePath) return false;
+  const norm = String(filePath).replace(/\\/g, "/");
+  if (EXTERNAL_ARTIFACT_PATH_RE.test(norm)) return true;
+  if (artifactDir) {
+    const absArtifact = path.resolve(artifactDir).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    const absFile = path.resolve(filePath).replace(/\\/g, "/").toLowerCase();
+    if (absFile === absArtifact || absFile.startsWith(`${absArtifact}/`)) return true;
+  }
+  if (workspaceDir && path.isAbsolute(filePath)) {
+    const rel = path.relative(path.resolve(workspaceDir), path.resolve(filePath));
+    if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return true;
+  }
+  return false;
+}
+
+function isNonWorkspaceReceipt(receipt) {
+  return (
+    receipt?.kind === "file_write" &&
+    Array.isArray(receipt.paths) &&
+    receipt.paths.length > 0 &&
+    receipt.paths.every((p) => EXTERNAL_ARTIFACT_PATH_RE.test(String(p ?? "").replace(/\\/g, "/")))
+  );
+}
+
 /**
  * Appends a single-actor PostToolUse execution receipt to `<trustDir>/receipts.<conversationId>.jsonl`.
  */
 export function recordReceipt(event, options = {}) {
   if (!event || (event.kind !== "tool-command" && event.kind !== "tool-write")) {
+    return null;
+  }
+  if (event.kind === "tool-write" && isNonWorkspaceWritePath(event.filePath, event)) {
     return null;
   }
   const trustDir = options.trustDir ?? resolveTrustDir(event);
@@ -359,7 +389,7 @@ export function computeFreshness({
     return "missing_receipts";
   }
   const latestVerify = verifyReceipts[verifyReceipts.length - 1];
-  const writes = receipts.filter((r) => r.kind === "file_write");
+  const writes = receipts.filter((r) => r.kind === "file_write" && !isNonWorkspaceReceipt(r));
   const latestWrite = writes.length > 0 ? writes[writes.length - 1] : null;
 
   if (treeDirty || (latestWrite && String(latestWrite.ts) > String(latestVerify.ts))) {

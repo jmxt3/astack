@@ -480,3 +480,82 @@ test("evaluateSessionContext emits once-per-session AStack Timeline pill instruc
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("recordReceipt and computeFreshness ignore brain artifact and out-of-workspace writes", () => {
+  const repo = makeTempGitRepo();
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-brain-"));
+  const trustDir = path.join(artifactDir, "astack-trust");
+  try {
+    const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+
+    assert.equal(
+      recordReceipt(
+        {
+          kind: "tool-write",
+          conversationId: "conv-1",
+          tool: "write_file",
+          filePath: path.join(artifactDir, "walkthrough.md"),
+          workspaceDir: repo,
+          artifactDir,
+        },
+        { trustDir, now: "2026-11-20T10:02:00Z" },
+      ),
+      null,
+    );
+
+    assert.equal(
+      recordReceipt(
+        {
+          kind: "tool-write",
+          conversationId: "conv-1",
+          tool: "write_file",
+          filePath: path.join(os.homedir(), ".gemini", "antigravity", "brain", "conv-1", "walkthrough.md"),
+          workspaceDir: repo,
+        },
+        { trustDir, now: "2026-11-20T10:02:01Z" },
+      ),
+      null,
+    );
+
+    const legacyReceipts = [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:00:00Z",
+        conversationId: "conv-1",
+        kind: "file_write",
+        category: "other",
+        headSha: head,
+        ok: true,
+        summary: "edit_file app.js",
+        paths: ["app.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:01:00Z",
+        conversationId: "conv-1",
+        kind: "command",
+        category: "test",
+        headSha: head,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:02:00Z",
+        conversationId: "conv-1",
+        kind: "file_write",
+        category: "other",
+        headSha: head,
+        ok: true,
+        summary: "write_file walkthrough.md",
+        paths: ["C:/Users/dev/.gemini/antigravity/brain/conv-1/walkthrough.md"],
+      },
+    ];
+
+    assert.equal(computeFreshness({ receipts: legacyReceipts, headSha: head }), "fresh");
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
+  }
+});

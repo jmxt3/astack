@@ -604,9 +604,10 @@ function buildBuildStage({
   walkthroughArtifact,
 }) {
   const astackModeActive = Boolean(sig.astackModeAt || hasEdits);
+  const walkthroughComplete = Boolean(walkthroughArtifact);
   let status = "pending";
   if (buildStale) status = "stale";
-  else if (verifyFresh && (!hasCodeEdits || cleanFresh || (reviewStarted && reviewFresh))) status = "done";
+  else if (verifyFresh && (!hasCodeEdits || cleanFresh || walkthroughComplete || (reviewStarted && reviewFresh))) status = "done";
   else if (astackModeActive || Boolean(sig.interrogateAt) || cleanDone || verifyDone) status = "active";
   else if (planStatus === "done" || planStatus === "skipped") status = "next";
 
@@ -618,7 +619,9 @@ function buildBuildStage({
   const detail = status === "stale"
     ? "New file edits landed after cleanup or tests. Re-run verification before PR review."
     : status === "done"
-      ? "Code edits cleaned and verified on HEAD."
+      ? cleanFresh || !hasCodeEdits
+        ? "Code edits cleaned and verified on HEAD."
+        : "Edits verified on HEAD with walkthrough recorded."
       : status === "active"
         ? "Running build, cleanup, and live verification."
         : "Run /astack-mode with your goal and done check.";
@@ -816,9 +819,13 @@ export function evaluateTimelineSnapshot({
   for (const r of receipts) {
     const m = makeMarker(r.ts, Number.MAX_SAFE_INTEGER);
     if (r.kind === "file_write") {
+      const workspacePaths = Array.isArray(r.paths)
+        ? r.paths.filter((p) => isWorkspaceFileTarget(p, workspaceDir, brainConvDir))
+        : [];
+      if (Array.isArray(r.paths) && r.paths.length > 0 && workspacePaths.length === 0) continue;
       hadReceiptWrite = true;
       latestAnyWrite = latestMarker(latestAnyWrite, m);
-      const allDocs = Array.isArray(r.paths) && r.paths.length > 0 && r.paths.every((p) => DOC_EXT_RE.test(p));
+      const allDocs = workspacePaths.length > 0 && workspacePaths.every((p) => DOC_EXT_RE.test(p));
       if (!allDocs) latestCodeWrite = latestMarker(latestCodeWrite, m);
     } else if (isVerifyReceipt(r)) {
       hasVerifyReceipt = true;

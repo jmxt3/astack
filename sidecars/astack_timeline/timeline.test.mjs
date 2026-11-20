@@ -412,3 +412,99 @@ test("detects autoSubCommands and opt-in moreCommands from transcript while igno
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("marks Build & Prove done on Proceed + fresh verify + walkthrough without /astack-mode, but requires fresh verify", () => {
+  const { root, brainDir, workspaceDir } = makeFixture();
+  const convId = "conv-proceed-walkthrough";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    const headSha = "0123456789abcdef0123456789abcdef01234567";
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+    writeText(path.join(brainDir, convId, "implementation_plan.md"), "# Plan\n");
+    writeText(path.join(brainDir, convId, "walkthrough.md"), "# Walkthrough\n");
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:00:00Z",
+        content: "<USER_REQUEST>/plan add status badge</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-20T10:00:10Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convId, "implementation_plan.md") } }],
+      },
+      {
+        step_index: 2,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:00:20Z",
+        content: "<USER_REQUEST>Proceeded with implementation_plan.md</USER_REQUEST>",
+      },
+    ]);
+
+    // Walkthrough without passing verification must NOT mark Build & Prove done.
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:00:30Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "other",
+        headSha,
+        ok: true,
+        summary: "edit_file src/badge.js",
+        paths: ["src/badge.js"],
+      },
+    ]);
+    const unverified = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(unverified.stages[0].status, "done");
+    assert.equal(unverified.stages[1].status, "active");
+
+    // Once tests pass on HEAD — even if a legacy brain-artifact write receipt landed afterward — Build & Prove is done.
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:00:30Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "other",
+        headSha,
+        ok: true,
+        summary: "edit_file src/badge.js",
+        paths: ["src/badge.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:01:00Z",
+        conversationId: convId,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:01:30Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "other",
+        headSha,
+        ok: true,
+        summary: "write_file walkthrough.md",
+        paths: ["C:/Users/dev/.gemini/antigravity/brain/conv-proceed-walkthrough/walkthrough.md"],
+      },
+    ]);
+    const verified = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(verified.stages[1].status, "done");
+    assert.equal(verified.freshness, "fresh");
+    assert.equal(verified.stages[2].status, "next");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
