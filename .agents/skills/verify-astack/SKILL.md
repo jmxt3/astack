@@ -46,7 +46,7 @@ Drive only the feature files affected by your change (or walk all seven for a fu
 1. [Plugin & Strict Antigravity Validation](./features/plugin-validation.md): valid repo pass, `--json` telemetry, `--write-native-commands`, `--apply-frontmatter-policy`, official frontmatter schema, `34/29` manual-only split, `maxAutoInvokeSkills` / `maxAutoInvokeDescriptionBytes` context-budget guard, `comment-sicko` `inheritCustomizations: false`, and negative fixture rejection.
 2. [Read-Only Upstream Watch](./features/upstream-watch.md): `upstream-watch.mjs --source-id pstack|gstack|security-audit-skill|all`, external `--out`, `--out` inside-repo refusal (`exit 2`), `--fail-on-updates`, and SHA-256 byte-identity proof.
 3. [Opt-In Safety & Verification Lifecycle Hooks](./features/lifecycle-hooks.md): stdin/stdout JSON contract checks across split hooks (`receipt-ledger.mjs`, `session-context.mjs`, `irreversible-guard.mjs`, `secret-guard.mjs`, `verify-reminder.mjs`, `evidence-gate.mjs`, `boundary-guard.mjs`, `round-limiter.mjs`).
-4. [Bundled Workflow & Control Glass CLIs](./features/workflow-clis.md): `log.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, `pr-dossier.mjs`, `arch-audit.mjs`, `init-repo-policy.mjs`, `run-eval.mjs` (plus `--replay --json`), `validate-findings.cjs`, `validate-coverage-ledger.cjs`, and `control-cli-template.mjs` real stdio, `--help`/`-h`, `--json`, `--dry-run`, exit codes, and preserved evidence in `$ScratchDir`.
+4. [Bundled Workflow & Control Glass CLIs](./features/workflow-clis.md): `log.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, `pr-dossier.mjs`, `arch-audit.mjs`, `init-repo-policy.mjs`, `run-eval.mjs` (plus `--replay --json`), `validate-findings.cjs`, `validate-coverage-ledger.cjs`, `control-cli-template.mjs`, and `sidecars/astack_timeline/main.mjs` real stdio, `--help`/`-h`, `--json`, `--dry-run`, exit codes, and preserved evidence in `$ScratchDir`.
 5. [Watch-PR & TLA+ Statechart TypeScript Suites](./features/watch-pr-and-statechart.md): `watch-pr.mjs` (`56` TS tests plus `verify-watch-pr-formal`), `statechart.mjs` (`--help`/`-h` exit `0`, `67` non-TLC tests, `74` `render.test.ts` checks), and offline/Java `verified-unreachable` reporting.
 6. [Setup Onboarding & Banner CLI](./features/setup-onboarding.md): `setup-banner.mjs` `--help`/`-h`, `--doctor --json`, and live vs empty-repo detection plus `setup-astack` UI-inheritance invariants.
 7. [Native Antigravity Command Registry & Behavioral Routing](./features/native-routing.md): `native-commands.json` / `native-commands.md` sync checks plus transcript-graded prompts `R1` to `R12` and negative twin `R1-neg`.
@@ -80,7 +80,8 @@ If any test modified a tracked repository file (never do so unless strictly nece
 
 Existing repository verification scripts defined in [`package.json`](../../../package.json) that complement runtime driving:
 
-- Full automated suite (`validate` + `test:plugin` + `test:trust` + `test:helpers` + `test:watch-pr` + `test:statechart` + `test:security-audit` + `test:eval`): `node --run test`
+- Full automated suite (`validate` + `test:plugin` + `test:sidecar` + `test:trust` + `test:helpers` + `test:watch-pr` + `test:statechart` + `test:security-audit` + `test:eval`): `node --run test`
+- Sidecar timeline engine & HTTP server suite (`sidecars/astack_timeline/`): `node --run test:sidecar`
 - Trust core, PR dossier & architecture audit checks: `node --run test:trust` and `node skills/audit-architecture/scripts/arch-audit.mjs --cwd . --strict --json`
 - Incident-replay reviewer contract eval: `node scripts/eval/run-eval.mjs --replay --json`
 - Baseline repo validator: `node --run validate` (or `node scripts/validate-astack.mjs --write-native-commands` to regenerate `native-commands.md`)
