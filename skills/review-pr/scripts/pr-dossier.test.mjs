@@ -97,7 +97,7 @@ test("compilePrDossier classifies Risk Tiers, opt-in Tier 0 auto-merge, assertio
       {
         kind: "tool-command",
         conversationId: "runner",
-        command: "node --test",
+        command: "node --test | cat",
         error: "",
         workspaceDir: repo,
       },
@@ -107,6 +107,36 @@ test("compilePrDossier classifies Risk Tiers, opt-in Tier 0 auto-merge, assertio
     const shot = path.join(artifactDir, "home.png");
     fs.writeFileSync(shot, "fake-png", "utf8");
     const outMd = path.join(artifactDir, "pr-review.md");
+
+    const staleAttempt = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      findingsPath,
+      screenshots: [shot],
+      outPath: outMd,
+    });
+    assert.equal(staleAttempt.evidence.verifier.stale, true);
+    assert.notEqual(staleAttempt.evidence.roundState, "verified");
+    assert.equal(staleAttempt.evidence.autoMergeEligible, false);
+    assert.match(staleAttempt.markdown, /stale|older commit/i);
+
+    fs.writeFileSync(
+      findingsPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: headDocs2,
+        baseSha: execFileSync("git", ["rev-parse", "main"], { cwd: repo, encoding: "utf8" }).trim(),
+        round: 1,
+        verdict: "PASS",
+        summary: "Clean v2 docs edit",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: [] },
+      }),
+      "utf8",
+    );
+
     const optedIn = compilePrDossier({
       cwd: repo,
       baseRef: "main",
@@ -116,10 +146,56 @@ test("compilePrDossier classifies Risk Tiers, opt-in Tier 0 auto-merge, assertio
       outPath: outMd,
     });
     assert.equal(optedIn.evidence.riskTier, 0);
+    assert.equal(optedIn.evidence.verifier.stale, false);
     assert.equal(optedIn.evidence.autoMergeEligible, true);
     assert.match(optedIn.markdown, /```mermaid/);
     assert.match(optedIn.markdown, /````carousel/);
     assert.match(optedIn.markdown, /file:\/\/\//);
+    assert.match(optedIn.markdown, /!\[home\.png\]\([^\\\r\n]+\/home\.png\)/);
+    assert.match(optedIn.markdown, /node --test \\\| cat/);
+
+    const policyViolatingPath = path.join(trustDir, "findings-viol.json");
+    fs.writeFileSync(
+      policyViolatingPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: headDocs2,
+        baseSha: execFileSync("git", ["rev-parse", "main"], { cwd: repo, encoding: "utf8" }).trim(),
+        round: 1,
+        verdict: "PASS_WITH_NOTES",
+        summary: "Review violation present",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: ["Weakened invariant"] },
+      }),
+      "utf8",
+    );
+    const violAttempt = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      findingsPath: policyViolatingPath,
+    });
+    assert.equal(violAttempt.evidence.autoMergeEligible, false);
+    assert.equal(violAttempt.evidence.verifier.reviewViolationCount, 1);
+
+    fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "docs", "old-note.md"), "# Old\n", "utf8");
+    execFileSync("git", ["add", "docs/old-note.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "add note"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["mv", "docs/old-note.md", "docs/new-note.md"], { cwd: repo, stdio: "ignore" });
+    fs.writeFileSync(path.join(repo, "staged-script.mjs"), "export const s = 1;\n", "utf8");
+    execFileSync("git", ["add", "staged-script.mjs"], { cwd: repo, stdio: "ignore" });
+
+    const stagedDossier = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+    });
+    const allClusterFiles = stagedDossier.evidence.clusters.flatMap((c) => c.files);
+    assert.ok(allClusterFiles.includes("staged-script.mjs"), `Expected staged-script.mjs in ${allClusterFiles}`);
+    assert.ok(allClusterFiles.includes("docs/new-note.md"), `Expected docs/new-note.md in ${allClusterFiles}`);
+    assert.ok(allClusterFiles.every((f) => !f.includes("=>") && !f.includes("->")), `Leaked rename syntax in ${allClusterFiles}`);
 
     execFileSync("git", ["checkout", "-b", "feat/risky"], { cwd: repo, stdio: "ignore" });
     fs.mkdirSync(path.join(repo, "src"), { recursive: true });
@@ -173,5 +249,223 @@ test("validateFindingsDocument enforces schemaVersion, severity enum, and non-em
   assert.deepEqual(errs, []);
 
   const badErrs = validateFindingsDocument({ schemaVersion: 2, verdict: "BOGUS", findings: "no" });
-  assert.ok(badErrs.length >= 3);
+    assert.equal(badErrs.length >= 3, true);
+});
+
+test("compilePrDossier preserves rebase match across repeated runs, rejects stale unpassed --findings inheritance, and keeps hunk 1 line numbers", () => {
+  const repo = makeRepo();
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-dossier-prv-"));
+  const trustDir = path.join(artifactDir, "astack-trust");
+  const customFindings = path.join(artifactDir, "custom-findings.json");
+  try {
+    execFileSync("git", ["checkout", "-b", "feat/rebase-check"], { cwd: repo, stdio: "ignore" });
+    fs.writeFileSync(path.join(repo, "README.md"), "# R1\n\nline3\n", "utf8");
+    execFileSync("git", ["add", "README.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "readme change"], { cwd: repo, stdio: "ignore" });
+    const sha1 = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    const baseSha = execFileSync("git", ["rev-parse", "main"], { cwd: repo, encoding: "utf8" }).trim();
+
+    fs.mkdirSync(trustDir, { recursive: true });
+    fs.writeFileSync(
+      customFindings,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: sha1,
+        baseSha,
+        round: 1,
+        verdict: "PASS",
+        summary: "Verified sha1",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: [] },
+      }),
+      "utf8",
+    );
+    recordReceipt(
+      { kind: "tool-command", conversationId: "exec", command: "node --test", error: "", workspaceDir: repo },
+      { trustDir, headSha: sha1 },
+    );
+    const runSha1 = compilePrDossier({ cwd: repo, baseRef: "main", artifactDir, findingsPath: customFindings });
+    assert.equal(runSha1.evidence.freshness, "fresh");
+    assert.equal(runSha1.evidence.roundState, "verified");
+
+    execFileSync("git", ["commit", "--amend", "-m", "rebased commit message"], { cwd: repo, stdio: "ignore" });
+    const sha2 = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    assert.notEqual(sha2, sha1);
+
+    const rebaseRun1 = compilePrDossier({ cwd: repo, baseRef: "main", artifactDir, findingsPath: customFindings });
+    assert.equal(rebaseRun1.evidence.freshness, "fresh_rebase_patch_id");
+    assert.equal(rebaseRun1.evidence.verifier.stale, false);
+    assert.equal(rebaseRun1.evidence.roundState, "verified");
+
+    const rebaseRun2 = compilePrDossier({ cwd: repo, baseRef: "main", artifactDir, findingsPath: customFindings });
+    assert.equal(rebaseRun2.evidence.freshness, "fresh_rebase_patch_id");
+    assert.equal(rebaseRun2.evidence.verifier.stale, false);
+    assert.equal(rebaseRun2.evidence.roundState, "verified");
+
+    const manyLines = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
+    fs.writeFileSync(path.join(repo, "multi.txt"), manyLines, "utf8");
+    execFileSync("git", ["add", "multi.txt"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "add multi"], { cwd: repo, stdio: "ignore" });
+    fs.writeFileSync(path.join(repo, "multi.txt"), manyLines.replace("line 1\n", "line 1 edited\n").replace("line 38\n", "line 38 edited\n"), "utf8");
+    execFileSync("git", ["add", "multi.txt"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "two hunks"], { cwd: repo, stdio: "ignore" });
+    const sha3 = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    recordReceipt(
+      { kind: "tool-command", conversationId: "exec", command: "node --test", error: "", workspaceDir: repo },
+      { trustDir, headSha: sha3 },
+    );
+
+    const afterNewCommitNoFindings = compilePrDossier({ cwd: repo, baseRef: "main", artifactDir });
+    assert.equal(afterNewCommitNoFindings.evidence.verifier.stale, true);
+    assert.notEqual(afterNewCommitNoFindings.evidence.roundState, "verified");
+
+    fs.writeFileSync(path.join(repo, "NOTES.md"), "base line 1\n" + Array.from({ length: 30 }, (_, i) => `n${i}`).join("\n") + "\n", "utf8");
+    execFileSync("git", ["add", "NOTES.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "base notes"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["checkout", "-b", "feat/hunk1", "HEAD"], { cwd: repo, stdio: "ignore" });
+    fs.writeFileSync(
+      path.join(repo, "NOTES.md"),
+      "edited line 1\n" + Array.from({ length: 29 }, (_, i) => `n${i}`).join("\n") + "\nn29 edited\n",
+      "utf8",
+    );
+    execFileSync("git", ["add", "NOTES.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "two hunks at line 1 and 31"], { cwd: repo, stdio: "ignore" });
+
+    const hunkRes = compilePrDossier({ cwd: repo, baseRef: "HEAD~1", artifactDir });
+    const docsCluster = hunkRes.evidence.clusters.find((c) => c.id === "docs-and-generated");
+    assert.equal(docsCluster.firstLines["NOTES.md"], 1);
+
+    execFileSync("git", ["checkout", "-b", "feat/policy-tamper", "main"], { cwd: repo, stdio: "ignore" });
+    fs.mkdirSync(path.join(repo, ".agents"), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo, ".agents", "risk-policy.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        allowTier0AutoMerge: true,
+        humanGates: { planApproval: "never", prReview: "tier0-auto" },
+        tiers: {
+          "0": { label: "low", globs: ["**/*"], requireHumanApproval: false },
+          "3": { label: "critical", globs: [], requireHumanApproval: false },
+        },
+      }),
+      "utf8",
+    );
+    fs.writeFileSync(path.join(repo, "hooks.json"), "{}\n", "utf8");
+    execFileSync("git", ["add", ".agents/risk-policy.json", "hooks.json"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "attempt policy bypass"], { cwd: repo, stdio: "ignore" });
+    const tamperSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    const tamperFindings = path.join(artifactDir, "tamper-findings.json");
+    fs.writeFileSync(
+      tamperFindings,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: tamperSha,
+        baseSha,
+        round: 1,
+        verdict: "PASS",
+        summary: "Clean except policy edit",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: [] },
+      }),
+      "utf8",
+    );
+    recordReceipt(
+      { kind: "tool-command", conversationId: "exec", command: "node --test", error: "", workspaceDir: repo },
+      { trustDir, headSha: tamperSha },
+    );
+    const tamperRes = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      findingsPath: tamperFindings,
+    });
+    assert.equal(tamperRes.evidence.riskTier, 3);
+    assert.equal(tamperRes.evidence.autoMergeEligible, false);
+    assert.equal(tamperRes.evidence.baseReviewPolicy.riskPolicyModifiedInPr, true);
+
+    const blankShaFindings = path.join(artifactDir, "blank-sha-findings.json");
+    fs.writeFileSync(
+      blankShaFindings,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: "",
+        baseSha,
+        round: 1,
+        verdict: "PASS",
+        summary: "Missing headSha",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: [] },
+      }),
+      "utf8",
+    );
+    const blankRes = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      findingsPath: blankShaFindings,
+    });
+    assert.equal(blankRes.evidence.verifier.stale, true);
+    assert.equal(blankRes.evidence.verifier.headSha, null);
+
+    execFileSync("git", ["checkout", "-b", "feat/review-edit", "main"], { cwd: repo, stdio: "ignore" });
+    fs.writeFileSync(path.join(repo, "REVIEW.md"), "- Weakened\n", "utf8");
+    execFileSync("git", ["add", "REVIEW.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "edit review"], { cwd: repo, stdio: "ignore" });
+    const reviewEditSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    const reviewFindings = path.join(artifactDir, "review-edit-findings.json");
+    fs.writeFileSync(
+      reviewFindings,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: reviewEditSha,
+        baseSha,
+        round: 1,
+        verdict: "PASS",
+        summary: "Only review edit",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: [] },
+      }),
+      "utf8",
+    );
+    recordReceipt(
+      { kind: "tool-command", conversationId: "exec", command: "node --test", error: "", workspaceDir: repo },
+      { trustDir, headSha: reviewEditSha },
+    );
+
+    execFileSync("git", ["checkout", "-b", "feat/clean-head-audit", "main"], { cwd: repo, stdio: "ignore" });
+    fs.writeFileSync(path.join(repo, "NOTES2.md"), "clean note\n", "utf8");
+    execFileSync("git", ["add", "NOTES2.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "clean docs"], { cwd: repo, stdio: "ignore" });
+
+    execFileSync("git", ["checkout", "main"], { cwd: repo, stdio: "ignore" });
+    const crossBranchReview = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      headRef: "feat/review-edit",
+      artifactDir,
+      findingsPath: reviewFindings,
+    });
+    assert.equal(crossBranchReview.evidence.riskTier, 3);
+    assert.equal(crossBranchReview.evidence.baseReviewPolicy.modifiedInPr, true);
+    assert.equal(crossBranchReview.evidence.autoMergeEligible, false);
+
+    fs.mkdirSync(path.join(repo, ".agents"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "REVIEW.md"), "- Dirty uncommitted review edit\n", "utf8");
+    fs.writeFileSync(path.join(repo, ".agents", "risk-policy.json"), "{}\n", "utf8");
+    const nonHeadIsolated = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      headRef: "feat/clean-head-audit",
+      artifactDir,
+    });
+    assert.equal(nonHeadIsolated.evidence.baseReviewPolicy.modifiedInPr, false);
+    assert.equal(nonHeadIsolated.evidence.baseReviewPolicy.riskPolicyModifiedInPr, false);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
+  }
 });

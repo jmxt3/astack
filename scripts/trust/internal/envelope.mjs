@@ -153,13 +153,25 @@ export function parseHookPayload(payload, hint) {
       };
     }
 
+    if (FILE_WRITE_TOOL_SET.has(lowerTool) || (!rawToolName && chunks.length > 0)) {
+      return {
+        kind: "tool-write",
+        phase,
+        conversationId,
+        tool: rawToolName || "write_file",
+        filePath,
+        chunks,
+        error,
+        workspaceDir,
+        artifactDir,
+      };
+    }
+
     return {
-      kind: "tool-write",
+      kind: "tool-other",
       phase,
       conversationId,
-      tool: rawToolName || "write_file",
-      filePath,
-      chunks,
+      tool: rawToolName || "unknown",
       error,
       workspaceDir,
       artifactDir,

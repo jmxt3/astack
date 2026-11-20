@@ -276,7 +276,7 @@ export function readMergedReceipts(trustDir) {
   const seen = new Set();
   const files = fs
     .readdirSync(trustDir, { withFileTypes: true })
-    .filter((d) => d.isFile() && /^receipts(?:\.[^.]+)?\.jsonl$/i.test(d.name))
+    .filter((d) => d.isFile() && /^receipts(?:\..+)?\.jsonl$/i.test(d.name))
     .map((d) => d.name)
     .sort();
 
@@ -321,7 +321,10 @@ export function readEvidenceSnapshot(trustDir) {
 export function writeEvidenceSnapshotAtomic(trustDir, evidence) {
   fs.mkdirSync(trustDir, { recursive: true });
   const target = path.join(trustDir, "evidence.json");
-  const tmp = path.join(trustDir, `evidence.json.tmp.${process.pid}.${Date.now()}`);
+  const tmp = path.join(
+    trustDir,
+    `evidence.json.tmp.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2, 8)}`,
+  );
   fs.writeFileSync(tmp, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
   fs.renameSync(tmp, target);
   return target;
@@ -376,7 +379,7 @@ export function evaluateRoundState({
   maxReviewRounds = 3,
   fresh = false,
 } = {}) {
-  if (reviewRound >= maxReviewRounds && (verdict === "FAIL" || verdict === "ESCALATE_HUMAN")) {
+  if (verdict === "ESCALATE_HUMAN" || (reviewRound >= maxReviewRounds && verdict === "FAIL")) {
     return "escalated";
   }
   if ((verdict === "PASS" || verdict === "PASS_WITH_NOTES") && fresh) {
@@ -442,6 +445,15 @@ export function evaluateVerifyReminder(event, options = {}) {
   };
 }
 
+function isEscalatedEvidence(evidence, maxRounds = evidence?.maxReviewRounds ?? 3) {
+  if (!evidence) return false;
+  return (
+    evidence.roundState === "escalated" ||
+    evidence.verifier?.verdict === "ESCALATE_HUMAN" ||
+    ((evidence.reviewRound ?? 0) >= maxRounds && evidence.verifier?.verdict === "FAIL")
+  );
+}
+
 /**
  * Checks whether a push or PR creation command has fresh verification evidence on HEAD.
  */
@@ -460,11 +472,24 @@ export function evaluateEvidenceGate(event, options = {}) {
   const headSha = options.headSha ?? readHeadShaFast(event.workspaceDir);
   const headless = options.headless ?? false;
 
-  const freshness =
-    evidence && headSha && evidence.headSha === headSha
-      ? evidence.freshness
-      : computeFreshness({ receipts, headSha, priorEvidence: evidence });
+  const receiptFreshness = computeFreshness({ receipts, headSha, priorEvidence: evidence });
+  let freshness;
+  if (evidence && headSha && evidence.headSha === headSha) {
+    if (evidence.freshness === "fresh" || evidence.freshness === "fresh_rebase_patch_id") {
+      const hasNewerWrite = receipts.some(
+        (r) => r.kind === "file_write" && String(r.ts ?? "") > String(evidence.generatedAt ?? ""),
+      );
+      freshness = hasNewerWrite ? "dirty_after_verify" : evidence.freshness;
+    } else if (receiptFreshness === "fresh" || receiptFreshness === "fresh_rebase_patch_id") {
+      freshness = receiptFreshness;
+    } else {
+      freshness = evidence.freshness;
+    }
+  } else {
+    freshness = receiptFreshness;
+  }
 
+  const maxRounds = options.maxReviewRounds ?? evidence?.maxReviewRounds ?? 3;
   const reasons = [];
   if (!evidence && freshness === "missing_receipts") {
     reasons.push("no verification receipts or evidence.json found for current branch");
@@ -474,8 +499,12 @@ export function evaluateEvidenceGate(event, options = {}) {
   if (evidence?.assertionDelta?.flagged) {
     reasons.push(`test assertions weakened (${evidence.assertionDelta.weakeningRatio})`);
   }
-  if (evidence?.roundState === "escalated") {
-    reasons.push("review remediation hit 3-round escalation cap");
+  if (isEscalatedEvidence(evidence, maxRounds)) {
+    reasons.push(
+      evidence?.verifier?.verdict === "ESCALATE_HUMAN"
+        ? "review remediation escalated for human review"
+        : `review remediation hit ${maxRounds}-round escalation cap`,
+    );
   }
 
   if (reasons.length === 0) {
@@ -505,13 +534,8 @@ export function evaluateRoundLimit(event, options = {}) {
   const evidence = readEvidenceSnapshot(trustDir);
   if (!evidence) return { decision: "allow" };
 
-  const maxRounds = options.maxReviewRounds ?? 3;
-  const escalated =
-    evidence.roundState === "escalated" ||
-    ((evidence.reviewRound ?? 0) >= maxRounds &&
-      (evidence.verifier?.verdict === "FAIL" || evidence.verifier?.verdict === "ESCALATE_HUMAN"));
-
-  if (!escalated) return { decision: "allow" };
+  const maxRounds = options.maxReviewRounds ?? evidence?.maxReviewRounds ?? 3;
+  if (!isEscalatedEvidence(evidence, maxRounds)) return { decision: "allow" };
 
   const headless = options.headless ?? false;
   return {

@@ -16,6 +16,7 @@ import { scaffoldRepoPolicies } from "./init-repo-policy.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bannerScript = path.join(here, "setup-banner.mjs");
+const initPolicyScript = path.join(here, "init-repo-policy.mjs");
 
 function writeFile(filePath, content) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -198,6 +199,37 @@ test("scaffoldRepoPolicies creates defaults idempotently and supports --dry-run 
     const forced = scaffoldRepoPolicies({ cwd: tmp, targets: ["review-md"], force: true });
     assert.deepEqual(forced.overwritten, ["REVIEW.md"]);
     assert.match(fs.readFileSync(path.join(tmp, "REVIEW.md"), "utf8"), /Repository Review Rules/);
+
+    const cliDir = path.join(tmp, "cli-init");
+    const dryCli = JSON.parse(
+      execFileSync(process.execPath, [initPolicyScript, "--cwd", cliDir, "--dry-run", "--json"], {
+        encoding: "utf8",
+      }),
+    );
+    assert.equal(dryCli.dryRun, true);
+    assert.equal(dryCli.created.length, 4);
+    assert.equal(fs.existsSync(path.join(cliDir, ".agents", "risk-policy.json")), false);
+
+    const selectiveCli = JSON.parse(
+      execFileSync(process.execPath, [initPolicyScript, "--cwd", cliDir, "--targets", "risk-policy,review-md", "--json"], {
+        encoding: "utf8",
+      }),
+    );
+    assert.deepEqual(selectiveCli.created, [".agents/risk-policy.json", "REVIEW.md"]);
+    assert.equal(fs.existsSync(path.join(cliDir, "GLOSSARY.md")), false);
+
+    const rerunCli = JSON.parse(
+      execFileSync(process.execPath, [initPolicyScript, "--cwd", cliDir, "--json"], { encoding: "utf8" }),
+    );
+    assert.deepEqual(rerunCli.created, [".agents/boundaries.json", "GLOSSARY.md"]);
+    assert.deepEqual(rerunCli.skipped, [".agents/risk-policy.json", "REVIEW.md"]);
+
+    const forceCli = JSON.parse(
+      execFileSync(process.execPath, [initPolicyScript, "--cwd", cliDir, "--force", "--targets", "review-md", "--json"], {
+        encoding: "utf8",
+      }),
+    );
+    assert.deepEqual(forceCli.overwritten, ["REVIEW.md"]);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

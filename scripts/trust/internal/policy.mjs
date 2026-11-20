@@ -40,6 +40,8 @@ export const DEFAULT_RISK_POLICY = {
         "scripts/hooks/**",
         "scripts/trust/**",
         ".github/workflows/**",
+        ".agents/**",
+        "REVIEW.md",
         "**/*auth*",
         "**/*billing*",
         "**/*payment*",
@@ -171,19 +173,7 @@ function readJsonIfExists(filePath) {
   }
 }
 
-/**
- * Loads `.agents/risk-policy.json` if present, merging cleanly onto `DEFAULT_RISK_POLICY`.
- */
-export function loadRiskPolicy(workspaceDir) {
-  if (!workspaceDir) {
-    return { present: false, path: null, policy: structuredClone(DEFAULT_RISK_POLICY) };
-  }
-  const filePath = path.join(workspaceDir, ".agents", "risk-policy.json");
-  const res = readJsonIfExists(filePath);
-  if (!res.present || !res.data || typeof res.data !== "object") {
-    return { present: res.present, path: filePath, policy: structuredClone(DEFAULT_RISK_POLICY), error: res.error };
-  }
-  const custom = res.data;
+function mergeRiskPolicy(custom) {
   const mergedTiers = { ...DEFAULT_RISK_POLICY.tiers };
   if (custom.tiers && typeof custom.tiers === "object") {
     for (const [k, v] of Object.entries(custom.tiers)) {
@@ -193,18 +183,58 @@ export function loadRiskPolicy(workspaceDir) {
     }
   }
   return {
+    ...DEFAULT_RISK_POLICY,
+    ...custom,
+    humanGates: {
+      ...DEFAULT_RISK_POLICY.humanGates,
+      ...(custom.humanGates ?? {}),
+    },
+    tiers: mergedTiers,
+  };
+}
+
+/**
+ * Loads `.agents/risk-policy.json` (from `baseRef` when supplied, otherwise workspace disk), merging onto `DEFAULT_RISK_POLICY`.
+ */
+export function loadRiskPolicy(workspaceDir, options = {}) {
+  if (!workspaceDir) {
+    return { present: false, path: null, policy: structuredClone(DEFAULT_RISK_POLICY) };
+  }
+  const hasBaseRefOption = options && Object.hasOwn(options, "baseRef");
+  if (hasBaseRefOption) {
+    if (!options.baseRef) {
+      return { present: false, path: ".agents/risk-policy.json", policy: structuredClone(DEFAULT_RISK_POLICY), error: null };
+    }
+    const raw = tryGit(workspaceDir, ["show", `${options.baseRef}:.agents/risk-policy.json`]);
+    if (raw === null) {
+      return { present: false, path: ".agents/risk-policy.json", policy: structuredClone(DEFAULT_RISK_POLICY), error: null };
+    }
+    try {
+      const custom = JSON.parse(raw);
+      if (!custom || typeof custom !== "object") {
+        return { present: true, path: ".agents/risk-policy.json", policy: structuredClone(DEFAULT_RISK_POLICY), error: null };
+      }
+      return {
+        present: true,
+        path: ".agents/risk-policy.json",
+        error: null,
+        policy: mergeRiskPolicy(custom),
+      };
+    } catch (err) {
+      return { present: true, path: ".agents/risk-policy.json", policy: structuredClone(DEFAULT_RISK_POLICY), error: err.message };
+    }
+  }
+
+  const filePath = path.join(workspaceDir, ".agents", "risk-policy.json");
+  const res = readJsonIfExists(filePath);
+  if (!res.present || !res.data || typeof res.data !== "object") {
+    return { present: res.present, path: filePath, policy: structuredClone(DEFAULT_RISK_POLICY), error: res.error };
+  }
+  return {
     present: true,
     path: filePath,
     error: null,
-    policy: {
-      ...DEFAULT_RISK_POLICY,
-      ...custom,
-      humanGates: {
-        ...DEFAULT_RISK_POLICY.humanGates,
-        ...(custom.humanGates ?? {}),
-      },
-      tiers: mergedTiers,
-    },
+    policy: mergeRiskPolicy(res.data),
   };
 }
 
@@ -252,30 +282,75 @@ export function resolveBaseRef(workspaceDir, explicitBase) {
   return null;
 }
 
+function unquoteGitPath(rawPath) {
+  const trimmed = String(rawPath ?? "").trim();
+  if (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) {
+    return trimmed
+      .slice(1, -1)
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, "\\");
+  }
+  return trimmed;
+}
+
+/**
+ * Extracts normalized repo-relative paths from `git status --porcelain` lines without clipping status columns.
+ */
+export function parsePorcelainPaths(statusText) {
+  const paths = [];
+  for (const line of String(statusText ?? "").split(/\r?\n/)) {
+    if (line.length < 4) continue;
+    const raw = line.slice(3).trim();
+    if (!raw) continue;
+    const arrowIdx = raw.indexOf(" -> ");
+    if (arrowIdx !== -1) {
+      const oldPath = unquoteGitPath(raw.slice(0, arrowIdx)).replace(/\\/g, "/");
+      const newPath = unquoteGitPath(raw.slice(arrowIdx + 4)).replace(/\\/g, "/");
+      if (oldPath) paths.push(oldPath);
+      if (newPath) paths.push(newPath);
+    } else {
+      const clean = unquoteGitPath(raw).replace(/\\/g, "/");
+      if (clean) paths.push(clean);
+    }
+  }
+  return paths;
+}
+
 /**
  * Reads `REVIEW.md` and `GLOSSARY.md` strictly from the base git ref so a PR cannot weaken its own review rules.
  */
-export function readBaseReviewContext(workspaceDir, explicitBase) {
+export function readBaseReviewContext(workspaceDir, explicitBase, headRef = "HEAD") {
   const baseRef = resolveBaseRef(workspaceDir, explicitBase);
   if (!baseRef) {
     return {
       baseRef: null,
       reviewMd: { present: false, content: "", blobSha: null, modifiedInPr: false },
       glossaryMd: { present: false, content: "", blobSha: null, modifiedInPr: false },
+      riskPolicy: { present: false, content: "", blobSha: null, modifiedInPr: false },
     };
   }
 
   const changed = new Set(
-    (tryGit(workspaceDir, ["diff", "--name-only", `${baseRef}...HEAD`]) ?? "")
+    (
+      tryGit(workspaceDir, [
+        "-c",
+        "core.quotepath=false",
+        "diff",
+        "--name-only",
+        "--no-renames",
+        `${baseRef}...${headRef}`,
+      ]) ?? ""
+    )
       .split(/\r?\n/)
-      .map((s) => s.trim())
+      .map((s) => unquoteGitPath(s).replace(/\\/g, "/"))
       .filter(Boolean),
   );
-  for (const line of (tryGit(workspaceDir, ["status", "--porcelain"]) ?? "").split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const rel = trimmed.replace(/^[MADRCU?!]{1,2}\s+/, "").trim();
-    if (rel) changed.add(rel);
+  if (headRef === "HEAD") {
+    const statusText =
+      tryGit(workspaceDir, ["-c", "core.quotepath=false", "status", "--porcelain", "-uall"]) ?? "";
+    for (const rel of parsePorcelainPaths(statusText)) {
+      changed.add(rel);
+    }
   }
 
   const readBaseFile = (relPath) => {
@@ -291,6 +366,7 @@ export function readBaseReviewContext(workspaceDir, explicitBase) {
     baseRef,
     reviewMd: readBaseFile("REVIEW.md"),
     glossaryMd: readBaseFile("GLOSSARY.md"),
+    riskPolicy: readBaseFile(".agents/risk-policy.json"),
   };
 }
 
@@ -300,7 +376,7 @@ export function readBaseReviewContext(workspaceDir, explicitBase) {
 export function evaluateSessionContext(event) {
   if (!event || !event.workspaceDir) return {};
   const ctx = readBaseReviewContext(event.workspaceDir);
-  if (!ctx.reviewMd.present && !ctx.glossaryMd.present) {
+  if (!ctx.reviewMd.present && !ctx.glossaryMd.present && !ctx.riskPolicy?.modifiedInPr) {
     return {};
   }
 
@@ -310,6 +386,9 @@ export function evaluateSessionContext(event) {
     if (ctx.reviewMd.modifiedInPr) {
       parts.push("\nWARNING: Working branch edits REVIEW.md. Evaluate strictly against base-branch REVIEW.md.");
     }
+  }
+  if (ctx.riskPolicy?.modifiedInPr) {
+    parts.push("\nWARNING: Working branch edits .agents/risk-policy.json. Evaluate strictly against base-branch risk policy.");
   }
   if (ctx.glossaryMd.present) {
     parts.push(`\n## Base-branch GLOSSARY.md\n${ctx.glossaryMd.content.slice(0, 2500)}`);
@@ -579,20 +658,102 @@ export function evaluateIrreversible(commandOrEvent, { headless } = {}) {
   };
 }
 
+function stripCommentsPreservingLines(sourceText) {
+  const text = String(sourceText ?? "");
+  const out = [];
+  let mode = "normal";
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (mode === "lineComment") {
+      if (ch === "\n") {
+        mode = "normal";
+        out.push("\n");
+      } else if (ch === "\r") {
+        out.push("\r");
+      } else {
+        out.push(" ");
+      }
+      continue;
+    }
+
+    if (mode === "blockComment") {
+      if (ch === "*" && next === "/") {
+        mode = "normal";
+        out.push("  ");
+        i++;
+      } else if (ch === "\n" || ch === "\r") {
+        out.push(ch);
+      } else {
+        out.push(" ");
+      }
+      continue;
+    }
+
+    if (mode === "singleQuote" || mode === "doubleQuote" || mode === "template") {
+      out.push(ch);
+      if (ch === "\\" && next !== undefined) {
+        out.push(next);
+        i++;
+        continue;
+      }
+      if (
+        (mode === "singleQuote" && ch === "'") ||
+        (mode === "doubleQuote" && ch === '"') ||
+        (mode === "template" && ch === "`")
+      ) {
+        mode = "normal";
+      }
+      continue;
+    }
+
+    if (ch === "/" && next === "/") {
+      mode = "lineComment";
+      out.push("  ");
+      i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      mode = "blockComment";
+      out.push("  ");
+      i++;
+      continue;
+    }
+    if (ch === "'") {
+      mode = "singleQuote";
+    } else if (ch === '"') {
+      mode = "doubleQuote";
+    } else if (ch === "`") {
+      mode = "template";
+    }
+    out.push(ch);
+  }
+
+  return out.join("");
+}
+
 /**
- * Extracts static ESM/CJS import/require specifiers with 1-based line numbers.
+ * Extracts static and dynamic ESM/CJS import/require specifiers with 1-based line numbers.
  */
 export function extractImportSpecifiers(sourceText) {
+  const stripped = stripCommentsPreservingLines(sourceText);
   const results = [];
-  const lines = String(sourceText ?? "").split(/\r?\n/);
-  const importRegex = /(?:import\s+(?:[\s\S]*?\s+from\s+)?|export\s+[\s\S]*?\s+from\s+|import\s*\(\s*|require\s*\(\s*)["']([^"']+)["']/g;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^\s*\/\//.test(line)) continue;
-    importRegex.lastIndex = 0;
-    let m;
-    while ((m = importRegex.exec(line)) !== null) {
-      results.push({ specifier: m[1], line: i + 1 });
+  const importRegex =
+    /\bimport\s+(?:type\s+)?(?:\*\s+as\s+\w+|\{[^}]*\}|[\w$]+(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+\w+))?)\s+from\s*["']([^"']+)["']|\bimport\s*["']([^"']+)["']|\bexport\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[^}]*\})\s+from\s*["']([^"']+)["']|(?<![.\w$])(?:import|require)\s*\(\s*["']([^"']+)["']\s*\)/g;
+
+  let m;
+  let lastIdx = 0;
+  let line = 1;
+  while ((m = importRegex.exec(stripped)) !== null) {
+    for (let i = lastIdx; i < m.index; i++) {
+      if (stripped.charCodeAt(i) === 10) line++;
+    }
+    lastIdx = m.index;
+    const specifier = m[1] ?? m[2] ?? m[3] ?? m[4];
+    if (specifier) {
+      results.push({ specifier, line });
     }
   }
   return results;
@@ -614,6 +775,18 @@ function fileMatchesZone(relPath, zoneSpec) {
     return false;
   }
   return true;
+}
+
+function stripScriptExt(relPath) {
+  return String(relPath ?? "").replace(/\.(?:[cm]?[jt]sx?)$/i, "");
+}
+
+function matchesPublicEntry(resolved, entry) {
+  if (!resolved || !entry) return false;
+  if (resolved === entry || matchesAnyGlob(resolved, [entry])) return true;
+  const cleanResolved = stripScriptExt(resolved);
+  const cleanEntry = stripScriptExt(entry);
+  return cleanResolved === cleanEntry || `${cleanResolved}/index` === cleanEntry;
 }
 
 /**
@@ -649,7 +822,7 @@ export function evaluateBoundaryViolations({ relPath, content, boundaries }) {
           if (!hitsZone) continue;
 
           const publicEntries = targetZone?.publicEntry ?? [];
-          if (resolved && publicEntries.some((entry) => resolved === entry || matchesAnyGlob(resolved, [entry]))) {
+          if (resolved && publicEntries.some((entry) => matchesPublicEntry(resolved, entry))) {
             continue;
           }
           hits.push({
@@ -673,7 +846,8 @@ export function evaluateBoundaryViolations({ relPath, content, boundaries }) {
       if (!pat.regex) continue;
       let re;
       try {
-        re = new RegExp(pat.regex, pat.flags ?? "");
+        const flags = String(pat.flags ?? "").replace(/[gy]/g, "");
+        re = new RegExp(pat.regex, flags);
       } catch {
         continue;
       }
@@ -739,15 +913,40 @@ export function computeAssertionDelta(diffText, maxWeakeningRatio = 0.25) {
   let added = 0;
   let removed = 0;
   let currentFile = "";
+  let pendingGitFile = "";
+  let inHeader = false;
   const perFile = new Map();
 
   for (const line of String(diffText ?? "").split(/\r?\n/)) {
     if (line.startsWith("diff --git ")) {
+      inHeader = true;
       const m = line.match(/^diff --git a\/.+ b\/(.+)$/);
-      currentFile = m ? m[1] : "";
+      pendingGitFile = m ? unquoteGitPath(m[1]).replace(/\\/g, "/") : "";
+      currentFile = pendingGitFile;
       continue;
     }
-    if (!currentFile || line.startsWith("+++") || line.startsWith("---")) continue;
+    if (inHeader) {
+      if (line.startsWith("--- a/")) {
+        pendingGitFile = unquoteGitPath(line.slice(6)).replace(/\\/g, "/");
+        continue;
+      }
+      if (line === "--- /dev/null") {
+        continue;
+      }
+      if (line === "+++ /dev/null") {
+        currentFile = pendingGitFile;
+        continue;
+      }
+      if (line.startsWith("+++ b/")) {
+        currentFile = unquoteGitPath(line.slice(6)).replace(/\\/g, "/");
+        continue;
+      }
+      if (line.startsWith("@@")) {
+        inHeader = false;
+        continue;
+      }
+    }
+    if (!currentFile || line.startsWith("@@")) continue;
     if (!TEST_PATH_ALLOWLIST.test(currentFile) && !/\.(?:test|spec)\./i.test(currentFile)) {
       continue;
     }
@@ -774,6 +973,6 @@ export function computeAssertionDelta(diffText, maxWeakeningRatio = 0.25) {
       flaggedFiles.push(file);
     }
   }
-  const flagged = removed > added && weakeningRatio > maxWeakeningRatio;
+  const flagged = (removed > added && weakeningRatio > maxWeakeningRatio) || flaggedFiles.length > 0;
   return { added, removed, weakeningRatio, flagged, flaggedFiles };
 }
