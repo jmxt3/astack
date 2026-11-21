@@ -164,7 +164,6 @@ function invokeLiveStreamVerifierBatch({ incidents, schemaPath, agent, cwd }) {
         });
       }
     } catch {
-      // Ignore partial or non-JSON log lines on stdout.
     }
   }
   return turnResults;
