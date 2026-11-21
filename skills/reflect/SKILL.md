@@ -12,7 +12,7 @@ Invoke when the user says "reflect" or "/reflect". Skip when the conversation is
 
 ## 1. Locate the active transcript
 
-Before fanning out, locate this conversation's transcript at `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (and `transcript_full.jsonl` when `truncated_fields` is present on a step) as named in the system prompt. Never scan across unrelated conversation folders unless explicitly asked to inspect another session.
+When `run_workflow` is available, you can automate trajectory extraction and the three parallel reviewer lenses in one call by invoking `run_workflow(ScriptPath="<skill-dir>/scripts/workflows/reflect-session.py", Args={"last": 40})`. Otherwise, locate this conversation's transcript at `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (and `transcript_full.jsonl` when `truncated_fields` is present on a step) as named in the system prompt. Never scan across unrelated conversation folders unless explicitly asked to inspect another session.
 
 Inspect the opening `USER_INPUT` step in `transcript.jsonl` (or verify `step_index: 0` / earliest user request) to confirm it matches the active session. If logs are unavailable or unreadable, pass a tight, factual digest of the session instead.
 
