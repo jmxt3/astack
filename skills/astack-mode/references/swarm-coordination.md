@@ -7,9 +7,9 @@ AStack adapts Lauren Tan's (`@poteto`) high-trust `pstack` workflows natively to
 | Problem Topology | Antigravity Mechanism | When to Choose It |
 |---|---|---|
 | Focused, self-contained side task or 2-5 lightweight slices | `invoke_subagent` (`TypeName: "astack-agent" \| "comment-sicko" \| "research" \| "browser"`) or `/fanout` | Exploration, live UI check, comment audit, targeted test slice, or `/how`, `/why`, `/arena`. Parent aggregates and keeps main context clean (**principle-guard-the-context-window**). |
-| Same task across many files, or staged phases with structured outputs | `/run-workflow` (`run` mode: `run-workflow` skill + `run_workflow`) | Programmatic Python orchestration using `parallel()` and `pipeline()` across N items or sequential phases (Pro & Ultra). |
+| Same task across many files, or staged phases with structured outputs | `/run-workflow` (`run` mode: `run-workflow` skill + `run_workflow`) | Programmatic Python orchestration using `parallel()` and `pipeline()` across N items or sequential phases (All plans). |
 | Hard, coupled problem across shared code | `/boost` (`recommend` mode) | Race conditions, flaky tests, perf optimization, algorithmic work, or coupled refactors where hypotheses are challenged, fixed, and re-verified across rounds (Paid plans). |
-| Broad, cleanly divisible work across files, packages, PRs, or test suites | Native Antigravity `/swarm` (`run` mode: `swarm` skill + `swarm`, `post_message`, `read_board`, `swarm_wait`) | Parallel implementation across separate modules, N-lane verification gauntlets, PR autopilot queues, and multi-worker audits with an independent `@verifier` on a live message board (Pro & Ultra). |
+| Broad, cleanly divisible work across files, packages, PRs, or test suites | Native Antigravity `/swarm` (`run` mode: `swarm` skill + `swarm`, `post_message`, `read_board`, `swarm_wait`) | Parallel implementation across separate modules, N-lane verification gauntlets, PR autopilot queues, and multi-worker audits with an independent `@verifier` on a live message board (All plans). |
 | Long-horizon, multi-milestone program (hours to days) | `/teamwork` + `/goal` (`recommend` mode) | Repository-wide migrations, formal proofs, or multi-PR programs needing upfront `/grill-me` scoping, `/architect` type sketches, milestone audit gates, and persistent `show-me-your-work` decision logs until completion. |
 
 ## 2. Subagent Contract (`invoke_subagent`)
@@ -42,8 +42,20 @@ AStack deliberately renames `pstack`'s lightweight parallel runner to [`/fanout`
    - Calling `swarm{action: "kill", name}` permanently terminates the worker and **deletes its `share` or `branch` workspace**.
    - Always cherry-pick, merge, or push verified worker changes before killing author workers.
 
+### Swarm Overview Panel (`swarm_pane`)
+
+Load Antigravity's built-in `swarm_pane` skill whenever coordinating a `/swarm` so Antigravity's Swarm Overview UI displays structured progress without spawning a narrator worker:
+
+1. Immediately after adding workers, write `<appData>/brain/<your conversation id>/.system_generated/swarm/plan.json` containing:
+   - `goal`: `{ "title": "<4-8 words>", "line": "<at most 12 words>" }`
+   - `tasks`: map from each worker name to a short summary of its owned slice
+   - `threads`: 1 to 6 outcome-grouped threads (`{ "id", "title", "goal", "tasks": [...] }`) covering every worker
+2. Rewrite `plan.json` only when workers are added, moved, or the swarm goal changes (live status comes from board posts).
+3. For visible UI or layout work, instruct each UI-verifying worker in its brief to save full-window consistent-theme screenshots inside its own `<appData>/brain/<worker-conv-id>/` folder and report each milestone step on its own post line:
+   `Screenshot: <absolute path> | <what changed in at most 10 words>`
+
 ## 4. Model Routing (UI Picker & Orchestrator First)
 
-- **Default inheritance (`inherit`).** Omit `Model` on `invoke_subagent` and omit `model` on `swarm{action: "add"}` so workers follow your Antigravity UI model selector (**Orchestrator (Carbon)** on Google AI Ultra, **Orchestrator (Argon)** on Pro & Ultra, effort levels, and newly released models). Unlike static prompt-time routers that lock a session onto one model, **Orchestrator** hands control cooperatively inside one trajectory from a read-only frontier planner (writing an explicit plan and re-planning triggers) to a fast executor (applying edits, updating packages, and running tests and Control Glass checks), handing back to the planner automatically when friction or broken premises occur. Keeping `Model` and `model` unset ensures subagents and `/swarm` workers never override this loop with static slugs or forced `Model: "pro"` defaults.
+- **Default inheritance (`inherit`).** Omit `Model` on `invoke_subagent` and omit `model` on `swarm{action: "add"}` so workers follow your Antigravity UI model selector (**Orchestrator (Neon)**, **Orchestrator (Carbon)**, **Orchestrator (Argon)**, effort levels, and newly released models). Unlike static prompt-time routers that lock a session onto one model, **Orchestrator** hands control cooperatively inside one trajectory from a read-only frontier planner (writing an explicit plan and re-planning triggers) to a fast executor (applying edits, updating packages, and running tests and Control Glass checks), handing back to the planner automatically when friction or broken premises occur. Keeping `Model` and `model` unset ensures subagents and `/swarm` workers never override this loop with static slugs or forced `Model: "pro"` defaults.
 - **Evergreen fast sweeps.** Parallel read-only exploration (`TypeName: "research"`) and `TypeName: "browser"` may pass `Model: "flash"` (an evergreen capability alias, never a versioned model slug).
 - **Live runtime discovery for `/arena` and cross-family gates.** Call `swarm{action: "models", all: true}` at invocation time while checking `quota_remaining` when pitting or judging across distinct model families (e.g., Gemini, Claude, GPT). Honor `.agents/rules/astack-models.md` or `~/.gemini/config/rules/astack-models.md` only when explicitly present as a power-user override.

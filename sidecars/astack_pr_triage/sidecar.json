@@ -1,0 +1,28 @@
+{
+  "display_name": "AStack PR Triage",
+  "description": "Reads open pull requests, compiles visual PR review dossiers, and summarizes blocking risk tiers without mutating code.",
+  "builtin": "schedule",
+  "args": [
+    "CRON_TZ=UTC 0 9 * * 1-5",
+    "agentapi",
+    "new-conversation",
+    "--",
+    "In ${repo_dir}, list open pull requests via gh pr list, run /review-pr read-only for each PR needing attention, and summarize Risk Tiers, freshness, and blockers."
+  ],
+  "arguments": [
+    {
+      "key": "repo_dir",
+      "description": "Target git repository for PR triage",
+      "workspace_arg": {}
+    }
+  ],
+  "agent_permissions": {
+    "workspace_uris": ["${repo_dir}"],
+    "access_grants": [
+      "command(gh pr list)",
+      "command(gh pr view)",
+      "command(gh pr diff)",
+      "command(gh pr checks)"
+    ]
+  }
+}
