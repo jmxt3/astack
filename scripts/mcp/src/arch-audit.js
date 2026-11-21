@@ -1,12 +1,7 @@
-import { bootMcpApp, domEl, openFileInSidePane } from "./theme.js";
+import { bootMcpApp, domEl, openFileInSidePane, renderStatus } from "./theme.js";
 
 let latestReport = null;
 let hostCaps = {};
-
-function renderStatus(msg) {
-  const el = document.getElementById("status-line");
-  if (el) el.textContent = msg || "";
-}
 
 function addSection(shell, title, items, renderItem) {
   const card = domEl("div", "card");

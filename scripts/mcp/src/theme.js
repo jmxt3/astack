@@ -90,6 +90,19 @@ export function applyContextTheme(ctx) {
   if (ctx.styles?.variables) applyHostStyleVariables(ctx.styles.variables);
 }
 
+export function renderStatus(msg) {
+  let el = document.getElementById("status-line");
+  if (!el) {
+    const root = document.getElementById("app");
+    if (!root) return;
+    const shell = root.querySelector(".shell") || root.appendChild(domEl("div", "shell"));
+    el = domEl("div", "status-line");
+    el.id = "status-line";
+    shell.appendChild(el);
+  }
+  el.textContent = msg || "";
+}
+
 export async function openFileInSidePane(app, fileUri, setStatus) {
   if (!fileUri) return;
   try {

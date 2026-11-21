@@ -23,7 +23,7 @@ Pass `--doctor` (and optionally `--json`) anytime to inspect Node version, `veri
 This prints the `ASTACK` ASCII initiation banner and inspects the workspace read-only for:
 
 1. `.agents/skills/verify-*/SKILL.md` (runtime Control Glass verification) and formal TLA+ verification skills or `*.tla` specs.
-2. [`hooks.json`](../../hooks.json) at the plugin root (ships `"enabled": false` by default).
+2. [`hooks.json`](../../hooks.json) at the plugin root (enables 3 passive observe-only hooks and keeps 6 blocking gates `"enabled": false` by default).
 3. Any existing `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` rule on this machine or repo.
 
 ## 2. Display the ASCII Banner & Collect Repo Choices
@@ -42,6 +42,7 @@ GOOGLE ANTIGRAVITY · PLAN · BUILD · PROVE IT WORKS
   verify skills : <detected or none>
   formal verify : <detected or none>
   safety hooks  : <detected status>
+  repo policies : <detected or defaults>
   model routing : <detected status>
 ```
 

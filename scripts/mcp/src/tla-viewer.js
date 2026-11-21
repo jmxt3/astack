@@ -1,13 +1,8 @@
-import { PASS_THROUGH_SCHEMA, bootMcpApp, domEl } from "./theme.js";
+import { PASS_THROUGH_SCHEMA, bootMcpApp, domEl, renderStatus } from "./theme.js";
 
 let fileInfo = { name: "Specification.tla", resourceUri: null };
 let specSource = "";
 let hostCtx = {};
-
-function renderStatus(msg) {
-  const el = document.getElementById("status-line");
-  if (el) el.textContent = msg || "";
-}
 
 function decodeContentResult(res) {
   const item = Array.isArray(res?.contents) ? res.contents[0] : null;

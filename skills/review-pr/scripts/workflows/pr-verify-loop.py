@@ -1,15 +1,27 @@
 import json
 import os
+import re
+import shlex
 
 base_ref = str(args.get("base_ref", "origin/main"))
+if not re.fullmatch(r"[A-Za-z0-9._/@~^+-]+", base_ref) or base_ref.startswith("-"):
+    raise ValueError(f"Invalid git base_ref: {base_ref!r}")
 artifact_dir = str(args.get("artifact_dir", ""))
 max_rounds = min(max(int(args.get("max_rounds", 3)), 1), 3)
 repo_dir = str(args.get("cwd") or (WORKSPACES[0] if WORKSPACES else os.getcwd()))
 
-schema_path = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "findings-schema.json",
-)
+
+def quote_shell_arg(value: str) -> str:
+    if any(ch in value for ch in ("\0", "\r", "\n")):
+        raise ValueError("Shell argument contains unsupported control character")
+    if os.name == "nt":
+        return "'" + value.replace("'", "''") + "'"
+    return shlex.quote(value)
+
+
+scripts_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+schema_path = os.path.join(scripts_dir, "findings-schema.json")
+dossier_script = os.path.join(scripts_dir, "pr-dossier.mjs")
 with open(schema_path, encoding="utf-8") as fh:
     FINDINGS_SCHEMA = json.load(fh)
 
@@ -24,19 +36,35 @@ FIX_SCHEMA = {
     },
 }
 
-phase("Compile")
-compile_cmd = f'node skills/review-pr/scripts/pr-dossier.mjs --base "{base_ref}" --json'
-if artifact_dir:
-    compile_cmd += f' --artifact-dir "{artifact_dir}"'
-
-try:
-    dossier_out = await call_tool("run_command", CommandLine=compile_cmd, WaitMsBeforeAsync=10000)
-except Exception as exc:
-    dossier_out = f"Dossier command note: {exc}"
-log("Compiled PR dossier context")
-
 final_report = None
 for round_idx in range(1, max_rounds + 1):
+    phase(f"Compile Round {round_idx}")
+    cmd_parts = [
+        "node",
+        quote_shell_arg(dossier_script),
+        "--cwd",
+        quote_shell_arg(repo_dir),
+        "--base",
+        quote_shell_arg(base_ref),
+    ]
+    if artifact_dir:
+        cmd_parts.extend(["--artifact-dir", quote_shell_arg(artifact_dir)])
+    cmd_parts.append("--json")
+    compile_cmd = " ".join(cmd_parts)
+
+    try:
+        dossier_out = await call_tool(
+            "run_command",
+            CommandLine=compile_cmd,
+            WaitMsBeforeAsync=10000,
+            toolSummary=f"Compile PR dossier (Round {round_idx})",
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to compile PR dossier for round {round_idx}: {exc}"
+        ) from exc
+    log(f"Compiled PR dossier context for round {round_idx}")
+
     phase(f"Verify Round {round_idx}")
     verifier_prompt = (
         f"Verify Round {round_idx} of branch in {repo_dir} against base ref {base_ref}.\n"

@@ -1,13 +1,8 @@
-import { bootMcpApp, domEl, openFileInSidePane } from "./theme.js";
+import { bootMcpApp, domEl, openFileInSidePane, renderStatus } from "./theme.js";
 
 let latestData = null;
 let activeSeverity = "all";
 let hostCaps = {};
-
-function renderStatus(msg) {
-  const el = document.getElementById("status-line");
-  if (el) el.textContent = msg || "";
-}
 
 function tierClass(tier) {
   if (tier >= 3) return "err";
