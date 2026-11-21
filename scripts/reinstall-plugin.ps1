@@ -3,17 +3,15 @@
 Uninstalls and reinstalls the local AStack plugin into Antigravity.
 
 .DESCRIPTION
-Stops any running AStack sidecar Node processes, removes leftover files under
-the installed plugin directory, and reinstalls from the local repository.
-Pass -CloseAntigravity to close running Antigravity processes if they still
-hold a lock on the plugin directory.
+Stops any process referencing the installed plugin directory, falls back to
+closing Antigravity if a directory lock remains, removes any leftover plugin
+folder, and reinstalls from the local repository.
 #>
 [CmdletBinding()]
 param(
   [string]$RepoDir = (Split-Path -Parent $PSScriptRoot),
   [string]$PluginName = "astack",
-  [string]$PluginsDir = (Join-Path $HOME ".gemini\config\plugins"),
-  [switch]$CloseAntigravity
+  [string]$PluginsDir = (Join-Path $HOME ".gemini\config\plugins")
 )
 
 Set-StrictMode -Version Latest
@@ -37,12 +35,16 @@ function Invoke-Agy {
   }
 }
 
-function Stop-SidecarProcesses {
+function Stop-LockingProcesses {
   param([string]$PluginDir)
   $escapedDir = [regex]::Escape($PluginDir)
   $procs = @(
-    Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
-      Where-Object { $_.CommandLine -and ($_.CommandLine -match $escapedDir -or $_.CommandLine -match 'astack_timeline') }
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.ProcessId -ne $PID -and
+        $_.CommandLine -and
+        ($_.CommandLine -match $escapedDir -or ($_.Name -eq "node.exe" -and $_.CommandLine -match 'astack_timeline'))
+      }
   )
   foreach ($proc in $procs) {
     Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
@@ -65,14 +67,12 @@ function Stop-AntigravityProcesses {
   foreach ($proc in $remaining) {
     Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
   }
-  if ($remaining.Count -gt 0) {
-    Start-Sleep -Seconds 1
-  }
+  Start-Sleep -Seconds 1
   return $true
 }
 
 function Remove-DirectoryWithRetry {
-  param([string]$Path, [int]$Attempts = 4)
+  param([string]$Path, [int]$Attempts = 6)
   for ($i = 1; $i -le $Attempts; $i++) {
     if (-not (Test-Path -LiteralPath $Path)) {
       return $true
@@ -104,26 +104,24 @@ if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
 }
 
 $InstalledDir = Join-Path $PluginsDir $PluginName
+$closedAntigravity = $false
 
-Write-Host "[1/3] Stopping sidecar processes and uninstalling $PluginName..."
-Stop-SidecarProcesses -PluginDir $InstalledDir
+Write-Host "[1/3] Stopping plugin processes and uninstalling $PluginName..."
+Stop-LockingProcesses -PluginDir $InstalledDir
 $null = Invoke-Agy @("plugin", "uninstall", $PluginName)
 
 Write-Host "[2/3] Cleaning leftover directory $InstalledDir..."
 if (Test-Path -LiteralPath $InstalledDir) {
-  Stop-SidecarProcesses -PluginDir $InstalledDir
-  $cleared = Remove-DirectoryWithRetry -Path $InstalledDir
-  if (-not $cleared -and $CloseAntigravity) {
-    Write-Host "Directory is locked by Antigravity. Closing Antigravity..."
-    if (Stop-AntigravityProcesses) {
-      $cleared = Remove-DirectoryWithRetry -Path $InstalledDir -Attempts 6
-    }
+  Stop-LockingProcesses -PluginDir $InstalledDir
+  $cleared = Remove-DirectoryWithRetry -Path $InstalledDir -Attempts 4
+  if (-not $cleared) {
+    Write-Host "Directory is locked by Antigravity. Closing Antigravity to release the handle..."
+    $closedAntigravity = Stop-AntigravityProcesses
+    Stop-LockingProcesses -PluginDir $InstalledDir
+    $cleared = Remove-DirectoryWithRetry -Path $InstalledDir -Attempts 10
   }
   if (-not $cleared) {
-    Fail-Script (
-      "Failed to remove $InstalledDir because another process holds a lock on it.`n" +
-      "Close Antigravity and re-run .\scripts\reinstall-plugin.ps1, or pass -CloseAntigravity from an external terminal."
-    )
+    Fail-Script "Failed to remove $InstalledDir because another process (for example an open Explorer or terminal in that folder) still holds a lock on it."
   }
 }
 
@@ -141,4 +139,8 @@ if (-not (Test-Path -LiteralPath $InstalledManifest -PathType Leaf)) {
 Write-Host ""
 Write-Host "Reinstalled $PluginName cleanly:"
 & agy plugin list | Select-String -Context 0, 2 "^\-\s+$PluginName\b"
-Write-Host "Reopen Antigravity (or reload the sidecar pane) to load the updated plugin."
+if ($closedAntigravity) {
+  Write-Host "Antigravity was closed to release the directory lock. Reopen Antigravity to load the updated plugin."
+} else {
+  Write-Host "Reload the sidecar pane (or reopen Antigravity) to load the updated plugin."
+}
