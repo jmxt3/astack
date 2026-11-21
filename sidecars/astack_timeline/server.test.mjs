@@ -62,6 +62,10 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     assert.match(htmlText, /data-testid="timeline-footer"/);
     assert.match(htmlText, /data-testid="timeline-setup"/);
     assert.match(htmlText, /data-testid="timeline-setup-drawer"/);
+    assert.match(htmlText, /data-testid="timeline-scene"/);
+    assert.match(htmlText, /data-testid="focus-strip"/);
+    assert.match(htmlText, /data-testid="btw-form"/);
+    assert.match(htmlText, /data-testid="delegate-view"/);
 
     const cssRes = await fetch(`${srv.url}styles.css`);
     assert.equal(cssRes.status, 200);
@@ -73,6 +77,20 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     const jsRes = await fetch(`${srv.url}app.js`);
     assert.equal(jsRes.status, 200);
     assert.match(jsRes.headers.get("content-type") ?? "", /javascript/);
+
+    const threeRes = await fetch(`${srv.url}vendor/three.min.js`);
+    assert.equal(threeRes.status, 200);
+    assert.match(threeRes.headers.get("content-type") ?? "", /javascript/);
+
+    const sceneRes = await fetch(`${srv.url}scene-3d.js`);
+    assert.equal(sceneRes.status, 200);
+    assert.match(sceneRes.headers.get("content-type") ?? "", /javascript/);
+
+    const catalogRes = await fetch(`${srv.url}catalog.js`);
+    assert.equal(catalogRes.status, 200);
+    assert.match(catalogRes.headers.get("content-type") ?? "", /javascript/);
+    const catalogText = await catalogRes.text();
+    assert.match(catalogText, /window\.ASTACK_CATALOG\s*=/);
 
     const preloadRes = await fetch(`${srv.url}preload.js`);
     assert.equal(preloadRes.status, 200);
@@ -98,9 +116,12 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     const first = await firstRes.json();
     assert.equal(first.stages.length, 4);
     assert.equal(first.setup.status, "ready");
+    assert.ok(first.activity && typeof first.activity.agentsWorkingCount === "number");
     assert.ok(Array.isArray(first.setup.autoSubCommands) && first.setup.autoSubCommands.length > 0);
     assert.ok(Array.isArray(first.setup.moreCommands) && first.setup.moreCommands.length > 0);
     for (const st of first.stages) {
+      assert.ok(typeof st.collapsedSummary === "string" && st.collapsedSummary.length > 0);
+      assert.ok(Array.isArray(st.artifacts));
       assert.ok(Array.isArray(st.autoSubCommands) && st.autoSubCommands.length > 0);
       assert.ok(Array.isArray(st.moreCommands) && st.moreCommands.length > 0);
     }

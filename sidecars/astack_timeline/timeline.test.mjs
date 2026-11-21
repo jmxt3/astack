@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { DELEGATE_GUIDE_DATA, GITHUB_DOCS_BASE } from "./command-catalog.mjs";
 import { COMMAND_DOCS, evaluateTimelineSnapshot, resolveSafeArtifactUri, TIMELINE_STEPS } from "./timeline-engine.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -531,6 +532,233 @@ test("marks Build & Prove done on Proceed + fresh verify + walkthrough without /
     ]);
     const wtSnap = evaluateTimelineSnapshot({ conversationId: "conv-wt", brainDir, workspaceDir: worktreeWs });
     assert.equal(wtSnap.stages[1].status, "active", "Edits inside ~/.gemini/antigravity/worktrees/... must mark Build & Prove active");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("COMMAND_DOCS and DELEGATE_GUIDE_DATA cover all native delegate commands with valid repo docs links", () => {
+  const expectedKeys = [
+    "/swarm",
+    "/run-workflow",
+    "/schedule",
+    "/automation",
+    "/browser",
+    "/boost",
+    "/goal",
+    "/teamwork",
+    "/btw",
+    "/learn",
+    "/compact",
+    "subagents",
+    "research",
+  ];
+  for (const key of expectedKeys) {
+    const doc = COMMAND_DOCS[key];
+    assert.ok(doc, `Missing COMMAND_DOCS entry for ${key}`);
+    assert.ok(typeof doc.description === "string" && doc.description.trim().length > 0, `Missing description for ${key}`);
+    assert.ok(doc.docsUrl?.startsWith(`${GITHUB_DOCS_BASE}/`), `Expected repo docsUrl for ${key}: ${doc.docsUrl}`);
+    const relPath = doc.docsUrl.slice(`${GITHUB_DOCS_BASE}/`.length);
+    assert.ok(fs.existsSync(path.join(REPO_ROOT, ...relPath.split("/"))), `Missing docs target ${relPath} for ${key}`);
+  }
+
+  assert.equal(DELEGATE_GUIDE_DATA.picks.length, 10);
+  assert.equal(DELEGATE_GUIDE_DATA.sections.length, 5);
+  assert.equal(DELEGATE_GUIDE_DATA.delegateMenu.length, 6);
+  const pickIds = new Set(DELEGATE_GUIDE_DATA.picks.map((p) => p.id));
+  for (const p of DELEGATE_GUIDE_DATA.picks) {
+    assert.ok(p.chipLabel && p.kicker && p.prompt && p.how);
+  }
+  for (const section of DELEGATE_GUIDE_DATA.sections) {
+    assert.ok(section.id && section.title && section.subtitle && Array.isArray(section.items) && section.items.length > 0);
+    for (const item of section.items) {
+      if (item.pickId) assert.ok(pickIds.has(item.pickId), `Unknown pickId ${item.pickId}`);
+    }
+  }
+});
+
+test("timeline-engine detects subagent lifecycles, swarm workers, goal, boost, teamwork, workflow, schedules, btw, and artifacts", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-act-");
+  try {
+    const convId = "conv-live";
+    const childPlanId = "11111111-1111-4111-8111-111111111111";
+    const childBuildId = "22222222-2222-4222-8222-222222222222";
+    const childReviewId = "33333333-3333-4333-8333-333333333333";
+
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(brainDir, convId, "implementation_plan.md"), "# Plan\nApproved\n");
+    writeText(path.join(brainDir, convId, "walkthrough.md"), "# Walkthrough\n");
+    writeText(path.join(brainDir, convId, "architecture-diagram.svg"), "<svg></svg>\n");
+
+    writeTranscript(brainDir, childPlanId, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-20T10:01:30Z", content: "Research summary complete." },
+    ]);
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:00:00Z",
+        content: "<USER_REQUEST>/goal /boost /teamwork /astack-mode Implement timeline. Done when all checks pass.</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-20T10:01:00Z",
+        tool_calls: [
+          { name: "invoke_subagent", args: { TypeName: "research", Role: "Caller Mapper", Prompt: "Map callers" } },
+          { name: "write_to_file", args: { TargetFile: path.join(brainDir, convId, "implementation_plan.md") } },
+        ],
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        created_at: "2026-11-20T10:01:05Z",
+        content: JSON.stringify({ conversationId: childPlanId }),
+      },
+      {
+        step_index: 3,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:02:00Z",
+        content: "Proceeded with plan.",
+      },
+      {
+        step_index: 4,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-20T10:03:00Z",
+        tool_calls: [
+          { name: "edit_file", args: { Path: path.join(workspaceDir, "src", "a.mjs") } },
+          { name: "edit_file", args: { Path: path.join(workspaceDir, "src", "b.mjs") } },
+          { name: "swarm", args: { action: "title", title: "Timeline implementation" } },
+          { name: "swarm", args: { action: "add", name: "worker", tasks: ["src/a.mjs", "src/b.mjs"], brief: "Implement module" } },
+          { name: "swarm", args: { action: "add", name: "verifier", brief: "Verify tests on HEAD" } },
+          { name: "swarm", args: { action: "add", name: "old-helper", brief: "Temp helper" } },
+          { name: "swarm", args: { action: "kill", name: "old-helper" } },
+          { name: "post_message", args: { from: "worker-1", to: "verifier", body: "Ready for check" } },
+          { name: "invoke_subagent", args: { TypeName: "browser", Role: "UI Verifier", Prompt: "Check live view" } },
+          { name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "PR Verifier", Prompt: "Audit diff" } },
+          { name: "schedule", args: { DurationSeconds: 120, Prompt: "Run node node_modules/watch-pr.mjs --pr 11" } },
+          { name: "run_workflow", args: { Script: "parallel()" } },
+        ],
+      },
+      {
+        step_index: 5,
+        type: "GENERIC",
+        created_at: "2026-11-20T10:03:05Z",
+        content: `Created subagents {"conversationId":"${childBuildId}"} and {"conversationId":"${childReviewId}"}\ntask id: ${convId}/task-1`,
+      },
+      {
+        step_index: 6,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-20T10:04:00Z",
+        content: `[SYSTEM sender=${childReviewId}] Verification finished.`,
+      },
+      {
+        step_index: 7,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:04:30Z",
+        content: "<USER_REQUEST>/btw why is worker-2 touching b.mjs?</USER_REQUEST>",
+      },
+      {
+        step_index: 8,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:05:00Z",
+        content: "<USER_REQUEST>/automation Run nightly regression suite</USER_REQUEST>",
+      },
+    ]);
+
+    const first = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    const second = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(first.etag, second.etag, "Snapshot ETag must be deterministic across identical reads");
+
+    assert.equal(first.activity.goal.active, true);
+    assert.equal(first.activity.goal.completed, false);
+    assert.match(first.activity.goal.predicate, /all checks pass/i);
+    assert.equal(first.activity.goal.checksTotal, 3);
+    assert.equal(first.activity.boost.active, true);
+    assert.equal(first.activity.teamwork.active, true);
+    assert.equal(first.activity.sideQuestions.count, 1);
+    assert.equal(first.activity.workflow.runsCount, 1);
+    assert.equal(first.activity.workflow.active, true);
+    assert.equal(first.activity.changedFilesCount, 2);
+    assert.equal(first.activity.workflow.suggestedReview?.command, "/run-workflow");
+
+    assert.equal(first.activity.swarm.active, true);
+    assert.equal(first.activity.swarm.title, "Timeline implementation");
+    assert.equal(first.activity.swarm.posts, 1);
+    assert.equal(first.activity.swarm.totalCount, 3, "Killed swarm worker must be excluded from active totalCount");
+    assert.equal(first.activity.swarm.workingCount, 3);
+
+    const byType = new Map(first.activity.subagents.map((s) => [s.type, s]));
+    assert.equal(byType.get("research")?.stageId, "plan");
+    assert.equal(byType.get("research")?.status, "done", "Child transcript PLANNER_RESPONSE finishes research subagent");
+    assert.equal(byType.get("browser")?.stageId, "build");
+    assert.equal(byType.get("browser")?.status, "running");
+    assert.equal(byType.get("pr-verifier")?.stageId, "review");
+    assert.equal(byType.get("pr-verifier")?.status, "done", "SYSTEM_MESSAGE sender finishes pr-verifier subagent");
+    assert.equal(first.activity.runningSubagentsCount, 1);
+
+    assert.equal(first.activity.schedules.length, 1);
+    assert.equal(first.activity.schedules[0].taskId, `${convId}/task-1`);
+    assert.equal(first.activity.schedules[0].label, "watch-pr.mjs --pr 11");
+    assert.equal(first.activity.schedules[0].stageId, "ship");
+    assert.equal(first.activity.schedules[0].active, true);
+    assert.equal(first.activity.automations.length, 1);
+    assert.equal(first.activity.scheduledCount, 2);
+    assert.equal(first.activity.pr?.number, 11);
+
+    assert.ok(first.stages[0].artifacts.some((a) => a.name === "implementation_plan.md"));
+    assert.ok(first.stages[1].artifacts.some((a) => a.name === "walkthrough.md"));
+    assert.ok(first.stages[1].artifacts.some((a) => a.name === "architecture-diagram.svg"));
+    assert.ok(first.stages[3].artifacts.some((a) => a.name === "PR #11"));
+    assert.equal(first.activity.artifactCount, 4);
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:00:00Z",
+        content: "<USER_REQUEST>/goal Done when clean</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-20T10:02:00Z",
+        content: "All checks green.\n<!-- GOAL_COMPLETE -->",
+      },
+    ]);
+    const doneGoalSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(doneGoalSnap.activity.goal.detected, true);
+    assert.equal(doneGoalSnap.activity.goal.active, false);
+    assert.equal(doneGoalSnap.activity.goal.completed, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("timeline-engine ignores slash command questions in plain prose", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-prose-");
+  try {
+    const convId = "conv-prose";
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:00:00Z",
+        content: "<USER_REQUEST>Should we try /goal or /swarm or /boost?</USER_REQUEST>",
+      },
+    ]);
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(snap.activity.goal.detected, false);
+    assert.equal(snap.activity.goal.active, false);
+    assert.equal(snap.activity.swarm.active, false);
+    assert.equal(snap.activity.boost.detected, false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
