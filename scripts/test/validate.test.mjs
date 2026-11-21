@@ -282,7 +282,7 @@ test("live AStack repo validates cleanly and enforces UI/Orchestrator and agent 
   while (stack.length > 0) {
     const dir = stack.pop();
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === ".git" || entry.name === ".tmp") continue;
+      if (entry.name === ".git" || entry.name === ".tmp" || entry.name === "node_modules") continue;
       const full = path.join(dir, entry.name);
       assert.doesNotMatch(entry.name, /benn[y]/i, `Legacy name in path: ${full}`);
       if (entry.isDirectory()) {

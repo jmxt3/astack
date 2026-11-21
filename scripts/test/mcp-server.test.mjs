@@ -139,7 +139,8 @@ test("MCP stdio server handles initialize, tools, resources, dossier/audit/docto
       const res = await client.request("resources/read", { uri });
       const content = res.result.contents[0];
       assert.equal(content.mimeType, "text/html;profile=mcp-app");
-      assert.ok(content.text.length > 50 && Buffer.byteLength(content.text, "utf8") < 10 * 1024 * 1024);
+      assert.ok(content.text.length > 5000 && Buffer.byteLength(content.text, "utf8") < 10 * 1024 * 1024);
+      assert.match(content.text, /ui\/initialize/);
       assert.doesNotMatch(content.text, /<script[^>]+src=["']https?:/i);
       assert.doesNotMatch(content.text, /<link[^>]+href=["']https?:/i);
     }

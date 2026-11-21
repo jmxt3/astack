@@ -6,6 +6,7 @@
     "node": ">=22.6.0"
   },
   "scripts": {
+    "build:mcp-ui": "node scripts/mcp/build-ui.mjs",
     "validate": "node scripts/validate-astack.mjs",
     "test:plugin": "node --test scripts/test/hooks.test.mjs scripts/test/validate.test.mjs scripts/test/upstream-watch.test.mjs",
     "test:sidecar": "node --test sidecars/astack_timeline/timeline.test.mjs sidecars/astack_timeline/server.test.mjs",
@@ -17,5 +18,9 @@
     "test:eval": "node --test scripts/eval/eval.test.mjs",
     "test:mcp": "node --test scripts/test/mcp-server.test.mjs",
     "test": "node --run validate && node --run test:plugin && node --run test:sidecar && node --run test:trust && node --run test:helpers && node --run test:watch-pr && node --run test:statechart && node --run test:security-audit && node --run test:eval && node --run test:mcp"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/ext-apps": "^2.0.4",
+    "esbuild": "^0.28.2"
   }
 }
