@@ -612,6 +612,22 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
           }
         }
       }
+      const permissionTriggers = [];
+      if (Array.isArray(cfg?.arguments) && cfg.arguments.length > 0) {
+        permissionTriggers.push("arguments");
+      }
+      if (Array.isArray(cfg?.agent_permissions?.workspace_uris) && cfg.agent_permissions.workspace_uris.length > 0) {
+        permissionTriggers.push("agent_permissions.workspace_uris");
+      }
+      if (Array.isArray(cfg?.agent_permissions?.access_grants) && cfg.agent_permissions.access_grants.length > 0) {
+        permissionTriggers.push("agent_permissions.access_grants");
+      }
+      if (permissionTriggers.length > 0) {
+        errors.push({
+          file: rel,
+          message: `Bundled sidecar must not request ${permissionTriggers.join(", ")} (Antigravity disables the entire plugin under sidecar permission review; keep scheduled automation templates under docs/automations/)`,
+        });
+      }
     }
   }
 
@@ -692,6 +708,11 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
         encoding: "utf8",
       });
       agyReport = JSON.parse(stdout);
+      for (const finding of agyReport.findings ?? []) {
+        if (finding.severity === "note" && /plugin is off until the user reviews/i.test(finding.message ?? "")) {
+          errors.push({ file: finding.file ?? "plugin", message: `[agy] ${finding.message}` });
+        }
+      }
     } catch (err) {
       const stdout = err.stdout?.toString?.() ?? "";
       if (stdout) {

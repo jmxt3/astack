@@ -19,7 +19,7 @@ AStack is a Google Antigravity plugin that makes the agent prove its work. You g
 
 AStack takes inspiration from Lauren Tan's [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) for empirical verification playbooks and Garry Tan's [`gstack`](https://github.com/garrytan/gstack) for structured review gates, and builds those ideas natively for Google Antigravity.
 
-AStack has 65 skills, 26 playbooks, 24 engineering principles, 4 custom agents, 1 routing rule, 9 lifecycle hooks (3 passive observe-only enabled by default plus 6 opt-in blocking gates), and 3 sidecars (1 optional read-only timeline sidecar UI [`sidecars/astack_timeline/`](./sidecars/astack_timeline/sidecar.json) plus 2 dormant scheduled automations). It runs locally as markdown skills and zero-dependency Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
+AStack has 65 skills, 26 playbooks, 24 engineering principles, 4 custom agents, 1 routing rule, 9 lifecycle hooks (3 passive observe-only enabled by default plus 6 opt-in blocking gates), 1 local MCP server (`trust`), and 1 optional read-only timeline sidecar UI ([`sidecars/astack_timeline/`](./sidecars/astack_timeline/sidecar.json)), plus opt-in scheduled automation templates under [`docs/automations/`](./docs/automations/beacon/README.md). It runs locally as markdown skills and zero-dependency Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
 
 fork it. improve it. make it yours. PRs are welcome!
 
