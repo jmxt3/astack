@@ -8,29 +8,55 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <header class="header">
-    <div class="header-row">
-      <h1 class="title">AStack Timeline</h1>
-      <span id="progress" class="progress" data-testid="timeline-progress">0 / 4</span>
-      <span id="live" class="live" role="status" data-testid="timeline-live">
-        <span class="live-dot" aria-hidden="true"></span>
-        <span id="live-label">Idle</span>
-      </span>
+  <div id="timeline-view" class="panel-view">
+    <header class="header">
+      <div class="header-row">
+        <h1 class="title">AStack Timeline</h1>
+        <span id="progress" class="progress" data-testid="timeline-progress">0 / 4</span>
+        <span id="live" class="live" role="status" data-testid="timeline-live">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span id="live-label">Idle</span>
+        </span>
+      </div>
+      <div id="meta-row" class="meta-row hidden" data-testid="timeline-meta"></div>
+      <div id="setup-drawer" class="setup-drawer hidden" data-testid="timeline-setup-drawer"></div>
+    </header>
+
+    <section id="setup-wrap" class="setup-wrap hidden" aria-label="First-time repository setup">
+      <div id="setup-card" class="setup-card hidden" data-testid="timeline-setup"></div>
+    </section>
+
+    <section id="scene-section" class="scene-section" aria-label="Live agent activity" data-testid="timeline-scene">
+      <canvas id="scene-canvas" data-astack-scene="1" role="img" aria-label="3D timeline showing the active stage stream, running agents, scheduled checks, and artifacts."></canvas>
+      <div id="next-bar" class="scene-next hidden" aria-label="Current stage summary" data-testid="timeline-next"></div>
+      <p id="scene-fallback" class="scene-fallback hidden">3D view unavailable in this viewer.</p>
+      <div id="scene-stages" class="scene-stages" data-testid="scene-stages"></div>
+    </section>
+
+    <div id="focus-strip" class="focus-strip" role="group" aria-label="Focus the 3D view" data-testid="focus-strip"></div>
+
+    <main class="main">
+      <ol id="timeline" class="timeline" aria-label="AStack engineering workflow timeline" data-testid="timeline-list"></ol>
+    </main>
+
+    <div class="bottom-dock">
+      <form id="btw-form" class="askbar" data-testid="btw-form">
+        <span id="askbar-icon" class="askbar-icon" aria-hidden="true"></span>
+        <label for="astk-btw" class="sr-only">Side question</label>
+        <input id="astk-btw" type="text" autocomplete="off" placeholder="Ask a side question without interrupting the agents">
+        <button id="btw-submit" type="submit" class="btw-submit" data-testid="btw-submit">/btw</button>
+      </form>
+      <footer id="panel-footer" class="panel-footer" data-testid="timeline-footer"></footer>
     </div>
-    <div id="meta-row" class="meta-row hidden" data-testid="timeline-meta"></div>
-    <div id="setup-drawer" class="setup-drawer hidden" data-testid="timeline-setup-drawer"></div>
-  </header>
+  </div>
 
-  <main class="main">
-    <section id="setup-card" class="setup-card hidden" aria-label="First-time repository setup" data-testid="timeline-setup"></section>
-    <section id="next-bar" class="next-bar hidden" aria-label="Recommended next command" data-testid="timeline-next"></section>
-    <ol id="timeline" class="timeline" aria-label="AStack engineering workflow timeline" data-testid="timeline-list"></ol>
-  </main>
-
-  <footer id="panel-footer" class="panel-footer" data-testid="timeline-footer"></footer>
+  <div id="delegate-view" class="panel-view delegate-view hidden" aria-hidden="true" data-testid="delegate-view"></div>
 
   <div id="cmd-popover" class="cmd-popover hidden" role="tooltip" data-testid="cmd-popover"></div>
   <div id="toast" class="toast" role="status" aria-live="polite" data-testid="timeline-toast"></div>
+  <script src="/vendor/three.min.js"></script>
+  <script src="/scene-3d.js"></script>
+  <script src="/catalog.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
