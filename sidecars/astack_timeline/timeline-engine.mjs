@@ -1192,12 +1192,7 @@ function selectNextAction(stepViews, setupState) {
     };
   }
   if (ship.status === "done" || stepViews.every((s) => s.status === "done" || s.status === "skipped")) {
-    return {
-      stageId: "ship",
-      stageLabel: "Ship",
-      command: "/astack-mode open the pr",
-      hint: "All workflow steps completed.",
-    };
+    return null;
   }
   return {
     stageId: "plan",

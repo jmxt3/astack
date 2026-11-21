@@ -763,3 +763,90 @@ test("timeline-engine ignores slash command questions in plain prose", () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("evaluateTimelineSnapshot hides nextAction once all workflow stages are accomplished", () => {
+  const { root, brainDir, workspaceDir } = makeFixture();
+  const convId = "conv-all-done";
+  try {
+    const headSha = "abcdef0123456789abcdef0123456789abcdef01";
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+    writeText(path.join(brainDir, convId, "implementation_plan.md"), "# Plan\n");
+    writeText(path.join(brainDir, convId, "walkthrough.md"), "# Walkthrough\n");
+    writeText(path.join(brainDir, convId, "pr-review.md"), "# PR Review\n");
+    writeText(
+      path.join(brainDir, convId, "astack-trust", "evidence.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha,
+        freshness: "fresh",
+        riskTier: 0,
+        riskLabel: "low",
+        reviewRound: 1,
+        maxReviewRounds: 3,
+        roundState: "verified",
+        autoMergeEligible: true,
+        verifier: { verdict: "PASS" },
+      }),
+    );
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:00:00Z",
+        content: "<USER_REQUEST>/plan build widget</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:00:05Z",
+        content: "Proceed",
+      },
+      {
+        step_index: 2,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-20T10:00:10Z",
+        tool_calls: [
+          { name: "edit_file", args: { Path: path.join(workspaceDir, "src", "widget.js") } },
+          { name: "run_command", args: { CommandLine: "npm test" } },
+          { name: "run_command", args: { CommandLine: "gh pr create --fill" } },
+        ],
+      },
+    ]);
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:00:08Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "other",
+        headSha,
+        ok: true,
+        summary: "edit_file src/widget.js",
+        paths: ["src/widget.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:00:15Z",
+        conversationId: convId,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "npm test",
+        paths: [],
+      },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.deepEqual(
+      snap.stages.map((s) => s.status),
+      ["done", "done", "done", "done"],
+    );
+    assert.equal(snap.nextAction, null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

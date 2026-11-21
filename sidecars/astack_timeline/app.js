@@ -1274,7 +1274,7 @@
     };
     const helpChip = buildCommandChip(helpMeta);
     const refLink = el("a", "footer-link");
-    refLink.href = `${DOCS_URL_PREFIX}blob/main/docs/agent-timeline.md`;
+    refLink.href = `${DOCS_URL_PREFIX}blob/main/docs/user-guide.md`;
     refLink.target = "_blank";
     refLink.rel = "noopener noreferrer";
     refLink.appendChild(el("span", "", "Full timeline reference"));
