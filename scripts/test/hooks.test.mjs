@@ -52,7 +52,7 @@ test("hooks.json uses split defaults (3 passive enabled, 6 blocking opt-in) and 
   assert.ok(Array.isArray(cfg["astack-receipt-ledger"]?.PostToolUse));
   assert.ok(Array.isArray(cfg["astack-session-context"]?.SessionStart));
   assert.ok(Array.isArray(cfg["astack-pr-intent"]?.PreInvocation));
-  assert.equal(cfg["astack-receipt-ledger"].PostToolUse[0]?.matcher, TOOL_MATCHERS.secretGuard);
+  assert.equal(cfg["astack-receipt-ledger"].PostToolUse[0]?.matcher, TOOL_MATCHERS.receiptLedger);
 
   for (const key of [
     "astack-irreversible-guard",
@@ -119,14 +119,22 @@ test("irreversible-guard allows safe commands and flags destructive/trunk comman
   }
 });
 
-test("verify-reminder supports both Antigravity Stop payloads and legacy NO_TOOL_CALL/cwd", () => {
+test("verify-reminder backs Stop hook with ledger freshness, executionNum cap, and ASTACK_REQUIRE_VERIFY=0 override", () => {
   const tmp = makeTempGitRepo();
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-stop-art-"));
+  const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: tmp, encoding: "utf8" }).trim();
   try {
     assert.deepEqual(
       runHook(
         stopScript,
-        JSON.stringify({ workspacePaths: [tmp], continuationActive: false, terminationReason: "model_stop", fullyIdle: true }),
-        { ASTACK_REQUIRE_VERIFY: "1" },
+        JSON.stringify({
+          conversationId: "stop-1",
+          workspacePaths: [tmp],
+          artifactDirectoryPath: artifactDir,
+          continuationActive: false,
+          terminationReason: "model_stop",
+          fullyIdle: true,
+        }),
       ),
       { decision: "allow" },
     );
@@ -135,23 +143,90 @@ test("verify-reminder supports both Antigravity Stop payloads and legacy NO_TOOL
 
     const antigravityCont = runHook(
       stopScript,
-      JSON.stringify({ workspacePaths: [tmp], continuationActive: false, terminationReason: "model_stop", fullyIdle: true }),
-      { ASTACK_REQUIRE_VERIFY: "1" },
+      JSON.stringify({
+        conversationId: "stop-1",
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        continuationActive: false,
+        terminationReason: "model_stop",
+        fullyIdle: true,
+        executionNum: 0,
+      }),
     );
     assert.equal(antigravityCont.decision, "continue");
 
     const legacyCont = runHook(
       stopScript,
       JSON.stringify({ cwd: tmp, continuationActive: false, terminationReason: "NO_TOOL_CALL" }),
-      { ASTACK_REQUIRE_VERIFY: "1" },
     );
     assert.equal(legacyCont.decision, "continue");
 
     assert.deepEqual(
       runHook(
         stopScript,
-        JSON.stringify({ workspacePaths: [tmp], continuationActive: false, terminationReason: "model_stop", fullyIdle: false }),
-        { ASTACK_REQUIRE_VERIFY: "1" },
+        JSON.stringify({ workspacePaths: [tmp], continuationActive: false, terminationReason: "model_stop", fullyIdle: true }),
+        { ASTACK_REQUIRE_VERIFY: "0" },
+      ),
+      { decision: "allow" },
+    );
+
+    assert.deepEqual(
+      runHook(
+        stopScript,
+        JSON.stringify({
+          workspacePaths: [tmp],
+          continuationActive: false,
+          terminationReason: "model_stop",
+          fullyIdle: true,
+          executionNum: 3,
+        }),
+      ),
+      { decision: "allow" },
+    );
+
+    execFileSync("git", ["add", "app.js"], { cwd: tmp, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "update app"], { cwd: tmp, stdio: "ignore" });
+    const committedSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: tmp, encoding: "utf8" }).trim();
+    recordReceipt(
+      { kind: "tool-write", conversationId: "stop-1", tool: "edit_file", filePath: "app.js", workspaceDir: tmp, artifactDir },
+      { headSha: committedSha, now: "2026-11-21T10:00:00Z" },
+    );
+    const committedUnverified = runHook(
+      stopScript,
+      JSON.stringify({
+        conversationId: "stop-1",
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        continuationActive: false,
+        terminationReason: "model_stop",
+        fullyIdle: true,
+      }),
+    );
+    assert.equal(committedUnverified.decision, "continue");
+
+    recordReceipt(
+      { kind: "tool-command", conversationId: "stop-1", command: "node --test", error: "", workspaceDir: tmp, artifactDir, modelName: "gemini-4-neon" },
+      { headSha: committedSha, now: "2026-11-21T10:01:00Z" },
+    );
+    assert.deepEqual(
+      runHook(
+        stopScript,
+        JSON.stringify({
+          conversationId: "stop-1",
+          workspacePaths: [tmp],
+          artifactDirectoryPath: artifactDir,
+          continuationActive: false,
+          terminationReason: "model_stop",
+          fullyIdle: true,
+        }),
+      ),
+      { decision: "allow" },
+    );
+
+    assert.deepEqual(
+      runHook(
+        stopScript,
+        JSON.stringify({ workspacePaths: [tmp], continuationActive: false, terminationReason: "model_stop", fullyIdle: false, headSha }),
       ),
       { decision: "allow" },
     );
@@ -160,12 +235,12 @@ test("verify-reminder supports both Antigravity Stop payloads and legacy NO_TOOL
       runHook(
         stopScript,
         JSON.stringify({ workspacePaths: [tmp], continuationActive: true, terminationReason: "model_stop", fullyIdle: true }),
-        { ASTACK_REQUIRE_VERIFY: "1" },
       ),
       { decision: "allow" },
     );
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
   }
 });
 
@@ -241,6 +316,7 @@ test("receipt-ledger and session-context passive hooks return {} / base-branch i
       receiptScript,
       JSON.stringify({
         conversationId: "s-1",
+        modelName: "gemini-4-hydrogen",
         workspacePaths: [tmp],
         artifactDirectoryPath: artifactDir,
         toolCall: { name: "run_command", args: { CommandLine: "node --test" } },
@@ -248,9 +324,36 @@ test("receipt-ledger and session-context passive hooks return {} / base-branch i
       }),
     );
     assert.deepEqual(postOut, {});
+    const subOut = runHook(
+      receiptScript,
+      JSON.stringify({
+        conversationId: "s-1",
+        modelName: "gemini-4-neon",
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        toolCall: { name: "invoke_subagent", args: { TypeName: "research", Role: "Codebase Reader" } },
+        error: "",
+      }),
+    );
+    assert.deepEqual(subOut, {});
+    const wfOut = runHook(
+      receiptScript,
+      JSON.stringify({
+        conversationId: "s-1",
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        toolCall: { name: "run_workflow", args: { Description: "Fanout audit", ScriptPath: "scripts/wf.py" } },
+        error: "",
+      }),
+    );
+    assert.deepEqual(wfOut, {});
     const receiptPath = path.join(artifactDir, "astack-trust", "receipts.s-1.jsonl");
     assert.equal(fs.existsSync(receiptPath), true);
-    assert.match(fs.readFileSync(receiptPath, "utf8"), /"category":"test"/);
+    const receiptRaw = fs.readFileSync(receiptPath, "utf8");
+    assert.match(receiptRaw, /"category":"test"/);
+    assert.match(receiptRaw, /"modelName":"gemini-4-hydrogen"/);
+    assert.match(receiptRaw, /"kind":"subagent"/);
+    assert.match(receiptRaw, /"kind":"workflow"/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -377,7 +480,9 @@ test("pr-intent PreInvocation injects PR proof workflow once per prompt and igno
     });
     const first = runHook(prIntentScript, prPayload);
     assert.ok(Array.isArray(first.injectSteps));
-    const injected = first.injectSteps[0].systemMessage.systemMessage;
+    const injected = first.injectSteps[0].ephemeralMessage;
+    assert.equal(typeof injected, "string");
+    assert.equal(first.injectSteps[0].systemMessage, undefined);
     assert.match(injected, /pr-dossier\.mjs --format github/);
     assert.match(injected, /--artifact-dir/);
 
