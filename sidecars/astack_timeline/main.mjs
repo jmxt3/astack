@@ -1,20 +1,36 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { evaluateTimelineSnapshot } from "./timeline-engine.mjs";
+import { COMMAND_DOCS, DELEGATE_GUIDE_DATA } from "./command-catalog.mjs";
+import { evaluateTimelineSnapshot, resolveSafeArtifactUri } from "./timeline-engine.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STRICT_ID_RE = /^[0-9a-f-]{8,}$/i;
 const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,79}$/;
+const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024;
+const ARTIFACT_MIME_TYPES = new Map([
+  [".md", "text/markdown; charset=utf-8"],
+  [".txt", "text/plain; charset=utf-8"],
+  [".html", "text/html; charset=utf-8"],
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".webp", "image/webp"],
+  [".svg", "image/svg+xml"],
+  [".pdf", "application/pdf"],
+]);
 
 const STATIC_ASSETS = new Map([
   ["/", { file: "index.html", type: "text/html; charset=utf-8" }],
   ["/styles.css", { file: "styles.css", type: "text/css; charset=utf-8" }],
+  ["/vendor/three.min.js", { file: "vendor/three.min.js", type: "application/javascript; charset=utf-8" }],
+  ["/scene-3d.js", { file: "scene-3d.js", type: "application/javascript; charset=utf-8" }],
   ["/app.js", { file: "app.js", type: "application/javascript; charset=utf-8" }],
 ]);
 
@@ -93,29 +109,28 @@ function resolveWorkspaceUriInput(rawUri) {
   return "";
 }
 
-function makeWorkspaceResolver({ explicitWorkspace = "", resolveWorkspaceFn = null } = {}) {
+function makeWorkspaceResolver({ explicitWorkspace = "" } = {}) {
   const cache = new Map();
   return async (convId, workspaceUri = "") => {
     if (explicitWorkspace) return path.resolve(explicitWorkspace);
     if (convId) {
-      if (resolveWorkspaceFn) {
-        const dir = (await resolveWorkspaceFn(convId)) || "";
-        if (dir) return dir;
-      } else {
-        let pending = cache.get(convId);
-        if (!pending) {
-          pending = fetchWorkspaceFromAgentApi(convId).then((dir) => {
-            if (!dir) cache.delete(convId);
-            return dir;
-          });
-          cache.set(convId, pending);
-        }
-        const dir = await pending;
-        if (dir) return dir;
+      let pending = cache.get(convId);
+      if (!pending) {
+        pending = fetchWorkspaceFromAgentApi(convId).then((dir) => {
+          if (!dir) cache.delete(convId);
+          return dir;
+        });
+        cache.set(convId, pending);
       }
+      const dir = await pending;
+      if (dir) return dir;
     }
     return resolveWorkspaceUriInput(workspaceUri) || process.env.ANTIGRAVITY_WORKSPACE_DIR || "";
   };
+}
+
+function readStaticAsset(asset) {
+  return fs.readFileSync(path.join(__dirname, ...asset.file.split("/")), "utf8");
 }
 
 function buildStandalonePreloadScript(defaultConvId) {
@@ -124,42 +139,35 @@ function buildStandalonePreloadScript(defaultConvId) {
   const dark = params.get("theme") === "dark" || (params.get("theme") !== "light" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const root = document.documentElement.style;
   if (dark) {
-    root.setProperty("--background", "#181a1d");
-    root.setProperty("--card", "#1e2024");
-    root.setProperty("--secondary", "#26292e");
-    root.setProperty("--foreground", "#e6e8eb");
-    root.setProperty("--secondary-foreground", "#c9ced4");
-    root.setProperty("--muted-foreground", "#9aa2ac");
-    root.setProperty("--placeholder", "#6e7680");
-    root.setProperty("--border", "rgba(255, 255, 255, 0.1)");
-    root.setProperty("--card-border", "rgba(255, 255, 255, 0.12)");
-    root.setProperty("--primary", "#4daafc");
-    root.setProperty("--primary-foreground", "#0b141d");
+    root.setProperty("--background", "#0b0b0c");
+    root.setProperty("--card", "#141416");
+    root.setProperty("--foreground", "#e8e8ea");
+    root.setProperty("--muted-foreground", "#9ba1a6");
+    root.setProperty("--border", "rgba(255, 255, 255, 0.08)");
+    root.setProperty("--primary", "#5aa2ff");
     root.setProperty("--error", "#f06b6b");
   } else {
     root.setProperty("--background", "#f7f7f8");
     root.setProperty("--card", "#ffffff");
-    root.setProperty("--secondary", "#e6e7e9");
     root.setProperty("--foreground", "#1d1f21");
-    root.setProperty("--secondary-foreground", "#3d4348");
     root.setProperty("--muted-foreground", "#5d676f");
-    root.setProperty("--placeholder", "#9da5ab");
     root.setProperty("--border", "rgba(0, 0, 0, 0.08)");
-    root.setProperty("--card-border", "rgba(0, 0, 0, 0.1)");
-    root.setProperty("--primary", "#007acc");
-    root.setProperty("--primary-foreground", "#ffffff");
-    root.setProperty("--error", "#cb3d3d");
+    root.setProperty("--primary", "#0068b8");
+    root.setProperty("--error", "#c43030");
   }
   window.sidecar = {
+    standalone: true,
     conversationId: params.get("conversationId") || ${JSON.stringify(defaultConvId || "")},
-    fetch: (url, init) => fetch(url, init),
     getWorkspaceUris: async () => {
       const w = params.get("workspaceUri");
       return w ? [w] : [];
     },
-    onWorkspaceChange: () => () => {},
   };
 })();\n`;
+}
+
+function buildCatalogScript() {
+  return `window.ASTACK_CATALOG = ${JSON.stringify({ delegateGuide: DELEGATE_GUIDE_DATA, commandDocs: COMMAND_DOCS })};\n`;
 }
 
 function createTimelineResponder({
@@ -183,6 +191,70 @@ function createTimelineResponder({
   };
 }
 
+function artifactJson(status, payload) {
+  return {
+    status,
+    contentType: "application/json; charset=utf-8",
+    headers: { "Cache-Control": "no-store" },
+    body: JSON.stringify(payload),
+  };
+}
+
+function createArtifactResponder({
+  brainDir,
+  defaultConversationId = "",
+  allowFixtureIds = false,
+}) {
+  return async ({ conversationId = "", name = "", raw = false } = {}) => {
+    const rawConv = String(conversationId || defaultConversationId || "").trim();
+    const rawName = String(name || "").trim();
+    if (!rawConv || !isValidConversationId(rawConv, allowFixtureIds)) {
+      return artifactJson(400, { error: "Invalid conversationId" });
+    }
+    if (!rawName || /[\\/%:\0]/.test(rawName) || rawName === "." || rawName === "..") {
+      return artifactJson(400, { error: "Invalid artifact name" });
+    }
+    const ext = path.extname(rawName).toLowerCase();
+    const mimeType = ARTIFACT_MIME_TYPES.get(ext);
+    if (!mimeType) {
+      return artifactJson(403, { error: "Unsupported artifact type" });
+    }
+    const uri = resolveSafeArtifactUri(path.join(brainDir, rawConv), rawName);
+    if (!uri) {
+      return artifactJson(404, { error: "Artifact not found" });
+    }
+    let filePath = "";
+    try {
+      filePath = fileURLToPath(uri);
+      const st = fs.statSync(filePath);
+      if (st.size > MAX_ARTIFACT_BYTES) {
+        return artifactJson(413, { error: "Artifact exceeds size limit" });
+      }
+      if (raw) {
+        const headers = { "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store" };
+        if (ext === ".svg" || ext === ".html") {
+          headers["Content-Security-Policy"] = "sandbox";
+        }
+        return { status: 200, contentType: mimeType, headers, body: fs.readFileSync(filePath) };
+      }
+      if (ext === ".md" || ext === ".txt" || ext === ".html") {
+        return artifactJson(200, {
+          name: rawName,
+          kind: ext === ".md" ? "markdown" : "text",
+          mimeType,
+          content: fs.readFileSync(filePath, "utf8"),
+        });
+      }
+      if (ext === ".pdf") {
+        return artifactJson(200, { name: rawName, kind: "pdf", mimeType });
+      }
+      return artifactJson(200, { name: rawName, kind: "image", mimeType });
+    } catch {
+      return artifactJson(404, { error: "Artifact not found" });
+    }
+  };
+}
+
 function isTokenAuthorized(req, url, expectedToken) {
   if (!expectedToken) return true;
   const headerToken = req.headers["x-sidecar-token"];
@@ -190,6 +262,32 @@ function isTokenAuthorized(req, url, expectedToken) {
   const auth = req.headers.authorization;
   if (typeof auth === "string" && auth === `Bearer ${expectedToken}`) return true;
   return url.searchParams.get("token") === expectedToken;
+}
+
+function isLoopbackHostHeader(hostHeader, boundPort) {
+  if (typeof hostHeader !== "string") return false;
+  const raw = hostHeader.trim();
+  if (!raw || /[\s@\\/?#]/.test(raw)) return false;
+  let parsed;
+  try {
+    parsed = new URL(`http://${raw}`);
+  } catch {
+    return false;
+  }
+  if (parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) {
+    return false;
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname !== "127.0.0.1" && hostname !== "localhost" && hostname !== "[::1]") {
+    return false;
+  }
+  if (!parsed.port) return boundPort === 80;
+  return Number(parsed.port) === boundPort;
+}
+
+function writeJsonResponse(res, status, payload, isHead = false) {
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+  res.end(isHead ? "" : JSON.stringify(payload));
 }
 
 /**
@@ -202,7 +300,6 @@ export async function createTimelineServer(options = {}) {
   const token = options.token ?? process.env.ANTIGRAVITY_SIDECAR_UI_TOKEN ?? "";
   const workspaceResolver = makeWorkspaceResolver({
     explicitWorkspace: options.workspaceDir || "",
-    resolveWorkspaceFn: options.resolveWorkspaceFn ?? null,
   });
   const respondTimeline = createTimelineResponder({
     brainDir,
@@ -210,34 +307,61 @@ export async function createTimelineServer(options = {}) {
     allowFixtureIds,
     workspaceResolver,
   });
+  const respondArtifact = createArtifactResponder({
+    brainDir,
+    defaultConversationId: defaultConvId,
+    allowFixtureIds,
+  });
+
+  const requestedPort = Number.isFinite(options.port) ? options.port : 0;
 
   const server = http.createServer(async (req, res) => {
-    const reqUrl = new URL(req.url || "/", "http://127.0.0.1");
-    if (req.method !== "GET" && req.method !== "HEAD") {
-      res.writeHead(405, { "Content-Type": "application/json; charset=utf-8" });
-      res.end(JSON.stringify({ error: "Method not allowed" }));
+    const isHead = req.method === "HEAD";
+    const addr = server.address();
+    const activePort = typeof addr === "object" && addr ? addr.port : requestedPort;
+    if (!isLoopbackHostHeader(req.headers.host, activePort)) {
+      writeJsonResponse(res, 403, { error: "Forbidden host" }, isHead);
+      return;
+    }
+
+    let reqUrl;
+    try {
+      reqUrl = new URL(req.url || "/", "http://127.0.0.1");
+    } catch {
+      writeJsonResponse(res, 400, { error: "Bad request" }, isHead);
+      return;
+    }
+
+    if (req.method !== "GET" && !isHead) {
+      writeJsonResponse(res, 405, { error: "Method not allowed" }, isHead);
       return;
     }
 
     const staticAsset = STATIC_ASSETS.get(reqUrl.pathname);
     if (staticAsset) {
-      const body = fs.readFileSync(path.join(__dirname, staticAsset.file), "utf8");
+      const body = readStaticAsset(staticAsset);
       res.writeHead(200, { "Content-Type": staticAsset.type, "Cache-Control": "no-store" });
-      res.end(req.method === "HEAD" ? "" : body);
+      res.end(isHead ? "" : body);
       return;
     }
 
     if (reqUrl.pathname === "/preload.js") {
       const preload = buildStandalonePreloadScript(defaultConvId);
       res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" });
-      res.end(req.method === "HEAD" ? "" : preload);
+      res.end(isHead ? "" : preload);
+      return;
+    }
+
+    if (reqUrl.pathname === "/catalog.js") {
+      const catalogJs = buildCatalogScript();
+      res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(isHead ? "" : catalogJs);
       return;
     }
 
     if (reqUrl.pathname === "/api/timeline") {
       if (!isTokenAuthorized(req, reqUrl, token)) {
-        res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
-        res.end(JSON.stringify({ error: "Unauthorized" }));
+        writeJsonResponse(res, 401, { error: "Unauthorized" }, isHead);
         return;
       }
       const { status, body } = await respondTimeline({
@@ -245,16 +369,28 @@ export async function createTimelineServer(options = {}) {
         etag: reqUrl.searchParams.get("etag") ?? "",
         workspaceUri: reqUrl.searchParams.get("workspaceUri") ?? "",
       });
-      res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
-      res.end(req.method === "HEAD" ? "" : JSON.stringify(body));
+      writeJsonResponse(res, status, body, isHead);
       return;
     }
 
-    res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
-    res.end(JSON.stringify({ error: "Not found" }));
+    if (reqUrl.pathname === "/api/artifact") {
+      if (!isTokenAuthorized(req, reqUrl, token)) {
+        writeJsonResponse(res, 401, { error: "Unauthorized" }, isHead);
+        return;
+      }
+      const artRes = await respondArtifact({
+        conversationId: reqUrl.searchParams.get("conversationId") ?? "",
+        name: reqUrl.searchParams.get("name") ?? "",
+        raw: reqUrl.searchParams.get("raw") === "1",
+      });
+      res.writeHead(artRes.status, { "Content-Type": artRes.contentType, ...artRes.headers });
+      res.end(isHead ? "" : artRes.body);
+      return;
+    }
+
+    writeJsonResponse(res, 404, { error: "Not found" }, isHead);
   });
 
-  const requestedPort = Number.isFinite(options.port) ? options.port : 0;
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(requestedPort, "127.0.0.1", resolve);
@@ -275,23 +411,38 @@ export async function createTimelineServer(options = {}) {
 export async function startTimelineSidecar(options = {}) {
   if (!options.standalone) {
     try {
-      const { SidecarApp, Response } = await import("sidecar_sdk");
+      const { SidecarApp, Response } = options.sdk || (await import("sidecar_sdk"));
       const app = new SidecarApp();
       const brainDir = resolveBrainDir(options.brainDir);
       const workspaceResolver = makeWorkspaceResolver({ explicitWorkspace: options.workspaceDir || "" });
+      const defaultConversationId = String(app.config?.conversationId ?? options.conversationId ?? "");
+      const allowFixtureIds = Boolean(options.allowFixtureIds);
       const respondTimeline = createTimelineResponder({
         brainDir,
-        defaultConversationId: String(app.config?.conversationId ?? options.conversationId ?? ""),
-        allowFixtureIds: Boolean(options.allowFixtureIds),
+        defaultConversationId,
+        allowFixtureIds,
         workspaceResolver,
       });
+      const respondArtifact = createArtifactResponder({
+        brainDir,
+        defaultConversationId,
+        allowFixtureIds,
+      });
 
-      app.page("/", () => fs.readFileSync(path.join(__dirname, "index.html"), "utf8"));
-      app.api("/styles.css", () => new Response(fs.readFileSync(path.join(__dirname, "styles.css"), "utf8"), { contentType: "text/css; charset=utf-8" }), "GET");
-      app.api("/app.js", () => new Response(fs.readFileSync(path.join(__dirname, "app.js"), "utf8"), { contentType: "application/javascript; charset=utf-8" }), "GET");
+      const rootAsset = STATIC_ASSETS.get("/");
+      app.page("/", () => readStaticAsset(rootAsset));
+      for (const [assetPath, asset] of STATIC_ASSETS.entries()) {
+        if (assetPath === "/") continue;
+        app.api(assetPath, () => new Response(readStaticAsset(asset), { contentType: asset.type }), "GET");
+      }
+      app.api(
+        "/catalog.js",
+        () => new Response(buildCatalogScript(), { contentType: "application/javascript; charset=utf-8" }),
+        "GET",
+      );
       app.api("/api/timeline", async (data) => {
         const res = await respondTimeline({
-          conversationId: data?.conversationId ?? app.config?.conversationId ?? "",
+          conversationId: data?.conversationId ?? "",
           etag: data?.etag ?? "",
           workspaceUri: data?.workspaceUri ?? "",
         });
@@ -299,7 +450,19 @@ export async function startTimelineSidecar(options = {}) {
           status: res.status,
           contentType: "application/json; charset=utf-8",
         });
-      }, "GET");
+      }, "POST");
+      app.api("/api/artifact", async (data) => {
+        const artRes = await respondArtifact({
+          conversationId: data?.conversationId ?? "",
+          name: data?.name ?? "",
+          raw: data?.raw === "1" || data?.raw === true,
+        });
+        return new Response(artRes.body, {
+          status: artRes.status,
+          contentType: artRes.contentType,
+          headers: artRes.headers,
+        });
+      }, "POST");
 
       await app.run();
       return { mode: "sidecar_sdk", close: async () => {} };
@@ -333,16 +496,18 @@ function main() {
   }
 
   const parsedPort = values.port !== undefined ? Number.parseInt(values.port, 10) : undefined;
+  const cliToken = process.env.ANTIGRAVITY_SIDECAR_UI_TOKEN || crypto.randomBytes(24).toString("hex");
   startTimelineSidecar({
     port: Number.isFinite(parsedPort) ? parsedPort : undefined,
     workspaceDir: values.workspace || "",
     brainDir: values["brain-dir"] || "",
     conversationId: values.conversation || "",
+    token: cliToken,
     standalone: values.standalone,
     allowFixtureIds: values["allow-fixture-ids"],
   }).then((started) => {
     if (started.mode === "standalone") {
-      process.stdout.write(`AStack Timeline listening at ${started.url}\n`);
+      process.stdout.write(`AStack Timeline listening at ${started.url}?token=${cliToken}\n`);
     }
   });
 }

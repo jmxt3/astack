@@ -251,6 +251,161 @@ function extractLeadingSlashCommands(rawContent) {
   return [...match[1].matchAll(/\/([a-z0-9_-]+)/gi)].map((m) => `/${m[1].toLowerCase()}`);
 }
 
+function summarizeText(raw, maxLen = 72) {
+  const firstLine = String(raw ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!firstLine) return "";
+  return firstLine.length > maxLen ? `${firstLine.slice(0, maxLen - 1)}…` : firstLine;
+}
+
+function formatCadenceLabel(durationSec, cronExpr) {
+  if (cronExpr) {
+    const everyMin = String(cronExpr).match(/^\*\/(\d+)\s+\*\s+\*\s+\*\s+\*$/);
+    if (everyMin) return `every ${everyMin[1]} min`;
+    return String(cronExpr).trim();
+  }
+  const sec = Number(durationSec);
+  if (!Number.isFinite(sec) || sec <= 0) return "scheduled";
+  if (sec >= 60 && sec % 60 === 0) return `every ${sec / 60} min`;
+  return `in ${Math.round(sec)}s`;
+}
+
+function computeScheduleNextAt(marker, durationSec, cronExpr) {
+  if (!marker?.tsMs) return null;
+  let deltaMs = 0;
+  const sec = Number(durationSec);
+  if (Number.isFinite(sec) && sec > 0) {
+    deltaMs = sec * 1000;
+  } else if (cronExpr) {
+    const everyMin = String(cronExpr).match(/^\*\/(\d+)\s+\*\s+\*\s+\*\s+\*$/);
+    if (everyMin) deltaMs = Number(everyMin[1]) * 60000;
+  }
+  return deltaMs > 0 ? new Date(marker.tsMs + deltaMs).toISOString() : null;
+}
+
+function parseIntArg(val) {
+  const n = Number.parseInt(String(val ?? "").replace(/[^0-9-]/g, ""), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseBoolArg(val) {
+  if (typeof val === "boolean") return val;
+  return String(val ?? "").trim().toLowerCase() === "true";
+}
+
+function parseStringArrayArg(val) {
+  if (Array.isArray(val)) return val.map((x) => unquoteArg(x)).filter(Boolean);
+  if (typeof val === "string" && val.trim().startsWith("[")) {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed.map((x) => String(x)).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function extractPrReference(text) {
+  const str = String(text ?? "");
+  const urlMatch = str.match(/https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/(\d+)/i);
+  if (urlMatch) {
+    return { number: Number.parseInt(urlMatch[1], 10), url: urlMatch[0] };
+  }
+  const flagMatch = str.match(/watch-pr\.mjs[^\r\n]*--pr\s+(\d+)/i);
+  if (flagMatch) {
+    return { number: Number.parseInt(flagMatch[1], 10), url: null };
+  }
+  return null;
+}
+
+function classifySwarmRole(name, brief) {
+  const combined = `${name} ${brief}`;
+  if (/\bverifier\b|@verifier/i.test(combined)) return "verifier";
+  if (/\bmonitor\b|@monitor/i.test(combined)) return "monitor";
+  return "worker";
+}
+
+function isChildTranscriptFinished(brainDir, childConvId) {
+  if (!brainDir || !childConvId) return null;
+  const childTranscript = path.join(brainDir, childConvId, ".system_generated", "logs", "transcript.jsonl");
+  if (!fs.existsSync(childTranscript)) return null;
+  try {
+    const lines = fs.readFileSync(childTranscript, "utf8").split(/\r?\n/);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const raw = lines[i].trim();
+      if (!raw) continue;
+      let step;
+      try {
+        step = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+      if (!step || typeof step !== "object") continue;
+      if (step.type === "PLANNER_RESPONSE") {
+        const hasTools = Array.isArray(step.tool_calls) && step.tool_calls.length > 0;
+        if (step.status === "DONE" && !hasTools) {
+          return step.created_at || true;
+        }
+        return false;
+      }
+      if (step.status === "RUNNING") return false;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+const EXTRA_ARTIFACT_SKIP = new Set([
+  "implementation_plan.md",
+  "walkthrough.md",
+  "pr-review.md",
+  "task.md",
+  "decisions.tsv",
+]);
+
+function formatArtifactLabel(filename) {
+  const stem = filename.replace(/\.[^.]+$/, "");
+  return stem
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function collectExtraBrainArtifacts(brainConvDir) {
+  if (!brainConvDir || !fs.existsSync(brainConvDir)) return [];
+  const out = [];
+  let entries = [];
+  try {
+    entries = fs.readdirSync(brainConvDir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  const names = entries
+    .filter((e) => e.isFile() && !e.name.startsWith(".") && !EXTRA_ARTIFACT_SKIP.has(e.name) && /\.(?:md|png|svg|html|pdf)$/i.test(e.name))
+    .map((e) => e.name)
+    .sort();
+  for (const name of names) {
+    const uri = resolveSafeArtifactUri(brainConvDir, name);
+    if (!uri) continue;
+    out.push({
+      id: `extra-${name}`,
+      key: name,
+      name,
+      label: formatArtifactLabel(name),
+      uri,
+      status: "done",
+      badge: "",
+      kind: "file",
+    });
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
 const BRAIN_OR_GENERATED_RE = /(?:^|\/)(?:\.gemini\/antigravity(?:-cli)?\/brain|\.system_generated)(?:\/|$)/i;
 const LOCAL_ARTIFACT_RE = /(?:^|\/)(?:\.system_generated|\.gemini)(?:\/|$)/i;
 
@@ -272,7 +427,7 @@ function isWorkspaceFileTarget(rawPath, workspaceDir, brainConvDir) {
   return !path.isAbsolute(rawPath) && norm !== ".." && !norm.startsWith("../") && !LOCAL_ARTIFACT_RE.test(norm);
 }
 
-function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
+function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir = "") {
   const sig = {
     startedAt: null,
     childConvIds: new Set(),
@@ -295,11 +450,29 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
     openPrAt: null,
     pushOrPrAt: null,
     babysitAt: null,
+    goal: { detected: false, active: false, completed: false, startedAt: null, predicate: "" },
+    boost: { detected: false, active: false },
+    teamwork: { detected: false, active: false },
+    swarm: { active: false, title: "", posts: 0, members: [], sparks: [] },
+    subagents: [],
+    schedules: [],
+    automations: [],
+    workflow: { active: false, runsCount: 0 },
+    backgroundJobs: [],
+    sideQuestionsCount: 0,
+    changedFiles: new Set(),
+    pr: null,
   };
   if (!transcriptPath || !fs.existsSync(transcriptPath)) return sig;
 
   const lines = fs.readFileSync(transcriptPath, "utf8").split(/\r?\n/);
   const pendingTestCmds = new Map();
+  const pendingSubagentIndices = [];
+  const subagentByConvId = new Map();
+  const pendingScheduleIndices = [];
+  const scheduleTaskMap = new Map();
+  const swarmMemberById = new Map();
+  let pendingWorkflowRun = false;
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i].trim();
@@ -317,8 +490,9 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
     if (!sig.startedAt && marker.ts) sig.startedAt = marker.ts;
 
     if (step.type === "USER_INPUT" || step.source === "USER_EXPLICIT") {
-      const cmds = extractLeadingSlashCommands(step.content);
-      const body = extractRequestBody(step.content).trim();
+      const rawContent = String(step.content ?? "");
+      const cmds = extractLeadingSlashCommands(rawContent);
+      const body = extractRequestBody(rawContent).trim();
       for (const cmd of cmds) {
         if (COMMAND_DOCS[cmd]) sig.detected.add(cmd);
         if (cmd === "/setup-astack") sig.setupAt = latestMarker(sig.setupAt, marker);
@@ -327,6 +501,41 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
         else if (cmd === "/astack-mode") sig.astackModeAt = latestMarker(sig.astackModeAt, marker);
         else if (cmd === "/interrogate") sig.interrogateAt = latestMarker(sig.interrogateAt, marker);
         else if (cmd === "/review-pr") sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
+        else if (cmd === "/boost") {
+          sig.boost.detected = true;
+          sig.boost.active = true;
+        } else if (cmd === "/teamwork") {
+          sig.teamwork.detected = true;
+          sig.teamwork.active = true;
+        } else if (cmd === "/btw") {
+          sig.sideQuestionsCount += 1;
+        } else if (cmd === "/automation" && sig.automations.length === 0) {
+          sig.automations.push({
+            id: "auto-0",
+            label: summarizeText(body.replace(/^\/automation\s*/i, ""), 44) || "Background automation",
+            cadence: "recurring",
+            active: true,
+          });
+        }
+      }
+      const isQuestionBody = /\?\s*$/.test(body);
+      const hasGoalSignal =
+        cmds.includes("/goal") ||
+        /\/goal is a \[Slash Command\]:/i.test(rawContent) ||
+        (!isQuestionBody && /(?:^|\s)\/goal(?:\s|$)/i.test(body));
+      if (hasGoalSignal) {
+        sig.detected.add("/goal");
+        sig.goal.detected = true;
+        sig.goal.active = true;
+        sig.goal.completed = false;
+        if (!sig.goal.startedAt && marker.ts) sig.goal.startedAt = marker.ts;
+        const predMatch = body.match(/\bDone\s+when\s+([^.!?\r\n]+(?:[.!?])?)/i);
+        if (predMatch) {
+          sig.goal.predicate = summarizeText(predMatch[1], 80);
+        } else if (cmds.includes("/goal")) {
+          const rest = body.replace(/^\/goal\s*/i, "").trim();
+          if (rest) sig.goal.predicate = summarizeText(rest, 80);
+        }
       }
       if (cmds.includes("/astack-mode")) {
         if (/\b(?:open\s+(?:the|a)\s+pr|gh\s+pr\s+create)\b/i.test(body)) {
@@ -346,9 +555,53 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
       continue;
     }
 
+    if (step.type === "SYSTEM_MESSAGE" && typeof step.content === "string") {
+      const senderMatch = step.content.match(/\bsender=([^\s\]]+)/i);
+      if (senderMatch) {
+        const sender = senderMatch[1];
+        if (subagentByConvId.has(sender)) {
+          const sa = sig.subagents[subagentByConvId.get(sender)];
+          if (sa && sa.status !== "done") {
+            sa.status = "done";
+            sa.completedAt = marker.ts;
+          }
+        }
+        if (scheduleTaskMap.has(sender)) {
+          const sch = sig.schedules[scheduleTaskMap.get(sender)];
+          if (sch && !sch.cronExpression) {
+            sch.active = false;
+          }
+        }
+      }
+      continue;
+    }
+
     if (step.type === "GENERIC" && typeof step.content === "string") {
+      const prRef = extractPrReference(step.content);
+      if (prRef && (!sig.pr || (!sig.pr.url && prRef.url))) sig.pr = prRef;
+
       for (const m of step.content.matchAll(/"conversationId"\s*:\s*"([0-9a-f-]{8,})"/gi)) {
-        sig.childConvIds.add(m[1]);
+        const cid = m[1];
+        sig.childConvIds.add(cid);
+        if (pendingSubagentIndices.length > 0) {
+          const idx = pendingSubagentIndices.shift();
+          sig.subagents[idx].childConvId = cid;
+          subagentByConvId.set(cid, idx);
+        }
+      }
+      const taskCreated = step.content.match(/task id:\s*([^\s\r\n"']+)/i);
+      if (taskCreated && pendingScheduleIndices.length > 0) {
+        const idx = pendingScheduleIndices.shift();
+        sig.schedules[idx].taskId = taskCreated[1];
+        scheduleTaskMap.set(taskCreated[1], idx);
+      }
+      const taskCancelled = step.content.match(/Task\s+"([^"]+)"\s+(?:was\s+)?cancell?ed/i);
+      if (taskCancelled && scheduleTaskMap.has(taskCancelled[1])) {
+        sig.schedules[scheduleTaskMap.get(taskCancelled[1])].active = false;
+      }
+      if (pendingWorkflowRun && (step.status === "DONE" || step.status === "ERROR")) {
+        sig.workflow.active = false;
+        pendingWorkflowRun = false;
       }
       for (const [cmdOrder, cmdMarker] of pendingTestCmds.entries()) {
         if (order > cmdOrder && order <= cmdOrder + 4) {
@@ -361,7 +614,14 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
       continue;
     }
 
-    if (step.type !== "PLANNER_RESPONSE" || !Array.isArray(step.tool_calls)) continue;
+    if (step.type !== "PLANNER_RESPONSE") continue;
+
+    if (typeof step.content === "string" && /<!--\s*GOAL_(?:COMPLETE|CANCELLED)\s*-->/i.test(step.content)) {
+      sig.goal.active = false;
+      sig.goal.completed = true;
+    }
+
+    if (!Array.isArray(step.tool_calls)) continue;
 
     for (const tc of step.tool_calls) {
       const name = String(tc?.name ?? "");
@@ -373,6 +633,14 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
         if (skillRead) {
           const slug = `/${skillRead[1].toLowerCase()}`;
           if (COMMAND_DOCS[slug]) sig.detected.add(slug);
+          if (slug === "/automation" && sig.automations.length === 0) {
+            sig.automations.push({
+              id: "auto-0",
+              label: "App automation",
+              cadence: "recurring",
+              active: true,
+            });
+          }
         }
         const pbRead = p.match(/\/skills\/astack-mode\/playbooks\/([a-z0-9-]+)\.md$/i);
         if (pbRead) {
@@ -403,6 +671,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
           sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
         } else if (isWorkspaceFileTarget(p, workspaceDir, brainConvDir)) {
           sig.latestWorkspaceWriteAt = latestMarker(sig.latestWorkspaceWriteAt, marker);
+          sig.changedFiles.add(workspaceDir ? normalizePosix(path.relative(path.resolve(workspaceDir), path.resolve(workspaceDir, p))) : p);
           if (!DOC_EXT_RE.test(p)) {
             sig.latestCodeWriteAt = latestMarker(sig.latestCodeWriteAt, marker);
           }
@@ -410,7 +679,9 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
       } else if (name === "ask_question") {
         sig.askQuestionAt = latestMarker(sig.askQuestionAt, marker);
       } else if (name === "invoke_subagent") {
-        const subType = unquoteArg(args.TypeName);
+        const subType = unquoteArg(args.TypeName) || "self";
+        const roleText = unquoteArg(args.Role);
+        const promptText = unquoteArg(args.Prompt);
         if (subType === "comment-sicko") {
           sig.cleanAt = latestMarker(sig.cleanAt, marker);
           sig.detected.add("/no-comments");
@@ -420,9 +691,146 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
         } else if (subType === "browser") {
           sig.verifyRunAt = latestMarker(sig.verifyRunAt, marker);
           sig.detected.add("/control-ui");
+          sig.detected.add("/browser");
+        }
+        const stageId =
+          subType === "pr-verifier"
+            ? "review"
+            : subType === "research" && !sig.latestWorkspaceWriteAt
+              ? "plan"
+              : "build";
+        const entry = {
+          id: `sa-${sig.subagents.length}`,
+          type: subType,
+          role: roleText || subType,
+          task: summarizeText(promptText || roleText || subType, 68),
+          stageId,
+          childConvId: null,
+          startedAt: marker.ts,
+          completedAt: null,
+          status: "running",
+          order,
+        };
+        pendingSubagentIndices.push(sig.subagents.length);
+        sig.subagents.push(entry);
+      } else if (name === "manage_subagents") {
+        const act = unquoteArg(args.Action).toLowerCase();
+        if (act === "kill_all") {
+          for (const sa of sig.subagents) {
+            if (sa.status === "running") {
+              sa.status = "done";
+              sa.completedAt = marker.ts;
+            }
+          }
+        } else if (act === "kill") {
+          for (const cid of parseStringArrayArg(args.ConversationIds)) {
+            if (subagentByConvId.has(cid)) {
+              const sa = sig.subagents[subagentByConvId.get(cid)];
+              if (sa) {
+                sa.status = "done";
+                sa.completedAt = marker.ts;
+              }
+            }
+          }
+        }
+      } else if (name === "swarm") {
+        const action = unquoteArg(args.action).toLowerCase();
+        sig.detected.add("/swarm");
+        if (action === "title") {
+          sig.swarm.title = summarizeText(unquoteArg(args.title), 60);
+          sig.swarm.active = true;
+        } else if (action === "add") {
+          sig.swarm.active = true;
+          const baseName = unquoteArg(args.name) || "worker";
+          const brief = unquoteArg(args.brief);
+          const taskList = parseStringArrayArg(args.tasks);
+          const count = parseIntArg(args.n) ?? 1;
+          const entries = taskList.length > 0
+            ? taskList.map((tItem, idx) => [`${baseName}-${idx + 1}`, `${tItem} ${brief}`.trim()])
+            : count > 1
+              ? Array.from({ length: count }, (_, idx) => [`${baseName}-${idx + 1}`, brief])
+              : [[baseName, brief]];
+          for (const [mName, mBrief] of entries) {
+            const role = classifySwarmRole(mName, mBrief);
+            const member = {
+              id: mName,
+              name: `@${mName}`,
+              role,
+              task: summarizeText(mBrief, 64) || role,
+              status: role === "verifier" || role === "monitor" ? "waiting" : "working",
+            };
+            if (swarmMemberById.has(mName)) {
+              sig.swarm.members[swarmMemberById.get(mName)] = member;
+            } else {
+              swarmMemberById.set(mName, sig.swarm.members.length);
+              sig.swarm.members.push(member);
+            }
+          }
+        } else if (action === "kill") {
+          const targetName = unquoteArg(args.name);
+          if (targetName && swarmMemberById.has(targetName)) {
+            sig.swarm.members[swarmMemberById.get(targetName)].status = "killed";
+          }
+          if (sig.swarm.members.every((m) => m.status === "killed")) {
+            sig.swarm.active = false;
+          }
+        }
+      } else if (name === "post_message") {
+        sig.swarm.posts += 1;
+        const fromId = unquoteArg(args.from) || "coord";
+        const toId = unquoteArg(args.to) || "coord";
+        sig.swarm.sparks.push({ from: fromId, to: toId, ts: marker.ts });
+        if (sig.swarm.sparks.length > 8) sig.swarm.sparks.shift();
+        if (swarmMemberById.has(toId)) {
+          const targetMember = sig.swarm.members[swarmMemberById.get(toId)];
+          if (targetMember && targetMember.status !== "killed") targetMember.status = "working";
+        }
+      } else if (name === "swarm_wait") {
+        for (const m of sig.swarm.members) {
+          if (m.status === "working") m.status = "waiting";
+        }
+      } else if (name === "run_workflow") {
+        sig.detected.add("/run-workflow");
+        sig.workflow.runsCount += 1;
+        sig.workflow.active = true;
+        pendingWorkflowRun = true;
+      } else if (name === "schedule") {
+        sig.detected.add("/schedule");
+        const dur = parseIntArg(args.DurationSeconds);
+        const cron = unquoteArg(args.CronExpression);
+        const promptText = unquoteArg(args.Prompt);
+        const prRef = extractPrReference(promptText);
+        if (prRef && (!sig.pr || (!sig.pr.url && prRef.url))) sig.pr = prRef;
+        const label = /watch-pr/i.test(promptText)
+          ? prRef
+            ? `watch-pr.mjs --pr ${prRef.number}`
+            : "watch-pr.mjs"
+          : summarizeText(promptText, 44) || "Scheduled check";
+        const stageId = /watch-pr|\bpr\b|\bci\b/i.test(promptText) ? "ship" : "build";
+        pendingScheduleIndices.push(sig.schedules.length);
+        sig.schedules.push({
+          id: `sch-${sig.schedules.length}`,
+          taskId: null,
+          label,
+          cadence: formatCadenceLabel(dur, cron),
+          stageId,
+          startedAt: marker.ts,
+          nextAt: computeScheduleNextAt(marker, dur, cron),
+          durationSeconds: dur,
+          cronExpression: cron || null,
+          active: true,
+        });
+      } else if (name === "manage_task") {
+        if (unquoteArg(args.Action).toLowerCase() === "kill") {
+          const tid = unquoteArg(args.TaskId);
+          if (tid && scheduleTaskMap.has(tid)) {
+            sig.schedules[scheduleTaskMap.get(tid)].active = false;
+          }
         }
       } else if (name === "run_command") {
         const cmd = unquoteArg(args.CommandLine || args.commandLine || args.command);
+        const prRef = extractPrReference(cmd);
+        if (prRef && (!sig.pr || (!sig.pr.url && prRef.url))) sig.pr = prRef;
         if (/\bsetup-banner\.mjs\b/i.test(cmd)) sig.setupAt = latestMarker(sig.setupAt, marker);
         if (/\barch-audit\.mjs\b/i.test(cmd)) {
           sig.cleanAt = latestMarker(sig.cleanAt, marker);
@@ -441,11 +849,29 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir) {
         if (/\blog\.mjs\b/i.test(cmd)) sig.detected.add("/show-me-your-work");
         if (/\b(?:gh\s+pr\s+create|git\s+push)\b/i.test(cmd)) sig.pushOrPrAt = latestMarker(sig.pushOrPrAt, marker);
         const category = classifyCommandCategory(cmd);
+        if (parseBoolArg(args.IsDaemon) || category === "test" || category === "verify") {
+          sig.backgroundJobs.push({
+            id: `bg-${sig.backgroundJobs.length}`,
+            summary: summarizeText(cmd, 48),
+            startedAt: marker.ts,
+            isDaemon: parseBoolArg(args.IsDaemon),
+          });
+        }
         if (category === "test" || category === "verify") {
           pendingTestCmds.set(order, marker);
         }
       } else if (name === "call_mcp_tool" && unquoteArg(args.ToolName) === "create_pull_request") {
         sig.pushOrPrAt = latestMarker(sig.pushOrPrAt, marker);
+      }
+    }
+  }
+
+  for (const sa of sig.subagents) {
+    if (sa.status === "running" && sa.childConvId && brainDir) {
+      const doneRes = isChildTranscriptFinished(brainDir, sa.childConvId);
+      if (doneRes) {
+        sa.status = "done";
+        sa.completedAt = typeof doneRes === "string" ? doneRes : sa.startedAt;
       }
     }
   }
@@ -461,12 +887,18 @@ function mergeChildTranscriptSignals(sig, brainDir, workspaceDir, parentConvId) 
     const childConvDir = path.join(brainDir, childId);
     const childTranscript = path.join(childConvDir, ".system_generated", "logs", "transcript.jsonl");
     if (!fs.existsSync(childTranscript)) continue;
-    const childSig = analyzeTranscript(childTranscript, childConvDir, workspaceDir);
+    const childSig = analyzeTranscript(childTranscript, childConvDir, workspaceDir, brainDir);
     for (const key of mergeKeys) {
       sig[key] = latestMarker(sig[key], childSig[key]);
     }
     for (const d of childSig.detected) {
       sig.detected.add(d);
+    }
+    for (const f of childSig.changedFiles) {
+      sig.changedFiles.add(f);
+    }
+    if (childSig.pr && (!sig.pr || (!sig.pr.url && childSig.pr.url))) {
+      sig.pr = childSig.pr;
     }
   }
   return sig;
@@ -775,6 +1207,149 @@ function selectNextAction(stepViews, setupState) {
   };
 }
 
+function selectActiveStageId(stepViews) {
+  for (const targetStatus of ["active", "error", "stale", "waiting_gate", "next"]) {
+    const match = stepViews.find((s) => s.status === targetStatus);
+    if (match) return match.id;
+  }
+  return "plan";
+}
+
+function buildStageArtifacts(stage, { planArtifact, walkthroughArtifact, reviewArtifact, brainConvDir, pr, shipped }) {
+  if (stage.id === "plan") {
+    if (!planArtifact) return [];
+    const badge = stage.status === "done" ? "approved" : stage.status === "waiting_gate" ? "gate" : "";
+    return [{ id: "plan", key: "plan", name: planArtifact.name, label: "Implementation Plan", uri: planArtifact.uri, status: stage.status === "done" ? "done" : "updating", badge, kind: "file" }];
+  }
+  if (stage.id === "build") {
+    const out = [];
+    if (walkthroughArtifact) {
+      out.push({
+        id: "walk",
+        key: "walk",
+        name: walkthroughArtifact.name,
+        label: "Walkthrough",
+        uri: walkthroughArtifact.uri,
+        status: stage.status === "done" ? "done" : "updating",
+        badge: stage.status === "done" ? "ready" : "updating",
+        kind: "file",
+      });
+    }
+    return [...out, ...collectExtraBrainArtifacts(brainConvDir)];
+  }
+  if (stage.id === "review") {
+    if (!reviewArtifact) return [];
+    const status = stage.status === "stale" ? "stale" : stage.status === "done" ? "done" : "updating";
+    const badge = stage.status === "stale" ? "stale" : stage.status === "waiting_gate" ? "gate" : "";
+    return [{ id: "review", key: "review", name: reviewArtifact.name, label: "PR review dossier", uri: reviewArtifact.uri, status, badge, kind: "file" }];
+  }
+  if (stage.id === "ship" && pr?.number) {
+    return [{ id: "pr", key: "pr", name: `PR #${pr.number}`, label: `PR #${pr.number}`, uri: pr.url || null, status: shipped ? "merged" : "open", badge: shipped ? "opened" : "tracked", kind: "pr" }];
+  }
+  return [];
+}
+
+function buildStageCollapsedSummary(stage, pr, shipped) {
+  if (stage.id === "plan") {
+    if (stage.status === "done") return "Plan approved.";
+    if (stage.status === "waiting_gate") return "implementation_plan.md awaiting approval.";
+    if (stage.status === "skipped") return "Skipped for direct edit flow.";
+    if (stage.status === "active") return "Drafting implementation plan.";
+    return stage.summary;
+  }
+  if (stage.id === "build") {
+    if (stage.status === "stale") return "New edits landed after verification.";
+    if (stage.status === "done") return "Cleaned and verified on HEAD.";
+    return stage.summary;
+  }
+  if (stage.id === "review") {
+    if (stage.status === "stale") return "Your latest edits came after the last review.";
+    if (stage.status === "waiting_gate") return "Awaiting your visual review.";
+    if (stage.status === "error") return stage.detail;
+    if (stage.status === "done") return "PR review passed.";
+    return stage.summary;
+  }
+  if (stage.id === "ship") {
+    if (pr?.number && shipped) return `PR #${pr.number} opened.`;
+    if (shipped) return "PR opened or pushed.";
+    return stage.summary;
+  }
+  return stage.summary;
+}
+
+function buildSuggestedReview(reviewStage, changedFilesCount) {
+  if (reviewStage.status !== "stale" && reviewStage.status !== "next" && changedFilesCount < 2) {
+    return null;
+  }
+  const countPart = changedFilesCount > 0 ? `${changedFilesCount} ` : "";
+  return {
+    fileCount: changedFilesCount,
+    summary: `review the ${countPart}changed files in parallel with`,
+    command: "/run-workflow",
+    prompt: `/run-workflow Review the ${countPart}changed files on this branch in parallel, one reviewer per file, then run pr-verifier once on HEAD and log a one-line verdict per file.`,
+  };
+}
+
+function buildActivitySnapshot({ sig, buildStage, reviewStage, artifactCount, activeStageId }) {
+  const activeSubagentsCount = sig.subagents.filter((a) => a.status === "running").length;
+  const activeSwarmMembers = sig.swarm.members.filter((m) => m.status !== "killed");
+  const workingSwarmCount = activeSwarmMembers.filter((m) => m.status === "working").length;
+  const activeSchedules = sig.schedules.filter((s) => s.active);
+  const activeAutomations = sig.automations.filter((a) => a.active);
+  const checksDone = buildStage.subChecks.filter((c) => c.status === "done").length;
+  const checksTotal = buildStage.subChecks.length || 3;
+
+  const uniqueBgJobs = [];
+  const seenBg = new Set();
+  for (let i = sig.backgroundJobs.length - 1; i >= 0; i--) {
+    const job = sig.backgroundJobs[i];
+    if (seenBg.has(job.summary)) continue;
+    seenBg.add(job.summary);
+    uniqueBgJobs.unshift(job);
+    if (uniqueBgJobs.length >= 12) break;
+  }
+
+  return {
+    activeStageId,
+    agentsWorkingCount: activeSubagentsCount + workingSwarmCount,
+    scheduledCount: activeSchedules.length + activeAutomations.length,
+    artifactCount,
+    goal: {
+      ...sig.goal,
+      checksDone,
+      checksTotal,
+      checkInNextAt: activeSchedules.find((s) => s.stageId === "build")?.nextAt ?? null,
+    },
+    boost: sig.boost,
+    teamwork: sig.teamwork,
+    swarm: {
+      active: sig.swarm.active,
+      title: sig.swarm.title,
+      posts: sig.swarm.posts,
+      workingCount: workingSwarmCount,
+      totalCount: activeSwarmMembers.length,
+      members: activeSwarmMembers,
+      sparks: sig.swarm.sparks,
+    },
+    subagents: sig.subagents,
+    runningSubagentsCount: activeSubagentsCount,
+    schedules: sig.schedules,
+    automations: sig.automations,
+    backgroundJobs: {
+      count: uniqueBgJobs.length,
+      items: uniqueBgJobs,
+    },
+    workflow: {
+      active: sig.workflow.active,
+      runsCount: sig.workflow.runsCount,
+      suggestedReview: buildSuggestedReview(reviewStage, sig.changedFiles.size),
+    },
+    sideQuestions: { count: sig.sideQuestionsCount },
+    changedFilesCount: sig.changedFiles.size,
+    pr: sig.pr,
+  };
+}
+
 /**
  * Projects workspace readiness, transcript signals, and trust ledger receipts into the 4-step AStack timeline.
  */
@@ -792,7 +1367,7 @@ export function evaluateTimelineSnapshot({
   const setup = inspectSetupReadiness(workspaceDir);
   const policyResult = loadRiskPolicy(workspaceDir);
   const sig = mergeChildTranscriptSignals(
-    analyzeTranscript(transcriptPath, brainConvDir, workspaceDir),
+    analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir),
     brainDir,
     workspaceDir,
     conversationId,
@@ -836,13 +1411,16 @@ export function evaluateTimelineSnapshot({
       if (Array.isArray(r.paths) && r.paths.length > 0 && workspacePaths.length === 0) continue;
       hadReceiptWrite = true;
       latestAnyWrite = latestMarker(latestAnyWrite, m);
+      for (const wp of workspacePaths) sig.changedFiles.add(normalizePosix(wp));
       const allDocs = workspacePaths.length > 0 && workspacePaths.every((p) => DOC_EXT_RE.test(p));
       if (!allDocs) latestCodeWrite = latestMarker(latestCodeWrite, m);
     } else if (isVerifyReceipt(r)) {
       hasVerifyReceipt = true;
       if (r.ok) latestReceiptVerify = latestMarker(latestReceiptVerify, m);
-    } else if (r.kind === "command" && r.ok && /\b(?:gh\s+pr\s+create|git\s+push)\b/i.test(r.summary)) {
-      receiptPush = true;
+    } else if (r.kind === "command" && r.ok) {
+      const prRef = extractPrReference(r.summary);
+      if (prRef && (!sig.pr || (!sig.pr.url && prRef.url))) sig.pr = prRef;
+      if (/\b(?:gh\s+pr\s+create|git\s+push)\b/i.test(r.summary)) receiptPush = true;
     }
   }
 
@@ -909,8 +1487,27 @@ export function evaluateTimelineSnapshot({
   const shipStage = buildShipStage({ reviewStatus: reviewStage.status, shipped, sig });
   const stepViews = [planStage, buildStage, reviewStage, shipStage].map((stage) => ({
     ...stage,
+    collapsedSummary: buildStageCollapsedSummary(stage, sig.pr, shipped),
+    artifacts: buildStageArtifacts(stage, {
+      planArtifact,
+      walkthroughArtifact,
+      reviewArtifact,
+      brainConvDir,
+      pr: sig.pr,
+      shipped,
+    }),
     ...buildStageSubCommands(stage.id, sig.detected),
   }));
+
+  const artifactCount = stepViews.reduce((acc, s) => acc + s.artifacts.length, 0);
+  const activeStageId = selectActiveStageId(stepViews);
+  const activity = buildActivitySnapshot({
+    sig,
+    buildStage,
+    reviewStage,
+    artifactCount,
+    activeStageId,
+  });
 
   let liveState = "ok";
   let liveLabel = hasConv ? "Live" : "Idle";
@@ -944,6 +1541,7 @@ export function evaluateTimelineSnapshot({
     liveLabel,
     nextAction: selectNextAction(stepViews, setupState),
     stages: stepViews,
+    activity,
   };
 
   const etag = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex").slice(0, 16);
