@@ -49,3 +49,7 @@ AStack `v0.1.0` shipped `scripts/sync-upstream.mjs` and `scripts/UPSTREAM.json` 
 - All catalog invariants and manual-only frontmatter rules live natively in [`scripts/catalog.mjs`](./scripts/catalog.mjs) and [`scripts/catalog.json`](./scripts/catalog.json).
 - Upstream tracking moved to [`scripts/upstream-watch.mjs`](./scripts/upstream-watch.mjs) and [`scripts/upstream-watch.json`](./scripts/upstream-watch.json), a strictly read-only CLI that watches `pstack`, `gstack`, and `cloudflare/security-audit-skill` in an OS temp cache so helpful ideas can be adapted deliberately with attribution.
 - All copyright notices in [`LICENSE`](./LICENSE) (Lauren Tan, João Machete, and Cloudflare, Inc.) remain preserved verbatim under the MIT License.
+
+## Third-Party Vendor Assets
+
+- **`three.js` (`r149`, [`sidecars/astack_timeline/vendor/three.min.js`](./sidecars/astack_timeline/vendor/three.min.js)):** MIT License, Copyright (c) 2010-2023 three.js authors (<https://threejs.org/>). Bundled locally so the AStack Timeline sidecar renders offline without external CDN requests.
