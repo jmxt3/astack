@@ -152,15 +152,16 @@
     return svg;
   }
 
+  function resolveSceneAccent(theme) {
+    const rawPrimary = getComputedStyle(document.documentElement).getPropertyValue("--primary").trim();
+    return theme === "dark" && rawPrimary ? rawPrimary : "#5aa2ff";
+  }
+
   function syncScheme() {
-    const probe = document.createElement("span");
-    probe.style.cssText = "position:absolute;visibility:hidden;color:var(--background, #f7f7f8)";
-    document.documentElement.appendChild(probe);
-    const c = getComputedStyle(probe).color;
-    probe.remove();
-    const nums = (c.match(/[\d.]+/g) || []).map(Number);
-    if (nums.length >= 3) {
-      const scale = c.startsWith("color(") ? 1 : 255;
+    const bg = getComputedStyle(document.documentElement).backgroundColor;
+    const nums = (bg.match(/[\d.]+/g) || []).map(Number);
+    if (nums.length >= 3 && (nums.length < 4 || nums[3] > 0)) {
+      const scale = bg.startsWith("color(") ? 1 : 255;
       const [r, g, b] = nums.slice(0, 3).map((v) => v / scale);
       const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
       const theme = lum < 0.5 ? "dark" : "light";
@@ -168,10 +169,13 @@
         document.documentElement.dataset.theme = theme;
       }
       if (scene) {
-        const primary = getComputedStyle(document.documentElement).getPropertyValue("--tl-primary").trim();
-        scene.setAccent(theme === "dark" && primary ? primary : "#5aa2ff");
+        scene.setAccent(resolveSceneAccent(theme));
       }
     }
+  }
+
+  function getConversationId(includeSnap = false) {
+    return window.sidecar?.conversationId || params.get("conversationId") || (includeSnap ? state.snap?.conversationId : "") || "";
   }
 
   syncScheme();
@@ -213,7 +217,7 @@
   }
 
   function focusActiveChat() {
-    const convId = window.sidecar?.conversationId || params.get("conversationId") || "";
+    const convId = getConversationId(false);
     if (convId && typeof window.sidecar?.ui?.toggleConversation === "function") {
       window.sidecar.ui.toggleConversation(convId);
     }
@@ -244,8 +248,38 @@
     showToast(`Copy blocked · Type "${displayCmd || payload}" in chat`);
   }
 
+  function isSdkHost() {
+    return typeof window.sidecar?.fetch === "function" && !window.sidecar?.standalone;
+  }
+
+  function apiFetch(endpoint, payload) {
+    if (isSdkHost()) {
+      return window.sidecar.fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(payload || {})) {
+      if (v === undefined || v === null || v === "" || v === false) continue;
+      qs.set(k, v === true ? "1" : String(v));
+    }
+    const query = qs.toString();
+    const urlToken = params.get("token");
+    const headers = urlToken ? { "X-Sidecar-Token": urlToken } : undefined;
+    return fetch(query ? `${endpoint}?${query}` : endpoint, { method: "GET", headers });
+  }
+
+  function releaseArtifactObjectUrl() {
+    if (state.artifact?.objectUrl) {
+      URL.revokeObjectURL(state.artifact.objectUrl);
+      state.artifact.objectUrl = null;
+    }
+  }
+
   function buildArtifactQuery(name, raw = false) {
-    const convId = window.sidecar?.conversationId || params.get("conversationId") || state.snap?.conversationId || "";
+    const convId = getConversationId(true);
     const qs = new URLSearchParams();
     if (convId) qs.set("conversationId", convId);
     qs.set("name", name);
@@ -256,7 +290,7 @@
   }
 
   function appendInlineMarkdown(parent, text) {
-    const tokenRe = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g;
+    const tokenRe = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\((https?:\/\/[^)\s]+)\))/g;
     let lastIndex = 0;
     for (const match of text.matchAll(tokenRe)) {
       const idx = match.index ?? 0;
@@ -269,16 +303,12 @@
       } else if (token.startsWith("**")) {
         parent.appendChild(el("strong", "", token.slice(2, -2)));
       } else {
-        const linkMatch = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
-        if (linkMatch) {
-          const a = el("a", "md-link", linkMatch[1]);
-          a.href = linkMatch[2];
-          a.target = "_blank";
-          a.rel = "noopener noreferrer";
-          parent.appendChild(a);
-        } else {
-          parent.appendChild(document.createTextNode(token));
-        }
+        const label = token.slice(1, token.indexOf("]("));
+        const a = el("a", "md-link", label);
+        a.href = match[2];
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        parent.appendChild(a);
       }
       lastIndex = idx + token.length;
     }
@@ -287,8 +317,7 @@
     }
   }
 
-  function renderMarkdownToFragment(markdown) {
-    const frag = document.createDocumentFragment();
+  function renderMarkdownArticle(markdown) {
     const doc = el("article", "md-doc");
     const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
     let i = 0;
@@ -373,8 +402,7 @@
       appendInlineMarkdown(p, paraLines.join(" "));
       doc.appendChild(p);
     }
-    frag.appendChild(doc);
-    return frag;
+    return doc;
   }
 
   function renderArtifactView() {
@@ -417,22 +445,31 @@
     } else if (art.error) {
       body.appendChild(el("p", "artifact-status error", art.error));
     } else if (art.data?.kind === "markdown") {
-      body.appendChild(renderMarkdownToFragment(art.data.content));
+      body.appendChild(renderMarkdownArticle(art.data.content));
     } else if (art.data?.kind === "image") {
-      const frame = el("div", "artifact-img-frame");
-      const img = el("img", "artifact-viewer-img");
-      img.src = art.rawUrl;
-      img.alt = art.label || art.name;
-      frame.appendChild(img);
-      body.appendChild(frame);
+      const imgSrc = art.objectUrl || art.rawUrl;
+      if (imgSrc) {
+        const frame = el("div", "artifact-img-frame");
+        const img = el("img", "artifact-viewer-img");
+        img.src = imgSrc;
+        img.alt = art.label || art.name;
+        frame.appendChild(img);
+        body.appendChild(frame);
+      } else {
+        body.appendChild(el("p", "artifact-status error", `Could not load image preview for ${art.name}.`));
+      }
     } else if (art.data?.kind === "pdf") {
-      const note = el("p", "artifact-status", `PDF preview ready for ${art.name}. `);
-      const pdfLink = el("a", "md-link", "Open PDF in browser tab");
-      pdfLink.href = art.rawUrl;
-      pdfLink.target = "_blank";
-      pdfLink.rel = "noopener noreferrer";
-      note.appendChild(pdfLink);
-      body.appendChild(note);
+      if (art.rawUrl) {
+        const note = el("p", "artifact-status", `PDF preview ready for ${art.name}. `);
+        const pdfLink = el("a", "md-link", "Open PDF in browser tab");
+        pdfLink.href = art.rawUrl;
+        pdfLink.target = "_blank";
+        pdfLink.rel = "noopener noreferrer";
+        note.appendChild(pdfLink);
+        body.appendChild(note);
+      } else {
+        body.appendChild(el("p", "artifact-status", `Open ${art.name} inside Antigravity to view the PDF.`));
+      }
     } else if (art.data) {
       body.appendChild(el("pre", "artifact-viewer-pre", art.data.content || ""));
     }
@@ -444,8 +481,7 @@
     if (!artifact) return;
     if (artifact.kind !== "pr" && artifact.uri && typeof window.sidecar?.ui?.toggleAuxPane === "function") {
       try {
-        const res = window.sidecar.ui.toggleAuxPane({ tabType: "fileView", uri: artifact.uri });
-        if (res && typeof res.then === "function") await res;
+        await window.sidecar.ui.toggleAuxPane({ tabType: "fileView", uri: artifact.uri });
         return;
       } catch {
       }
@@ -459,8 +495,10 @@
       return;
     }
     if (!artifact.name) return;
+    releaseArtifactObjectUrl();
     state.artifactReturnEl = triggerEl || document.activeElement;
-    const rawUrl = buildArtifactQuery(artifact.name, true);
+    const convId = getConversationId(true);
+    const rawUrl = isSdkHost() ? null : buildArtifactQuery(artifact.name, true);
     state.artifact = {
       label: artifact.label || artifact.name,
       name: artifact.name,
@@ -469,17 +507,26 @@
       error: null,
       data: null,
       rawUrl,
+      objectUrl: null,
     };
     switchView("artifact");
     try {
-      const f = window.sidecar?.fetch ? window.sidecar.fetch.bind(window.sidecar) : fetch;
-      const res = await f(buildArtifactQuery(artifact.name, false), { method: "GET" });
+      const res = await apiFetch("/api/artifact", { conversationId: convId, name: artifact.name, raw: false });
       if (!res.ok) {
         const errPayload = await res.json().catch(() => ({}));
         throw new Error(errPayload.error || `HTTP ${res.status}`);
       }
       const data = await res.json();
       if (!state.artifact || state.artifact.name !== artifact.name) return;
+      if (data?.kind === "image") {
+        const rawRes = await apiFetch("/api/artifact", { conversationId: convId, name: artifact.name, raw: true });
+        if (!rawRes.ok) {
+          throw new Error(`HTTP ${rawRes.status}`);
+        }
+        const blob = await rawRes.blob();
+        if (!state.artifact || state.artifact.name !== artifact.name) return;
+        state.artifact.objectUrl = URL.createObjectURL(blob);
+      }
       state.artifact.loading = false;
       state.artifact.data = data;
       renderArtifactView();
@@ -940,10 +987,8 @@
           if (docMeta) {
             attachCommandPopover(row, docMeta);
           }
-          if (item.id === "rw" || item.id === "schedule" || item.id === "boost" || item.id === "swarm" || item.id === "goal") {
-            row.addEventListener("mouseenter", () => scene?.setHighlight("cmd", item.id));
-            row.addEventListener("mouseleave", () => scene?.setHighlight("cmd", null));
-          }
+          row.addEventListener("mouseenter", () => scene?.setHighlight("cmd", item.id));
+          row.addEventListener("mouseleave", () => scene?.setHighlight("cmd", null));
           const ic = el("span", "delegate-menu-icon");
           ic.appendChild(svgIcon(item.icon, 13));
           row.appendChild(ic);
@@ -974,18 +1019,24 @@
     }
 
     detail.appendChild(accGroup);
+    detail.appendChild(buildCommandChips(stage.commands));
+    appendStageTail(detail, stage);
+    return detail;
+  }
 
+  function buildCommandChips(commands) {
+    const chips = el("div", "chips");
+    for (const item of commands || []) {
+      chips.appendChild(buildCommandChip(item));
+    }
+    return chips;
+  }
+
+  function appendStageTail(detail, stage) {
     if (Array.isArray(stage.artifacts) && stage.artifacts.length > 0) {
       detail.appendChild(buildArtifactButtons(stage.artifacts));
     }
-
-    const chips = el("div", "chips");
-    for (const item of stage.commands) {
-      chips.appendChild(buildCommandChip(item));
-    }
-    detail.appendChild(chips);
     appendSubCommands(detail, stage.id, stage.autoSubCommands, stage.moreCommands);
-    return detail;
   }
 
   function buildArtifactButtons(artifacts) {
@@ -1024,12 +1075,7 @@
     const detail = el("div", "detail");
     const act = snap.activity || {};
     detail.appendChild(el("p", "detail-text", stage.detail));
-
-    const chips = el("div", "chips");
-    for (const item of stage.commands) {
-      chips.appendChild(buildCommandChip(item));
-    }
-    detail.appendChild(chips);
+    detail.appendChild(buildCommandChips(stage.commands));
 
     if (stage.id === "review" && act.workflow?.suggestedReview) {
       const sug = act.workflow.suggestedReview;
@@ -1054,7 +1100,9 @@
     }
 
     if (stage.id === "ship") {
-      const shipScheds = (act.schedules || []).filter((s) => s.active && (s.stageId === "ship" || !(act.schedules || []).some((x) => x.stageId === "ship")));
+      const activeScheds = (act.schedules || []).filter((s) => s.active);
+      const shipOnly = activeScheds.filter((s) => s.stageId === "ship");
+      const shipScheds = shipOnly.length > 0 ? shipOnly : activeScheds;
       const shipAutos = (act.automations || []).filter((a) => a.active);
       if (shipScheds.length > 0 || shipAutos.length > 0) {
         const jobsWrap = el("div", "ship-jobs");
@@ -1092,11 +1140,7 @@
       }
     }
 
-    if (Array.isArray(stage.artifacts) && stage.artifacts.length > 0) {
-      detail.appendChild(buildArtifactButtons(stage.artifacts));
-    }
-
-    appendSubCommands(detail, stage.id, stage.autoSubCommands, stage.moreCommands);
+    appendStageTail(detail, stage);
     return detail;
   }
 
@@ -1465,6 +1509,10 @@
       else v.el.setAttribute("aria-hidden", "true");
     }
 
+    if (nextView !== "artifact" && prevView === "artifact") {
+      releaseArtifactObjectUrl();
+    }
+
     if (nextView === "delegate") {
       renderDelegateGuide(state.snap);
       document.getElementById("back-to-timeline")?.focus();
@@ -1531,11 +1579,7 @@
     if (setupReady && state.setupDrawerOpen) {
       setupDrawer.classList.remove("hidden");
       setupDrawer.appendChild(el("p", "setup-drawer-detail", snap.setup.detail));
-      const chips = el("div", "chips");
-      for (const item of snap.setup.commands || []) {
-        chips.appendChild(buildCommandChip(item));
-      }
-      setupDrawer.appendChild(chips);
+      setupDrawer.appendChild(buildCommandChips(snap.setup.commands));
       appendSubCommands(setupDrawer, "setup", snap.setup.autoSubCommands, snap.setup.moreCommands);
     } else {
       setupDrawer.classList.add("hidden");
@@ -1660,17 +1704,13 @@
 
   async function poll() {
     if (document.hidden) return;
-    const convId = window.sidecar?.conversationId || params.get("conversationId") || "";
-    const qs = new URLSearchParams();
-    if (convId) qs.set("conversationId", convId);
-    if (state.workspaceUri) qs.set("workspaceUri", state.workspaceUri);
-    if (state.etag) qs.set("etag", state.etag);
-    const token = params.get("token");
-    if (token) qs.set("token", token);
-    const url = `/api/timeline?${qs.toString()}`;
+    const convId = getConversationId(false);
     try {
-      const f = window.sidecar?.fetch ? window.sidecar.fetch.bind(window.sidecar) : fetch;
-      const res = await f(url, { method: "GET" });
+      const res = await apiFetch("/api/timeline", {
+        conversationId: convId,
+        workspaceUri: state.workspaceUri,
+        etag: state.etag,
+      });
       if (!res.ok) return;
       const data = await res.json();
       if (data.unchanged) {
@@ -1686,30 +1726,26 @@
     }
   }
 
+  function applyWorkspaceUris(uris, allowEmpty) {
+    const first = Array.isArray(uris) && typeof uris[0] === "string" ? uris[0].trim() : "";
+    if ((allowEmpty || first) && first !== state.workspaceUri) {
+      state.workspaceUri = first;
+      state.etag = "";
+      poll();
+    }
+  }
+
   async function syncWorkspaceUri() {
     if (typeof window.sidecar?.getWorkspaceUris !== "function") return;
     try {
-      const uris = await window.sidecar.getWorkspaceUris();
-      const first = Array.isArray(uris) && typeof uris[0] === "string" ? uris[0].trim() : "";
-      if (first && first !== state.workspaceUri) {
-        state.workspaceUri = first;
-        state.etag = "";
-        poll();
-      }
+      applyWorkspaceUris(await window.sidecar.getWorkspaceUris(), false);
     } catch {
     }
   }
 
   if (typeof window.sidecar?.onWorkspaceChange === "function") {
     try {
-      window.sidecar.onWorkspaceChange((uris) => {
-        const first = Array.isArray(uris) && typeof uris[0] === "string" ? uris[0].trim() : "";
-        if (first !== state.workspaceUri) {
-          state.workspaceUri = first;
-          state.etag = "";
-          poll();
-        }
-      });
+      window.sidecar.onWorkspaceChange((uris) => applyWorkspaceUris(uris, true));
     } catch {
     }
   }
@@ -1718,10 +1754,9 @@
   const canvasEl = document.getElementById("scene-canvas");
   const fallbackEl = document.getElementById("scene-fallback");
   if (window.AStackScene3D && canvasEl) {
-    const isDark = document.documentElement.dataset.theme === "dark";
-    const primary = getComputedStyle(document.documentElement).getPropertyValue("--tl-primary").trim();
+    const theme = document.documentElement.dataset.theme || "light";
     scene = window.AStackScene3D.create(canvasEl, {
-      accent: isDark && primary ? primary : "#5aa2ff",
+      accent: resolveSceneAccent(theme),
       onUnavailable: () => fallbackEl?.classList.remove("hidden"),
     });
   } else {

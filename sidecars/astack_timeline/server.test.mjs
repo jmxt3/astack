@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { createTimelineServer } from "./main.mjs";
+import { createTimelineServer, startTimelineSidecar } from "./main.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MAIN_PATH = path.join(__dirname, "main.mjs");
@@ -260,6 +262,170 @@ test("createTimelineServer resolves workspaceUri on idle conversations, rejects 
     if (prevWsEnv !== undefined) process.env.ANTIGRAVITY_WORKSPACE_DIR = prevWsEnv;
     await dynamicSrv.close();
     await pinnedSrv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function rawTcpHttpRequest(port, rawRequest) {
+  return new Promise((resolve, reject) => {
+    const sock = net.connect(port, "127.0.0.1", () => sock.write(rawRequest));
+    let raw = "";
+    sock.setEncoding("utf8");
+    sock.on("data", (chunk) => {
+      raw += chunk;
+    });
+    sock.on("end", () => resolve(raw));
+    sock.on("error", reject);
+  });
+}
+
+function requestHostStatus(port, reqPath, hostHeader) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: reqPath,
+        method: "GET",
+        headers: { Host: hostHeader },
+      },
+      (res) => resolve(res.statusCode),
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+test("createTimelineServer blocks DNS rebinding Host headers, malformed request targets, and sidecar_sdk routes use POST", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-sec-"));
+  const brainDir = path.join(root, "brain");
+  const convId = "11111111-2222-3333-4444-555555555555";
+  writeText(path.join(brainDir, convId, "implementation_plan.md"), "# Plan\nSafe\n");
+  writeText(
+    path.join(brainDir, convId, ".system_generated", "logs", "transcript.jsonl"),
+    `${JSON.stringify({ step_index: 0, type: "USER_INPUT", content: "<USER_REQUEST>/plan ok</USER_REQUEST>" })}\n`,
+  );
+
+  const srv = await createTimelineServer({ brainDir, token: "sec-tok", port: 0 });
+  try {
+    const port = srv.port;
+    const postTl = await fetch(`${srv.url}api/timeline`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Sidecar-Token": "sec-tok" },
+      body: JSON.stringify({ conversationId: convId }),
+    });
+    assert.equal(postTl.status, 405, "Standalone server remains strictly read-only GET/HEAD");
+
+    assert.equal(await requestHostStatus(port, "/", `rebind.attacker.example:${port}`), 403);
+    assert.equal(await requestHostStatus(port, "/preload.js", `127.0.0.1:${port + 1}`), 403);
+
+    const malformedResp = await rawTcpHttpRequest(
+      port,
+      `GET http://a:b/ HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: close\r\n\r\n`,
+    );
+    assert.match(malformedResp, /^HTTP\/1\.1 400 Bad Request/);
+
+    const aliveAfter = await fetch(`${srv.url}api/timeline?conversationId=${convId}`, {
+      headers: { "X-Sidecar-Token": "sec-tok" },
+    });
+    assert.equal(aliveAfter.status, 200);
+
+    const routes = [];
+    class MockResponse {
+      constructor(body, opts = {}) {
+        this.body = body;
+        this.contentType = opts.contentType || "text/plain";
+        this.status = opts.status || 200;
+        this.headers = opts.headers;
+      }
+    }
+    class MockSidecarApp {
+      constructor() {
+        this.config = { conversationId: convId };
+      }
+      page() {}
+      api(routePath, handler, method) {
+        routes.push({ routePath, handler, method });
+      }
+      async run() {}
+    }
+
+    const started = await startTimelineSidecar({
+      brainDir,
+      sdk: { SidecarApp: MockSidecarApp, Response: MockResponse },
+    });
+    assert.equal(started.mode, "sidecar_sdk");
+
+    const tlRoute = routes.find((r) => r.routePath === "/api/timeline");
+    const artRoute = routes.find((r) => r.routePath === "/api/artifact");
+    assert.equal(tlRoute?.method, "POST");
+    assert.equal(artRoute?.method, "POST");
+
+    const tlResp = await tlRoute.handler({});
+    assert.equal(tlResp.status, 200);
+    assert.equal(JSON.parse(tlResp.body).conversationId, convId);
+
+    const artResp = await artRoute.handler({ name: "implementation_plan.md" });
+    assert.equal(artResp.status, 200);
+    assert.equal(JSON.parse(artResp.body).kind, "markdown");
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI --standalone generates an ephemeral token when ANTIGRAVITY_SIDECAR_UI_TOKEN is unset", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-cli-"));
+  const brainDir = path.join(root, "brain");
+  const convId = "conv-cli-check";
+  writeText(path.join(brainDir, convId, "implementation_plan.md"), "# Plan\n");
+  writeText(
+    path.join(brainDir, convId, ".system_generated", "logs", "transcript.jsonl"),
+    `${JSON.stringify({ step_index: 0, type: "USER_INPUT", content: "<USER_REQUEST>/plan ok</USER_REQUEST>" })}\n`,
+  );
+
+  const env = { ...process.env };
+  delete env.ANTIGRAVITY_SIDECAR_UI_TOKEN;
+  const child = spawn(process.execPath, [MAIN_PATH, "--port", "0", "--standalone", "--allow-fixture-ids", "--brain-dir", brainDir], {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  try {
+    const urlStr = await new Promise((resolve, reject) => {
+      let buf = "";
+      const timer = setTimeout(() => reject(new Error(`Timed out waiting for startup banner: ${buf}`)), 5000);
+      child.stdout.on("data", (chunk) => {
+        buf += chunk.toString("utf8");
+        const m = buf.match(/listening at (http:\/\/127\.0\.0\.1:\d+\/\?token=[0-9a-f]+)/i);
+        if (m) {
+          clearTimeout(timer);
+          resolve(m[1]);
+        }
+      });
+      child.stderr.on("data", (chunk) => {
+        buf += chunk.toString("utf8");
+      });
+      child.once("exit", (code) => {
+        clearTimeout(timer);
+        reject(new Error(`Exited early with ${code}: ${buf}`));
+      });
+    });
+
+    const parsed = new URL(urlStr);
+    const token = parsed.searchParams.get("token");
+    assert.ok(token && token.length >= 32);
+
+    const noTok = await fetch(`${parsed.origin}/api/timeline?conversationId=${convId}`);
+    assert.equal(noTok.status, 401);
+
+    const withHeader = await fetch(`${parsed.origin}/api/timeline?conversationId=${convId}`, {
+      headers: { "X-Sidecar-Token": token },
+    });
+    assert.equal(withHeader.status, 200);
+  } finally {
+    child.kill();
+    await new Promise((resolve) => child.once("exit", resolve));
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
