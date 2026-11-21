@@ -77,10 +77,14 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     const cssText = await cssRes.text();
     assert.match(cssText, /--tl-done:/);
     assert.match(cssText, /\.setup-card\b/);
+    assert.match(cssText, /height:\s*164px;/);
+    assert.match(cssText, /\.chip-active-dot\b/);
 
     const jsRes = await fetch(`${srv.url}app.js`);
     assert.equal(jsRes.status, 200);
     assert.match(jsRes.headers.get("content-type") ?? "", /javascript/);
+    const jsText = await jsRes.text();
+    assert.match(jsText, /chip-active-dot/);
 
     const threeRes = await fetch(`${srv.url}vendor/three.min.js`);
     assert.equal(threeRes.status, 200);
@@ -426,6 +430,41 @@ test("CLI --standalone generates an ephemeral token when ANTIGRAVITY_SIDECAR_UI_
   } finally {
     child.kill();
     await new Promise((resolve) => child.once("exit", resolve));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("createTimelineServer reports nextAction.inProgress when /plan is active before implementation_plan.md", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-active-"));
+  const brainDir = path.join(root, "brain");
+  const workspaceDir = path.join(root, "repo");
+  const convId = "22222222-3333-4444-5555-666666666666";
+
+  writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+  writeText(
+    path.join(brainDir, convId, ".system_generated", "logs", "transcript.jsonl"),
+    `${JSON.stringify({
+      step_index: 0,
+      source: "USER_EXPLICIT",
+      type: "USER_INPUT",
+      created_at: "2026-11-20T12:00:00Z",
+      content: "<USER_REQUEST>/plan /astack-mode design auth</USER_REQUEST>",
+    })}\n`,
+  );
+
+  const srv = await createTimelineServer({ brainDir, workspaceDir, port: 0 });
+  try {
+    const res = await fetch(`${srv.url}api/timeline?conversationId=${convId}`);
+    assert.equal(res.status, 200);
+    const snap = await res.json();
+    assert.equal(snap.doneCount, 0);
+    assert.equal(snap.stages[0].status, "active");
+    assert.equal(snap.stages[0].commands[0].state, "active");
+    assert.equal(snap.stages[1].status, "pending");
+    assert.equal(snap.nextAction.stageId, "plan");
+    assert.equal(snap.nextAction.inProgress, true);
+  } finally {
+    await srv.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

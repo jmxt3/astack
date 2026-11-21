@@ -702,6 +702,10 @@
       const ic = svgIcon("warn", 11);
       ic.classList.add("chip-icon");
       chip.appendChild(ic);
+    } else if (item.state === "active") {
+      const dot = el("span", "chip-active-dot");
+      dot.setAttribute("aria-hidden", "true");
+      chip.appendChild(dot);
     }
     chip.appendChild(el("span", "", item.command));
     return chip;

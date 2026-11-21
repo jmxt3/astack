@@ -79,7 +79,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   z-index: 10;
   background: var(--tl-bg);
   border-bottom: 1px solid var(--tl-line);
-  padding: 12px var(--tl-pad) 10px;
+  padding: 10px var(--tl-pad) 8px;
 }
 
 .header-row {
@@ -200,7 +200,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   position: relative;
   width: 100%;
   max-width: 600px;
-  height: 232px;
+  height: 164px;
   margin: 0 auto;
   overflow: hidden;
   background: #0b0b0c;
@@ -234,12 +234,12 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 12px 28px 0;
+  padding: 8px 28px 0;
   pointer-events: none;
 }
 
 :root:not([data-theme="dark"]) .scene-next {
-  padding: 12px 16px 0;
+  padding: 8px 16px 0;
 }
 
 .scene-next-copy {
@@ -288,7 +288,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .scene-fallback {
   position: absolute;
   left: 28px;
-  top: 108px;
+  top: 72px;
   margin: 0;
   font-size: 11px;
   color: #9ba1a6;
@@ -298,7 +298,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 8px;
+  bottom: 4px;
   z-index: 2;
   display: grid;
   grid-template-columns: 1fr 2fr 1fr 1fr;
@@ -310,7 +310,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 28px;
+  height: 24px;
   padding: 0 2px;
   border: 0;
   background: transparent;
@@ -347,7 +347,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: 2px 4px;
-  padding: 10px max(8px, calc(var(--tl-pad) - 6px)) 0;
+  padding: 6px max(8px, calc(var(--tl-pad) - 6px)) 0;
 }
 
 .focus-chip {
@@ -584,7 +584,7 @@ h4.md-heading { font-size: 13px; }
 }
 
 .main {
-  padding: 20px var(--tl-pad) 0;
+  padding: 10px var(--tl-pad) 0;
 }
 
 .timeline {
@@ -697,7 +697,7 @@ h4.md-heading { font-size: 13px; }
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-bottom: 20px;
+  padding-bottom: 12px;
 }
 
 .step:last-child .step-body { padding-bottom: 4px; }
@@ -1158,11 +1158,31 @@ h4.md-heading { font-size: 13px; }
 
 .chip.stale .chip-icon { color: var(--tl-warning); }
 
-.chip.next,
-.chip.active {
+.chip.next {
   background: color-mix(in srgb, var(--tl-primary) 12%, transparent);
   border-color: color-mix(in srgb, var(--tl-primary) 28%, transparent);
   color: var(--tl-fg);
+}
+
+.chip.active {
+  background: color-mix(in srgb, var(--tl-primary) 18%, transparent);
+  border-color: color-mix(in srgb, var(--tl-primary) 48%, transparent);
+  color: var(--tl-fg);
+  font-weight: 500;
+}
+
+.chip-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tl-primary);
+  flex: none;
+  animation: astk-chip-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes astk-chip-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 .chip.optional {
@@ -1746,7 +1766,7 @@ h4.md-heading { font-size: 13px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .spin, .pulse, .stem.flow { animation: none; }
+  .spin, .pulse, .stem.flow, .chip-active-dot { animation: none; }
   .chev, .chip, .meta-btn, .more-toggle, .step-btn, .subcmd-pill, .toast,
   .sub-accordion-btn, .delegate-menu-row, .row-ask-btn, .guide-row, .focus-chip {
     transition: none;

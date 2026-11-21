@@ -130,6 +130,15 @@ function latestMarker(a, b) {
   return a.order >= b.order ? a : b;
 }
 
+function earliestMarker(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  if (a.tsMs && b.tsMs && a.tsMs !== b.tsMs) {
+    return a.tsMs < b.tsMs ? a : b;
+  }
+  return a.order <= b.order ? a : b;
+}
+
 function isMarkerAfter(a, b) {
   if (!a) return false;
   if (!b) return true;
@@ -243,12 +252,31 @@ function extractRequestBody(rawContent) {
   return String(rawContent ?? "").match(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/i)?.[1] ?? String(rawContent ?? "");
 }
 
-function extractLeadingSlashCommands(rawContent) {
-  const stripped = extractRequestBody(rawContent).replace(/```[\s\S]*?```/g, " ").trim();
+function extractInvokedSlashCommands(rawContent) {
+  const raw = String(rawContent ?? "");
+  const found = new Set();
+  const stripped = extractRequestBody(raw).replace(/```[\s\S]*?```/g, " ").trim();
   const withoutNewTask = stripped.replace(/^new\s+task\.?\s*/i, "");
   const match = withoutNewTask.match(/^((?:\/[a-z0-9_-]+(?:\s+|$))+)/i);
-  if (!match) return [];
-  return [...match[1].matchAll(/\/([a-z0-9_-]+)/gi)].map((m) => `/${m[1].toLowerCase()}`);
+  if (match) {
+    for (const m of match[1].matchAll(/\/([a-z0-9_-]+)/gi)) {
+      found.add(`/${m[1].toLowerCase()}`);
+    }
+  }
+  const metaBody = raw.match(/<ADDITIONAL_METADATA>([\s\S]*?)<\/ADDITIONAL_METADATA>/i)?.[1] ?? "";
+  for (const m of metaBody.matchAll(/^\s*(\/[a-z0-9_-]+)\s+is\s+a\s+\[Slash Command\]:/gim)) {
+    found.add(m[1].toLowerCase());
+  }
+  return [...found];
+}
+
+function isWorkspaceSourceSkillPath(rawPath, workspaceDir) {
+  if (!rawPath || !workspaceDir) return false;
+  const resolvedWs = path.resolve(workspaceDir);
+  const resolvedFile = path.resolve(workspaceDir, rawPath);
+  const rel = normalizePosix(path.relative(resolvedWs, resolvedFile));
+  if (!rel || rel === ".." || rel.startsWith("../") || path.isAbsolute(rel)) return false;
+  return !rel.toLowerCase().startsWith(".agents/skills/");
 }
 
 function summarizeText(raw, maxLen = 72) {
@@ -446,6 +474,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
     verifyRunAt: null,
     latestCodeWriteAt: null,
     latestWorkspaceWriteAt: null,
+    earliestWorkspaceWriteAt: null,
     reviewPrAt: null,
     openPrAt: null,
     pushOrPrAt: null,
@@ -491,7 +520,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
 
     if (step.type === "USER_INPUT" || step.source === "USER_EXPLICIT") {
       const rawContent = String(step.content ?? "");
-      const cmds = extractLeadingSlashCommands(rawContent);
+      const cmds = extractInvokedSlashCommands(rawContent);
       const body = extractRequestBody(rawContent).trim();
       for (const cmd of cmds) {
         if (COMMAND_DOCS[cmd]) sig.detected.add(cmd);
@@ -629,6 +658,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
 
       if (FILE_READ_TOOLS.has(name)) {
         const p = targetPathOf(args);
+        if (isWorkspaceSourceSkillPath(p, workspaceDir)) continue;
         const skillRead = p.match(/\/skills\/([a-z0-9-]+)\/SKILL\.md$/i);
         if (skillRead) {
           const slug = `/${skillRead[1].toLowerCase()}`;
@@ -671,6 +701,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
           sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
         } else if (isWorkspaceFileTarget(p, workspaceDir, brainConvDir)) {
           sig.latestWorkspaceWriteAt = latestMarker(sig.latestWorkspaceWriteAt, marker);
+          sig.earliestWorkspaceWriteAt = earliestMarker(sig.earliestWorkspaceWriteAt, marker);
           sig.changedFiles.add(workspaceDir ? normalizePosix(path.relative(path.resolve(workspaceDir), path.resolve(workspaceDir, p))) : p);
           if (!DOC_EXT_RE.test(p)) {
             sig.latestCodeWriteAt = latestMarker(sig.latestCodeWriteAt, marker);
@@ -891,6 +922,7 @@ function mergeChildTranscriptSignals(sig, brainDir, workspaceDir, parentConvId) 
     for (const key of mergeKeys) {
       sig[key] = latestMarker(sig[key], childSig[key]);
     }
+    sig.earliestWorkspaceWriteAt = earliestMarker(sig.earliestWorkspaceWriteAt, childSig.earliestWorkspaceWriteAt);
     for (const d of childSig.detected) {
       sig.detected.add(d);
     }
@@ -1015,8 +1047,10 @@ function buildPlanStage({ hasConv, setupState, sig, planArtifact, planWrittenMar
       ? "Plan approved and execution started."
       : status === "skipped"
         ? "Skipped for direct edit flow."
-        : grillMe
-          ? "Clarifying requirements via /grill-me."
+        : status === "active"
+          ? grillMe
+            ? "Clarifying requirements via /grill-me."
+            : "Planning in progress — drafting implementation_plan.md."
           : "Write implementation_plan.md before editing code.";
 
   return {
@@ -1046,25 +1080,33 @@ function buildBuildStage({
   reviewFresh,
   walkthroughArtifact,
 }) {
-  const astackModeActive = Boolean(sig.astackModeAt || hasEdits);
+  const planningActive = (planStatus === "active" || planStatus === "waiting_gate") && !hasEdits;
+  const astackModeActive = !planningActive && Boolean(sig.astackModeAt || hasEdits);
   const walkthroughComplete = Boolean(walkthroughArtifact);
+  const hasBuildableWork = Boolean(hasEdits || walkthroughComplete || (reviewStarted && reviewFresh));
   let status = "pending";
-  if (buildStale) status = "stale";
-  else if (verifyFresh && (!hasCodeEdits || cleanFresh || walkthroughComplete || (reviewStarted && reviewFresh))) status = "done";
-  else if (astackModeActive || Boolean(sig.interrogateAt) || cleanDone || verifyDone) status = "active";
-  else if (planStatus === "done" || planStatus === "skipped") status = "next";
+  if (!planningActive) {
+    if (buildStale) status = "stale";
+    else if (verifyFresh && hasBuildableWork && (!hasCodeEdits || cleanFresh || walkthroughComplete || (reviewStarted && reviewFresh))) status = "done";
+    else if (astackModeActive || Boolean(sig.interrogateAt) || cleanDone || (verifyDone && hasEdits)) status = "active";
+    else if (planStatus === "done" || planStatus === "skipped") status = "next";
+  }
 
   const subChecks = [
     { id: "edits", label: "edits", status: hasEdits ? "done" : "pending" },
-    { id: "clean", label: "clean", status: cleanDone ? (cleanFresh ? "done" : "stale") : "pending" },
-    { id: "verify", label: "verify", status: verifyFresh ? "done" : buildStale ? "stale" : "pending" },
+    { id: "clean", label: "clean", status: !planningActive && cleanDone ? (cleanFresh ? "done" : "stale") : "pending" },
+    { id: "verify", label: "verify", status: !planningActive && hasBuildableWork && verifyFresh ? "done" : buildStale ? "stale" : "pending" },
   ];
   const detail = status === "stale"
     ? "New file edits landed after cleanup or tests. Re-run verification before PR review."
     : status === "done"
-      ? cleanFresh || !hasCodeEdits
+      ? hasCodeEdits && cleanFresh
         ? "Code edits cleaned and verified on HEAD."
-        : "Edits verified on HEAD with walkthrough recorded."
+        : hasEdits && !hasCodeEdits
+          ? "Documentation edits verified on HEAD."
+          : walkthroughComplete
+            ? "Edits verified on HEAD with walkthrough recorded."
+            : "Changes verified on HEAD for PR review."
       : status === "active"
         ? "Running build, cleanup, and live verification."
         : "Run /astack-mode with your goal and done check.";
@@ -1189,6 +1231,7 @@ function selectNextAction(stepViews, setupState) {
       stageLabel: current.label,
       command: current.primaryCommand,
       hint: current.detail,
+      inProgress: current.status === "active",
     };
   }
   if (ship.status === "done" || stepViews.every((s) => s.status === "done" || s.status === "skipped")) {
@@ -1392,6 +1435,7 @@ export function evaluateTimelineSnapshot({
 
   let latestCodeWrite = sig.latestCodeWriteAt;
   let latestAnyWrite = sig.latestWorkspaceWriteAt;
+  let earliestAnyWrite = sig.earliestWorkspaceWriteAt;
   let latestReceiptVerify = null;
   let hadReceiptWrite = false;
   let hasVerifyReceipt = false;
@@ -1406,6 +1450,7 @@ export function evaluateTimelineSnapshot({
       if (Array.isArray(r.paths) && r.paths.length > 0 && workspacePaths.length === 0) continue;
       hadReceiptWrite = true;
       latestAnyWrite = latestMarker(latestAnyWrite, m);
+      earliestAnyWrite = earliestMarker(earliestAnyWrite, m);
       for (const wp of workspacePaths) sig.changedFiles.add(normalizePosix(wp));
       const allDocs = workspacePaths.length > 0 && workspacePaths.every((p) => DOC_EXT_RE.test(p));
       if (!allDocs) latestCodeWrite = latestMarker(latestCodeWrite, m);
@@ -1428,6 +1473,7 @@ export function evaluateTimelineSnapshot({
   const cleanDone = Boolean(sig.cleanAt);
   const cleanFresh = cleanDone && (!latestCodeWrite || !isMarkerAfter(latestCodeWrite, sig.cleanAt));
   const latestVerify = latestMarker(latestReceiptVerify, sig.verifyRunAt);
+  const hasPostEditVerify = Boolean(latestVerify && (!earliestAnyWrite || isMarkerAfter(latestVerify, earliestAnyWrite)));
   const verifyDone = Boolean(latestVerify || (evidence && (evidence.freshness === "fresh" || evidence.freshness === "fresh_rebase_patch_id")));
   const verifyFreshFromReceipts = receiptFreshness === "fresh" || receiptFreshness === "fresh_rebase_patch_id";
   const verifyFreshFromTranscript = Boolean(sig.verifyRunAt && (!latestCodeWrite || !isMarkerAfter(latestCodeWrite, sig.verifyRunAt)));
@@ -1435,8 +1481,8 @@ export function evaluateTimelineSnapshot({
     ? verifyFreshFromReceipts && (!latestCodeWrite || !isMarkerAfter(latestCodeWrite, latestVerify))
     : Boolean(verifyFreshFromTranscript || (evidence && verifyFreshFromReceipts));
 
-  const staleFromReceipts = hasEdits && (receiptFreshness === "dirty_after_verify" || receiptFreshness === "stale_sha");
-  const buildStale = staleFromReceipts || Boolean(cleanDone && !cleanFresh) || Boolean(sig.verifyRunAt && !verifyFresh && hasCodeEdits);
+  const staleFromReceipts = hasEdits && hasPostEditVerify && (receiptFreshness === "dirty_after_verify" || receiptFreshness === "stale_sha");
+  const buildStale = staleFromReceipts || Boolean(cleanDone && !cleanFresh) || Boolean(sig.verifyRunAt && hasPostEditVerify && !verifyFresh && hasCodeEdits);
 
   const reviewStarted = Boolean(sig.reviewPrAt || reviewArtifact || evidence?.verifier?.verdict);
   const reviewRound = evidence?.reviewRound ?? 0;

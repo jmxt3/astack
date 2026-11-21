@@ -850,3 +850,329 @@ test("evaluateTimelineSnapshot hides nextAction once all workflow stages are acc
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("keeps Build & Prove pending during /plan with baseline lint checks and avoids false stale on first edit", () => {
+  const { root, brainDir, workspaceDir } = makeFixture();
+  const convId = "conv-plan-baseline";
+  try {
+    const headSha = "0123456789abcdef0123456789abcdef01234567";
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+
+    const step0 = {
+      step_index: 0,
+      source: "USER_EXPLICIT",
+      type: "USER_INPUT",
+      created_at: "2026-11-20T10:00:00Z",
+      content: "<USER_REQUEST>/plan /astack-mode design native improvements</USER_REQUEST>",
+    };
+    const step1 = {
+      step_index: 1,
+      type: "PLANNER_RESPONSE",
+      created_at: "2026-11-20T10:00:10Z",
+      tool_calls: [{ name: "read_file", args: { Path: "/plugin/skills/astack-mode/SKILL.md" } }],
+    };
+    writeTranscript(brainDir, convId, [step0, step1]);
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:00:20Z",
+        conversationId: convId,
+        kind: "command",
+        category: "lint",
+        headSha,
+        ok: true,
+        summary: "node scripts/validate-astack.mjs --json",
+        paths: [],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:00:25Z",
+        conversationId: convId,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --run test:sidecar",
+        paths: [],
+      },
+    ]);
+
+    const planningSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(planningSnap.doneCount, 0);
+    assert.equal(planningSnap.stages[0].status, "active");
+    assert.equal(planningSnap.stages[0].commands[0].state, "active");
+    assert.equal(planningSnap.nextAction.stageId, "plan");
+    assert.equal(planningSnap.nextAction.inProgress, true);
+    assert.equal(planningSnap.stages[1].status, "pending");
+    assert.equal(planningSnap.stages[1].commands[0].state, "pending");
+    assert.deepEqual(
+      planningSnap.stages[1].subChecks.map((c) => c.status),
+      ["pending", "pending", "pending"],
+    );
+
+    writeText(path.join(brainDir, convId, "implementation_plan.md"), "# Plan\n");
+    const step2 = {
+      step_index: 2,
+      type: "PLANNER_RESPONSE",
+      created_at: "2026-11-20T10:01:00Z",
+      tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convId, "implementation_plan.md") } }],
+    };
+    writeTranscript(brainDir, convId, [step0, step1, step2]);
+
+    const gateSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(gateSnap.doneCount, 0);
+    assert.equal(gateSnap.stages[0].status, "waiting_gate");
+    assert.equal(gateSnap.stages[0].commands[0].state, "done");
+    assert.equal(gateSnap.stages[1].status, "pending");
+
+    const step3 = {
+      step_index: 3,
+      source: "USER_EXPLICIT",
+      type: "USER_INPUT",
+      created_at: "2026-11-20T10:02:00Z",
+      content: "<USER_REQUEST>Proceeded with implementation_plan.md</USER_REQUEST>",
+    };
+    writeTranscript(brainDir, convId, [step0, step1, step2, step3]);
+
+    const approvedSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(approvedSnap.stages[0].status, "done");
+    assert.equal(approvedSnap.stages[1].status, "active");
+
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:00:20Z",
+        conversationId: convId,
+        kind: "command",
+        category: "lint",
+        headSha,
+        ok: true,
+        summary: "node scripts/validate-astack.mjs --json",
+        paths: [],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:03:00Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "other",
+        headSha,
+        ok: true,
+        summary: "edit_file src/index.js",
+        paths: ["src/index.js"],
+      },
+    ]);
+
+    const firstEditSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(firstEditSnap.stages[1].status, "active", "Pre-plan lint receipt must not make first edit stale");
+    assert.equal(firstEditSnap.stages[1].subChecks[0].status, "done");
+    assert.equal(firstEditSnap.stages[1].subChecks[2].status, "pending");
+
+    const step4 = {
+      step_index: 4,
+      type: "PLANNER_RESPONSE",
+      created_at: "2026-11-20T10:04:00Z",
+      tool_calls: [{ name: "read_file", args: { Path: "/plugin/skills/deslop/SKILL.md" } }],
+    };
+    writeTranscript(brainDir, convId, [step0, step1, step2, step3, step4]);
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:00:20Z",
+        conversationId: convId,
+        kind: "command",
+        category: "lint",
+        headSha,
+        ok: true,
+        summary: "node scripts/validate-astack.mjs --json",
+        paths: [],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:03:00Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "other",
+        headSha,
+        ok: true,
+        summary: "edit_file src/index.js",
+        paths: ["src/index.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:05:00Z",
+        conversationId: convId,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+    ]);
+
+    const doneSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(doneSnap.stages[1].status, "done");
+    assert.equal(doneSnap.doneCount, 2);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("detects Antigravity metadata Slash Command chips even after text while ignoring casual prose", () => {
+  const { root, brainDir, workspaceDir } = makeFixture();
+  const convId = "conv-meta-cmd";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:00:00Z",
+        content: [
+          "<USER_REQUEST>@README.md please use /plan and do not run /review-pr yet</USER_REQUEST>",
+          "<ADDITIONAL_METADATA>",
+          "/plan is a [Slash Command]:",
+          "<PLAN>Plan instructions</PLAN>",
+          "</ADDITIONAL_METADATA>",
+        ].join("\n"),
+      },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(snap.stages[0].status, "active");
+    assert.equal(snap.stages[0].commands[0].state, "active");
+    assert.equal(snap.stages[2].status, "pending");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("keeps Build & Prove pending on read-only test/lint run without edits, and completes on doc-only edits + verify", () => {
+  const { root, brainDir, workspaceDir } = makeFixture();
+  const convId = "conv-readonly-vs-docs";
+  try {
+    const headSha = "0123456789abcdef0123456789abcdef01234567";
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:00:00Z",
+        content: "<USER_REQUEST>Check test status</USER_REQUEST>",
+      },
+    ]);
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:00:10Z",
+        conversationId: convId,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+    ]);
+
+    const readOnlySnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(readOnlySnap.stages[1].status, "pending");
+    assert.equal(readOnlySnap.doneCount, 0);
+
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:00:10Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "other",
+        headSha,
+        ok: true,
+        summary: "edit_file README.md",
+        paths: ["README.md"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-20T10:00:20Z",
+        conversationId: convId,
+        kind: "command",
+        category: "lint",
+        headSha,
+        ok: true,
+        summary: "node scripts/validate-astack.mjs",
+        paths: [],
+      },
+    ]);
+
+    const docSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(docSnap.stages[1].status, "done");
+    assert.equal(docSnap.stages[1].detail, "Documentation edits verified on HEAD.");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ignores workspace repository skill/playbook source reads in parent and child transcripts while honoring installed plugin skills", () => {
+  const { root, brainDir, workspaceDir } = makeFixture();
+  const convId = "conv-workspace-skills";
+  const childId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T10:00:00Z",
+        content: "<USER_REQUEST>/plan audit our skills directory</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-20T10:00:10Z",
+        tool_calls: [
+          { name: "read_file", args: { Path: path.join(workspaceDir, "skills", "review-pr", "SKILL.md") } },
+          { name: "read_file", args: { Path: path.join(workspaceDir, "skills", "setup-astack", "SKILL.md") } },
+          { name: "read_file", args: { Path: path.join(workspaceDir, "skills", "astack-mode", "playbooks", "babysit.md") } },
+          { name: "read_file", args: { Path: path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md") } },
+        ],
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        created_at: "2026-11-20T10:00:20Z",
+        content: `Started subagent {"conversationId": "${childId}"}`,
+      },
+    ]);
+    writeTranscript(brainDir, childId, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-20T10:00:25Z",
+        tool_calls: [
+          { name: "read_file", args: { Path: path.join(workspaceDir, "skills", "control-ui", "SKILL.md") } },
+          { name: "read_file", args: { Path: path.join(workspaceDir, "skills", "arena", "SKILL.md") } },
+          { name: "read_file", args: { Path: "/external-plugin/skills/how/SKILL.md" } },
+        ],
+      },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(snap.setup.ranInSession, false);
+    assert.equal(snap.stages[0].status, "active");
+    assert.equal(snap.stages[0].autoSubCommands.find((c) => c.command === "/how")?.ran, true);
+    assert.equal(snap.stages[1].status, "pending");
+    assert.equal(snap.stages[1].autoSubCommands.find((c) => c.command === "/control-ui")?.ran, false);
+    assert.equal(snap.stages[1].moreCommands.find((c) => c.command === "/arena")?.state, "pending");
+    assert.equal(snap.stages[2].status, "pending");
+    assert.equal(snap.stages[3].status, "pending");
+    assert.equal(snap.stages[3].commands.find((c) => c.command === "babysit")?.state, "pending");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

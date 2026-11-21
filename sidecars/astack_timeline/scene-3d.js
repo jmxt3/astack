@@ -80,7 +80,7 @@
 
     const parent = canvasEl.parentElement;
     let width = Math.max(260, parent?.clientWidth || canvasEl.clientWidth || 600);
-    let height = parent?.clientHeight || canvasEl.clientHeight || 232;
+    let height = parent?.clientHeight || canvasEl.clientHeight || 164;
 
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     renderer.setSize(width, height, false);
@@ -88,8 +88,8 @@
 
     const scene = new T.Scene();
     const camera = new T.PerspectiveCamera(30, width / height, 0.1, 100);
-    camera.position.set(0, 2.1, 10.5);
-    camera.lookAt(0, 0.1, 0);
+    camera.position.set(0, 1.7, 8.6);
+    camera.lookAt(0, 0.05, 0);
     camera.updateMatrixWorld(true);
 
     const world = new T.Group();
@@ -124,7 +124,7 @@
 
     function projectStagePositions() {
       const xs = [-0.8, -0.2, 0.4, 0.8];
-      const ny = -0.293;
+      const ny = -0.15;
       return xs.map((nx) => {
         const vec = new T.Vector3(nx, ny, 0.5).unproject(camera);
         const dir = vec.sub(camera.position).normalize();
@@ -438,7 +438,7 @@
         tg,
         q,
         stageIdx,
-        R: 0.55 + Math.random() * 0.3,
+        R: 0.5 + Math.random() * 0.24,
         w: (0.9 + Math.random() * 0.8) * (Math.random() < 0.5 ? -1 : 1),
         ph: Math.random() * 6.28,
         birth,
@@ -595,7 +595,7 @@
       for (let k = 0; k <= HN; k++) {
         const u = k / HN;
         const a = u * Math.PI * 2 * 2.5;
-        helixPts.push(new T.Vector3(anchor.x + Math.cos(a) * 0.2, anchor.y - 0.16 - u * 0.62, anchor.z + Math.sin(a) * 0.2));
+        helixPts.push(new T.Vector3(anchor.x + Math.cos(a) * 0.2, anchor.y - 0.14 - u * 0.48, anchor.z + Math.sin(a) * 0.2));
       }
       helixGeo.setFromPoints(helixPts);
     }
@@ -606,9 +606,9 @@
       const origin = P[Math.max(0, Math.min(3, state.focalIdx))] || P[1];
       const curveFork = new T.CatmullRomCurve3([
         origin.clone(),
-        origin.clone().add(new T.Vector3(0.35, 0.45, 0.25)),
-        origin.clone().add(new T.Vector3(0.95, 0.95, 0.1)),
-        origin.clone().add(new T.Vector3(1.55, 1.2, -0.3)),
+        origin.clone().add(new T.Vector3(0.35, 0.35, 0.25)),
+        origin.clone().add(new T.Vector3(0.95, 0.72, 0.1)),
+        origin.clone().add(new T.Vector3(1.55, 0.9, -0.3)),
       ]);
       const fpts = curveFork.getPoints(60);
       const g = new T.BufferGeometry().setFromPoints(fpts);
@@ -652,7 +652,7 @@
           new T.LineBasicMaterial({ color: col.clone(), transparent: true, opacity: 0.9, depthWrite: false }),
         );
         const anchor = P[d.stageIdx] || P[1];
-        const base = anchor.clone().add(new T.Vector3(d.dx, 1.15, 0));
+        const base = anchor.clone().add(new T.Vector3(d.dx, 0.8, 0));
         m.position.copy(base);
         const glow = new T.Sprite(
           new T.SpriteMaterial({ map: dot, color: col.clone(), transparent: true, opacity: 0.16, blending: ADD, depthWrite: false }),
@@ -660,8 +660,8 @@
         glow.scale.set(0.5, 0.5, 1);
         glow.position.copy(base);
         const tethGeo = new T.BufferGeometry().setFromPoints([
-          anchor.clone().add(new T.Vector3(0, 0.27, 0)),
-          base.clone().add(new T.Vector3(0, -0.14, 0)),
+          anchor.clone().add(new T.Vector3(0, 0.24, 0)),
+          base.clone().add(new T.Vector3(0, -0.12, 0)),
         ]);
         const teth = new T.Line(tethGeo, new T.LineBasicMaterial({ color: col.clone(), transparent: true, opacity: 0.2, depthWrite: false }));
         artGroup.add(teth, glow, m);
@@ -1039,7 +1039,7 @@
     function resize() {
       if (dead || !parent) return;
       const nextW = Math.max(260, parent.clientWidth || 600);
-      const nextH = parent.clientHeight || 232;
+      const nextH = parent.clientHeight || 164;
       if (nextW === width && nextH === height) return;
       width = nextW;
       height = nextH;
