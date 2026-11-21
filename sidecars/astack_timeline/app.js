@@ -15,6 +15,8 @@
     moreExpanded: new Set(),
     subExpanded: { swarm: false, helpers: false, goal: false, more: false },
     solo: null,
+    artifact: null,
+    artifactReturnEl: null,
     userToggled: false,
     toastTimer: null,
     popoverHideTimer: null,
@@ -242,18 +244,251 @@
     showToast(`Copy blocked · Type "${displayCmd || payload}" in chat`);
   }
 
-  async function openArtifact(artifact) {
-    if (artifact.uri && artifact.kind !== "pr" && window.sidecar?.ui?.toggleAuxPane) {
-      window.sidecar.ui.toggleAuxPane({ tabType: "fileView", uri: artifact.uri });
+  function buildArtifactQuery(name, raw = false) {
+    const convId = window.sidecar?.conversationId || params.get("conversationId") || state.snap?.conversationId || "";
+    const qs = new URLSearchParams();
+    if (convId) qs.set("conversationId", convId);
+    qs.set("name", name);
+    if (raw) qs.set("raw", "1");
+    const token = params.get("token");
+    if (token) qs.set("token", token);
+    return `/api/artifact?${qs.toString()}`;
+  }
+
+  function appendInlineMarkdown(parent, text) {
+    const tokenRe = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g;
+    let lastIndex = 0;
+    for (const match of text.matchAll(tokenRe)) {
+      const idx = match.index ?? 0;
+      if (idx > lastIndex) {
+        parent.appendChild(document.createTextNode(text.slice(lastIndex, idx)));
+      }
+      const token = match[0];
+      if (token.startsWith("`")) {
+        parent.appendChild(el("code", "md-inline-code", token.slice(1, -1)));
+      } else if (token.startsWith("**")) {
+        parent.appendChild(el("strong", "", token.slice(2, -2)));
+      } else {
+        const linkMatch = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
+        if (linkMatch) {
+          const a = el("a", "md-link", linkMatch[1]);
+          a.href = linkMatch[2];
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          parent.appendChild(a);
+        } else {
+          parent.appendChild(document.createTextNode(token));
+        }
+      }
+      lastIndex = idx + token.length;
+    }
+    if (lastIndex < text.length) {
+      parent.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+  }
+
+  function renderMarkdownToFragment(markdown) {
+    const frag = document.createDocumentFragment();
+    const doc = el("article", "md-doc");
+    const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) {
+        i += 1;
+        continue;
+      }
+      if (/^```/.test(line)) {
+        const codeLines = [];
+        i += 1;
+        while (i < lines.length && !/^```/.test(lines[i])) {
+          codeLines.push(lines[i]);
+          i += 1;
+        }
+        if (i < lines.length) i += 1;
+        const pre = el("pre", "md-pre");
+        pre.appendChild(el("code", "", codeLines.join("\n")));
+        doc.appendChild(pre);
+        continue;
+      }
+      const heading = line.match(/^(#{1,4})\s+(.+)$/);
+      if (heading) {
+        const tag = `h${Math.min(heading[1].length, 4)}`;
+        const h = el(tag, "md-heading");
+        appendInlineMarkdown(h, heading[2].trim());
+        doc.appendChild(h);
+        i += 1;
+        continue;
+      }
+      if (/^(?:---|\*\*\*|___)\s*$/.test(line)) {
+        doc.appendChild(el("hr", "md-hr"));
+        i += 1;
+        continue;
+      }
+      if (/^>\s?/.test(line)) {
+        const quote = el("blockquote", "md-quote");
+        const quoteLines = [];
+        while (i < lines.length && /^>\s?/.test(lines[i])) {
+          quoteLines.push(lines[i].replace(/^>\s?/, ""));
+          i += 1;
+        }
+        const qp = el("p", "");
+        appendInlineMarkdown(qp, quoteLines.join(" "));
+        quote.appendChild(qp);
+        doc.appendChild(quote);
+        continue;
+      }
+      if (/^\s*[-*]\s+/.test(line)) {
+        const ul = el("ul", "md-list");
+        while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+          const li = el("li", "");
+          appendInlineMarkdown(li, lines[i].replace(/^\s*[-*]\s+/, ""));
+          ul.appendChild(li);
+          i += 1;
+        }
+        doc.appendChild(ul);
+        continue;
+      }
+      if (/^\s*\d+\.\s+/.test(line)) {
+        const ol = el("ol", "md-list");
+        while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+          const li = el("li", "");
+          appendInlineMarkdown(li, lines[i].replace(/^\s*\d+\.\s+/, ""));
+          ol.appendChild(li);
+          i += 1;
+        }
+        doc.appendChild(ol);
+        continue;
+      }
+      const paraLines = [];
+      while (
+        i < lines.length &&
+        lines[i].trim() &&
+        !/^(?:```|#{1,4}\s|>\s?|\s*[-*]\s+|\s*\d+\.\s+|(?:---|\*\*\*|___)\s*$)/.test(lines[i])
+      ) {
+        paraLines.push(lines[i].trim());
+        i += 1;
+      }
+      const p = el("p", "md-p");
+      appendInlineMarkdown(p, paraLines.join(" "));
+      doc.appendChild(p);
+    }
+    frag.appendChild(doc);
+    return frag;
+  }
+
+  function renderArtifactView() {
+    const container = document.getElementById("artifact-view");
+    if (!container || !state.artifact) return;
+    const art = state.artifact;
+
+    const header = el("header", "artifact-header");
+    const navRow = el("div", "artifact-nav-row");
+    const backBtn = el("button", "back-btn");
+    backBtn.type = "button";
+    backBtn.id = "back-from-artifact";
+    backBtn.dataset.testid = "back-from-artifact";
+    backBtn.appendChild(svgIcon("back", 14));
+    backBtn.appendChild(el("span", "", "Timeline"));
+    backBtn.addEventListener("click", () => switchView("timeline", true));
+    navRow.appendChild(backBtn);
+
+    if (art.rawUrl) {
+      const rawLink = el("a", "artifact-raw-link");
+      rawLink.href = art.rawUrl;
+      rawLink.target = "_blank";
+      rawLink.rel = "noopener noreferrer";
+      rawLink.appendChild(el("span", "", "Open raw"));
+      rawLink.appendChild(svgIcon("external", 10));
+      navRow.appendChild(rawLink);
+    }
+    header.appendChild(navRow);
+
+    const titleRow = el("div", "artifact-title-row");
+    titleRow.appendChild(el("h1", "title", art.label || art.name));
+    if (art.name) {
+      titleRow.appendChild(el("span", "artifact-filename", art.name));
+    }
+    header.appendChild(titleRow);
+
+    const body = el("main", "artifact-body");
+    if (art.loading) {
+      body.appendChild(el("p", "artifact-status", `Opening ${art.name || art.label}...`));
+    } else if (art.error) {
+      body.appendChild(el("p", "artifact-status error", art.error));
+    } else if (art.data?.kind === "markdown") {
+      body.appendChild(renderMarkdownToFragment(art.data.content));
+    } else if (art.data?.kind === "image") {
+      const frame = el("div", "artifact-img-frame");
+      const img = el("img", "artifact-viewer-img");
+      img.src = art.rawUrl;
+      img.alt = art.label || art.name;
+      frame.appendChild(img);
+      body.appendChild(frame);
+    } else if (art.data?.kind === "pdf") {
+      const note = el("p", "artifact-status", `PDF preview ready for ${art.name}. `);
+      const pdfLink = el("a", "md-link", "Open PDF in browser tab");
+      pdfLink.href = art.rawUrl;
+      pdfLink.target = "_blank";
+      pdfLink.rel = "noopener noreferrer";
+      note.appendChild(pdfLink);
+      body.appendChild(note);
+    } else if (art.data) {
+      body.appendChild(el("pre", "artifact-viewer-pre", art.data.content || ""));
+    }
+
+    container.replaceChildren(header, body);
+  }
+
+  async function openArtifact(artifact, triggerEl = null) {
+    if (!artifact) return;
+    if (artifact.kind !== "pr" && artifact.uri && typeof window.sidecar?.ui?.toggleAuxPane === "function") {
+      try {
+        const res = window.sidecar.ui.toggleAuxPane({ tabType: "fileView", uri: artifact.uri });
+        if (res && typeof res.then === "function") await res;
+        return;
+      } catch {
+      }
+    }
+    if (artifact.kind === "pr") {
+      if (artifact.uri && /^https?:\/\//i.test(artifact.uri)) {
+        window.open(artifact.uri, "_blank", "noopener,noreferrer");
+        return;
+      }
+      showToast(`${artifact.label || artifact.name} has no PR URL yet`);
       return;
     }
-    if (artifact.uri && /^https?:\/\//i.test(artifact.uri)) {
-      window.open(artifact.uri, "_blank", "noopener,noreferrer");
-      return;
+    if (!artifact.name) return;
+    state.artifactReturnEl = triggerEl || document.activeElement;
+    const rawUrl = buildArtifactQuery(artifact.name, true);
+    state.artifact = {
+      label: artifact.label || artifact.name,
+      name: artifact.name,
+      uri: artifact.uri || null,
+      loading: true,
+      error: null,
+      data: null,
+      rawUrl,
+    };
+    switchView("artifact");
+    try {
+      const f = window.sidecar?.fetch ? window.sidecar.fetch.bind(window.sidecar) : fetch;
+      const res = await f(buildArtifactQuery(artifact.name, false), { method: "GET" });
+      if (!res.ok) {
+        const errPayload = await res.json().catch(() => ({}));
+        throw new Error(errPayload.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (!state.artifact || state.artifact.name !== artifact.name) return;
+      state.artifact.loading = false;
+      state.artifact.data = data;
+      renderArtifactView();
+    } catch (err) {
+      if (!state.artifact || state.artifact.name !== artifact.name) return;
+      state.artifact.loading = false;
+      state.artifact.error = `Could not open ${artifact.name} (${err?.message || "request failed"}).`;
+      renderArtifactView();
     }
-    const target = artifact.uri || artifact.label || artifact.name;
-    const ok = await writeClipboard(target);
-    showToast(ok ? `Copied ${artifact.label || artifact.name}` : `Opens ${artifact.label || artifact.name}`);
   }
 
   function formatSec(sec) {
@@ -706,8 +941,7 @@
             attachCommandPopover(row, docMeta);
           }
           if (item.id === "rw" || item.id === "schedule" || item.id === "boost" || item.id === "swarm" || item.id === "goal") {
-            const hlKey = item.id === "rw" ? "rw" : item.id;
-            row.addEventListener("mouseenter", () => scene?.setHighlight("cmd", hlKey));
+            row.addEventListener("mouseenter", () => scene?.setHighlight("cmd", item.id));
             row.addEventListener("mouseleave", () => scene?.setHighlight("cmd", null));
           }
           const ic = el("span", "delegate-menu-icon");
@@ -779,7 +1013,7 @@
       btn.addEventListener("blur", () => scene?.setHighlight("art", null));
       btn.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        openArtifact(art);
+        openArtifact(art, btn);
       });
       row.appendChild(btn);
     }
@@ -971,29 +1205,23 @@
     guideBtn.appendChild(svgIcon("chevron", 10));
     guideBtn.addEventListener("click", () => switchView("delegate"));
     strip.appendChild(guideBtn);
+
+    const focusArtsEl = document.getElementById("focus-artifacts");
+    if (focusArtsEl) {
+      const allArtifacts = (snap.stages || []).flatMap((s) => s.artifacts || []);
+      if (state.solo === "art" && allArtifacts.length > 0) {
+        focusArtsEl.replaceChildren(buildArtifactButtons(allArtifacts));
+        focusArtsEl.classList.remove("hidden");
+      } else {
+        focusArtsEl.replaceChildren();
+        focusArtsEl.classList.add("hidden");
+      }
+    }
   }
 
   function renderFooter(snap) {
     const footer = document.getElementById("panel-footer");
     if (!footer) return;
-    if (state.view === "delegate") {
-      const left = el("a", "footer-link");
-      left.href = "https://antigravity.google/docs/commands/";
-      left.target = "_blank";
-      left.rel = "noopener noreferrer";
-      left.appendChild(el("span", "", "Antigravity slash commands"));
-      left.appendChild(svgIcon("external", 10));
-
-      const right = el("a", "footer-link");
-      right.href = `${DOCS_URL_PREFIX}blob/main/skills/astack-mode/references/native-commands.md`;
-      right.target = "_blank";
-      right.rel = "noopener noreferrer";
-      right.appendChild(el("span", "", "native-commands.md"));
-      right.appendChild(svgIcon("external", 10));
-      footer.replaceChildren(left, right);
-      return;
-    }
-
     const helpMeta = (snap && lookupCommandMeta(snap, "/astack-help")) || {
       command: "/astack-help",
       copyText: "/astack-help",
@@ -1217,28 +1445,42 @@
   }
 
   function switchView(nextView, restoreFocus = false) {
+    const prevView = state.view;
     state.view = nextView;
     hideCommandPopover();
     const tlView = document.getElementById("timeline-view");
     const dgView = document.getElementById("delegate-view");
-    if (!tlView || !dgView) return;
+    const artView = document.getElementById("artifact-view");
+    if (!tlView || !dgView || !artView) return;
+
+    const views = [
+      { key: "timeline", el: tlView },
+      { key: "delegate", el: dgView },
+      { key: "artifact", el: artView },
+    ];
+    for (const v of views) {
+      const active = v.key === nextView;
+      v.el.classList.toggle("hidden", !active);
+      if (active) v.el.removeAttribute("aria-hidden");
+      else v.el.setAttribute("aria-hidden", "true");
+    }
 
     if (nextView === "delegate") {
-      tlView.classList.add("hidden");
-      tlView.setAttribute("aria-hidden", "true");
-      dgView.classList.remove("hidden");
-      dgView.removeAttribute("aria-hidden");
       renderDelegateGuide(state.snap);
       document.getElementById("back-to-timeline")?.focus();
+    } else if (nextView === "artifact") {
+      renderArtifactView();
+      document.getElementById("back-from-artifact")?.focus();
     } else {
-      dgView.classList.add("hidden");
-      dgView.setAttribute("aria-hidden", "true");
-      tlView.classList.remove("hidden");
-      tlView.removeAttribute("aria-hidden");
       renderFooter(state.snap);
       scene?.resize();
       if (restoreFocus) {
-        document.getElementById("open-delegate-guide")?.focus();
+        if (prevView === "artifact" && state.artifactReturnEl && document.contains(state.artifactReturnEl)) {
+          state.artifactReturnEl.focus();
+        } else if (prevView === "delegate") {
+          document.getElementById("open-delegate-guide")?.focus();
+        }
+        state.artifactReturnEl = null;
       }
     }
   }
@@ -1531,7 +1773,7 @@
         hideCommandPopover();
         return;
       }
-      if (state.view === "delegate") {
+      if (state.view === "delegate" || state.view === "artifact") {
         switchView("timeline", true);
       }
     }

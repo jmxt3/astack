@@ -64,8 +64,10 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     assert.match(htmlText, /data-testid="timeline-setup-drawer"/);
     assert.match(htmlText, /data-testid="timeline-scene"/);
     assert.match(htmlText, /data-testid="focus-strip"/);
+    assert.match(htmlText, /data-testid="focus-artifacts"/);
     assert.match(htmlText, /data-testid="btw-form"/);
     assert.match(htmlText, /data-testid="delegate-view"/);
+    assert.match(htmlText, /data-testid="artifact-view"/);
 
     const cssRes = await fetch(`${srv.url}styles.css`);
     assert.equal(cssRes.status, 200);
@@ -156,6 +158,42 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     assert.equal(updated.stages[0].status, "done");
     assert.equal(updated.stages[1].status, "next");
     assert.equal(updated.nextAction.command, "/astack-mode");
+
+    writeText(path.join(brainDir, convId, "diagram.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>");
+
+    const unauthArt = await fetch(`${srv.url}api/artifact?conversationId=${convId}&name=implementation_plan.md`);
+    assert.equal(unauthArt.status, 401);
+
+    const mdArtRes = await fetch(`${srv.url}api/artifact?conversationId=${convId}&name=implementation_plan.md`, { headers });
+    assert.equal(mdArtRes.status, 200);
+    const mdArt = await mdArtRes.json();
+    assert.equal(mdArt.name, "implementation_plan.md");
+    assert.equal(mdArt.kind, "markdown");
+    assert.equal(mdArt.content, "# Plan\n");
+
+    const rawMdRes = await fetch(`${srv.url}api/artifact?conversationId=${convId}&name=implementation_plan.md&raw=1`, { headers });
+    assert.equal(rawMdRes.status, 200);
+    assert.match(rawMdRes.headers.get("content-type") ?? "", /text\/markdown/);
+    assert.equal(rawMdRes.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(await rawMdRes.text(), "# Plan\n");
+
+    const rawSvgRes = await fetch(`${srv.url}api/artifact?conversationId=${convId}&name=diagram.svg&raw=1`, { headers });
+    assert.equal(rawSvgRes.status, 200);
+    assert.match(rawSvgRes.headers.get("content-type") ?? "", /image\/svg\+xml/);
+    assert.equal(rawSvgRes.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(rawSvgRes.headers.get("content-security-policy"), "sandbox");
+
+    const badConvArt = await fetch(`${srv.url}api/artifact?conversationId=not-a-uuid&name=implementation_plan.md`, { headers });
+    assert.equal(badConvArt.status, 400);
+
+    const traversalArt = await fetch(`${srv.url}api/artifact?conversationId=${convId}&name=..%2Ffoo.md`, { headers });
+    assert.equal(traversalArt.status, 400);
+
+    const disallowedExtArt = await fetch(`${srv.url}api/artifact?conversationId=${convId}&name=transcript.jsonl`, { headers });
+    assert.equal(disallowedExtArt.status, 403);
+
+    const missingArt = await fetch(`${srv.url}api/artifact?conversationId=${convId}&name=nonexistent.md`, { headers });
+    assert.equal(missingArt.status, 404);
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });

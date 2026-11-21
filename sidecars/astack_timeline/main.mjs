@@ -4,14 +4,26 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { COMMAND_DOCS, DELEGATE_GUIDE_DATA } from "./command-catalog.mjs";
-import { evaluateTimelineSnapshot } from "./timeline-engine.mjs";
+import { evaluateTimelineSnapshot, resolveSafeArtifactUri } from "./timeline-engine.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STRICT_ID_RE = /^[0-9a-f-]{8,}$/i;
 const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,79}$/;
+const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024;
+const ARTIFACT_MIME_TYPES = new Map([
+  [".md", "text/markdown; charset=utf-8"],
+  [".txt", "text/plain; charset=utf-8"],
+  [".html", "text/html; charset=utf-8"],
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".webp", "image/webp"],
+  [".svg", "image/svg+xml"],
+  [".pdf", "application/pdf"],
+]);
 
 const STATIC_ASSETS = new Map([
   ["/", { file: "index.html", type: "text/html; charset=utf-8" }],
@@ -190,6 +202,70 @@ function createTimelineResponder({
   };
 }
 
+function artifactJson(status, payload) {
+  return {
+    status,
+    contentType: "application/json; charset=utf-8",
+    headers: { "Cache-Control": "no-store" },
+    body: JSON.stringify(payload),
+  };
+}
+
+function createArtifactResponder({
+  brainDir,
+  defaultConversationId = "",
+  allowFixtureIds = false,
+}) {
+  return async ({ conversationId = "", name = "", raw = false } = {}) => {
+    const rawConv = String(conversationId || defaultConversationId || "").trim();
+    const rawName = String(name || "").trim();
+    if (!rawConv || !isValidConversationId(rawConv, allowFixtureIds)) {
+      return artifactJson(400, { error: "Invalid conversationId" });
+    }
+    if (!rawName || /[\\/%:\0]/.test(rawName) || rawName === "." || rawName === "..") {
+      return artifactJson(400, { error: "Invalid artifact name" });
+    }
+    const ext = path.extname(rawName).toLowerCase();
+    const mimeType = ARTIFACT_MIME_TYPES.get(ext);
+    if (!mimeType) {
+      return artifactJson(403, { error: "Unsupported artifact type" });
+    }
+    const uri = resolveSafeArtifactUri(path.join(brainDir, rawConv), rawName);
+    if (!uri) {
+      return artifactJson(404, { error: "Artifact not found" });
+    }
+    let filePath = "";
+    try {
+      filePath = fileURLToPath(uri);
+      const st = fs.statSync(filePath);
+      if (st.size > MAX_ARTIFACT_BYTES) {
+        return artifactJson(413, { error: "Artifact exceeds size limit" });
+      }
+      if (raw) {
+        const headers = { "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store" };
+        if (ext === ".svg" || ext === ".html") {
+          headers["Content-Security-Policy"] = "sandbox";
+        }
+        return { status: 200, contentType: mimeType, headers, body: fs.readFileSync(filePath) };
+      }
+      if (ext === ".md" || ext === ".txt" || ext === ".html") {
+        return artifactJson(200, {
+          name: rawName,
+          kind: ext === ".md" ? "markdown" : "text",
+          mimeType,
+          content: fs.readFileSync(filePath, "utf8"),
+        });
+      }
+      if (ext === ".pdf") {
+        return artifactJson(200, { name: rawName, kind: "pdf", mimeType });
+      }
+      return artifactJson(200, { name: rawName, kind: "image", mimeType });
+    } catch {
+      return artifactJson(404, { error: "Artifact not found" });
+    }
+  };
+}
+
 function isTokenAuthorized(req, url, expectedToken) {
   if (!expectedToken) return true;
   const headerToken = req.headers["x-sidecar-token"];
@@ -216,6 +292,11 @@ export async function createTimelineServer(options = {}) {
     defaultConversationId: defaultConvId,
     allowFixtureIds,
     workspaceResolver,
+  });
+  const respondArtifact = createArtifactResponder({
+    brainDir,
+    defaultConversationId: defaultConvId,
+    allowFixtureIds,
   });
 
   const server = http.createServer(async (req, res) => {
@@ -264,6 +345,22 @@ export async function createTimelineServer(options = {}) {
       return;
     }
 
+    if (reqUrl.pathname === "/api/artifact") {
+      if (!isTokenAuthorized(req, reqUrl, token)) {
+        res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+      const artRes = await respondArtifact({
+        conversationId: reqUrl.searchParams.get("conversationId") ?? "",
+        name: reqUrl.searchParams.get("name") ?? "",
+        raw: reqUrl.searchParams.get("raw") === "1",
+      });
+      res.writeHead(artRes.status, { "Content-Type": artRes.contentType, ...artRes.headers });
+      res.end(req.method === "HEAD" ? "" : artRes.body);
+      return;
+    }
+
     res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ error: "Not found" }));
   });
@@ -299,6 +396,11 @@ export async function startTimelineSidecar(options = {}) {
         allowFixtureIds: Boolean(options.allowFixtureIds),
         workspaceResolver,
       });
+      const respondArtifact = createArtifactResponder({
+        brainDir,
+        defaultConversationId: String(app.config?.conversationId ?? options.conversationId ?? ""),
+        allowFixtureIds: Boolean(options.allowFixtureIds),
+      });
 
       app.page("/", () => fs.readFileSync(path.join(__dirname, "index.html"), "utf8"));
       for (const [assetPath, asset] of STATIC_ASSETS.entries()) {
@@ -326,6 +428,18 @@ export async function startTimelineSidecar(options = {}) {
         return new Response(JSON.stringify(res.body), {
           status: res.status,
           contentType: "application/json; charset=utf-8",
+        });
+      }, "GET");
+      app.api("/api/artifact", async (data) => {
+        const artRes = await respondArtifact({
+          conversationId: data?.conversationId ?? app.config?.conversationId ?? "",
+          name: data?.name ?? "",
+          raw: data?.raw === "1" || data?.raw === true,
+        });
+        return new Response(artRes.body, {
+          status: artRes.status,
+          contentType: artRes.contentType,
+          headers: artRes.headers,
         });
       }, "GET");
 
