@@ -173,7 +173,7 @@ export function renderNativeCommandsMarkdown(registry) {
     "",
     "When a command is `app`-only (such as `/automation` or `/generative_ui`), CLI sessions route to `/schedule` or plain Markdown/Mermaid fallbacks cleanly.",
     "",
-    "## All 16 Native Commands",
+    `## All ${registry.commands.length} Native Commands`,
     "",
     "| Command | Category | Mode | Backing | Triggers | Surfaces | Tier | AStack Companion |",
     "|---|---|---|---|---|---|---|---|",

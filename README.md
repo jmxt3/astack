@@ -19,7 +19,7 @@ AStack is a Google Antigravity plugin that makes the agent prove its work. You g
 
 AStack takes inspiration from Lauren Tan's [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) for empirical verification playbooks and Garry Tan's [`gstack`](https://github.com/garrytan/gstack) for structured review gates, and builds those ideas natively for Google Antigravity.
 
-AStack has 65 skills, 26 playbooks, 24 engineering principles, 3 custom agents, 1 routing rule, 8 lifecycle hooks (2 passive observe-only enabled by default plus 6 opt-in blocking gates), and 1 optional read-only timeline sidecar UI ([`sidecars/astack_timeline/`](./sidecars/astack_timeline/sidecar.json)). It runs locally as markdown skills and zero-dependency Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
+AStack has 65 skills, 26 playbooks, 24 engineering principles, 3 custom agents, 1 routing rule, 9 lifecycle hooks (3 passive observe-only enabled by default plus 6 opt-in blocking gates), and 1 optional read-only timeline sidecar UI ([`sidecars/astack_timeline/`](./sidecars/astack_timeline/sidecar.json)). It runs locally as markdown skills and zero-dependency Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
 
 fork it. improve it. make it yours. PRs are welcome!
 
@@ -151,7 +151,7 @@ To follow that path visually inside Google Antigravity, enable the optional [`AS
 
 ## Skill catalog
 
-AStack ships **65 skills** (`skills/`), **3 agents** (`agents/`), **1 routing rule** (`rules/`), and **8 lifecycle hooks** (`hooks.json`):
+AStack ships **65 skills** (`skills/`), **3 agents** (`agents/`), **1 routing rule** (`rules/`), and **9 lifecycle hooks** (`hooks.json`):
 
 ### Orchestration & setup (3)
 
@@ -325,7 +325,7 @@ AStack ships **65 skills** (`skills/`), **3 agents** (`agents/`), **1 routing ru
 
 ## Security & lifecycle hooks
 
-AStack runs locally with zero external npm dependencies. It starts no hosted servers, sends no telemetry, and stores no credentials. When you enable the optional [`AStack Timeline`](./sidecars/astack_timeline/sidecar.json) sidecar in Antigravity, Antigravity launches one read-only localhost HTTP panel bound to `127.0.0.1` that inspects local transcripts, workspace readiness, and `astack-trust` receipts without mutating files or sending agent messages. [`hooks.json`](./hooks.json) enables two passive observe-only hooks (`astack-receipt-ledger` and `astack-session-context`) by default while keeping all six blocking gates (`astack-irreversible-guard`, `astack-verify-reminder`, `astack-secret-guard`, `astack-evidence-gate`, `astack-boundary-guard`, and `astack-round-limiter`) disabled until opted in. Dormant scheduled automation templates live under [`docs/automations/`](./docs/automations/beacon/README.md) ([PR triage](./docs/automations/pr-triage/README.md), [weekly `/correct`](./docs/automations/weekly-correct/README.md)).
+AStack runs locally with zero external npm dependencies. It starts no hosted servers, sends no telemetry, and stores no credentials. When you enable the optional [`AStack Timeline`](./sidecars/astack_timeline/sidecar.json) sidecar in Antigravity, Antigravity launches one read-only localhost HTTP panel bound to `127.0.0.1` that inspects local transcripts, workspace readiness, and `astack-trust` receipts without mutating files or sending agent messages. [`hooks.json`](./hooks.json) enables three passive observe-only hooks (`astack-receipt-ledger`, `astack-session-context`, and `astack-pr-intent`) by default while keeping all six blocking gates (`astack-irreversible-guard`, `astack-verify-reminder`, `astack-secret-guard`, `astack-evidence-gate`, `astack-boundary-guard`, and `astack-round-limiter`) disabled until opted in. Dormant scheduled automation templates live under [`docs/automations/`](./docs/automations/beacon/README.md) ([PR triage](./docs/automations/pr-triage/README.md), [weekly `/correct`](./docs/automations/weekly-correct/README.md)).
 
 To report a vulnerability, follow [SECURITY.md](./SECURITY.md).
 

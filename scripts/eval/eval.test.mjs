@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { gradeReplayOutput, runIncidentReplay } from "./incident-replay.mjs";
+import { extractReplayUsage, extractStructuredReplayPayload, gradeReplayOutput, runIncidentReplay } from "./incident-replay.mjs";
 import { runEvalSuite } from "./run-eval.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -90,4 +90,26 @@ test("run-eval CLI supports --help, -h, --json, and --replay --json", () => {
   const parsedReplay = JSON.parse(replayRun.stdout);
   assert.equal(parsedReplay.ok, true);
   assert.equal(parsedReplay.suiteKind, "offline-incident-replay-contract");
+});
+
+test("extractStructuredReplayPayload handles snake_case structured_output, stream-json events, and usage", () => {
+  const sample = { schemaVersion: 1, verdict: "PASS", findings: [] };
+  assert.deepEqual(
+    extractStructuredReplayPayload({ structured_output: sample, usage: { input_tokens: 10, total_tokens: 15 } }),
+    sample,
+  );
+  assert.deepEqual(extractStructuredReplayPayload({ structuredOutput: sample }), sample);
+  assert.deepEqual(
+    extractStructuredReplayPayload({ event: "result", result: { structured_output: JSON.stringify(sample) } }),
+    sample,
+  );
+  assert.deepEqual(extractStructuredReplayPayload({ result: JSON.stringify(sample) }), sample);
+  assert.deepEqual(extractStructuredReplayPayload(sample), sample);
+
+  const usage = extractReplayUsage({
+    event: "result",
+    result: { usage: { input_tokens: 120, output_tokens: 30, thinking_tokens: 45, total_tokens: 195 } },
+  });
+  assert.deepEqual(usage, { input_tokens: 120, output_tokens: 30, thinking_tokens: 45, total_tokens: 195 });
+  assert.equal(extractReplayUsage({}), null);
 });
