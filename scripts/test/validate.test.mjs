@@ -362,6 +362,18 @@ test("validateAStack rejects hook script gaps, drifted matchers, trust/internal 
       }),
     );
     writeFile(
+      path.join(tmp, "sidecars", "gated_automation", "sidecar.json"),
+      JSON.stringify({
+        builtin: "schedule",
+        args: ["CRON_TZ=UTC 0 9 * * 1-5", "agentapi", "new-conversation", "--", "run"],
+        arguments: [{ key: "repo_dir", workspace_arg: {} }],
+        agent_permissions: {
+          workspace_uris: ["${repo_dir}"],
+          access_grants: ["command(gh pr list)"],
+        },
+      }),
+    );
+    writeFile(
       path.join(tmp, "sidecars", "broken_sidecar", "bad.mjs"),
       'import { readMergedReceipts } from ' + '"../../scripts/trust/internal/ledger.mjs";\n',
     );
@@ -373,6 +385,7 @@ test("validateAStack rejects hook script gaps, drifted matchers, trust/internal 
     assert.match(msgs, /Direct import of scripts\/trust\/internal\/\* is forbidden/);
     assert.match(msgs, /Sidecar references missing script: missing\.mjs/);
     assert.match(msgs, /has_web_ui sidecar must declare non-empty ui_config\.views/);
+    assert.match(msgs, /Bundled sidecar must not request arguments, agent_permissions\.workspace_uris, agent_permissions\.access_grants/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
