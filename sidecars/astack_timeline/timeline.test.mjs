@@ -1182,3 +1182,170 @@ test("ignores workspace repository skill/playbook source reads in parent and chi
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("does not mark clean stale when transcript whole-second cleanup matches same-second millisecond edit receipt", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-ms-");
+  const convId = "conv-same-sec";
+  try {
+    const headSha = "0123456789abcdef0123456789abcdef01234567";
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-21T18:30:00Z",
+        content: "<USER_REQUEST>/astack-mode update ui</USER_REQUEST>",
+      },
+      {
+        step_index: 709,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-21T18:30:38Z",
+        tool_calls: [
+          { name: "run_command", args: { CommandLine: "node skills/audit-architecture/scripts/arch-audit.mjs --cwd . --strict" } },
+        ],
+      },
+    ]);
+
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-21T18:30:38.199Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "other",
+        headSha,
+        ok: true,
+        summary: "edit_file scripts/mcp/src/tla-viewer.js",
+        paths: ["scripts/mcp/src/tla-viewer.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-21T18:31:00.500Z",
+        conversationId: convId,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --run test",
+        paths: [],
+      },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(snap.stages[1].status, "done");
+    assert.equal(snap.stages[1].subChecks.find((c) => c.id === "clean")?.status, "done");
+    assert.equal(snap.stages[1].subChecks.find((c) => c.id === "verify")?.status, "done");
+    assert.equal(snap.liveLabel, "Live");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reports Re-clean wording without blaming verification when only cleanup is stale before PR review", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-reclean-");
+  const convId = "conv-reclean";
+  try {
+    const headSha = "0123456789abcdef0123456789abcdef01234567";
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-21T18:30:00Z",
+        content: "<USER_REQUEST>/astack-mode update ui</USER_REQUEST>",
+      },
+      {
+        step_index: 2,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-21T18:30:10Z",
+        tool_calls: [{ name: "read_file", args: { Path: "/plugin/skills/deslop/SKILL.md" } }],
+      },
+    ]);
+
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-21T18:30:40.100Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "other",
+        headSha,
+        ok: true,
+        summary: "edit_file src/ui.js",
+        paths: ["src/ui.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-21T18:30:42.000Z",
+        conversationId: convId,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(snap.stages[1].status, "stale");
+    assert.equal(snap.stages[1].subChecks.find((c) => c.id === "clean")?.status, "stale");
+    assert.equal(snap.stages[1].subChecks.find((c) => c.id === "verify")?.status, "done");
+    assert.equal(snap.liveLabel, "Re-clean");
+    assert.equal(snap.stages[1].collapsedSummary, "Code edited after cleanup.");
+    assert.match(snap.stages[1].detail, /Re-run \/deslop or \/no-comments/);
+    assert.doesNotMatch(snap.stages[1].detail, /after verification/i);
+    assert.match(snap.nextAction.hint, /Code edited after cleanup/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resolves parent repo name for linked git worktrees and surfaces risk tier description and globs", () => {
+  const { root, brainDir } = makeFixture("astack-tl-wt-");
+  const mainRepo = path.join(root, "astack-main");
+  const worktreeDir = path.join(root, "worktrees", "astack-main", "feature-branch");
+  const convId = "conv-worktree";
+  try {
+    const headSha = "abcdef0123456789abcdef0123456789abcdef01";
+    const wtGitDir = path.join(mainRepo, ".git", "worktrees", "feature-branch");
+    writeText(path.join(wtGitDir, "HEAD"), "ref: refs/heads/feature-branch\n");
+    writeText(path.join(wtGitDir, "commondir"), "../..\n");
+    writeText(path.join(worktreeDir, ".git"), `gitdir: ${wtGitDir}\n`);
+    writeText(path.join(worktreeDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(
+      path.join(brainDir, convId, "astack-trust", "evidence.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha,
+        freshness: "fresh",
+        riskTier: 3,
+        riskLabel: "critical",
+        matchedRiskRules: [
+          { tier: 3, glob: "hooks.json", files: ["hooks.json"] },
+          { tier: 3, glob: "scripts/trust/**", files: ["scripts/trust/index.mjs"] },
+          { tier: 1, glob: "skills/**", files: ["skills/foo/SKILL.md"] },
+        ],
+        reviewRound: 1,
+        maxReviewRounds: 3,
+        roundState: "verified",
+        verifier: { verdict: "PASS" },
+      }),
+    );
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir: worktreeDir });
+    assert.equal(snap.workspaceName, "astack-main");
+    assert.equal(snap.branch, "feature-branch");
+    assert.equal(snap.riskTier, 3);
+    assert.match(snap.riskDescription, /hooks/i);
+    assert.deepEqual(snap.riskMatchedGlobs, ["hooks.json", "scripts/trust/**"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

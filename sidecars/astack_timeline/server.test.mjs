@@ -78,7 +78,7 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     const cssText = await cssRes.text();
     assert.match(cssText, /--tl-done:/);
     assert.match(cssText, /\.setup-card\b/);
-    assert.match(cssText, /height:\s*164px;/);
+    assert.match(cssText, /height:\s*188px;/);
     assert.match(cssText, /\.chip-active-dot\b/);
     assert.doesNotMatch(cssText, /\.scene-next\b/);
 
@@ -467,6 +467,20 @@ test("createTimelineServer reports nextAction.inProgress when /plan is active be
     assert.equal(snap.stages[1].status, "pending");
     assert.equal(snap.nextAction.stageId, "plan");
     assert.equal(snap.nextAction.inProgress, true);
+
+    const [appRes, cssRes] = await Promise.all([
+      fetch(`${srv.url}app.js`),
+      fetch(`${srv.url}styles.css`),
+    ]);
+    assert.equal(appRes.status, 200);
+    assert.equal(cssRes.status, 200);
+    const [appJs, cssText] = await Promise.all([appRes.text(), cssRes.text()]);
+    assert.match(appJs, /snap\.branch !== snap\.workspaceName/);
+    assert.match(appJs, /timeline-risk-badge/);
+    assert.match(appJs, /timeline-freshness/);
+    assert.match(appJs, /build-stale-callout/);
+    assert.match(appJs, /Critical risk/);
+    assert.match(cssText, /\.scene-section[\s\S]*height:\s*188px/);
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });

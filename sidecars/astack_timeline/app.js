@@ -806,10 +806,18 @@
     document.getElementById("live-label").textContent = snap.liveLabel;
   }
 
-  function stageStatusLabel(status) {
+  function stageStatusLabel(status, stage) {
     if (status === "done") return { text: "Done", cls: "done" };
     if (status === "active") return { text: "Running", cls: "active" };
-    if (status === "stale") return { text: "Needs re-run", cls: "stale" };
+    if (status === "stale") {
+      if (stage?.id === "build") {
+        const cleanStale = stage.subChecks?.some((c) => c.id === "clean" && c.status === "stale");
+        const verifyStale = stage.subChecks?.some((c) => c.id === "verify" && c.status === "stale");
+        if (cleanStale && !verifyStale) return { text: "Re-clean", cls: "stale" };
+        if (verifyStale) return { text: "Re-verify", cls: "stale" };
+      }
+      return { text: "Needs re-run", cls: "stale" };
+    }
     if (status === "waiting_gate") return { text: "Gate", cls: "waiting_gate" };
     if (status === "error") return { text: "Escalated", cls: "error" };
     if (status === "next") return { text: "Next", cls: "next" };
@@ -892,6 +900,34 @@
       segGrid.appendChild(seg);
     }
     detail.appendChild(segGrid);
+
+    const staleSubs = subChecks.filter((c) => c.status === "stale");
+    if (staleSubs.length > 0) {
+      const callout = el("div", "subcheck-callout");
+      callout.dataset.testid = "build-stale-callout";
+      const msgRow = el("div", "subcheck-callout-msg");
+      const warnIc = svgIcon("warn", 12);
+      warnIc.classList.add("subcheck-callout-icon");
+      msgRow.append(warnIc, el("span", "", staleSubs.map((s) => s.detail).join(" ")));
+      callout.appendChild(msgRow);
+
+      const actionCmds = [];
+      if (staleSubs.some((s) => s.id === "clean")) actionCmds.push("/deslop", "/no-comments");
+      if (staleSubs.some((s) => s.id === "verify")) actionCmds.push("/astack-mode");
+      if (actionCmds.length > 0) {
+        const actionRow = el("div", "subcheck-callout-actions");
+        for (const cmd of actionCmds) {
+          const meta = lookupCommandMeta(snap, cmd);
+          const btn = el("button", "subcmd-pill stale-action");
+          btn.type = "button";
+          btn.appendChild(el("span", "", cmd));
+          wireCommandAction(btn, meta ? { ...meta, command: cmd } : cmd);
+          actionRow.appendChild(btn);
+        }
+        callout.appendChild(actionRow);
+      }
+      detail.appendChild(callout);
+    }
 
     const accGroup = el("div", "accordion-group");
     const swarm = act.swarm || {};
@@ -1543,15 +1579,57 @@
     document.getElementById("progress").textContent = `${snap.doneCount} / ${snap.totalCount}`;
     applyLiveStatus(snap);
 
+    const RISK_TITLES = ["Low risk", "Medium risk", "High risk", "Critical risk"];
+    const FRESHNESS_DISPLAY = {
+      fresh: { label: "Verified", mode: "done", desc: "Tests or validation passed on the current git HEAD with no unverified edits." },
+      fresh_rebase_patch_id: { label: "Verified", mode: "done", desc: "Rebased commit matches previously verified patch-id on current HEAD." },
+      dirty_after_verify: { label: "Needs re-verify", mode: "stale", desc: "Files changed after the last verification run. Re-run tests on HEAD." },
+      stale_sha: { label: "Stale commit", mode: "stale", desc: "Receipts belong to an older git commit. Re-run verification on HEAD." },
+      missing_receipts: { label: "Unverified", mode: "", desc: "No passing verification receipt recorded for this commit yet." },
+    };
+
     const metaParts = [];
     if (snap.workspaceName) {
-      metaParts.push(snap.branch ? `${snap.workspaceName} (${snap.branch})` : snap.workspaceName);
+      const repoLabel =
+        snap.branch && snap.branch !== snap.workspaceName ? `${snap.workspaceName} (${snap.branch})` : snap.workspaceName;
+      metaParts.push({ text: repoLabel });
     }
     if (snap.riskTier !== null && snap.riskTier !== undefined) {
-      metaParts.push(`Tier ${snap.riskTier}`);
+      const riskWord = RISK_TITLES[snap.riskTier] || `Tier ${snap.riskTier}`;
+      const descParts = [];
+      if (snap.riskDescription) {
+        const cleanDesc = snap.riskDescription.trim().replace(/\.+$/, "");
+        descParts.push(`${cleanDesc}.`);
+      }
+      if (Array.isArray(snap.riskMatchedGlobs) && snap.riskMatchedGlobs.length > 0) {
+        descParts.push(`Matched: ${snap.riskMatchedGlobs.join(", ")}.`);
+      }
+      if (snap.riskTier >= 1) descParts.push("Requires human PR review.");
+      metaParts.push({
+        text: riskWord,
+        cls: `meta-pill meta-risk tier-${snap.riskTier}`,
+        testId: "timeline-risk-badge",
+        popTitle: `Blast-Radius Risk · Tier ${snap.riskTier}`,
+        popStatus: riskWord,
+        popMode: snap.riskTier >= 3 ? "stale" : snap.riskTier === 0 ? "done" : "",
+        popDesc: descParts.join(" "),
+      });
     }
     if (snap.freshness) {
-      metaParts.push(snap.freshness);
+      const fm = FRESHNESS_DISPLAY[snap.freshness] || {
+        label: snap.freshness,
+        mode: "",
+        desc: `Trust ledger freshness status: ${snap.freshness}.`,
+      };
+      metaParts.push({
+        text: fm.label,
+        cls: `meta-pill meta-fresh ${fm.mode}`.trim(),
+        testId: "timeline-freshness",
+        popTitle: "Receipt Freshness",
+        popStatus: snap.freshness,
+        popMode: fm.mode,
+        popDesc: fm.desc,
+      });
     }
     const setupReady = snap.setup?.status === "ready";
     const metaRow = document.getElementById("meta-row");
@@ -1560,7 +1638,14 @@
       metaRow.classList.remove("hidden");
       metaParts.forEach((part, idx) => {
         if (idx > 0) metaRow.appendChild(el("span", "meta-sep", "·"));
-        metaRow.appendChild(el("span", "", part));
+        const node = el("span", part.cls || "", part.text);
+        if (part.testId) node.dataset.testid = part.testId;
+        if (part.popDesc) {
+          node.tabIndex = 0;
+          node.title = part.popDesc;
+          attachStatusPopover(node, part.popTitle, part.popStatus, part.popMode, part.popDesc);
+        }
+        metaRow.appendChild(node);
       });
       if (setupReady) {
         const setupToggle = el("button", "meta-btn");
@@ -1672,7 +1757,7 @@
       });
 
       stepBtn.appendChild(el("span", "step-title", `${stage.number}. ${stage.label}`));
-      const stLabel = stageStatusLabel(stage.status);
+      const stLabel = stageStatusLabel(stage.status, stage);
       if (stLabel) {
         stepBtn.appendChild(el("span", `status-text ${stLabel.cls}`, stLabel.text));
       } else if (stage.gate === "GATE" && stage.status === "pending") {
