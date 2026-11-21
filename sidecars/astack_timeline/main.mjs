@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import { COMMAND_DOCS, DELEGATE_GUIDE_DATA } from "./command-catalog.mjs";
 import { evaluateTimelineSnapshot } from "./timeline-engine.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -15,6 +16,8 @@ const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,79}$/;
 const STATIC_ASSETS = new Map([
   ["/", { file: "index.html", type: "text/html; charset=utf-8" }],
   ["/styles.css", { file: "styles.css", type: "text/css; charset=utf-8" }],
+  ["/vendor/three.min.js", { file: "vendor/three.min.js", type: "application/javascript; charset=utf-8" }],
+  ["/scene-3d.js", { file: "scene-3d.js", type: "application/javascript; charset=utf-8" }],
   ["/app.js", { file: "app.js", type: "application/javascript; charset=utf-8" }],
 ]);
 
@@ -124,16 +127,16 @@ function buildStandalonePreloadScript(defaultConvId) {
   const dark = params.get("theme") === "dark" || (params.get("theme") !== "light" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const root = document.documentElement.style;
   if (dark) {
-    root.setProperty("--background", "#181a1d");
-    root.setProperty("--card", "#1e2024");
-    root.setProperty("--secondary", "#26292e");
-    root.setProperty("--foreground", "#e6e8eb");
+    root.setProperty("--background", "#0b0b0c");
+    root.setProperty("--card", "#141416");
+    root.setProperty("--secondary", "#1e2024");
+    root.setProperty("--foreground", "#e8e8ea");
     root.setProperty("--secondary-foreground", "#c9ced4");
-    root.setProperty("--muted-foreground", "#9aa2ac");
-    root.setProperty("--placeholder", "#6e7680");
-    root.setProperty("--border", "rgba(255, 255, 255, 0.1)");
-    root.setProperty("--card-border", "rgba(255, 255, 255, 0.12)");
-    root.setProperty("--primary", "#4daafc");
+    root.setProperty("--muted-foreground", "#9ba1a6");
+    root.setProperty("--placeholder", "#858b91");
+    root.setProperty("--border", "rgba(255, 255, 255, 0.08)");
+    root.setProperty("--card-border", "rgba(255, 255, 255, 0.10)");
+    root.setProperty("--primary", "#5aa2ff");
     root.setProperty("--primary-foreground", "#0b141d");
     root.setProperty("--error", "#f06b6b");
   } else {
@@ -146,9 +149,9 @@ function buildStandalonePreloadScript(defaultConvId) {
     root.setProperty("--placeholder", "#9da5ab");
     root.setProperty("--border", "rgba(0, 0, 0, 0.08)");
     root.setProperty("--card-border", "rgba(0, 0, 0, 0.1)");
-    root.setProperty("--primary", "#007acc");
+    root.setProperty("--primary", "#0068b8");
     root.setProperty("--primary-foreground", "#ffffff");
-    root.setProperty("--error", "#cb3d3d");
+    root.setProperty("--error", "#c43030");
   }
   window.sidecar = {
     conversationId: params.get("conversationId") || ${JSON.stringify(defaultConvId || "")},
@@ -160,6 +163,10 @@ function buildStandalonePreloadScript(defaultConvId) {
     onWorkspaceChange: () => () => {},
   };
 })();\n`;
+}
+
+function buildCatalogScript() {
+  return `window.ASTACK_CATALOG = ${JSON.stringify({ delegateGuide: DELEGATE_GUIDE_DATA, commandDocs: COMMAND_DOCS })};\n`;
 }
 
 function createTimelineResponder({
@@ -221,7 +228,7 @@ export async function createTimelineServer(options = {}) {
 
     const staticAsset = STATIC_ASSETS.get(reqUrl.pathname);
     if (staticAsset) {
-      const body = fs.readFileSync(path.join(__dirname, staticAsset.file), "utf8");
+      const body = fs.readFileSync(path.join(__dirname, ...staticAsset.file.split("/")), "utf8");
       res.writeHead(200, { "Content-Type": staticAsset.type, "Cache-Control": "no-store" });
       res.end(req.method === "HEAD" ? "" : body);
       return;
@@ -231,6 +238,13 @@ export async function createTimelineServer(options = {}) {
       const preload = buildStandalonePreloadScript(defaultConvId);
       res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" });
       res.end(req.method === "HEAD" ? "" : preload);
+      return;
+    }
+
+    if (reqUrl.pathname === "/catalog.js") {
+      const catalogJs = buildCatalogScript();
+      res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(req.method === "HEAD" ? "" : catalogJs);
       return;
     }
 
@@ -287,8 +301,22 @@ export async function startTimelineSidecar(options = {}) {
       });
 
       app.page("/", () => fs.readFileSync(path.join(__dirname, "index.html"), "utf8"));
-      app.api("/styles.css", () => new Response(fs.readFileSync(path.join(__dirname, "styles.css"), "utf8"), { contentType: "text/css; charset=utf-8" }), "GET");
-      app.api("/app.js", () => new Response(fs.readFileSync(path.join(__dirname, "app.js"), "utf8"), { contentType: "application/javascript; charset=utf-8" }), "GET");
+      for (const [assetPath, asset] of STATIC_ASSETS.entries()) {
+        if (assetPath === "/") continue;
+        app.api(
+          assetPath,
+          () =>
+            new Response(fs.readFileSync(path.join(__dirname, ...asset.file.split("/")), "utf8"), {
+              contentType: asset.type,
+            }),
+          "GET",
+        );
+      }
+      app.api(
+        "/catalog.js",
+        () => new Response(buildCatalogScript(), { contentType: "application/javascript; charset=utf-8" }),
+        "GET",
+      );
       app.api("/api/timeline", async (data) => {
         const res = await respondTimeline({
           conversationId: data?.conversationId ?? app.config?.conversationId ?? "",
