@@ -118,7 +118,12 @@ function parseTimestampMs(raw) {
 }
 
 function makeMarker(ts, order) {
-  return { ts: ts || null, tsMs: parseTimestampMs(ts), order };
+  return {
+    ts: ts || null,
+    tsMs: parseTimestampMs(ts),
+    wholeSecond: Boolean(ts && !/\.\d+/.test(String(ts))),
+    order,
+  };
 }
 
 function latestMarker(a, b) {
@@ -142,8 +147,15 @@ function earliestMarker(a, b) {
 function isMarkerAfter(a, b) {
   if (!a) return false;
   if (!b) return true;
-  if (a.tsMs && b.tsMs && a.tsMs !== b.tsMs) {
-    return a.tsMs > b.tsMs;
+  if (a.tsMs && b.tsMs) {
+    if (a.wholeSecond !== b.wholeSecond) {
+      const aSec = Math.floor(a.tsMs / 1000);
+      const bSec = Math.floor(b.tsMs / 1000);
+      if (aSec !== bSec) return aSec > bSec;
+      if (!a.wholeSecond && a.order === Number.MAX_SAFE_INTEGER && b.wholeSecond) return false;
+      return a.order > b.order;
+    }
+    if (a.tsMs !== b.tsMs) return a.tsMs > b.tsMs;
   }
   return a.order > b.order;
 }
@@ -188,7 +200,7 @@ export function resolveSafeArtifactUri(brainConvDir, relName) {
   }
 }
 
-function readGitBranchFast(workspaceDir) {
+function findGitLocationsFast(workspaceDir) {
   if (!workspaceDir) return null;
   let current = path.resolve(workspaceDir);
   while (true) {
@@ -196,12 +208,22 @@ function readGitBranchFast(workspaceDir) {
     if (fs.existsSync(dotGit)) {
       try {
         const stat = fs.statSync(dotGit);
-        const gitDir = stat.isDirectory()
-          ? dotGit
-          : path.resolve(current, (fs.readFileSync(dotGit, "utf8").match(/^gitdir:\s*(.+)$/im)?.[1] ?? "").trim());
-        const headRaw = fs.readFileSync(path.join(gitDir, "HEAD"), "utf8").trim();
-        const m = headRaw.match(/^ref:\s*refs\/heads\/(.+)$/);
-        return m ? m[1] : null;
+        if (stat.isDirectory()) {
+          return { rootDir: current, gitDir: dotGit, commonGitDir: dotGit };
+        }
+        const gitDirRaw = (fs.readFileSync(dotGit, "utf8").match(/^gitdir:\s*(.+)$/im)?.[1] ?? "").trim();
+        if (!gitDirRaw) return null;
+        const gitDir = path.resolve(current, gitDirRaw);
+        let commonGitDir = gitDir;
+        const commonFile = path.join(gitDir, "commondir");
+        if (fs.existsSync(commonFile)) {
+          const commonRaw = fs.readFileSync(commonFile, "utf8").trim();
+          if (commonRaw) commonGitDir = path.resolve(gitDir, commonRaw);
+        } else {
+          const wtMatch = gitDir.match(/^(.+?)[/\\]worktrees[/\\][^/\\]+$/);
+          if (wtMatch) commonGitDir = wtMatch[1];
+        }
+        return { rootDir: current, gitDir, commonGitDir };
       } catch {
         return null;
       }
@@ -210,6 +232,28 @@ function readGitBranchFast(workspaceDir) {
     if (parent === current) return null;
     current = parent;
   }
+}
+
+function readGitBranchFast(workspaceDir) {
+  const locs = findGitLocationsFast(workspaceDir);
+  if (!locs) return null;
+  try {
+    const headRaw = fs.readFileSync(path.join(locs.gitDir, "HEAD"), "utf8").trim();
+    const m = headRaw.match(/^ref:\s*refs\/heads\/(.+)$/);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveWorkspaceRepoName(workspaceDir) {
+  if (!workspaceDir) return null;
+  const fallback = path.basename(path.resolve(workspaceDir));
+  const locs = findGitLocationsFast(workspaceDir);
+  if (!locs?.commonGitDir) return fallback;
+  const repoRoot = locs.commonGitDir === locs.gitDir ? locs.rootDir : path.dirname(locs.commonGitDir);
+  const name = path.basename(repoRoot);
+  return name || fallback;
 }
 
 function inspectSetupReadiness(workspaceDir) {
@@ -1129,8 +1173,11 @@ function buildBuildStage({
           : "Waiting for tests, lint, build, or live verification after edits.",
     },
   ];
+  const onlyCleanStale = cleanStatus === "stale" && verifyStatus === "done";
   const detail = status === "stale"
-    ? "New file edits landed after cleanup or tests. Re-run verification before PR review."
+    ? onlyCleanStale
+      ? "New code edits landed after cleanup. Re-run /deslop or /no-comments."
+      : "New edits landed after verification. Re-run tests or validation before PR review."
     : status === "done"
       ? hasCodeEdits && cleanFresh
         ? "Code edits cleaned and verified on HEAD."
@@ -1237,7 +1284,17 @@ function selectNextAction(stepViews, setupState) {
     return { stageId: "review", stageLabel: "PR Review", command: "/review-pr", hint: review.detail };
   }
   if (build.status === "stale") {
-    return { stageId: "build", stageLabel: "Build & Prove", command: "/astack-mode", hint: "Edits landed after verify. Re-clean and re-verify on HEAD." };
+    const onlyClean =
+      build.subChecks?.some((c) => c.id === "clean" && c.status === "stale") &&
+      build.subChecks?.some((c) => c.id === "verify" && c.status === "done");
+    return {
+      stageId: "build",
+      stageLabel: "Build & Prove",
+      command: "/astack-mode",
+      hint: onlyClean
+        ? "Code edited after cleanup. Re-run /deslop or /no-comments."
+        : "Edits landed after verify. Re-clean and re-verify on HEAD.",
+    };
   }
   if (review.status === "stale") {
     return { stageId: "review", stageLabel: "PR Review", command: "/review-pr", hint: "Re-run PR dossier on updated HEAD." };
@@ -1328,7 +1385,12 @@ function buildStageCollapsedSummary(stage, pr, shipped) {
     return stage.summary;
   }
   if (stage.id === "build") {
-    if (stage.status === "stale") return "New edits landed after verification.";
+    if (stage.status === "stale") {
+      const onlyClean =
+        stage.subChecks?.some((c) => c.id === "clean" && c.status === "stale") &&
+        stage.subChecks?.some((c) => c.id === "verify" && c.status === "done");
+      return onlyClean ? "Code edited after cleanup." : "New edits landed after verification.";
+    }
     if (stage.status === "done") return "Cleaned and verified on HEAD.";
     return stage.summary;
   }
@@ -1469,6 +1531,7 @@ export function evaluateTimelineSnapshot({
   let latestAnyWrite = sig.latestWorkspaceWriteAt;
   let earliestAnyWrite = sig.earliestWorkspaceWriteAt;
   let latestReceiptVerify = null;
+  let latestReceiptClean = null;
   let hadReceiptWrite = false;
   let hasVerifyReceipt = false;
   let receiptPush = false;
@@ -1494,6 +1557,9 @@ export function evaluateTimelineSnapshot({
       if (prRef && (!sig.pr || (!sig.pr.url && prRef.url))) sig.pr = prRef;
       if (/\b(?:gh\s+pr\s+create|git\s+push)\b/i.test(r.summary)) receiptPush = true;
     }
+    if (r.kind === "command" && r.ok && /\barch-audit\.mjs\b/i.test(String(r.summary ?? ""))) {
+      latestReceiptClean = latestMarker(latestReceiptClean, m);
+    }
   }
 
   const hasEdits = Boolean(hadReceiptWrite || latestAnyWrite);
@@ -1502,8 +1568,9 @@ export function evaluateTimelineSnapshot({
     ? computeFreshness({ receipts, headSha: setup.headSha, priorEvidence: evidence })
     : evidence?.freshness ?? "missing_receipts";
 
-  const cleanDone = Boolean(sig.cleanAt);
-  const cleanFresh = cleanDone && (!latestCodeWrite || !isMarkerAfter(latestCodeWrite, sig.cleanAt));
+  const effectiveCleanAt = latestMarker(sig.cleanAt, latestReceiptClean);
+  const cleanDone = Boolean(effectiveCleanAt);
+  const cleanFresh = cleanDone && (!latestCodeWrite || !isMarkerAfter(latestCodeWrite, effectiveCleanAt));
   const latestVerify = latestMarker(latestReceiptVerify, sig.verifyRunAt);
   const hasPostEditVerify = Boolean(latestVerify && (!earliestAnyWrite || isMarkerAfter(latestVerify, earliestAnyWrite)));
   const verifyDone = Boolean(latestVerify || (evidence && (evidence.freshness === "fresh" || evidence.freshness === "fresh_rebase_patch_id")));
@@ -1514,12 +1581,16 @@ export function evaluateTimelineSnapshot({
     : Boolean(verifyFreshFromTranscript || (evidence && verifyFreshFromReceipts));
 
   const staleFromReceipts = hasEdits && hasPostEditVerify && (receiptFreshness === "dirty_after_verify" || receiptFreshness === "stale_sha");
-  const buildStale = staleFromReceipts || Boolean(cleanDone && !cleanFresh) || Boolean(sig.verifyRunAt && hasPostEditVerify && !verifyFresh && hasCodeEdits);
-
   const reviewStarted = Boolean(sig.reviewPrAt || reviewArtifact || evidence?.verifier?.verdict);
   const reviewRound = evidence?.reviewRound ?? 0;
   const maxReviewRounds = evidence?.maxReviewRounds ?? policyResult.policy.maxReviewRounds ?? 3;
   const reviewFresh = !staleFromReceipts && (!evidence?.freshness || evidence.freshness === "fresh" || evidence.freshness === "fresh_rebase_patch_id");
+  const reviewPassFresh = Boolean(
+    reviewFresh && (evidence?.verifier?.verdict === "PASS" || evidence?.verifier?.verdict === "PASS_WITH_NOTES"),
+  );
+  const cleanStale = Boolean(cleanDone && !cleanFresh && !(verifyFresh && reviewPassFresh && !staleFromReceipts));
+  const effectiveCleanFresh = cleanDone && !cleanStale;
+  const buildStale = staleFromReceipts || cleanStale || Boolean(sig.verifyRunAt && hasPostEditVerify && !verifyFresh && hasCodeEdits);
   const shipped = Boolean(sig.pushOrPrAt || receiptPush);
 
   const setupState = buildSetupReadiness(setup, sig);
@@ -1539,7 +1610,7 @@ export function evaluateTimelineSnapshot({
     hasEdits,
     hasCodeEdits,
     cleanDone,
-    cleanFresh,
+    cleanFresh: effectiveCleanFresh,
     verifyDone,
     verifyFresh,
     buildStale,
@@ -1582,6 +1653,12 @@ export function evaluateTimelineSnapshot({
     activeStageId,
   });
 
+  const onlyBuildCleanStale =
+    buildStage.status === "stale" &&
+    reviewStage.status !== "stale" &&
+    Boolean(buildStage.subChecks?.some((c) => c.id === "clean" && c.status === "stale")) &&
+    Boolean(buildStage.subChecks?.some((c) => c.id === "verify" && c.status === "done"));
+
   let liveState = "ok";
   let liveLabel = hasConv ? "Live" : "Idle";
   if (reviewStage.status === "error") {
@@ -1589,22 +1666,30 @@ export function evaluateTimelineSnapshot({
     liveLabel = "Escalated";
   } else if (buildStage.status === "stale" || reviewStage.status === "stale") {
     liveState = "warn";
-    liveLabel = "Stale";
+    liveLabel = onlyBuildCleanStale ? "Re-clean" : "Stale";
   } else if (planStage.status === "waiting_gate" || reviewStage.status === "waiting_gate") {
     liveState = "warn";
     liveLabel = "Gate";
   }
 
+  const riskTier = evidence?.riskTier ?? null;
+  const riskDescription = riskTier !== null ? (policyResult.policy.tiers?.[String(riskTier)]?.description ?? null) : null;
+  const riskMatchedGlobs = riskTier !== null && Array.isArray(evidence?.matchedRiskRules)
+    ? [...new Set(evidence.matchedRiskRules.filter((r) => r.tier === riskTier && typeof r.glob === "string").map((r) => r.glob))].slice(0, 4)
+    : [];
+
   const snapshot = {
     conversationId: conversationId || null,
     hasConversation: hasConv,
     workspace: workspaceDir || null,
-    workspaceName: workspaceDir ? path.basename(workspaceDir) : null,
+    workspaceName: workspaceDir ? resolveWorkspaceRepoName(workspaceDir) : null,
     branch: setup.branch,
     headSha: setup.headSha ? setup.headSha.slice(0, 7) : null,
     setup: setupState,
-    riskTier: evidence?.riskTier ?? null,
+    riskTier,
     riskLabel: evidence?.riskLabel ?? null,
+    riskDescription,
+    riskMatchedGlobs,
     freshness: receipts.length > 0 || evidence ? receiptFreshness : null,
     reviewRound,
     maxReviewRounds,

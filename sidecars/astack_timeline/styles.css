@@ -139,6 +139,56 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 
 .meta-sep { opacity: 0.45; }
 
+.meta-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--tl-line);
+  background: var(--tl-fill);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: help;
+}
+
+.meta-pill:focus-visible {
+  outline: 1px solid var(--tl-primary);
+  outline-offset: 2px;
+}
+
+.meta-risk.tier-0 {
+  color: var(--tl-done);
+  border-color: color-mix(in srgb, var(--tl-done) 30%, transparent);
+  background: color-mix(in srgb, var(--tl-done) 10%, transparent);
+}
+
+.meta-risk.tier-1 {
+  color: var(--tl-primary);
+  border-color: color-mix(in srgb, var(--tl-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--tl-primary) 10%, transparent);
+}
+
+.meta-risk.tier-2,
+.meta-risk.tier-3 {
+  color: var(--tl-warning);
+  border-color: color-mix(in srgb, var(--tl-warning) 35%, transparent);
+  background: color-mix(in srgb, var(--tl-warning) 11%, transparent);
+}
+
+.meta-fresh.done {
+  color: var(--tl-done);
+  border-color: color-mix(in srgb, var(--tl-done) 30%, transparent);
+  background: color-mix(in srgb, var(--tl-done) 10%, transparent);
+}
+
+.meta-fresh.stale {
+  color: var(--tl-warning);
+  border-color: color-mix(in srgb, var(--tl-warning) 35%, transparent);
+  background: color-mix(in srgb, var(--tl-warning) 11%, transparent);
+}
+
 .meta-btn {
   display: inline-flex;
   align-items: center;
@@ -199,7 +249,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .scene-section {
   position: relative;
   width: 100%;
-  height: 164px;
+  height: 188px;
   margin: 0 auto;
   overflow: hidden;
   background: #0b0b0c;
@@ -760,6 +810,43 @@ h4.md-heading { font-size: 13px; }
 .progress-seg-label.done { color: var(--tl-done); }
 .progress-seg-label.run { color: var(--tl-primary); }
 .progress-seg-label.stale { color: var(--tl-warning); }
+
+.subcheck-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--tl-warning) 32%, var(--tl-border));
+  background: color-mix(in srgb, var(--tl-warning) 8%, var(--tl-card));
+}
+
+.subcheck-callout-msg {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.38;
+  color: var(--tl-fg);
+}
+
+.subcheck-callout-icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--tl-warning);
+}
+
+.subcheck-callout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.subcmd-pill.stale-action {
+  border-color: color-mix(in srgb, var(--tl-warning) 38%, transparent);
+  background: color-mix(in srgb, var(--tl-warning) 10%, transparent);
+  color: var(--tl-fg);
+}
 
 .accordion-group {
   display: flex;
