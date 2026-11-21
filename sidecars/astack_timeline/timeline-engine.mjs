@@ -1092,10 +1092,42 @@ function buildBuildStage({
     else if (planStatus === "done" || planStatus === "skipped") status = "next";
   }
 
+  const editsStatus = hasEdits ? "done" : "pending";
+  const cleanStatus = !planningActive && cleanDone ? (cleanFresh ? "done" : "stale") : "pending";
+  const verifyStatus = !planningActive && hasBuildableWork && verifyFresh ? "done" : buildStale ? "stale" : "pending";
   const subChecks = [
-    { id: "edits", label: "edits", status: hasEdits ? "done" : "pending" },
-    { id: "clean", label: "clean", status: !planningActive && cleanDone ? (cleanFresh ? "done" : "stale") : "pending" },
-    { id: "verify", label: "verify", status: !planningActive && hasBuildableWork && verifyFresh ? "done" : buildStale ? "stale" : "pending" },
+    {
+      id: "edits",
+      label: "edits",
+      status: editsStatus,
+      detail: hasEdits
+        ? hasCodeEdits
+          ? "Code and workspace edits recorded in this session."
+          : "Documentation or non-code edits recorded in this session."
+        : "No workspace file edits recorded yet.",
+    },
+    {
+      id: "clean",
+      label: "clean",
+      status: cleanStatus,
+      detail: cleanStatus === "done"
+        ? "Cleanup (/deslop or /no-comments) ran after the latest code edit."
+        : cleanStatus === "stale"
+          ? "New code edits landed after cleanup. Re-run /deslop or /no-comments."
+          : hasCodeEdits
+            ? "Waiting for /deslop or /no-comments on your code diff."
+            : "Optional for doc-only changes; runs /deslop or /no-comments on code diffs.",
+    },
+    {
+      id: "verify",
+      label: "verify",
+      status: verifyStatus,
+      detail: verifyStatus === "done"
+        ? "Tests, build, or validation passed after the latest edit."
+        : verifyStatus === "stale"
+          ? "New edits landed after verification. Re-run tests or validation."
+          : "Waiting for tests, lint, build, or live verification after edits.",
+    },
   ];
   const detail = status === "stale"
     ? "New file edits landed after cleanup or tests. Re-run verification before PR review."

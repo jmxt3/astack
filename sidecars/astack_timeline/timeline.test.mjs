@@ -262,6 +262,10 @@ test("tracks /interrogate, marks Build & Prove done on fresh verify, and flips s
     const cleanSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(cleanSnap.stages[0].status, "skipped");
     assert.equal(cleanSnap.stages[1].status, "done");
+    for (const sub of cleanSnap.stages[1].subChecks) {
+      assert.equal(sub.status, "done");
+      assert.ok(typeof sub.detail === "string" && sub.detail.length > 0);
+    }
     assert.equal(cleanSnap.stages[1].commands[1].command, "/interrogate");
     assert.equal(cleanSnap.stages[1].commands[1].state, "done");
     assert.equal(cleanSnap.stages[2].status, "next");
@@ -284,6 +288,8 @@ test("tracks /interrogate, marks Build & Prove done on fresh verify, and flips s
 
     const staleSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(staleSnap.stages[1].status, "stale");
+    assert.match(staleSnap.stages[1].subChecks[1].detail, /Re-run \/deslop or \/no-comments/);
+    assert.match(staleSnap.stages[1].subChecks[2].detail, /Re-run tests or validation/);
     assert.equal(staleSnap.freshness, "dirty_after_verify");
     assert.equal(staleSnap.liveState, "warn");
     assert.equal(staleSnap.nextAction.command, "/astack-mode");
