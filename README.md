@@ -19,7 +19,7 @@ AStack is a Google Antigravity plugin that makes the agent prove its work. You g
 
 AStack takes inspiration from Lauren Tan's [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) for empirical verification playbooks and Garry Tan's [`gstack`](https://github.com/garrytan/gstack) for structured review gates, and builds those ideas natively for Google Antigravity.
 
-AStack has 65 skills, 26 playbooks, 24 engineering principles, 3 custom agents, 1 routing rule, 8 lifecycle hooks (2 passive observe-only enabled by default plus 6 opt-in blocking gates), and 1 optional read-only timeline sidecar UI ([`sidecars/astack_timeline/`](./sidecars/astack_timeline/sidecar.json)). It runs locally as markdown skills and zero-dependency Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
+AStack has 65 skills, 26 playbooks, 24 engineering principles, 4 custom agents, 1 routing rule, 9 lifecycle hooks (3 passive observe-only enabled by default plus 6 opt-in blocking gates), and 3 sidecars (1 optional read-only timeline sidecar UI [`sidecars/astack_timeline/`](./sidecars/astack_timeline/sidecar.json) plus 2 dormant scheduled automations). It runs locally as markdown skills and zero-dependency Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
 
 fork it. improve it. make it yours. PRs are welcome!
 
@@ -151,7 +151,7 @@ To follow that path visually inside Google Antigravity, enable the optional [`AS
 
 ## Skill catalog
 
-AStack ships **65 skills** (`skills/`), **3 agents** (`agents/`), **1 routing rule** (`rules/`), and **8 lifecycle hooks** (`hooks.json`):
+AStack ships **65 skills** (`skills/`), **4 agents** (`agents/`), **1 routing rule** (`rules/`), and **9 lifecycle hooks** (`hooks.json`):
 
 ### Orchestration & setup (3)
 
@@ -290,9 +290,11 @@ AStack ships **65 skills** (`skills/`), **3 agents** (`agents/`), **1 routing ru
 
 </details>
 
-- **Custom agents (`agents/`)**: [`astack-agent`](./agents/astack-agent.md) (verification-first builder with Osmani anti-rationalization discipline), [`pr-verifier`](./agents/pr-verifier.md) (isolated `inheritCustomizations: false` read-only PR verifier), and [`comment-sicko`](./agents/comment-sicko.md) (isolated `inheritCustomizations: false` adversarial comment and suppression auditor).
+- **Custom agents (`agents/`)**: [`astack-engineer`](./agents/astack-engineer.md) (primary `agy --agent astack-engineer` entry booting straight into AStack rigor), [`astack-agent`](./agents/astack-agent.md) (verification-first builder delegate with anti-rationalization discipline), [`pr-verifier`](./agents/pr-verifier.md) (isolated `inheritCustomizations: false` read-only PR verifier), and [`comment-sicko`](./agents/comment-sicko.md) (isolated `inheritCustomizations: false` adversarial comment and suppression auditor).
 - **Routing rule (`rules/`)**: [`astack-orchestration.md`](./rules/astack-orchestration.md).
-- **Lifecycle hooks (`hooks.json`)**: 2 passive observe-only hooks enabled by default (`astack-receipt-ledger` on `PostToolUse` and `astack-session-context` on `SessionStart`) plus 6 opt-in blocking gates (`astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, `astack-round-limiter`).
+- **Local MCP server & MCP Apps ([`mcp_config.json`](./mcp_config.json))**: zero-dependency local `stdio` server (`astack_trust`) exposing `compile_pr_dossier`, `audit_architecture`, `doctor_workspace`, `get_trust_status`, `record_proof_manifest`, inline chat cards, and a `.tla` formal spec viewer (`ui://astack/tla-viewer.html`).
+- **Dynamic Workflows & CLI helpers**: reusable `/run-workflow` Python scripts under `skills/{review-pr,fanout,reflect}/scripts/workflows/` plus zero-spawn CLI `statusLine` and `title` scripts under `scripts/cli/`.
+- **Lifecycle hooks (`hooks.json`)**: 3 passive observe-only hooks enabled by default (`astack-receipt-ledger` on `PostToolUse`, `astack-session-context` on `SessionStart`, and `astack-pr-intent` on `PreInvocation`) plus 6 opt-in blocking gates (`astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, `astack-round-limiter`).
 
 ## Documentation
 
@@ -325,7 +327,7 @@ AStack ships **65 skills** (`skills/`), **3 agents** (`agents/`), **1 routing ru
 
 ## Security & lifecycle hooks
 
-AStack runs locally with zero external npm dependencies. It starts no hosted servers, sends no telemetry, and stores no credentials. When you enable the optional [`AStack Timeline`](./sidecars/astack_timeline/sidecar.json) sidecar in Antigravity, Antigravity launches one read-only localhost HTTP panel bound to `127.0.0.1` that inspects local transcripts, workspace readiness, and `astack-trust` receipts without mutating files or sending agent messages. [`hooks.json`](./hooks.json) enables two passive observe-only hooks (`astack-receipt-ledger` and `astack-session-context`) by default while keeping all six blocking gates (`astack-irreversible-guard`, `astack-verify-reminder`, `astack-secret-guard`, `astack-evidence-gate`, `astack-boundary-guard`, and `astack-round-limiter`) disabled until opted in. Dormant scheduled automation templates live under [`docs/automations/`](./docs/automations/beacon/README.md) ([PR triage](./docs/automations/pr-triage/README.md), [weekly `/correct`](./docs/automations/weekly-correct/README.md)).
+AStack runs locally with zero external npm dependencies. It starts no hosted servers, sends no telemetry, and stores no credentials. When you enable the optional [`AStack Timeline`](./sidecars/astack_timeline/sidecar.json) sidecar in Antigravity, Antigravity launches one read-only localhost HTTP panel bound to `127.0.0.1` that inspects local transcripts, workspace readiness, and `astack-trust` receipts without mutating files or sending agent messages. [`hooks.json`](./hooks.json) enables three passive observe-only hooks (`astack-receipt-ledger`, `astack-session-context`, and `astack-pr-intent`) by default while keeping all six blocking gates (`astack-irreversible-guard`, `astack-verify-reminder`, `astack-secret-guard`, `astack-evidence-gate`, `astack-boundary-guard`, and `astack-round-limiter`) disabled until opted in. Dormant scheduled automation templates live under [`docs/automations/`](./docs/automations/beacon/README.md) ([PR triage](./docs/automations/pr-triage/README.md), [weekly `/correct`](./docs/automations/weekly-correct/README.md)).
 
 To report a vulnerability, follow [SECURITY.md](./SECURITY.md).
 

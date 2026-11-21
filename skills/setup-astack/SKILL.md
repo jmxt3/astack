@@ -23,7 +23,7 @@ Pass `--doctor` (and optionally `--json`) anytime to inspect Node version, `veri
 This prints the `ASTACK` ASCII initiation banner and inspects the workspace read-only for:
 
 1. `.agents/skills/verify-*/SKILL.md` (runtime Control Glass verification) and formal TLA+ verification skills or `*.tla` specs.
-2. [`hooks.json`](../../hooks.json) at the plugin root (ships `"enabled": false` by default).
+2. [`hooks.json`](../../hooks.json) at the plugin root (enables 3 passive observe-only hooks and keeps 6 blocking gates `"enabled": false` by default).
 3. Any existing `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` rule on this machine or repo.
 
 ## 2. Display the ASCII Banner & Collect Repo Choices
@@ -42,6 +42,7 @@ GOOGLE ANTIGRAVITY · PLAN · BUILD · PROVE IT WORKS
   verify skills : <detected or none>
   formal verify : <detected or none>
   safety hooks  : <detected status>
+  repo policies : <detected or defaults>
   model routing : <detected status>
 ```
 
@@ -53,7 +54,7 @@ Then ask concisely with `ask_question` (pass unnumbered options without adding a
    - `(Recommended) Generate runtime verification skill (/create-verification-skill)`: scaffolds `.agents/skills/verify-<app>/` and a `features/` map so agents can drive and prove your app end-to-end (or offer `/maintain-verification-skill` if a `verify-*/SKILL.md` already exists).
    - `(Recommended) Scaffold repo trust policies (init-repo-policy.mjs)`: creates `.agents/risk-policy.json`, `.agents/boundaries.json`, `REVIEW.md`, and `GLOSSARY.md` idempotently without overwriting existing files.
    - `Generate formal TLA+ / invariant verification skill (/create-formal-verification-skill)`: powered by `/statechart`, ideal for state machines, retries, concurrency, or parsers.
-   - `Review split lifecycle hooks (hooks.json)`: inspect passive observe-only hooks (`astack-receipt-ledger`, `astack-session-context` enabled by default) and opt-in blocking gates (`astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, `astack-round-limiter`).
+   - `Review split lifecycle hooks (hooks.json)`: inspect passive observe-only hooks (`astack-receipt-ledger`, `astack-session-context`, `astack-pr-intent` enabled by default) and opt-in blocking gates (`astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, `astack-round-limiter`).
 2. **Conditional (ONLY ask if Step 1 found an existing `astack-models.md` OR the user explicitly asked to customize subagent tiers)**:
    - `(Recommended) Remove/reset astack-models.md`: clear static overrides so all subagents and `/swarm` workers inherit your active Antigravity UI model picker / **Orchestrator**.
    - `Keep lightweight evergreen invoke_subagent tier aliases`: write only capability aliases (`inherit`, `flash`, `flash_lite`, `pro`) into `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` (with `trigger: model_decision` frontmatter, under 60 lines), never pinning versioned model slugs.
@@ -62,7 +63,7 @@ Then ask concisely with `ask_question` (pass unnumbered options without adding a
 
 - If the user selected `/create-verification-skill`, `/maintain-verification-skill`, or `/create-formal-verification-skill`, invoke that skill immediately (no chat restart required).
 - If the user selected `Scaffold repo trust policies`, run `node "<skill-dir>/scripts/init-repo-policy.mjs" --cwd . --json` and summarize created vs skipped files.
-- If the user selected `Review split lifecycle hooks`, explain that [`hooks.json`](../../hooks.json) enables the two passive observe-only hooks by default while keeping all six blocking gates `"enabled": false` until opted in via `hooks.json` or `/hooks`. Open plugin details anytime in the Antigravity App via [astack](customization://astack).
+- If the user selected `Review split lifecycle hooks`, explain that [`hooks.json`](../../hooks.json) enables three passive observe-only hooks (`astack-receipt-ledger`, `astack-session-context`, `astack-pr-intent`) by default while keeping all six blocking gates `"enabled": false` until opted in via `hooks.json` or `/hooks`. Open plugin details anytime in the Antigravity App via [astack](customization://astack).
 - If the user chose to remove/reset an existing `astack-models.md` (and confirmed the change), remove or update it cleanly as requested.
 - Close with quick next-step commands:
   - `/astack-mode <task>`: classify task into a playbook and orchestrate rigor end-to-end
@@ -70,3 +71,27 @@ Then ask concisely with `ask_question` (pass unnumbered options without adding a
   - `/astack-help`: browse playbooks, verification skills, and recipes
   - `/swarm` / `/run-workflow` / `/boost` / `/teamwork` / `/goal`: Antigravity's native multi-worker board, Python workflow runner, iterative challenge-and-fix, long-horizon, and completion-driven modes
 - When running in an Antigravity App session with the AStack Timeline sidecar enabled and the pill has not been shown yet, finish with `[AStack Timeline](sidecar://astack/astack_timeline/)` on its own line.
+
+## 4. Optional Antigravity CLI Integration (`settings.json`)
+
+For Antigravity CLI (`agy`) users, add these optional entries to `~/.gemini/settings.json` (or `.agents/settings.json`) to render a live pipeline status line, terminal title, and pre-approve read-only `astack_trust` MCP tools:
+
+```json
+{
+  "statusLine": {
+    "command": "node ~/.gemini/config/plugins/astack/scripts/cli/statusline.mjs",
+    "stack_with_default": true
+  },
+  "title": {
+    "command": "node ~/.gemini/config/plugins/astack/scripts/cli/title.mjs"
+  },
+  "permissions": {
+    "allow": [
+      "mcp(astack_trust/compile_pr_dossier)",
+      "mcp(astack_trust/audit_architecture)",
+      "mcp(astack_trust/doctor_workspace)",
+      "mcp(astack_trust/get_trust_status)"
+    ]
+  }
+}
+```

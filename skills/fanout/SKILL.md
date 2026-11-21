@@ -20,6 +20,8 @@ Run $N$ independent tasks concurrently using Antigravity `invoke_subagent` witho
 
 If the problem is *hard and tightly coupled* rather than cleanly divisible (race conditions, deep algorithmic defects, coupled refactors), use **`/boost`** instead of parallel fan-out.
 
+When auditing a large file list or needing schema-enforced `PASS`/`ISSUES` aggregation across slices, run [`scripts/workflows/fanout-audit.py`](./scripts/workflows/fanout-audit.py) via `run_workflow(ScriptPath=..., Args={"files": [...], "criteria": "..."})`.
+
 ## 1. Frame
 
 Declare the shape, selection contract, isolation, and pinned inputs before spawning any worker:

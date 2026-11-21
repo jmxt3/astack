@@ -11,8 +11,22 @@ export const FILE_WRITE_TOOLS = [
 export const FILE_WRITE_TOOL_MATCHER = FILE_WRITE_TOOLS.join("|");
 export const SECRET_GUARD_MATCHER = `${FILE_WRITE_TOOL_MATCHER}|run_command`;
 export const EVIDENCE_GATE_MATCHER = "run_command|call_mcp_tool|mcp_.*";
+export const RECEIPT_LEDGER_MATCHER = `${SECRET_GUARD_MATCHER}|invoke_subagent|run_workflow|call_mcp_tool|mcp_.*`;
 
 const FILE_WRITE_TOOL_SET = new Set(FILE_WRITE_TOOLS);
+
+function extractEnvelopeMeta(payload) {
+  const rawModel = payload.modelName ?? payload.model;
+  const rawTranscript = payload.transcriptPath ?? payload.transcript_path;
+  const rawStepIdx = payload.stepIdx ?? payload.step_idx;
+  const rawExecNum = payload.executionNum ?? payload.execution_num;
+  return {
+    modelName: typeof rawModel === "string" && rawModel.trim() ? rawModel.trim() : null,
+    transcriptPath: typeof rawTranscript === "string" && rawTranscript.trim() ? rawTranscript.trim() : null,
+    stepIdx: typeof rawStepIdx === "number" && Number.isFinite(rawStepIdx) ? rawStepIdx : null,
+    executionNum: typeof rawExecNum === "number" && Number.isFinite(rawExecNum) ? rawExecNum : null,
+  };
+}
 
 /**
  * Normalizes a conversation identifier into a filesystem-safe filename segment.
@@ -87,6 +101,7 @@ export function parseHookPayload(payload, hint) {
     return null;
   }
 
+  const meta = extractEnvelopeMeta(payload);
   const conversationId = sanitizeConversationId(
     payload.conversationId ?? payload.sessionId ?? "default",
   );
@@ -126,6 +141,8 @@ export function parseHookPayload(payload, hint) {
       continuationActive: payload.continuationActive === true,
       workspaceDir,
       artifactDir,
+      ...meta,
+      executionNum: meta.executionNum ?? 0,
     };
   }
 
@@ -140,6 +157,38 @@ export function parseHookPayload(payload, hint) {
       safeArgs.Path ?? safeArgs.path ?? safeArgs.TargetFile ?? safeArgs.targetFile ?? "",
     );
     const chunks = extractTextChunks(safeArgs);
+
+    if (lowerTool === "invoke_subagent") {
+      return {
+        kind: "tool-subagent",
+        phase,
+        conversationId,
+        tool: rawToolName || "invoke_subagent",
+        subagentType: String(safeArgs.TypeName ?? safeArgs.typeName ?? safeArgs.type_name ?? ""),
+        role: String(safeArgs.Role ?? safeArgs.role ?? ""),
+        workspace: String(safeArgs.Workspace ?? safeArgs.workspace ?? "inherit"),
+        model: String(safeArgs.Model ?? safeArgs.model ?? ""),
+        error,
+        workspaceDir,
+        artifactDir,
+        ...meta,
+      };
+    }
+
+    if (lowerTool === "run_workflow") {
+      return {
+        kind: "tool-workflow",
+        phase,
+        conversationId,
+        tool: rawToolName || "run_workflow",
+        description: String(safeArgs.Description ?? safeArgs.description ?? ""),
+        scriptPath: String(safeArgs.ScriptPath ?? safeArgs.scriptPath ?? ""),
+        error,
+        workspaceDir,
+        artifactDir,
+        ...meta,
+      };
+    }
 
     if (lowerTool === "call_mcp_tool" || lowerTool.startsWith("mcp_")) {
       let serverName = String(
@@ -186,6 +235,7 @@ export function parseHookPayload(payload, hint) {
         error,
         workspaceDir,
         artifactDir,
+        ...meta,
       };
     }
 
@@ -199,6 +249,7 @@ export function parseHookPayload(payload, hint) {
         error,
         workspaceDir,
         artifactDir,
+        ...meta,
       };
     }
 
@@ -213,6 +264,7 @@ export function parseHookPayload(payload, hint) {
         error,
         workspaceDir,
         artifactDir,
+        ...meta,
       };
     }
 
@@ -224,6 +276,7 @@ export function parseHookPayload(payload, hint) {
       error,
       workspaceDir,
       artifactDir,
+      ...meta,
     };
   }
 
@@ -241,6 +294,7 @@ export function parseHookPayload(payload, hint) {
       invocationNum: typeof payload.invocationNum === "number" ? payload.invocationNum : 0,
       workspaceDir,
       artifactDir,
+      ...meta,
     };
   }
 
@@ -249,6 +303,7 @@ export function parseHookPayload(payload, hint) {
     conversationId,
     workspaceDir,
     artifactDir,
+    ...meta,
   };
 }
 

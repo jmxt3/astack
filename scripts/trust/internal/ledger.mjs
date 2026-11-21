@@ -242,11 +242,66 @@ function isNonWorkspaceReceipt(receipt) {
   );
 }
 
+const RECORDABLE_RECEIPT_KINDS = new Set([
+  "tool-command",
+  "tool-write",
+  "tool-subagent",
+  "tool-workflow",
+  "tool-mcp",
+]);
+
+function buildReceiptShape(event) {
+  if (event.kind === "tool-command") {
+    return {
+      kind: "command",
+      category: classifyCommandCategory(event.command),
+      treeDirty: null,
+      summary: redactSummary(event.command),
+      paths: [],
+    };
+  }
+  if (event.kind === "tool-write") {
+    return {
+      kind: "file_write",
+      category: "other",
+      treeDirty: true,
+      summary: redactSummary(`${event.tool} ${event.filePath}`),
+      paths: event.filePath ? [normalizeRelPath(event.workspaceDir, event.filePath)] : [],
+    };
+  }
+  if (event.kind === "tool-subagent") {
+    const roleTag = event.role ? ` (${event.role})` : "";
+    return {
+      kind: "subagent",
+      category: "delegate",
+      treeDirty: null,
+      summary: redactSummary(`invoke_subagent ${event.subagentType || "subagent"}${roleTag}`),
+      paths: [],
+    };
+  }
+  if (event.kind === "tool-workflow") {
+    return {
+      kind: "workflow",
+      category: "delegate",
+      treeDirty: null,
+      summary: redactSummary(`run_workflow ${event.description || event.scriptPath || "script"}`),
+      paths: event.scriptPath ? [normalizeRelPath(event.workspaceDir, event.scriptPath)] : [],
+    };
+  }
+  return {
+    kind: "mcp",
+    category: "mcp",
+    treeDirty: null,
+    summary: redactSummary(`${event.serverName || "mcp"}/${event.toolName || event.tool}`),
+    paths: [],
+  };
+}
+
 /**
  * Appends a single-actor PostToolUse execution receipt to `<trustDir>/receipts.<conversationId>.jsonl`.
  */
 export function recordReceipt(event, options = {}) {
-  if (!event || (event.kind !== "tool-command" && event.kind !== "tool-write")) {
+  if (!event || !RECORDABLE_RECEIPT_KINDS.has(event.kind)) {
     return null;
   }
   if (event.kind === "tool-write" && isNonWorkspaceWritePath(event.filePath, event)) {
@@ -256,19 +311,19 @@ export function recordReceipt(event, options = {}) {
   if (!trustDir) return null;
 
   const headSha = options.headSha ?? readHeadShaFast(event.workspaceDir);
-  const isCommand = event.kind === "tool-command";
-  const category = isCommand ? classifyCommandCategory(event.command) : "other";
+  const shape = buildReceiptShape(event);
   const entry = {
     schemaVersion: 1,
     ts: options.now ?? new Date().toISOString(),
     conversationId: event.conversationId || "default",
-    kind: isCommand ? "command" : "file_write",
-    category,
+    kind: shape.kind,
+    category: shape.category,
     headSha,
-    treeDirty: isCommand ? null : true,
+    treeDirty: shape.treeDirty,
     ok: !event.error,
-    summary: redactSummary(isCommand ? event.command : `${event.tool} ${event.filePath}`),
-    paths: isCommand || !event.filePath ? [] : [normalizeRelPath(event.workspaceDir, event.filePath)],
+    modelName: event.modelName ?? null,
+    summary: shape.summary,
+    paths: shape.paths,
   };
 
   fs.mkdirSync(trustDir, { recursive: true });
@@ -433,7 +488,7 @@ export function evaluateRoundState({
 }
 
 /**
- * Evaluates the `Stop` verification reminder across Antigravity and legacy payloads.
+ * Evaluates the `Stop` verification reminder against session receipts, git tree cleanliness, and loop caps.
  */
 export function evaluateVerifyReminder(event, options = {}) {
   if (!event || event.kind !== "stop") {
@@ -445,44 +500,62 @@ export function evaluateVerifyReminder(event, options = {}) {
   if (event.terminationReason !== "model_stop") {
     return { decision: "allow" };
   }
-
-  const requireVerify = options.requireVerify ?? process.env.ASTACK_REQUIRE_VERIFY === "1";
-  if (!requireVerify) {
+  if (typeof event.executionNum === "number" && event.executionNum > 2) {
+    return { decision: "allow" };
+  }
+  if (options.requireVerify === false || process.env.ASTACK_REQUIRE_VERIFY === "0") {
     return { decision: "allow" };
   }
 
-  const workspaceDir = event.workspaceDir;
-  if (!workspaceDir || !fs.existsSync(workspaceDir)) {
-    return { decision: "allow" };
-  }
-
-  let status = options.gitStatus;
-  if (status === undefined) {
-    try {
-      status = execFileSync("git", ["status", "--porcelain"], {
-        cwd: workspaceDir,
-        encoding: "utf8",
-        timeout: 3000,
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-    } catch {
-      return { decision: "allow" };
+  const workspaceDir = event.workspaceDir || "";
+  let dirtyCode = [];
+  if (options.gitStatus !== undefined || (workspaceDir && fs.existsSync(workspaceDir))) {
+    let status = options.gitStatus;
+    if (status === undefined) {
+      try {
+        status = execFileSync("git", ["status", "--porcelain"], {
+          cwd: workspaceDir,
+          encoding: "utf8",
+          timeout: 3000,
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+      } catch {
+        status = "";
+      }
     }
+    dirtyCode = String(status ?? "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !/\.md$/i.test(line));
   }
 
-  const dirtyCode = String(status)
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !/\.md$/i.test(line));
+  const hasExplicitTrust = Boolean(options.trustDir);
+  const trustDir = options.trustDir ?? resolveTrustDir(event);
+  const evidence = readWithFallback(trustDir, workspaceDir, hasExplicitTrust, readEvidenceSnapshot);
+  const receipts = readWithFallback(trustDir, workspaceDir, hasExplicitTrust, readMergedReceipts);
+  const headSha = options.headSha ?? (workspaceDir ? readHeadShaFast(workspaceDir) : null);
 
-  if (dirtyCode.length === 0) {
+  const hasCodeWriteReceipts = receipts.some(
+    (r) =>
+      r.kind === "file_write" &&
+      !isNonWorkspaceReceipt(r) &&
+      Array.isArray(r.paths) &&
+      r.paths.some((p) => !/\.md$/i.test(String(p))),
+  );
+
+  if (dirtyCode.length === 0 && !hasCodeWriteReceipts) {
+    return { decision: "allow" };
+  }
+
+  const freshness = computeFreshness({ receipts, headSha, priorEvidence: evidence });
+  if (freshness === "fresh" || freshness === "fresh_rebase_patch_id") {
     return { decision: "allow" };
   }
 
   return {
     decision: "continue",
     reason:
-      "AStack verify-reminder (ASTACK_REQUIRE_VERIFY=1): uncommitted code changes detected. Confirm empirical verification ran against the real target (`control-ui`, `control-cli`, test suite) and run `/deslop` if finished.",
+      `AStack verify-reminder (freshness=${freshness}): code changes exist without fresh HEAD verification receipts. Run the relevant test suite or Control Glass check (\`control-ui\` / \`control-cli\`) and \`/deslop\` before stopping (set ASTACK_REQUIRE_VERIFY=0 to suppress).`,
   };
 }
 
@@ -722,7 +795,7 @@ export function evaluatePrIntent(event, options = {}) {
     ? "Detected `proof-manifest.json` in trust directory."
     : "No `proof-manifest.json` detected; compiler will synthesize from Feature Map or HEAD verification receipts.";
 
-  const systemMessage = [
+  const ephemeralMessage = [
     `AStack PR proof workflow triggered (HEAD \`${(headSha ?? "none").slice(0, 7)}\`, freshness \`${freshness}\`).`,
     manifestStatus,
     `Run \`node skills/review-pr/scripts/pr-dossier.mjs --format github${artifactFlag}${featureFlag} --out <body-file>\` (pass \`--merge-body <body-file>\` to keep human sections) before opening or updating the PR.`,
@@ -732,9 +805,7 @@ export function evaluatePrIntent(event, options = {}) {
   return {
     injectSteps: [
       {
-        systemMessage: {
-          systemMessage,
-        },
+        ephemeralMessage,
       },
     ],
   };

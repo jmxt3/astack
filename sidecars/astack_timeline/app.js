@@ -666,6 +666,36 @@
     positionCommandPopover(pop, anchorEl);
   }
 
+  function showStatusPopover(anchorEl, title, statusText, mode, description) {
+    if (!description) return;
+    const pop = document.getElementById("cmd-popover");
+    if (!pop) return;
+    cancelHidePopover();
+    if (state.popoverAnchor && state.popoverAnchor !== anchorEl) {
+      state.popoverAnchor.removeAttribute("aria-describedby");
+    }
+    state.popoverAnchor = anchorEl;
+    anchorEl.setAttribute("aria-describedby", "cmd-popover");
+
+    const head = el("div", "cmd-popover-head");
+    head.appendChild(el("span", "cmd-popover-name", title));
+    if (statusText) {
+      head.appendChild(el("span", `cmd-popover-status ${mode}`, statusText));
+    }
+
+    pop.replaceChildren(head, el("p", "cmd-popover-desc", description));
+    pop.classList.remove("hidden");
+    positionCommandPopover(pop, anchorEl);
+  }
+
+  function attachStatusPopover(elNode, title, statusText, mode, description) {
+    if (!description) return;
+    elNode.addEventListener("mouseenter", () => showStatusPopover(elNode, title, statusText, mode, description));
+    elNode.addEventListener("mouseleave", scheduleHidePopover);
+    elNode.addEventListener("focus", () => showStatusPopover(elNode, title, statusText, mode, description));
+    elNode.addEventListener("blur", scheduleHidePopover);
+  }
+
   function attachCommandPopover(elNode, item) {
     if (!item?.description) return;
     elNode.addEventListener("mouseenter", () => showCommandPopover(elNode, item));
@@ -851,6 +881,12 @@
       if (mode === "run") bar.classList.add("pulse");
       const title = sub.label.charAt(0).toUpperCase() + sub.label.slice(1);
       const labelText = mode === "done" ? `✓ ${title}` : mode === "stale" ? `! ${title}` : mode === "run" ? `${title}…` : title;
+      const statusText = mode === "done" ? "Done" : mode === "stale" ? "Stale" : mode === "run" ? "Next up" : "Pending";
+      if (sub.detail) {
+        seg.tabIndex = 0;
+        seg.title = sub.detail;
+        attachStatusPopover(seg, title, statusText, mode, sub.detail);
+      }
       seg.appendChild(bar);
       seg.appendChild(el("span", `progress-seg-label ${mode}`, labelText));
       segGrid.appendChild(seg);
@@ -1151,41 +1187,6 @@
   function renderSceneSection(snap) {
     const act = snap.activity || {};
     const focalId = act.activeStageId || "plan";
-    const focalStage = snap.stages.find((s) => s.id === focalId);
-    const nextBar = document.getElementById("next-bar");
-    nextBar.replaceChildren();
-    const suppressSetupNext = snap.setup?.status === "needs_setup" && snap.nextAction?.stageId === "setup";
-
-    if (snap.nextAction && !suppressSetupNext) {
-      nextBar.classList.remove("hidden");
-      const copyWrap = el("div", "scene-next-copy");
-      const isRunning = focalStage?.status === "active";
-      const kickerPrefix = isRunning ? "Now" : "Next";
-      const kickerLabel = isRunning ? focalStage.label : snap.nextAction.stageLabel;
-      const kickerCls =
-        focalStage?.status === "error"
-          ? "scene-next-kicker error"
-          : focalStage?.status === "stale" || focalStage?.status === "waiting_gate"
-            ? "scene-next-kicker warn"
-            : snap.doneCount === snap.totalCount
-              ? "scene-next-kicker done"
-              : "scene-next-kicker";
-      copyWrap.appendChild(el("div", kickerCls, `${kickerPrefix} · ${kickerLabel}`));
-      copyWrap.appendChild(el("p", "scene-next-hint", isRunning ? focalStage.detail : snap.nextAction.hint));
-      nextBar.appendChild(copyWrap);
-
-      if (!isRunning) {
-        const cmdBtn = el("button", "scene-next-btn");
-        cmdBtn.type = "button";
-        const nextMeta = lookupCommandMeta(snap, snap.nextAction.command);
-        wireCommandAction(cmdBtn, nextMeta || snap.nextAction.command, false);
-        cmdBtn.appendChild(el("span", "", snap.nextAction.command));
-        cmdBtn.appendChild(svgIcon("copy", 11));
-        nextBar.appendChild(cmdBtn);
-      }
-    } else {
-      nextBar.classList.add("hidden");
-    }
 
     const stagesEl = document.getElementById("scene-stages");
     stagesEl.replaceChildren();

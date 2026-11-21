@@ -29,6 +29,8 @@ export const EXPECTED_NATIVE_COMMANDS = [
   "/btw",
   "/generative_ui",
   "/antigravity-guide",
+  "/mcp-app-development",
+  "/compact",
 ];
 
 export const BUILTIN_RESERVED_SKILL_NAMES = [

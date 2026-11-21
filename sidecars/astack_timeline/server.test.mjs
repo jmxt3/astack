@@ -70,6 +70,7 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     assert.match(htmlText, /data-testid="btw-form"/);
     assert.match(htmlText, /data-testid="delegate-view"/);
     assert.match(htmlText, /data-testid="artifact-view"/);
+    assert.doesNotMatch(htmlText, /id="next-bar"|data-testid="timeline-next"/);
 
     const cssRes = await fetch(`${srv.url}styles.css`);
     assert.equal(cssRes.status, 200);
@@ -79,12 +80,15 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     assert.match(cssText, /\.setup-card\b/);
     assert.match(cssText, /height:\s*164px;/);
     assert.match(cssText, /\.chip-active-dot\b/);
+    assert.doesNotMatch(cssText, /\.scene-next\b/);
 
     const jsRes = await fetch(`${srv.url}app.js`);
     assert.equal(jsRes.status, 200);
     assert.match(jsRes.headers.get("content-type") ?? "", /javascript/);
     const jsText = await jsRes.text();
     assert.match(jsText, /chip-active-dot/);
+    assert.match(jsText, /showStatusPopover/);
+    assert.doesNotMatch(jsText, /getElementById\("next-bar"\)/);
 
     const threeRes = await fetch(`${srv.url}vendor/three.min.js`);
     assert.equal(threeRes.status, 200);

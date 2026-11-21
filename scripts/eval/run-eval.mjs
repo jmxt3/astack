@@ -193,6 +193,7 @@ const USAGE = `Usage: node scripts/eval/run-eval.mjs [options]
 Options:
   --replay     Run incident-replay reviewer evaluation suite (offline contract grading by default)
   --live       With --replay, invoke live headless agy -p --json-schema --sandbox --agent pr-verifier
+  --stream     With --replay --live, stream all incidents inside one agy --input-format stream-json session
   --json       Emit machine-readable JSON report
   -h, --help   Show this help text and exit 0`;
 
@@ -201,6 +202,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     options: {
       replay: { type: "boolean", default: false },
       live: { type: "boolean", default: false },
+      stream: { type: "boolean", default: false },
       json: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -209,7 +211,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.stdout.write(`${USAGE}\n`);
     process.exit(0);
   }
-  const report = values.replay ? runIncidentReplay({ live: values.live }) : runEvalSuite();
+  const report = values.replay
+    ? runIncidentReplay({ live: values.live, stream: values.stream })
+    : runEvalSuite();
   if (values.json) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } else {

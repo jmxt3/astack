@@ -337,11 +337,12 @@ export function renderDossierMarkdown({
   if (antigravityChecks.length === 0) {
     lines.push("No passing command or verifier receipts recorded for this session.", "");
   } else {
-    lines.push("| Time | Category | Status | Summary | HEAD |", "|---|---|---|---|---|");
+    lines.push("| Time | Category | Status | Model | Summary | HEAD |", "|---|---|---|---|---|---|");
     for (const chk of antigravityChecks.slice(-10)) {
       const status = chk.status ?? (chk.ok === false ? "FAIL" : "PASS");
+      const model = chk.modelName ? `\`${escapeMarkdownCell(chk.modelName)}\`` : "session";
       lines.push(
-        `| ${chk.ts} | \`${chk.category}\` | \`${status}\` | ${escapeMarkdownCell(chk.summary)} | \`${(chk.headSha ?? "none").slice(0, 7)}\` |`,
+        `| ${chk.ts} | \`${chk.category}\` | \`${status}\` | ${model} | ${escapeMarkdownCell(chk.summary)} | \`${(chk.headSha ?? "none").slice(0, 7)}\` |`,
       );
     }
     lines.push("");
@@ -614,12 +615,19 @@ export function compilePrDossier({
     category: r.category,
     ok: Boolean(r.ok),
     status: r.ok ? "PASS" : "FAIL",
+    modelName: r.modelName ?? null,
     summary: r.summary,
     headSha: r.headSha,
   }));
   const passedChecks = checkReceipts
     .filter((r) => r.ok)
-    .map((r) => ({ ts: r.ts, category: r.category, summary: r.summary, headSha: r.headSha }));
+    .map((r) => ({
+      ts: r.ts,
+      category: r.category,
+      modelName: r.modelName ?? null,
+      summary: r.summary,
+      headSha: r.headSha,
+    }));
 
   const riskLabel = policy.tiers?.[String(risk.tier)]?.label ?? "medium";
   const evidence = {

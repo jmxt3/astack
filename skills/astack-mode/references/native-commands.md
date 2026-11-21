@@ -11,12 +11,12 @@ Generated from [native-commands.json](./native-commands.json) (source catalog `h
 
 When a command is `app`-only (such as `/automation` or `/generative_ui`), CLI sessions route to `/schedule` or plain Markdown/Mermaid fallbacks cleanly.
 
-## All 16 Native Commands
+## All 18 Native Commands
 
 | Command | Category | Mode | Backing | Triggers | Surfaces | Tier | AStack Companion |
 |---|---|---|---|---|---|---|---|
-| `/swarm` | Reasoning | `run` | tool `swarm`, skill `swarm` | `parallel workers on a board`, `named workers and verifier`, `split across files with a verifier`, `multi-PR stack execution` | app, cli | Google AI Pro and Ultra | [swarm-coordination.md](../../../skills/astack-mode/references/swarm-coordination.md), [fanout](../../../skills/fanout/SKILL.md) |
-| `/run-workflow` | Reasoning | `run` | tool `run_workflow`, skill `run-workflow` | `same task across many files`, `for each file or package`, `staged multi-agent pipeline`, `python workflow script` | app, cli | Google AI Pro and Ultra | [fanout](../../../skills/fanout/SKILL.md), [swarm-coordination.md](../../../skills/astack-mode/references/swarm-coordination.md) |
+| `/swarm` | Reasoning | `run` | tool `swarm`, skill `swarm` | `parallel workers on a board`, `named workers and verifier`, `split across files with a verifier`, `multi-PR stack execution` | app, cli | All plans | [swarm-coordination.md](../../../skills/astack-mode/references/swarm-coordination.md), [fanout](../../../skills/fanout/SKILL.md) |
+| `/run-workflow` | Reasoning | `run` | tool `run_workflow`, skill `run-workflow` | `same task across many files`, `for each file or package`, `staged multi-agent pipeline`, `python workflow script` | app, cli | All plans | [fanout](../../../skills/fanout/SKILL.md), [swarm-coordination.md](../../../skills/astack-mode/references/swarm-coordination.md) |
 | `/schedule` | Automation | `run` | tool `schedule` | `in N minutes`, `one-time timer`, `poll every`, `recurring check in this chat` | app, cli | All plans | [autonomous-run.md](../../../skills/astack-mode/playbooks/autonomous-run.md), [babysit.md](../../../skills/astack-mode/playbooks/babysit.md) |
 | `/browser` | Tools | `run` | tool `invoke_subagent`, TypeName `browser` | `open in browser`, `check localhost`, `take UI screenshot`, `test live web page` | app, cli | All plans | [control-ui](../../../skills/control-ui/SKILL.md), [design-audit](../../../skills/design-audit/SKILL.md) |
 | `/automation` | Automation | `load` | built-in skill `automation` | `every morning`, `every Monday`, `persistent background automation`, `Automations tab` | app | All plans | [autonomous-run.md](../../../skills/astack-mode/playbooks/autonomous-run.md), [README.md](../../../docs/automations/beacon/README.md) |
@@ -31,3 +31,5 @@ When a command is `app`-only (such as `/automation` or `/generative_ui`), CLI se
 | `/boost` | Reasoning | `recommend` | recommend `/boost <hard bug, race condition, or algorithm optimization with benchmark>` | `gnarly race condition`, `deep algorithmic optimization`, `three-tier deep reasoning` | app, cli | Paid plans | [bug-fix.md](../../../skills/astack-mode/playbooks/bug-fix.md), [perf-issue.md](../../../skills/astack-mode/playbooks/perf-issue.md) |
 | `/teamwork` | Reasoning | `recommend` | recommend `/teamwork <repo-scale migration or multi-day research campaign>` | `multi-day migration`, `subsystem rewrite`, `agent teams with Sentinel spec` | app, cli | Paid plans | [orchestrate.md](../../../skills/astack-mode/playbooks/orchestrate.md), [figure-it-out](../../../skills/figure-it-out/SKILL.md) |
 | `/btw` | Tools | `recommend` | recommend `/btw <quick side question while the agent keeps working>` | User-initiated only | app, cli | All plans | [astack-help](../../../skills/astack-help/SKILL.md) |
+| `/mcp-app-development` | Customization | `load` | built-in skill `mcp-app-development` | `build an MCP App`, `add UI to MCP tool`, `interactive MCP card`, `MCP App iframe` | app | All plans | [automate-me](../../../skills/automate-me/SKILL.md), [authoring-a-skill.md](../../../skills/astack-mode/playbooks/authoring-a-skill.md) |
+| `/compact` | Tools | `recommend` | recommend `/compact` | `compact context`, `summarize conversation`, `context window full` | app, cli | All plans | [ketchup](../../../skills/ketchup/SKILL.md), [astack-mode](../../../skills/astack-mode/SKILL.md) |
