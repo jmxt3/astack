@@ -17,7 +17,8 @@
     "test:security-audit": "node --test skills/security-audit/scripts/validate-findings.test.cjs skills/security-audit/scripts/validate-coverage-ledger.test.cjs",
     "test:eval": "node --test scripts/eval/eval.test.mjs",
     "test:mcp": "node --test scripts/test/mcp-server.test.mjs",
-    "test": "node --run validate && node --run test:plugin && node --run test:sidecar && node --run test:trust && node --run test:helpers && node --run test:watch-pr && node --run test:statechart && node --run test:security-audit && node --run test:eval && node --run test:mcp"
+    "test:cli": "node --test scripts/test/cli-statusline.test.mjs",
+    "test": "node --run validate && node --run test:plugin && node --run test:sidecar && node --run test:trust && node --run test:helpers && node --run test:watch-pr && node --run test:statechart && node --run test:security-audit && node --run test:eval && node --run test:mcp && node --run test:cli"
   },
   "devDependencies": {
     "@modelcontextprotocol/ext-apps": "^2.0.4",

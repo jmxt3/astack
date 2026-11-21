@@ -378,11 +378,14 @@ test("validateAStack rejects hook script gaps, drifted matchers, trust/internal 
   }
 });
 
-test("all 15 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
+test("all 18 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
   const clis = [
     "scripts/validate-astack.mjs",
     "scripts/upstream-watch.mjs",
     "scripts/eval/run-eval.mjs",
+    "scripts/mcp/server.mjs",
+    "scripts/cli/statusline.mjs",
+    "scripts/cli/title.mjs",
     "skills/setup-astack/scripts/setup-banner.mjs",
     "skills/setup-astack/scripts/init-repo-policy.mjs",
     "skills/astack-mode/scripts/check-plan.mjs",

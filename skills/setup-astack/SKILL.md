@@ -70,3 +70,27 @@ Then ask concisely with `ask_question` (pass unnumbered options without adding a
   - `/astack-help`: browse playbooks, verification skills, and recipes
   - `/swarm` / `/run-workflow` / `/boost` / `/teamwork` / `/goal`: Antigravity's native multi-worker board, Python workflow runner, iterative challenge-and-fix, long-horizon, and completion-driven modes
 - When running in an Antigravity App session with the AStack Timeline sidecar enabled and the pill has not been shown yet, finish with `[AStack Timeline](sidecar://astack/astack_timeline/)` on its own line.
+
+## 4. Optional Antigravity CLI Integration (`settings.json`)
+
+For Antigravity CLI (`agy`) users, add these optional entries to `~/.gemini/settings.json` (or `.agents/settings.json`) to render a live pipeline status line, terminal title, and pre-approve read-only `astack_trust` MCP tools:
+
+```json
+{
+  "statusLine": {
+    "command": "node ~/.gemini/config/plugins/astack/scripts/cli/statusline.mjs",
+    "stack_with_default": true
+  },
+  "title": {
+    "command": "node ~/.gemini/config/plugins/astack/scripts/cli/title.mjs"
+  },
+  "permissions": {
+    "allow": [
+      "mcp(astack_trust/compile_pr_dossier)",
+      "mcp(astack_trust/audit_architecture)",
+      "mcp(astack_trust/doctor_workspace)",
+      "mcp(astack_trust/get_trust_status)"
+    ]
+  }
+}
+```
