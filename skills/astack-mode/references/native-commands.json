@@ -23,7 +23,7 @@
         "app",
         "cli"
       ],
-      "tier": "Google AI Pro and Ultra",
+      "tier": "All plans",
       "summary": "Spawn named workers with isolated workspaces and a @verifier coordinating on a shared board."
     },
     {
@@ -48,7 +48,7 @@
         "app",
         "cli"
       ],
-      "tier": "Google AI Pro and Ultra",
+      "tier": "All plans",
       "summary": "Write and execute a Python workflow using parallel() and pipeline() over many items or stages."
     },
     {
@@ -382,6 +382,52 @@
       ],
       "tier": "All plans",
       "summary": "User-initiated contextual side question answered without pausing the primary task."
+    },
+    {
+      "command": "/mcp-app-development",
+      "category": "Customization",
+      "mode": "load",
+      "backing": {
+        "skill": "mcp-app-development"
+      },
+      "triggers": [
+        "build an MCP App",
+        "add UI to MCP tool",
+        "interactive MCP card",
+        "MCP App iframe"
+      ],
+      "astackCompanion": [
+        "skills/automate-me/SKILL.md",
+        "skills/astack-mode/playbooks/authoring-a-skill.md"
+      ],
+      "surfaces": [
+        "app"
+      ],
+      "tier": "All plans",
+      "summary": "Build, theme, and package single-file ui:// MCP Apps for inline chat cards, side panes, global views, and custom file viewers."
+    },
+    {
+      "command": "/compact",
+      "category": "Tools",
+      "mode": "recommend",
+      "backing": {
+        "exampleLine": "/compact"
+      },
+      "triggers": [
+        "compact context",
+        "summarize conversation",
+        "context window full"
+      ],
+      "astackCompanion": [
+        "skills/ketchup/SKILL.md",
+        "skills/astack-mode/SKILL.md"
+      ],
+      "surfaces": [
+        "app",
+        "cli"
+      ],
+      "tier": "All plans",
+      "summary": "Compact long conversation history to free up context window capacity without losing active task state."
     }
   ]
 }

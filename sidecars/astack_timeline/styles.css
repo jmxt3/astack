@@ -199,7 +199,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .scene-section {
   position: relative;
   width: 100%;
-  max-width: 600px;
   height: 164px;
   margin: 0 auto;
   overflow: hidden;
@@ -210,7 +209,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 :root:not([data-theme="dark"]) .scene-section {
   margin-top: 10px;
   width: calc(100% - 2 * var(--tl-pad));
-  max-width: 544px;
   border-radius: 9px;
   border: 1px solid var(--tl-border);
 }
@@ -224,66 +222,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   display: block;
   pointer-events: none;
 }
-
-.scene-next {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 8px 28px 0;
-  pointer-events: none;
-}
-
-:root:not([data-theme="dark"]) .scene-next {
-  padding: 8px 16px 0;
-}
-
-.scene-next-copy {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.scene-next-kicker {
-  font-size: 11px;
-  font-weight: 600;
-  color: #5aa2ff;
-}
-
-.scene-next-kicker.warn { color: #cab43e; }
-.scene-next-kicker.error { color: #f06b6b; }
-.scene-next-kicker.done { color: #22c55e; }
-
-.scene-next-hint {
-  margin: 1px 0 0;
-  font-size: 11.5px;
-  line-height: 1.35;
-  color: #e8e8ea;
-}
-
-.scene-next-btn {
-  pointer-events: auto;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 5px;
-  border: 1px solid rgba(90, 162, 255, 0.34);
-  background: rgba(16, 22, 32, 0.86);
-  color: #e8e8ea;
-  font-family: var(--tl-mono);
-  font-size: 11.5px;
-  line-height: 1;
-  transition: filter 0.12s ease;
-}
-
-.scene-next-btn:hover { filter: brightness(1.25); }
-.scene-next-btn.copied { border-color: #22c55e; }
 
 .scene-fallback {
   position: absolute;
@@ -795,6 +733,13 @@ h4.md-heading { font-size: 13px; }
   display: flex;
   flex-direction: column;
   gap: 5px;
+  cursor: help;
+  border-radius: 4px;
+}
+
+.progress-seg:focus-visible {
+  outline: 1px solid var(--tl-primary);
+  outline-offset: 2px;
 }
 
 .progress-seg-bar {
@@ -1688,6 +1633,16 @@ h4.md-heading { font-size: 13px; }
 
 .cmd-popover-name { font-family: var(--tl-mono); font-size: 11.5px; font-weight: 600; color: var(--tl-fg); }
 
+.cmd-popover-status {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--tl-fg-faint);
+}
+
+.cmd-popover-status.done { color: var(--tl-done); }
+.cmd-popover-status.run { color: var(--tl-primary); }
+.cmd-popover-status.stale { color: var(--tl-warning); }
+
 .cmd-popover-doc {
   display: inline-flex;
   align-items: center;
@@ -1751,7 +1706,7 @@ h4.md-heading { font-size: 13px; }
 @media (max-width: 480px) {
   .scene-stages { bottom: 2px; }
   .scene-stage-btn { font-size: 10.5px; min-height: 44px; height: auto; }
-  .scene-next-btn, .askbar input, .subcmd-pill, .more-toggle, .footer-link, .guide-row,
+  .askbar input, .subcmd-pill, .more-toggle, .footer-link, .guide-row,
   .focus-chip, .guide-link-btn, .step-btn, .sub-accordion-btn, .delegate-menu-row,
   .pick-chip, .btw-submit, .copy-inline-btn, .back-btn, .artifact-raw-link, .meta-btn, .artifact-btn,
   .chip, .row-ask-btn {

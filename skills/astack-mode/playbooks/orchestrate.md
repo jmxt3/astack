@@ -2,7 +2,7 @@
 
 **You run the program, never the code. Decide which Swarm worker or subagent owns each unit, then verify what each one produces.** For a standing project handed to one coordinator chat: multi-day, many stacked PRs, dozens to hundreds of tasks, few human turns. One task driven to a predicate is Autonomous run (`/goal`). One ambitious run needing upfront scoping and milestone audit gates pairs cleanly with `/teamwork`. Work one agent can finish inside the session's budget is not a coordinator program.
 
-Drive execution natively via Antigravity's `/swarm` (`swarm`, `post_message`, `read_board`, `swarm_wait`) and `invoke_subagent`. Name the swarm with `swarm{action: "title"}`, maintain program state in a brain artifact (e.g., `task.md`) plus `show-me-your-work`, and use `schedule` (or `watch-pr.mjs`) only when waiting on external PR/CI transitions. Call no shell sleep loops and never relay raw noise between workers manually.
+Drive execution natively via Antigravity's `/swarm` (`swarm`, `post_message`, `read_board`, `swarm_wait`) and `invoke_subagent`. Name the swarm with `swarm{action: "title"}`, load `swarm_pane` to maintain `<appData>/brain/<conv-id>/.system_generated/swarm/plan.json` (plus `Screenshot: <abs-path> | <caption <=10 words>` posts for UI streams) alongside `task.md` and `show-me-your-work`, and use `schedule` (or `watch-pr.mjs`) only when waiting on external PR/CI transitions. Call no shell sleep loops and never relay raw noise between workers manually.
 
 #### Topology
 

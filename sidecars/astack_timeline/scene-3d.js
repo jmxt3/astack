@@ -88,7 +88,7 @@
 
     const scene = new T.Scene();
     const camera = new T.PerspectiveCamera(30, width / height, 0.1, 100);
-    camera.position.set(0, 1.7, 8.6);
+    camera.position.set(0, 1.25, 6.4);
     camera.lookAt(0, 0.05, 0);
     camera.updateMatrixWorld(true);
 
@@ -124,7 +124,7 @@
 
     function projectStagePositions() {
       const xs = [-0.8, -0.2, 0.4, 0.8];
-      const ny = -0.15;
+      const ny = -0.02;
       return xs.map((nx) => {
         const vec = new T.Vector3(nx, ny, 0.5).unproject(camera);
         const dir = vec.sub(camera.position).normalize();
@@ -241,17 +241,17 @@
     let streamToCol = accent;
 
     function buildSpineAndStream() {
-      const pts = [P[0].clone().add(new T.Vector3(-1.9, -0.1, -0.9))];
+      const pts = [P[0].clone().add(new T.Vector3(-2.6, -0.08, -0.7))];
       for (let i = 0; i < 4; i++) {
         pts.push(P[i].clone());
         if (i < 3) {
           const m = P[i].clone().lerp(P[i + 1], 0.5);
           m.z -= 0.6;
-          m.y += 0.1;
+          m.y += 0.16;
           pts.push(m);
         }
       }
-      pts.push(P[3].clone().add(new T.Vector3(1.9, -0.1, -0.9)));
+      pts.push(P[3].clone().add(new T.Vector3(2.6, -0.08, -0.7)));
       curve = new T.CatmullRomCurve3(pts, false, "centripetal");
       const NSEG = pts.length - 1;
       tNode = [1 / NSEG, 3 / NSEG, 5 / NSEG, 7 / NSEG];
@@ -438,7 +438,7 @@
         tg,
         q,
         stageIdx,
-        R: 0.5 + Math.random() * 0.24,
+        R: 0.54 + Math.random() * 0.26,
         w: (0.9 + Math.random() * 0.8) * (Math.random() < 0.5 ? -1 : 1),
         ph: Math.random() * 6.28,
         birth,
@@ -606,9 +606,9 @@
       const origin = P[Math.max(0, Math.min(3, state.focalIdx))] || P[1];
       const curveFork = new T.CatmullRomCurve3([
         origin.clone(),
-        origin.clone().add(new T.Vector3(0.35, 0.35, 0.25)),
-        origin.clone().add(new T.Vector3(0.95, 0.72, 0.1)),
-        origin.clone().add(new T.Vector3(1.55, 0.9, -0.3)),
+        origin.clone().add(new T.Vector3(0.35, 0.42, 0.25)),
+        origin.clone().add(new T.Vector3(0.95, 0.85, 0.1)),
+        origin.clone().add(new T.Vector3(1.55, 1.05, -0.3)),
       ]);
       const fpts = curveFork.getPoints(60);
       const g = new T.BufferGeometry().setFromPoints(fpts);
@@ -652,7 +652,7 @@
           new T.LineBasicMaterial({ color: col.clone(), transparent: true, opacity: 0.9, depthWrite: false }),
         );
         const anchor = P[d.stageIdx] || P[1];
-        const base = anchor.clone().add(new T.Vector3(d.dx, 0.8, 0));
+        const base = anchor.clone().add(new T.Vector3(d.dx, 0.96, 0));
         m.position.copy(base);
         const glow = new T.Sprite(
           new T.SpriteMaterial({ map: dot, color: col.clone(), transparent: true, opacity: 0.16, blending: ADD, depthWrite: false }),

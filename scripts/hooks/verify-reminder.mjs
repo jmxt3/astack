@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Opt-in Stop hook reminding agents to verify dirty code changes when ASTACK_REQUIRE_VERIFY=1.
+ * Opt-in Stop hook checking AStack receipt freshness and git status (override off with ASTACK_REQUIRE_VERIFY=0).
  * Enable in astack/hooks.json by setting "enabled": true on "astack-verify-reminder".
  */
 import path from "node:path";

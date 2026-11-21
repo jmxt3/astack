@@ -282,7 +282,7 @@ test("live AStack repo validates cleanly and enforces UI/Orchestrator and agent 
   while (stack.length > 0) {
     const dir = stack.pop();
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === ".git" || entry.name === ".tmp") continue;
+      if (entry.name === ".git" || entry.name === ".tmp" || entry.name === "node_modules") continue;
       const full = path.join(dir, entry.name);
       assert.doesNotMatch(entry.name, /benn[y]/i, `Legacy name in path: ${full}`);
       if (entry.isDirectory()) {
@@ -378,11 +378,14 @@ test("validateAStack rejects hook script gaps, drifted matchers, trust/internal 
   }
 });
 
-test("all 15 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
+test("all 18 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
   const clis = [
     "scripts/validate-astack.mjs",
     "scripts/upstream-watch.mjs",
     "scripts/eval/run-eval.mjs",
+    "scripts/mcp/server.mjs",
+    "scripts/cli/statusline.mjs",
+    "scripts/cli/title.mjs",
     "skills/setup-astack/scripts/setup-banner.mjs",
     "skills/setup-astack/scripts/init-repo-policy.mjs",
     "skills/astack-mode/scripts/check-plan.mjs",

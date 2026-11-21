@@ -10,7 +10,7 @@ Compile a deterministic visual review dossier in Markdown, Mermaid, and screensh
 
 ## 1. Compile Evidence and Visual Dossier
 
-Run [`scripts/pr-dossier.mjs`](./scripts/pr-dossier.mjs) against the target branch and base ref (pass `--screenshots` for any UI images captured during `control-ui` or `design-audit`):
+When the bundled `astack_trust` MCP server is connected, call `compile_pr_dossier` directly (renders an interactive inline card in Antigravity App and concise Markdown in CLI). Otherwise, or when producing GitHub PR bodies, run [`scripts/pr-dossier.mjs`](./scripts/pr-dossier.mjs) against the target branch and base ref (pass `--screenshots` for any UI images captured during `control-ui` or `design-audit`):
 
 ```bash
 node "<skill-dir>/scripts/pr-dossier.mjs" \

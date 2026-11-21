@@ -173,7 +173,7 @@ export function renderNativeCommandsMarkdown(registry) {
     "",
     "When a command is `app`-only (such as `/automation` or `/generative_ui`), CLI sessions route to `/schedule` or plain Markdown/Mermaid fallbacks cleanly.",
     "",
-    "## All 16 Native Commands",
+    `## All ${registry.commands.length} Native Commands`,
     "",
     "| Command | Category | Mode | Backing | Triggers | Surfaces | Tier | AStack Companion |",
     "|---|---|---|---|---|---|---|---|",
@@ -510,7 +510,7 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
     try {
       const hooksCfg = JSON.parse(fs.readFileSync(hooksFile, "utf8"));
       const expectedMatchers = {
-        "astack-receipt-ledger": { event: "PostToolUse", matcher: TOOL_MATCHERS.secretGuard },
+        "astack-receipt-ledger": { event: "PostToolUse", matcher: TOOL_MATCHERS.receiptLedger },
         "astack-secret-guard": { event: "PreToolUse", matcher: TOOL_MATCHERS.secretGuard },
         "astack-evidence-gate": { event: "PreToolUse", matcher: TOOL_MATCHERS.evidenceGate },
         "astack-boundary-guard": { event: "PreToolUse", matcher: TOOL_MATCHERS.fileWrite },
@@ -710,6 +710,49 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
     }
   }
 
+  const mcpConfigFile = path.join(rootDir, "mcp_config.json");
+  let mcpServerCount = 0;
+  if (fs.existsSync(mcpConfigFile)) {
+    try {
+      const mcpCfg = JSON.parse(fs.readFileSync(mcpConfigFile, "utf8"));
+      const servers = mcpCfg?.mcpServers;
+      if (!servers || typeof servers !== "object" || Array.isArray(servers) || Object.keys(servers).length === 0) {
+        errors.push({ file: "mcp_config.json", message: "mcp_config.json must declare a non-empty mcpServers object" });
+      } else {
+        for (const [serverName, def] of Object.entries(servers)) {
+          mcpServerCount++;
+          if (!def || typeof def !== "object" || Array.isArray(def)) {
+            errors.push({ file: "mcp_config.json", message: `mcpServers.${serverName} must be an object` });
+            continue;
+          }
+          if (def.serverUrl !== undefined || def.url !== undefined) {
+            errors.push({
+              file: "mcp_config.json",
+              message: `mcpServers.${serverName} must use local stdio command, never remote serverUrl/url`,
+            });
+          }
+          if (typeof def.command !== "string" || !def.command.trim()) {
+            errors.push({ file: "mcp_config.json", message: `mcpServers.${serverName} missing local command` });
+          }
+          if (Array.isArray(def.args)) {
+            for (const arg of def.args) {
+              if (typeof arg !== "string") continue;
+              const m = arg.match(/^\$\{PLUGIN_ROOT\}\/(.+)$/);
+              if (m && !fs.existsSync(path.join(rootDir, ...m[1].split("/")))) {
+                errors.push({
+                  file: "mcp_config.json",
+                  message: `mcpServers.${serverName} references missing plugin script: ${m[1]}`,
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      errors.push({ file: "mcp_config.json", message: `Invalid JSON: ${err.message}` });
+    }
+  }
+
   return {
     ok: errors.length === 0 && warnings.length === 0,
     errors,
@@ -722,6 +765,7 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
       agents: agentCount,
       rules: ruleCount,
       sidecars: sidecarCount,
+      mcpServers: mcpServerCount,
       markdownFilesChecked: mdScanTargets.length,
     },
     agyReport,
@@ -768,7 +812,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(JSON.stringify(result, null, 2));
   } else {
     console.log(
-      `[validate-astack] skills=${result.stats.skills} auto=${result.stats.autoInvokeSkills} autoBytes=${result.stats.autoInvokeDescriptionBytes} agents=${result.stats.agents} rules=${result.stats.rules} sidecars=${result.stats.sidecars} md=${result.stats.markdownFilesChecked} errors=${result.errors.length} warnings=${result.warnings.length}`,
+      `[validate-astack] skills=${result.stats.skills} auto=${result.stats.autoInvokeSkills} autoBytes=${result.stats.autoInvokeDescriptionBytes} agents=${result.stats.agents} rules=${result.stats.rules} sidecars=${result.stats.sidecars} mcpServers=${result.stats.mcpServers} md=${result.stats.markdownFilesChecked} errors=${result.errors.length} warnings=${result.warnings.length}`,
     );
     for (const err of result.errors) {
       console.error(`ERROR ${err.file}: ${err.message}`);

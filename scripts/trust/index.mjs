@@ -2,6 +2,7 @@ import {
   EVIDENCE_GATE_MATCHER,
   FILE_WRITE_TOOL_MATCHER,
   FILE_WRITE_TOOLS,
+  RECEIPT_LEDGER_MATCHER,
   SECRET_GUARD_MATCHER,
   isHeadless,
   parseHookPayload,
@@ -63,6 +64,7 @@ export const TOOL_MATCHERS = {
   fileWrite: FILE_WRITE_TOOL_MATCHER,
   secretGuard: SECRET_GUARD_MATCHER,
   evidenceGate: EVIDENCE_GATE_MATCHER,
+  receiptLedger: RECEIPT_LEDGER_MATCHER,
   command: "run_command",
 };
 
