@@ -27,7 +27,7 @@
     };
   }
 
-  function makePrEdgesGeometry(T) {
+  function makePrEdgesGeometry(T, isMerged = false) {
     const pts = [];
     const seg = (x1, y1, z1, x2, y2, z2) => {
       pts.push(new T.Vector3(x1, y1, z1), new T.Vector3(x2, y2, z2));
@@ -47,9 +47,17 @@
     node(-0.048, -0.068, r);
     node(0.052, -0.048, r);
     seg(-0.048, -0.046, 0, -0.048, 0.046, 0);
-    seg(0.052, -0.026, 0, 0.052, 0.018, 0);
-    seg(0.052, 0.018, 0, 0.024, 0.052, 0);
-    seg(0.024, 0.052, 0, -0.026, 0.068, 0);
+    if (isMerged) {
+      seg(-0.048, 0.046, 0, -0.040, 0.002, 0);
+      seg(-0.040, 0.002, 0, -0.012, -0.034, 0);
+      seg(-0.012, -0.034, 0, 0.030, -0.048, 0);
+    } else {
+      seg(0.052, -0.026, 0, 0.052, 0.032, 0);
+      seg(0.052, 0.032, 0, 0.028, 0.062, 0);
+      seg(0.028, 0.062, 0, -0.008, 0.068, 0);
+      seg(0.012, 0.086, 0, -0.008, 0.068, 0);
+      seg(-0.008, 0.068, 0, 0.012, 0.050, 0);
+    }
     return new T.BufferGeometry().setFromPoints(pts);
   }
 
@@ -98,6 +106,7 @@
     const tint = new T.Color();
     const COLORS = {
       done: new T.Color("#22c55e"),
+      merged: new T.Color("#a855f7"),
       stale: new T.Color("#cab43e"),
       error: new T.Color("#f06b6b"),
       white: new T.Color("#e8e8ea"),
@@ -651,7 +660,8 @@
     const artGroup = new T.Group();
     world.add(artGroup);
     const octEdges = new T.EdgesGeometry(new T.OctahedronGeometry(0.1, 0));
-    const prEdges = makePrEdgesGeometry(T);
+    const prOpenEdges = makePrEdgesGeometry(T, false);
+    const prMergedEdges = makePrEdgesGeometry(T, true);
     let arts = [];
     let artSignature = "";
 
@@ -668,16 +678,23 @@
       });
       arts = state.artifacts.map((d, n) => {
         const kind = d.kind || "file";
-        const col =
-          d.status === "stale"
+        const isPr = kind === "pr";
+        const col = isPr
+          ? d.status === "merged"
+            ? COLORS.merged
+            : d.status === "open"
+              ? COLORS.done
+              : COLORS.error
+          : d.status === "stale"
             ? COLORS.stale
             : d.status === "updating"
               ? accent
               : d.status === "merged"
                 ? COLORS.done
                 : COLORS.white;
+        const geom = isPr ? (d.status === "merged" ? prMergedEdges : prOpenEdges) : octEdges;
         const m = new T.LineSegments(
-          kind === "pr" ? prEdges : octEdges,
+          geom,
           new T.LineBasicMaterial({ color: col.clone(), transparent: true, opacity: 0.9, depthWrite: false }),
         );
         const anchor = P[d.stageIdx] || P[1];
@@ -1180,7 +1197,8 @@
         if (io) io.disconnect();
         if (ro) ro.disconnect();
         octEdges.dispose();
-        prEdges.dispose();
+        prOpenEdges.dispose();
+        prMergedEdges.dispose();
         ringGeo.dispose();
         coreGeo.dispose();
         spineGeo.dispose();
