@@ -170,11 +170,78 @@ function buildCatalogScript() {
   return `window.ASTACK_CATALOG = ${JSON.stringify({ delegateGuide: DELEGATE_GUIDE_DATA, commandDocs: COMMAND_DOCS })};\n`;
 }
 
+function fetchGhPrMeta(workspaceDir) {
+  return new Promise((resolve) => {
+    execFile(
+      "gh",
+      ["pr", "list", "--state", "all", "--limit", "40", "--json", "number,title,state,url"],
+      { cwd: workspaceDir, encoding: "utf8", timeout: 4000 },
+      (err, stdout) => {
+        if (err || !stdout) return resolve(null);
+        try {
+          const parsed = JSON.parse(stdout);
+          if (!Array.isArray(parsed)) return resolve(null);
+          const map = new Map();
+          for (const item of parsed) {
+            const num = Number(item?.number);
+            if (!Number.isFinite(num) || num <= 0) continue;
+            map.set(num, {
+              number: num,
+              title: typeof item.title === "string" ? item.title : null,
+              state: typeof item.state === "string" ? item.state.toLowerCase() : null,
+              url: typeof item.url === "string" ? item.url : null,
+            });
+          }
+          return resolve(map);
+        } catch {
+          return resolve(null);
+        }
+      },
+    );
+  });
+}
+
+function makePrStatusResolver({ enabled = true, fetcher = fetchGhPrMeta, ttlMs = 30_000, waitBudgetMs = 350 } = {}) {
+  const cache = new Map();
+  return async (workspaceDir) => {
+    if (!enabled || !workspaceDir) return null;
+    const key = path.resolve(workspaceDir);
+    const now = Date.now();
+    const entry = cache.get(key) || { map: null, fetchedAt: 0, pending: null };
+    if (entry.map && now - entry.fetchedAt < ttlMs) {
+      return entry.map;
+    }
+    if (!entry.pending) {
+      entry.pending = Promise.resolve()
+        .then(() => fetcher(key))
+        .then((res) => {
+          entry.fetchedAt = Date.now();
+          if (res instanceof Map) entry.map = res;
+          entry.pending = null;
+          return entry.map;
+        })
+        .catch(() => {
+          entry.fetchedAt = Date.now();
+          entry.pending = null;
+          return entry.map;
+        });
+      cache.set(key, entry);
+    }
+    if (entry.map) return entry.map;
+    if (waitBudgetMs <= 0) return null;
+    return Promise.race([
+      entry.pending,
+      new Promise((resolve) => setTimeout(() => resolve(entry.map), waitBudgetMs)),
+    ]);
+  };
+}
+
 function createTimelineResponder({
   brainDir,
   defaultConversationId = "",
   allowFixtureIds = false,
   workspaceResolver,
+  prStatusResolver = null,
 }) {
   return async ({ conversationId = "", etag = "", workspaceUri = "" } = {}) => {
     const rawConv = String(conversationId || defaultConversationId || "").trim();
@@ -183,7 +250,13 @@ function createTimelineResponder({
     }
 
     const workspaceDir = await workspaceResolver(rawConv, workspaceUri);
-    const snap = evaluateTimelineSnapshot({ conversationId: rawConv, brainDir, workspaceDir });
+    let snap = evaluateTimelineSnapshot({ conversationId: rawConv, brainDir, workspaceDir });
+    if (prStatusResolver && workspaceDir && (snap.activity?.prs?.totalCount ?? 0) > 0) {
+      const prMetaByNumber = await prStatusResolver(workspaceDir);
+      if (prMetaByNumber && prMetaByNumber.size > 0) {
+        snap = evaluateTimelineSnapshot({ conversationId: rawConv, brainDir, workspaceDir, prMetaByNumber });
+      }
+    }
     if (etag && etag === snap.etag) {
       return { status: 200, body: { conversationId: rawConv || null, unchanged: true, etag: snap.etag } };
     }
@@ -301,11 +374,18 @@ export async function createTimelineServer(options = {}) {
   const workspaceResolver = makeWorkspaceResolver({
     explicitWorkspace: options.workspaceDir || "",
   });
+  const prStatusResolver =
+    options.prStatusResolver ||
+    makePrStatusResolver({
+      enabled: options.enableGhLookup ?? !allowFixtureIds,
+      ...(options.prStatusFetcher ? { fetcher: options.prStatusFetcher } : {}),
+    });
   const respondTimeline = createTimelineResponder({
     brainDir,
     defaultConversationId: defaultConvId,
     allowFixtureIds,
     workspaceResolver,
+    prStatusResolver,
   });
   const respondArtifact = createArtifactResponder({
     brainDir,
@@ -417,11 +497,18 @@ export async function startTimelineSidecar(options = {}) {
       const workspaceResolver = makeWorkspaceResolver({ explicitWorkspace: options.workspaceDir || "" });
       const defaultConversationId = String(app.config?.conversationId ?? options.conversationId ?? "");
       const allowFixtureIds = Boolean(options.allowFixtureIds);
+      const prStatusResolver =
+        options.prStatusResolver ||
+        makePrStatusResolver({
+          enabled: options.enableGhLookup ?? !allowFixtureIds,
+          ...(options.prStatusFetcher ? { fetcher: options.prStatusFetcher } : {}),
+        });
       const respondTimeline = createTimelineResponder({
         brainDir,
         defaultConversationId,
         allowFixtureIds,
         workspaceResolver,
+        prStatusResolver,
       });
       const respondArtifact = createArtifactResponder({
         brainDir,

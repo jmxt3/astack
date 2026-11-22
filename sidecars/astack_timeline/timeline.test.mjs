@@ -721,7 +721,10 @@ test("timeline-engine detects subagent lifecycles, swarm workers, goal, boost, t
     assert.ok(first.stages[1].artifacts.some((a) => a.name === "walkthrough.md"));
     assert.ok(first.stages[1].artifacts.some((a) => a.name === "architecture-diagram.svg"));
     assert.ok(first.stages[3].artifacts.some((a) => a.name === "PR #11"));
-    assert.equal(first.activity.artifactCount, 4);
+    assert.equal(first.activity.artifactCount, 3, "File artifactCount must exclude PR entries");
+    assert.equal(first.activity.prs.totalCount, 1);
+    assert.equal(first.activity.prs.items[0].number, 11);
+    assert.equal(first.activity.agentsTotalCount, 6);
 
     writeTranscript(brainDir, convId, [
       {
@@ -1345,6 +1348,114 @@ test("resolves parent repo name for linked git worktrees and surfaces risk tier 
     assert.equal(snap.riskTier, 3);
     assert.match(snap.riskDescription, /hooks/i);
     assert.deepEqual(snap.riskMatchedGlobs, ["hooks.json", "scripts/trust/**"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("tracks multi-PR states separately from file artifacts, exposes total agents executed, and ignores PR mentions in read_file outputs", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-kpi-");
+  const convId = "conv-kpi";
+  try {
+    writeText(path.join(brainDir, convId, "implementation_plan.md"), "# Plan\n");
+    writeText(path.join(brainDir, convId, "walkthrough.md"), "# Walkthrough\n");
+    writeText(path.join(brainDir, convId, "pr-review.md"), "# PR Review\n");
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-21T10:00:00Z",
+        content: "<USER_REQUEST>/astack-mode open PRs</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-21T10:01:00Z",
+        tool_calls: [
+          { name: "invoke_subagent", args: { TypeName: "research", Role: "Researcher", Prompt: "Inspect repo" } },
+          { name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "Verifier", Prompt: "Verify PR" } },
+        ],
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        created_at: "2026-11-21T10:01:05Z",
+        content: '{"conversationId":"11111111-1111-1111-1111-111111111111"}\n{"conversationId":"22222222-2222-2222-2222-222222222222"}',
+      },
+      {
+        step_index: 3,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-21T10:03:00Z",
+        content: "[Notice] All your subagents and background tasks have been stopped due to server restart.",
+      },
+      {
+        step_index: 4,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-21T10:04:00Z",
+        tool_calls: [{ name: "read_file", args: { Path: "sidecars/astack_timeline/timeline.test.mjs" } }],
+      },
+      {
+        step_index: 5,
+        type: "GENERIC",
+        created_at: "2026-11-21T10:04:01Z",
+        content: "watch-pr.mjs --pr 99\nhttps://github.com/acme/demo/pull/99\n",
+      },
+      {
+        step_index: 6,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-21T10:05:00Z",
+        tool_calls: [
+          {
+            name: "run_command",
+            args: { CommandLine: 'gh pr create --title "feat: first change" --body "ok"' },
+          },
+        ],
+      },
+      {
+        step_index: 7,
+        type: "GENERIC",
+        created_at: "2026-11-21T10:05:05Z",
+        content: "https://github.com/acme/demo/pull/13\n",
+      },
+      {
+        step_index: 8,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-21T10:06:00Z",
+        tool_calls: [
+          {
+            name: "run_command",
+            args: { CommandLine: 'gh pr create --title "fix: second change" --body "ok"' },
+          },
+        ],
+      },
+      {
+        step_index: 9,
+        type: "GENERIC",
+        created_at: "2026-11-21T10:06:05Z",
+        content: "https://github.com/acme/demo/pull/14\n",
+      },
+    ]);
+
+    const prMetaByNumber = new Map([
+      [13, { number: 13, title: "feat: first change", state: "merged", url: "https://github.com/acme/demo/pull/13" }],
+      [14, { number: 14, title: "fix: second change", state: "open", url: "https://github.com/acme/demo/pull/14" }],
+    ]);
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir, prMetaByNumber });
+
+    assert.equal(snap.activity.agentsWorkingCount, 0);
+    assert.equal(snap.activity.agentsTotalCount, 2);
+    assert.equal(snap.activity.doneSubagentsCount, 2);
+    assert.equal(snap.activity.artifactCount, 3);
+    assert.equal(snap.activity.prs.totalCount, 2, "read_file fixture PR #99 must not leak into prs");
+    assert.equal(snap.activity.prs.openCount, 1);
+    assert.equal(snap.activity.prs.mergedCount, 1);
+    assert.deepEqual(
+      snap.activity.prs.items.map((p) => `${p.number}:${p.state}`),
+      ["14:open", "13:merged"],
+    );
+    assert.equal(snap.stages[3].collapsedSummary, "2 PRs (1 open, 1 merged).");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

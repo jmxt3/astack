@@ -480,7 +480,73 @@ test("createTimelineServer reports nextAction.inProgress when /plan is active be
     assert.match(appJs, /timeline-freshness/);
     assert.match(appJs, /build-stale-callout/);
     assert.match(appJs, /Critical risk/);
+    assert.match(appJs, /focus-drawer-agents/);
+    assert.match(appJs, /focus-drawer-prs/);
+    assert.match(appJs, /focus-drawer-tasks/);
     assert.match(cssText, /\.scene-section[\s\S]*height:\s*188px/);
+    assert.match(cssText, /\.pr-badge\.merged/);
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("createTimelineServer caches async PR status enrichment and returns open/merged PR KPI counts", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-prs-"));
+  const brainDir = path.join(root, "brain");
+  const workspaceDir = path.join(root, "repo");
+  const convId = "33333333-4444-5555-6666-777777777777";
+
+  writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+  writeText(path.join(brainDir, convId, "implementation_plan.md"), "# Plan\n");
+  writeText(
+    path.join(brainDir, convId, ".system_generated", "logs", "transcript.jsonl"),
+    [
+      JSON.stringify({
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-21T11:00:00Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: 'gh pr create --title "PR A" --body "ok"' } }],
+      }),
+      JSON.stringify({
+        step_index: 1,
+        type: "GENERIC",
+        created_at: "2026-11-21T11:00:02Z",
+        content: "https://github.com/acme/demo/pull/21\nhttps://github.com/acme/demo/pull/22\n",
+      }),
+    ].join("\n") + "\n",
+  );
+
+  let fetchCalls = 0;
+  const srv = await createTimelineServer({
+    brainDir,
+    workspaceDir,
+    port: 0,
+    enableGhLookup: true,
+    prStatusFetcher: async () => {
+      fetchCalls += 1;
+      return new Map([
+        [21, { number: 21, title: "First PR", state: "merged", url: "https://github.com/acme/demo/pull/21" }],
+        [22, { number: 22, title: "Second PR", state: "open", url: "https://github.com/acme/demo/pull/22" }],
+      ]);
+    },
+  });
+
+  try {
+    const first = await (await fetch(`${srv.url}api/timeline?conversationId=${convId}`)).json();
+    assert.equal(first.activity.artifactCount, 1);
+    assert.equal(first.activity.prs.totalCount, 2);
+    assert.equal(first.activity.prs.openCount, 1);
+    assert.equal(first.activity.prs.mergedCount, 1);
+    assert.equal(first.activity.prs.items[0].number, 22);
+    assert.equal(first.activity.prs.items[0].state, "open");
+    assert.equal(first.activity.prs.items[1].number, 21);
+    assert.equal(first.activity.prs.items[1].state, "merged");
+    assert.equal(fetchCalls, 1);
+
+    const second = await (await fetch(`${srv.url}api/timeline?conversationId=${convId}`)).json();
+    assert.equal(second.activity.prs.totalCount, 2);
+    assert.equal(fetchCalls, 1, "PR status cache must avoid repeated gh calls inside TTL");
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });
