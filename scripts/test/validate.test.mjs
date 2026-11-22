@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { applyFrontmatterPolicy, parseFrontmatter } from "../catalog.mjs";
 import { DEFAULT_ROOT_DIR, validateAStack } from "../validate-astack.mjs";
+import { ASTACK_ASCII_LOGO } from "../../skills/setup-astack/scripts/setup-banner.mjs";
 
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -219,7 +220,10 @@ test("live AStack repo validates cleanly and enforces UI/Orchestrator and agent 
   const setupSkill = fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "skills", "setup-astack", "SKILL.md"), "utf8");
   assert.match(setupSkill, /Orchestrator/);
   assert.match(setupSkill, /\/create-verification-skill/);
-  assert.match(setupSkill, /█████╗/);
+  assert.ok(
+    setupSkill.includes(ASTACK_ASCII_LOGO),
+    "skills/setup-astack/SKILL.md fallback ASCII banner drifted from setup-banner.mjs",
+  );
   assert.match(setupSkill, /setup-banner\.mjs/);
   assert.doesNotMatch(setupSkill, /Reasoning budget & subagent tier preset/i);
 

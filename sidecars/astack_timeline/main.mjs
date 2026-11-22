@@ -28,6 +28,7 @@ const ARTIFACT_MIME_TYPES = new Map([
 
 const STATIC_ASSETS = new Map([
   ["/", { file: "index.html", type: "text/html; charset=utf-8" }],
+  ["/logo.svg", { file: "../../assets/logo.svg", type: "image/svg+xml; charset=utf-8" }],
   ["/styles.css", { file: "styles.css", type: "text/css; charset=utf-8" }],
   ["/vendor/three.min.js", { file: "vendor/three.min.js", type: "application/javascript; charset=utf-8" }],
   ["/scene-3d.js", { file: "scene-3d.js", type: "application/javascript; charset=utf-8" }],
