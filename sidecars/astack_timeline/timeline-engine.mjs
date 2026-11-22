@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -379,17 +380,103 @@ function parseStringArrayArg(val) {
   return [];
 }
 
-function extractPrReference(text) {
+function extractPrReferences(text, { urlsOnly = false } = {}) {
   const str = String(text ?? "");
-  const urlMatch = str.match(/https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/(\d+)/i);
-  if (urlMatch) {
-    return { number: Number.parseInt(urlMatch[1], 10), url: urlMatch[0] };
+  const out = [];
+  const seen = new Set();
+  const pushRef = (number, url = null, extra = {}) => {
+    if (!Number.isFinite(number) || number <= 0) return;
+    const key = `${number}|${url || ""}|${extra.state || ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ number, url, ...extra });
+  };
+  for (const m of str.matchAll(/https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/(\d+)\b/gi)) {
+    pushRef(Number.parseInt(m[1], 10), m[0]);
   }
-  const flagMatch = str.match(/watch-pr\.mjs[^\r\n]*--pr\s+(\d+)/i);
-  if (flagMatch) {
-    return { number: Number.parseInt(flagMatch[1], 10), url: null };
+  if (!urlsOnly) {
+    for (const m of str.matchAll(/watch-pr\.mjs[^\r\n]*--pr\s+(\d+)\b/gi)) {
+      pushRef(Number.parseInt(m[1], 10), null);
+    }
+    for (const m of str.matchAll(/(?:^|[;&|\r\n]\s*)gh\s+pr\s+(view|edit|checks|merge|diff|comment|review)\s+#?(\d+)\b/gim)) {
+      const action = m[1].toLowerCase();
+      pushRef(Number.parseInt(m[2], 10), null, action === "merge" ? { state: "merged" } : {});
+    }
   }
-  return null;
+  return out;
+}
+
+function upsertPrEntry(prsMap, ref, { ts = null, title = null } = {}) {
+  if (!ref || !Number.isFinite(ref.number) || ref.number <= 0) return;
+  const existing = prsMap.get(ref.number);
+  const nextState =
+    ref.state === "merged" || existing?.state === "merged"
+      ? "merged"
+      : ref.state === "closed" || existing?.state === "closed"
+        ? "closed"
+        : "open";
+  prsMap.set(ref.number, {
+    number: ref.number,
+    url: ref.url || existing?.url || null,
+    title: title || ref.title || existing?.title || null,
+    state: nextState,
+    openedAt: existing?.openedAt || ts || null,
+  });
+}
+
+function extractGhPrCreateTitle(cmd) {
+  const str = String(cmd ?? "");
+  if (!/\bgh\s+pr\s+create\b/i.test(str)) return null;
+  const m = str.match(/(?:--title|-t)(?:\s+|=)(?:"([^"]+)"|'([^']+)')/);
+  const raw = m?.[1] || m?.[2] || "";
+  return raw ? summarizeText(raw, 80) : null;
+}
+
+const mergedPrCache = new Map();
+
+function readMergedPrNumbersFast(workspaceDir) {
+  if (!workspaceDir) return new Set();
+  const locs = findGitLocationsFast(workspaceDir);
+  if (!locs) return new Set();
+  let refKey = "";
+  for (const refRel of ["refs/remotes/origin/main", "refs/remotes/origin/master", "refs/heads/main", "refs/heads/master"]) {
+    try {
+      const refPath = path.join(locs.commonGitDir, ...refRel.split("/"));
+      if (fs.existsSync(refPath)) {
+        refKey = `${refRel}:${fs.readFileSync(refPath, "utf8").trim()}`;
+        break;
+      }
+    } catch {
+      continue;
+    }
+  }
+  const cacheKey = `${locs.commonGitDir}|${refKey}`;
+  if (refKey && mergedPrCache.has(cacheKey)) {
+    return mergedPrCache.get(cacheKey);
+  }
+  const merged = new Set();
+  const targetRef = refKey ? refKey.split(":")[0].replace(/^refs\/(?:remotes|heads)\//, "") : "HEAD";
+  try {
+    const out = execFileSync("git", ["log", "-n", "80", "--format=%s", targetRef], {
+      cwd: workspaceDir,
+      encoding: "utf8",
+      timeout: 1500,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    for (const line of out.split(/\r?\n/)) {
+      for (const m of line.matchAll(/\(#(\d+)\)|Merge pull request #(\d+)\b/g)) {
+        const num = Number.parseInt(m[1] || m[2], 10);
+        if (Number.isFinite(num) && num > 0) merged.add(num);
+      }
+    }
+  } catch {
+    return merged;
+  }
+  if (refKey) {
+    if (mergedPrCache.size > 32) mergedPrCache.clear();
+    mergedPrCache.set(cacheKey, merged);
+  }
+  return merged;
 }
 
 function classifySwarmRole(name, brief) {
@@ -535,6 +622,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
     sideQuestionsCount: 0,
     changedFiles: new Set(),
     pr: null,
+    prs: new Map(),
   };
   if (!transcriptPath || !fs.existsSync(transcriptPath)) return sig;
 
@@ -546,6 +634,9 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
   const scheduleTaskMap = new Map();
   const swarmMemberById = new Map();
   let pendingWorkflowRun = false;
+  let pendingPrTitle = null;
+  let lastRunCmd = null;
+  let lastToolNames = new Set();
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i].trim();
@@ -629,6 +720,14 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
     }
 
     if (step.type === "SYSTEM_MESSAGE" && typeof step.content === "string") {
+      if (/All your subagents and background tasks have been stopped/i.test(step.content)) {
+        for (const sa of sig.subagents) {
+          if (sa.status === "running") {
+            sa.status = "done";
+            sa.completedAt = marker.ts;
+          }
+        }
+      }
       const senderMatch = step.content.match(/\bsender=([^\s\]]+)/i);
       if (senderMatch) {
         const sender = senderMatch[1];
@@ -650,8 +749,25 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
     }
 
     if (step.type === "GENERIC" && typeof step.content === "string") {
-      const prRef = extractPrReference(step.content);
-      if (prRef && (!sig.pr || (!sig.pr.url && prRef.url))) sig.pr = prRef;
+      const onlyFileReads = lastToolNames.size > 0 && [...lastToolNames].every((t) => FILE_READ_TOOLS.has(t));
+      if (!onlyFileReads) {
+        for (const prRef of extractPrReferences(step.content, { urlsOnly: true })) {
+          upsertPrEntry(sig.prs, prRef, { ts: marker.ts, title: pendingPrTitle });
+          if (pendingPrTitle) pendingPrTitle = null;
+        }
+      }
+
+      const bgStarted = step.content.match(/running as a background task with task id:\s*([^\s\r\n"']+)/i);
+      if (bgStarted && lastRunCmd && !lastRunCmd.recordedBg) {
+        lastRunCmd.recordedBg = true;
+        sig.backgroundJobs.push({
+          id: `bg-${sig.backgroundJobs.length}`,
+          taskId: bgStarted[1],
+          summary: summarizeText(lastRunCmd.cmd, 52),
+          startedAt: lastRunCmd.ts || marker.ts,
+          isDaemon: false,
+        });
+      }
 
       for (const m of step.content.matchAll(/"conversationId"\s*:\s*"([0-9a-f-]{8,})"/gi)) {
         const cid = m[1];
@@ -689,12 +805,22 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
 
     if (step.type !== "PLANNER_RESPONSE") continue;
 
-    if (typeof step.content === "string" && /<!--\s*GOAL_(?:COMPLETE|CANCELLED)\s*-->/i.test(step.content)) {
-      sig.goal.active = false;
-      sig.goal.completed = true;
+    if (typeof step.content === "string") {
+      if (/<!--\s*GOAL_(?:COMPLETE|CANCELLED)\s*-->/i.test(step.content)) {
+        sig.goal.active = false;
+        sig.goal.completed = true;
+      }
+      const proseOnly = step.content.replace(/```[\s\S]*?```/g, " ");
+      for (const prRef of extractPrReferences(proseOnly, { urlsOnly: true })) {
+        upsertPrEntry(sig.prs, prRef, { ts: marker.ts });
+      }
     }
 
-    if (!Array.isArray(step.tool_calls)) continue;
+    if (!Array.isArray(step.tool_calls)) {
+      lastToolNames = new Set();
+      continue;
+    }
+    lastToolNames = new Set(step.tool_calls.map((tc) => String(tc?.name ?? "")).filter(Boolean));
 
     for (const tc of step.tool_calls) {
       const name = String(tc?.name ?? "");
@@ -874,8 +1000,9 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         const dur = parseIntArg(args.DurationSeconds);
         const cron = unquoteArg(args.CronExpression);
         const promptText = unquoteArg(args.Prompt);
-        const prRef = extractPrReference(promptText);
-        if (prRef && (!sig.pr || (!sig.pr.url && prRef.url))) sig.pr = prRef;
+        const prRefs = extractPrReferences(promptText);
+        for (const prRef of prRefs) upsertPrEntry(sig.prs, prRef, { ts: marker.ts });
+        const prRef = prRefs[0] ?? null;
         const label = /watch-pr/i.test(promptText)
           ? prRef
             ? `watch-pr.mjs --pr ${prRef.number}`
@@ -904,8 +1031,11 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         }
       } else if (name === "run_command") {
         const cmd = unquoteArg(args.CommandLine || args.commandLine || args.command);
-        const prRef = extractPrReference(cmd);
-        if (prRef && (!sig.pr || (!sig.pr.url && prRef.url))) sig.pr = prRef;
+        const createdTitle = extractGhPrCreateTitle(cmd);
+        if (createdTitle) pendingPrTitle = createdTitle;
+        for (const prRef of extractPrReferences(cmd)) {
+          upsertPrEntry(sig.prs, prRef, { ts: marker.ts });
+        }
         if (/\bsetup-banner\.mjs\b/i.test(cmd)) sig.setupAt = latestMarker(sig.setupAt, marker);
         if (/\barch-audit\.mjs\b/i.test(cmd)) {
           sig.cleanAt = latestMarker(sig.cleanAt, marker);
@@ -924,7 +1054,9 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         if (/\blog\.mjs\b/i.test(cmd)) sig.detected.add("/show-me-your-work");
         if (/\b(?:gh\s+pr\s+create|git\s+push)\b/i.test(cmd)) sig.pushOrPrAt = latestMarker(sig.pushOrPrAt, marker);
         const category = classifyCommandCategory(cmd);
-        if (parseBoolArg(args.IsDaemon) || category === "test" || category === "verify") {
+        const isTrackedBg = parseBoolArg(args.IsDaemon) || category === "test" || category === "verify";
+        lastRunCmd = { cmd, ts: marker.ts, recordedBg: isTrackedBg };
+        if (isTrackedBg) {
           sig.backgroundJobs.push({
             id: `bg-${sig.backgroundJobs.length}`,
             summary: summarizeText(cmd, 48),
@@ -973,8 +1105,8 @@ function mergeChildTranscriptSignals(sig, brainDir, workspaceDir, parentConvId) 
     for (const f of childSig.changedFiles) {
       sig.changedFiles.add(f);
     }
-    if (childSig.pr && (!sig.pr || (!sig.pr.url && childSig.pr.url))) {
-      sig.pr = childSig.pr;
+    for (const childPr of childSig.prs.values()) {
+      upsertPrEntry(sig.prs, childPr);
     }
   }
   return sig;
@@ -1342,7 +1474,7 @@ function selectActiveStageId(stepViews) {
   return "plan";
 }
 
-function buildStageArtifacts(stage, { planArtifact, walkthroughArtifact, reviewArtifact, brainConvDir, pr, shipped }) {
+function buildStageArtifacts(stage, { planArtifact, walkthroughArtifact, reviewArtifact, brainConvDir, pr, prs, shipped }) {
   if (stage.id === "plan") {
     if (!planArtifact) return [];
     const badge = stage.status === "done" ? "approved" : stage.status === "waiting_gate" ? "gate" : "";
@@ -1370,13 +1502,29 @@ function buildStageArtifacts(stage, { planArtifact, walkthroughArtifact, reviewA
     const badge = stage.status === "stale" ? "stale" : stage.status === "waiting_gate" ? "gate" : "";
     return [{ id: "review", key: "review", name: reviewArtifact.name, label: "PR review dossier", uri: reviewArtifact.uri, status, badge, kind: "file" }];
   }
-  if (stage.id === "ship" && pr?.number) {
-    return [{ id: "pr", key: "pr", name: `PR #${pr.number}`, label: `PR #${pr.number}`, uri: pr.url || null, status: shipped ? "merged" : "open", badge: shipped ? "opened" : "tracked", kind: "pr" }];
+  if (stage.id === "ship") {
+    const prList = Array.isArray(prs) && prs.length > 0 ? prs : pr?.number ? [pr] : [];
+    return prList.slice(0, 5).map((item) => {
+      const state = item.state || (shipped ? "open" : "open");
+      const status = state === "merged" ? "merged" : state === "closed" ? "stale" : "open";
+      const badge = state === "merged" ? "merged" : state === "closed" ? "closed" : shipped ? "open" : "tracked";
+      return {
+        id: `pr-${item.number}`,
+        key: `pr-${item.number}`,
+        name: `PR #${item.number}`,
+        label: `PR #${item.number}`,
+        title: item.title || null,
+        uri: item.url || null,
+        status,
+        badge,
+        kind: "pr",
+      };
+    });
   }
   return [];
 }
 
-function buildStageCollapsedSummary(stage, pr, shipped) {
+function buildStageCollapsedSummary(stage, pr, prs, shipped) {
   if (stage.id === "plan") {
     if (stage.status === "done") return "Plan approved.";
     if (stage.status === "waiting_gate") return "implementation_plan.md awaiting approval.";
@@ -1402,7 +1550,17 @@ function buildStageCollapsedSummary(stage, pr, shipped) {
     return stage.summary;
   }
   if (stage.id === "ship") {
-    if (pr?.number && shipped) return `PR #${pr.number} opened.`;
+    if (Array.isArray(prs) && prs.length > 1 && shipped) {
+      const openN = prs.filter((p) => p.state === "open").length;
+      const mergedN = prs.filter((p) => p.state === "merged").length;
+      const parts = [];
+      if (openN > 0) parts.push(`${openN} open`);
+      if (mergedN > 0) parts.push(`${mergedN} merged`);
+      return parts.length > 0 ? `${prs.length} PRs (${parts.join(", ")}).` : `${prs.length} PRs tracked.`;
+    }
+    if (pr?.number && shipped) {
+      return pr.state === "merged" ? `PR #${pr.number} merged.` : `PR #${pr.number} opened.`;
+    }
     if (shipped) return "PR opened or pushed.";
     return stage.summary;
   }
@@ -1422,8 +1580,9 @@ function buildSuggestedReview(reviewStage, changedFilesCount) {
   };
 }
 
-function buildActivitySnapshot({ sig, buildStage, reviewStage, artifactCount, activeStageId }) {
+function buildActivitySnapshot({ sig, buildStage, reviewStage, artifactCount, activeStageId, prItems }) {
   const activeSubagentsCount = sig.subagents.filter((a) => a.status === "running").length;
+  const doneSubagentsCount = sig.subagents.filter((a) => a.status === "done").length;
   const activeSwarmMembers = sig.swarm.members.filter((m) => m.status !== "killed");
   const workingSwarmCount = activeSwarmMembers.filter((m) => m.status === "working").length;
   const activeSchedules = sig.schedules.filter((s) => s.active);
@@ -1438,13 +1597,19 @@ function buildActivitySnapshot({ sig, buildStage, reviewStage, artifactCount, ac
     if (seenBg.has(job.summary)) continue;
     seenBg.add(job.summary);
     uniqueBgJobs.unshift(job);
-    if (uniqueBgJobs.length >= 12) break;
+    if (uniqueBgJobs.length >= 20) break;
   }
+
+  const openPrsCount = prItems.filter((p) => p.state === "open").length;
+  const mergedPrsCount = prItems.filter((p) => p.state === "merged").length;
+  const closedPrsCount = prItems.filter((p) => p.state === "closed").length;
 
   return {
     activeStageId,
     agentsWorkingCount: activeSubagentsCount + workingSwarmCount,
+    agentsTotalCount: sig.subagents.length + activeSwarmMembers.length,
     scheduledCount: activeSchedules.length + activeAutomations.length,
+    tasksTotalCount: uniqueBgJobs.length + activeSchedules.length + activeAutomations.length,
     artifactCount,
     goal: {
       ...sig.goal,
@@ -1465,6 +1630,8 @@ function buildActivitySnapshot({ sig, buildStage, reviewStage, artifactCount, ac
     },
     subagents: sig.subagents,
     runningSubagentsCount: activeSubagentsCount,
+    totalSubagentsCount: sig.subagents.length,
+    doneSubagentsCount,
     schedules: sig.schedules,
     automations: sig.automations,
     backgroundJobs: {
@@ -1479,6 +1646,13 @@ function buildActivitySnapshot({ sig, buildStage, reviewStage, artifactCount, ac
     sideQuestions: { count: sig.sideQuestionsCount },
     changedFilesCount: sig.changedFiles.size,
     pr: sig.pr,
+    prs: {
+      totalCount: prItems.length,
+      openCount: openPrsCount,
+      mergedCount: mergedPrsCount,
+      closedCount: closedPrsCount,
+      items: prItems,
+    },
   };
 }
 
@@ -1489,6 +1663,7 @@ export function evaluateTimelineSnapshot({
   conversationId = "",
   brainDir = "",
   workspaceDir = "",
+  prMetaByNumber = null,
 } = {}) {
   const hasConv = Boolean(conversationId && brainDir);
   const brainConvDir = hasConv ? path.join(brainDir, conversationId) : "";
@@ -1553,8 +1728,9 @@ export function evaluateTimelineSnapshot({
       hasVerifyReceipt = true;
       if (r.ok) latestReceiptVerify = latestMarker(latestReceiptVerify, m);
     } else if (r.kind === "command" && r.ok) {
-      const prRef = extractPrReference(r.summary);
-      if (prRef && (!sig.pr || (!sig.pr.url && prRef.url))) sig.pr = prRef;
+      for (const prRef of extractPrReferences(r.summary)) {
+        upsertPrEntry(sig.prs, prRef, { ts: r.ts });
+      }
       if (/\b(?:gh\s+pr\s+create|git\s+push)\b/i.test(r.summary)) receiptPush = true;
     }
     if (r.kind === "command" && r.ok && /\barch-audit\.mjs\b/i.test(String(r.summary ?? ""))) {
@@ -1628,22 +1804,44 @@ export function evaluateTimelineSnapshot({
     maxReviewRounds,
     shipped,
   });
+  const mergedPrNumbers = sig.prs.size > 0 ? readMergedPrNumbersFast(workspaceDir) : new Set();
+  const prItems = [...sig.prs.values()].map((item) => {
+    const live = prMetaByNumber instanceof Map ? prMetaByNumber.get(item.number) : prMetaByNumber?.[item.number];
+    const liveState = typeof live?.state === "string" ? live.state.toLowerCase() : null;
+    const state =
+      liveState === "merged" || liveState === "open" || liveState === "closed"
+        ? liveState
+        : mergedPrNumbers.has(item.number)
+          ? "merged"
+          : item.state || "open";
+    return {
+      ...item,
+      url: live?.url || item.url || null,
+      title: live?.title ? summarizeText(live.title, 80) : item.title || null,
+      state,
+    };
+  });
+  const STATE_RANK = { open: 0, merged: 1, closed: 2 };
+  prItems.sort((a, b) => (STATE_RANK[a.state] ?? 3) - (STATE_RANK[b.state] ?? 3) || b.number - a.number);
+  sig.pr = prItems.length > 0 ? [...prItems].sort((a, b) => b.number - a.number)[0] : null;
+
   const shipStage = buildShipStage({ reviewStatus: reviewStage.status, shipped, sig });
   const stepViews = [planStage, buildStage, reviewStage, shipStage].map((stage) => ({
     ...stage,
-    collapsedSummary: buildStageCollapsedSummary(stage, sig.pr, shipped),
+    collapsedSummary: buildStageCollapsedSummary(stage, sig.pr, prItems, shipped),
     artifacts: buildStageArtifacts(stage, {
       planArtifact,
       walkthroughArtifact,
       reviewArtifact,
       brainConvDir,
       pr: sig.pr,
+      prs: prItems,
       shipped,
     }),
     ...buildStageSubCommands(stage.id, sig.detected),
   }));
 
-  const artifactCount = stepViews.reduce((acc, s) => acc + s.artifacts.length, 0);
+  const artifactCount = stepViews.reduce((acc, s) => acc + s.artifacts.filter((a) => a.kind !== "pr").length, 0);
   const activeStageId = selectActiveStageId(stepViews);
   const activity = buildActivitySnapshot({
     sig,
@@ -1651,6 +1849,7 @@ export function evaluateTimelineSnapshot({
     reviewStage,
     artifactCount,
     activeStageId,
+    prItems,
   });
 
   const onlyBuildCleanStale =

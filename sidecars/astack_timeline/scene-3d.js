@@ -2,6 +2,7 @@
   const STAGE_IDS = ["plan", "build", "review", "ship"];
   const FOCUS_MAP = {
     agents: ["subagents", "swarm"],
+    prs: ["art"],
     later: ["sched"],
     art: ["art"],
     swarm: ["swarm"],

@@ -148,6 +148,19 @@
     } else if (kind === "compact") {
       svg.setAttribute("stroke-width", "1.1");
       add("path", { d: "M2 4.5h3v-3M12 4.5H9v-3M2 9.5h3v3M12 9.5H9v3" });
+    } else if (kind === "pr") {
+      svg.setAttribute("stroke-width", "1.3");
+      add("circle", { cx: "4", cy: "3.2", r: "1.5" });
+      add("circle", { cx: "4", cy: "10.8", r: "1.5" });
+      add("circle", { cx: "10.2", cy: "10.8", r: "1.5" });
+      add("path", { d: "M4 4.7v4.6M10.2 9.3V5.4A1.8 1.8 0 0 0 8.4 3.6H7.2" });
+      add("path", { d: "M8.3 2.4 7 3.6l1.3 1.2" });
+    } else if (kind === "pr-merged") {
+      svg.setAttribute("stroke-width", "1.3");
+      add("circle", { cx: "4", cy: "3.2", r: "1.5" });
+      add("circle", { cx: "4", cy: "10.8", r: "1.5" });
+      add("circle", { cx: "10.2", cy: "10.8", r: "1.5" });
+      add("path", { d: "M4 4.7v4.6M4 4.7c0 3 2.4 6.1 4.7 6.1" });
     }
     return svg;
   }
@@ -966,7 +979,9 @@
       const wrap = el("div", "");
       wrap.addEventListener("mouseenter", () => scene?.setHighlight("cmd", "subagents"));
       wrap.addEventListener("mouseleave", () => scene?.setHighlight("cmd", null));
-      const meta = el("span", "sub-accordion-meta", `${act.runningSubagentsCount || 0} running`);
+      const runningN = act.runningSubagentsCount || 0;
+      const metaText = runningN > 0 ? `${runningN}/${subagents.length} running` : `${subagents.length} done`;
+      const meta = el("span", "sub-accordion-meta", metaText);
       const { btn, isOpen } = makeSubAccordionHeader("helpers", "orbit", "Subagents", meta);
       btn.dataset.testid = "accordion-subagents";
       wrap.appendChild(btn);
@@ -1120,13 +1135,16 @@
     for (const art of artifacts) {
       const btn = el("button", "artifact-btn");
       btn.type = "button";
-      const ic = svgIcon("diamond", 10);
+      const isPr = art.kind === "pr";
+      const ic = svgIcon(isPr ? (art.status === "merged" ? "pr-merged" : "pr") : "diamond", isPr ? 12 : 10);
       if (art.status === "updating") {
         ic.classList.add("pulse");
         ic.style.color = "var(--tl-primary)";
       } else if (art.status === "stale") {
         ic.style.color = "var(--tl-warning)";
       } else if (art.status === "merged") {
+        ic.style.color = isPr ? "var(--tl-merged)" : "var(--tl-done)";
+      } else if (art.status === "open" && isPr) {
         ic.style.color = "var(--tl-done)";
       }
       btn.appendChild(ic);
@@ -1247,34 +1265,99 @@
 
     const strip = document.getElementById("focus-strip");
     strip.replaceChildren();
-    const agentsCount = act.agentsWorkingCount ?? 0;
+    const agentsWorking = act.agentsWorkingCount ?? 0;
+    const agentsTotal = act.agentsTotalCount ?? ((act.subagents || []).length + (act.swarm?.totalCount || 0));
+    const agentsDone = Math.max(0, agentsTotal - agentsWorking);
+    const prsInfo = act.prs || { totalCount: 0, openCount: 0, mergedCount: 0, closedCount: 0, items: [] };
+    const prTotal = prsInfo.totalCount ?? 0;
     const schedCount = act.scheduledCount ?? 0;
+    const bgCount = act.backgroundJobs?.count ?? 0;
+    const tasksTotal = act.tasksTotalCount ?? (bgCount + schedCount);
     const artCount = act.artifactCount ?? 0;
 
+    const prParts = [];
+    if (prsInfo.openCount > 0) prParts.push(`${prsInfo.openCount} open`);
+    if (prsInfo.mergedCount > 0) prParts.push(`${prsInfo.mergedCount} merged`);
+    if (prsInfo.closedCount > 0) prParts.push(`${prsInfo.closedCount} closed`);
+    const prBreakdown = prParts.length > 0 ? prParts.join(", ") : "none yet";
+
     const focusDefs = [
-      { key: "agents", count: agentsCount, label: agentsCount === 1 ? "agent working" : "agents working", icon: "dot" },
-      { key: "later", count: schedCount, label: "scheduled", icon: "clock" },
-      { key: "art", count: artCount, label: artCount === 1 ? "artifact" : "artifacts", icon: "diamond" },
+      {
+        key: "agents",
+        countText: agentsWorking > 0 ? `${agentsWorking}/${agentsTotal}` : String(agentsTotal),
+        label: agentsWorking > 0 ? "active" : agentsTotal === 1 ? "agent" : "agents",
+        icon: "dot",
+        dotMode: agentsWorking > 0 ? "pulse" : agentsTotal > 0 ? "done" : "idle",
+        popTitle: "Subagents & Swarm",
+        popStatus: agentsWorking > 0 ? `${agentsWorking} running` : agentsTotal > 0 ? `${agentsDone} done` : "Idle",
+        popMode: agentsWorking > 0 ? "active" : agentsTotal > 0 ? "done" : "",
+        popDesc:
+          agentsTotal > 0
+            ? `${agentsTotal} total executed (${agentsDone} done, ${agentsWorking} running). Click to inspect without opening Step 2.`
+            : "No subagents or swarm workers executed in this conversation yet.",
+      },
+      {
+        key: "prs",
+        countText: String(prTotal),
+        label: prTotal === 1 ? "PR" : "PRs",
+        icon: prsInfo.openCount === 0 && prsInfo.mergedCount > 0 ? "pr-merged" : "pr",
+        iconTone: prsInfo.openCount > 0 ? "open" : prsInfo.mergedCount > 0 ? "merged" : "",
+        popTitle: "Pull Requests",
+        popStatus: prTotal > 0 ? prBreakdown : "None",
+        popMode: prsInfo.openCount > 0 ? "done" : "",
+        popDesc:
+          prTotal > 0
+            ? `${prTotal} pull request${prTotal === 1 ? "" : "s"} tracked in this conversation (${prBreakdown}). Click to open list.`
+            : "No pull requests opened in this conversation yet.",
+      },
+      {
+        key: "art",
+        countText: String(artCount),
+        label: artCount === 1 ? "artifact" : "artifacts",
+        icon: "diamond",
+        popTitle: "Artifacts",
+        popStatus: `${artCount} file${artCount === 1 ? "" : "s"}`,
+        popMode: artCount > 0 ? "done" : "",
+        popDesc:
+          artCount > 0
+            ? `${artCount} file artifact${artCount === 1 ? "" : "s"} (excludes PRs). Click to preview in panel.`
+            : "No plan, walkthrough, or review artifacts generated yet.",
+      },
+      {
+        key: "later",
+        countText: String(tasksTotal),
+        label: tasksTotal === 1 ? "task" : "tasks",
+        icon: "clock",
+        iconTone: schedCount > 0 ? "active" : "",
+        popTitle: "Background Tasks & Schedules",
+        popStatus: schedCount > 0 ? `${schedCount} scheduled` : `${bgCount} run`,
+        popMode: schedCount > 0 ? "active" : "",
+        popDesc: `${bgCount} background task${bgCount === 1 ? "" : "s"} and ${schedCount} active schedule${schedCount === 1 ? "" : "s"}. Click to inspect.`,
+      },
     ];
     for (const f of focusDefs) {
       const chip = el("button", "focus-chip");
       chip.type = "button";
       chip.dataset.focus = f.key;
+      chip.dataset.testid = `focus-chip-${f.key}`;
       chip.setAttribute("aria-pressed", String(state.solo === f.key));
       if (f.icon === "dot") {
-        const d = el("span", "focus-dot");
-        if (f.count > 0) d.classList.add("pulse");
+        const d = el("span", `focus-dot ${f.dotMode || ""}`.trim());
         chip.appendChild(d);
       } else {
-        chip.appendChild(svgIcon(f.icon, f.icon === "diamond" ? 10 : 11));
+        const ic = svgIcon(f.icon, f.icon === "diamond" ? 10 : 11);
+        if (f.iconTone) ic.classList.add(`focus-icon-${f.iconTone}`);
+        chip.appendChild(ic);
       }
-      chip.appendChild(el("span", "focus-count", String(f.count)));
+      chip.appendChild(el("span", "focus-count", f.countText));
       chip.appendChild(el("span", "", f.label));
+      attachStatusPopover(chip, f.popTitle, f.popStatus, f.popMode, f.popDesc);
       chip.addEventListener("mouseenter", () => scene?.setHighlight("cmd", f.key));
       chip.addEventListener("mouseleave", () => scene?.setHighlight("cmd", null));
       chip.addEventListener("focus", () => scene?.setHighlight("cmd", f.key));
       chip.addEventListener("blur", () => scene?.setHighlight("cmd", null));
       chip.addEventListener("click", () => {
+        hideCommandPopover();
         state.solo = state.solo === f.key ? null : f.key;
         scene?.setSolo(state.solo);
         renderSceneSection(state.snap);
@@ -1291,17 +1374,181 @@
     guideBtn.addEventListener("click", () => switchView("delegate"));
     strip.appendChild(guideBtn);
 
-    const focusArtsEl = document.getElementById("focus-artifacts");
-    if (focusArtsEl) {
-      const allArtifacts = (snap.stages || []).flatMap((s) => s.artifacts || []);
-      if (state.solo === "art" && allArtifacts.length > 0) {
-        focusArtsEl.replaceChildren(buildArtifactButtons(allArtifacts));
-        focusArtsEl.classList.remove("hidden");
-      } else {
-        focusArtsEl.replaceChildren();
-        focusArtsEl.classList.add("hidden");
-      }
+    const focusDrawer = document.getElementById("focus-artifacts");
+    if (focusDrawer) {
+      renderFocusDrawer(focusDrawer, snap, act);
     }
+  }
+
+  function renderFocusDrawer(container, snap, act) {
+    if (!state.solo) {
+      container.replaceChildren();
+      container.classList.add("hidden");
+      return;
+    }
+
+    if (state.solo === "art") {
+      const fileArtifacts = (snap.stages || []).flatMap((s) => (s.artifacts || []).filter((a) => a.kind !== "pr"));
+      if (fileArtifacts.length > 0) {
+        container.replaceChildren(buildArtifactButtons(fileArtifacts));
+      } else {
+        container.replaceChildren(el("p", "focus-empty", "No file artifacts generated in this conversation yet."));
+      }
+      container.classList.remove("hidden");
+      return;
+    }
+
+    if (state.solo === "agents") {
+      const box = el("div", "focus-drawer");
+      box.dataset.testid = "focus-drawer-agents";
+      const swarmMembers = act.swarm?.members || [];
+      const subagents = act.subagents || [];
+      if (swarmMembers.length === 0 && subagents.length === 0) {
+        box.appendChild(el("p", "focus-empty", "No subagents or swarm workers executed yet."));
+      } else {
+        const ul = el("ul", "sub-accordion-list focus-drawer-list");
+        for (const m of swarmMembers) {
+          const li = el("li", "sub-row");
+          li.addEventListener("mouseenter", () => scene?.setHighlight("member", m.id));
+          li.addEventListener("mouseleave", () => scene?.setHighlight("member", null));
+          const dw = el("span", "sub-row-dot-wrap");
+          const dotCls = m.role === "verifier" ? "sub-row-dot ring" : "sub-row-dot";
+          dw.appendChild(el("span", m.status === "working" ? `${dotCls} active` : dotCls));
+          li.appendChild(dw);
+          li.appendChild(el("span", "sub-row-name", m.name));
+          li.appendChild(el("span", "sub-row-task", m.task));
+          li.appendChild(el("span", m.status === "working" ? "sub-row-stat active" : "sub-row-stat", m.status));
+          appendAskButton(li, `What is ${m.name} working on right now?`, `Ask /btw about ${m.name}`);
+          ul.appendChild(li);
+        }
+        for (const a of subagents) {
+          const li = el("li", "sub-row");
+          li.addEventListener("mouseenter", () => scene?.setHighlight("agent", a.id));
+          li.addEventListener("mouseleave", () => scene?.setHighlight("agent", null));
+          const dw = el("span", "sub-row-dot-wrap");
+          if (a.status === "done") {
+            const chk = svgIcon("check-sm", 10);
+            chk.style.color = "var(--tl-done)";
+            dw.appendChild(chk);
+          } else {
+            dw.appendChild(el("span", "sub-row-dot active"));
+          }
+          li.appendChild(dw);
+          li.appendChild(el("span", "sub-row-name", a.type));
+          li.appendChild(el("span", "sub-row-task", a.task));
+          const timerEl = el("span", "sub-row-timer", formatElapsedText(a.startedAt, a.completedAt));
+          if (a.status === "running" && a.startedAt) {
+            timerEl.dataset.timerKind = "elapsed";
+            timerEl.dataset.startedAt = a.startedAt;
+          }
+          li.appendChild(timerEl);
+          appendAskButton(li, `What is the ${a.type} subagent finding?`, `Ask /btw about the ${a.type} subagent`);
+          ul.appendChild(li);
+        }
+        box.appendChild(ul);
+      }
+      container.replaceChildren(box);
+      container.classList.remove("hidden");
+      return;
+    }
+
+    if (state.solo === "prs") {
+      const box = el("div", "focus-drawer");
+      box.dataset.testid = "focus-drawer-prs";
+      const prItems = act.prs?.items || [];
+      if (prItems.length === 0) {
+        box.appendChild(el("p", "focus-empty", "No pull requests opened in this conversation yet."));
+      } else {
+        const ul = el("ul", "sub-accordion-list focus-drawer-list");
+        for (const p of prItems) {
+          const li = el("li", "sub-row pr-row");
+          const st = p.state || "open";
+          const icWrap = el("span", `pr-icon ${st}`);
+          icWrap.appendChild(svgIcon(st === "merged" ? "pr-merged" : "pr", 12));
+          li.appendChild(icWrap);
+          const label = `#${p.number}`;
+          if (p.url) {
+            const link = el("a", "pr-link");
+            link.href = p.url;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.appendChild(el("span", "pr-num", label));
+            if (p.title) link.appendChild(el("span", "pr-title", p.title));
+            link.appendChild(svgIcon("external", 10));
+            li.appendChild(link);
+          } else {
+            li.appendChild(el("span", "pr-num", label));
+            if (p.title) li.appendChild(el("span", "pr-title", p.title));
+          }
+          li.appendChild(el("span", `pr-badge ${st}`, st));
+          ul.appendChild(li);
+        }
+        box.appendChild(ul);
+      }
+      container.replaceChildren(box);
+      container.classList.remove("hidden");
+      return;
+    }
+
+    if (state.solo === "later") {
+      const box = el("div", "focus-drawer");
+      box.dataset.testid = "focus-drawer-tasks";
+      const activeScheds = (act.schedules || []).filter((s) => s.active);
+      const activeAutos = (act.automations || []).filter((a) => a.active);
+      const bgItems = act.backgroundJobs?.items || [];
+      if (activeScheds.length === 0 && activeAutos.length === 0 && bgItems.length === 0) {
+        box.appendChild(el("p", "focus-empty", "No background tasks or active schedules yet."));
+      } else {
+        const ul = el("ul", "sub-accordion-list focus-drawer-list");
+        for (const s of activeScheds) {
+          const li = el("li", "sub-row");
+          const dw = el("span", "sub-row-dot-wrap");
+          dw.appendChild(el("span", "sub-row-dot active"));
+          li.appendChild(dw);
+          li.appendChild(el("span", "sub-row-name", s.cadence || "timer"));
+          li.appendChild(el("span", "sub-row-task", s.label));
+          if (s.nextAt) {
+            const cd = el("span", "sub-row-timer", formatCountdownText(s.nextAt));
+            cd.dataset.timerKind = "countdown";
+            cd.dataset.nextAt = s.nextAt;
+            li.appendChild(cd);
+          }
+          ul.appendChild(li);
+        }
+        for (const a of activeAutos) {
+          const li = el("li", "sub-row");
+          const dw = el("span", "sub-row-dot-wrap");
+          dw.appendChild(el("span", "sub-row-dot active"));
+          li.appendChild(dw);
+          li.appendChild(el("span", "sub-row-name", "auto"));
+          li.appendChild(el("span", "sub-row-task", a.label));
+          li.appendChild(el("span", "sub-row-stat active", a.cadence || "on"));
+          ul.appendChild(li);
+        }
+        for (const job of bgItems.slice(-8).reverse()) {
+          const li = el("li", "sub-row");
+          const dw = el("span", "sub-row-dot-wrap");
+          if (job.isDaemon) {
+            dw.appendChild(el("span", "sub-row-dot active"));
+          } else {
+            const chk = svgIcon("check-sm", 10);
+            chk.style.color = "var(--tl-done)";
+            dw.appendChild(chk);
+          }
+          li.appendChild(dw);
+          li.appendChild(el("span", "sub-row-name", job.isDaemon ? "daemon" : "task"));
+          li.appendChild(el("span", "sub-row-task", job.summary));
+          ul.appendChild(li);
+        }
+        box.appendChild(ul);
+      }
+      container.replaceChildren(box);
+      container.classList.remove("hidden");
+      return;
+    }
+
+    container.replaceChildren();
+    container.classList.add("hidden");
   }
 
   function renderFooter(snap) {
