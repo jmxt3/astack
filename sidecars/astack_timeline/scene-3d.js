@@ -2,7 +2,7 @@
   const STAGE_IDS = ["plan", "build", "review", "ship"];
   const FOCUS_MAP = {
     agents: ["subagents", "swarm"],
-    prs: ["art"],
+    prs: ["prs"],
     later: ["sched"],
     art: ["art"],
     swarm: ["swarm"],
@@ -25,6 +25,32 @@
       resize() {},
       destroy() {},
     };
+  }
+
+  function makePrEdgesGeometry(T) {
+    const pts = [];
+    const seg = (x1, y1, z1, x2, y2, z2) => {
+      pts.push(new T.Vector3(x1, y1, z1), new T.Vector3(x2, y2, z2));
+    };
+    const node = (cx, cy, r) => {
+      seg(cx, cy + r, 0, cx + r, cy, 0);
+      seg(cx + r, cy, 0, cx, cy - r, 0);
+      seg(cx, cy - r, 0, cx - r, cy, 0);
+      seg(cx - r, cy, 0, cx, cy + r, 0);
+      seg(cx, cy + r, 0, cx, cy, r);
+      seg(cx, cy, r, cx, cy - r, 0);
+      seg(cx, cy - r, 0, cx, cy, -r);
+      seg(cx, cy, -r, cx, cy + r, 0);
+    };
+    const r = 0.022;
+    node(-0.048, 0.068, r);
+    node(-0.048, -0.068, r);
+    node(0.052, -0.048, r);
+    seg(-0.048, -0.046, 0, -0.048, 0.046, 0);
+    seg(0.052, -0.026, 0, 0.052, 0.018, 0);
+    seg(0.052, 0.018, 0, 0.024, 0.052, 0);
+    seg(0.024, 0.052, 0, -0.026, 0.068, 0);
+    return new T.BufferGeometry().setFromPoints(pts);
   }
 
   function makeRadialDotTexture(T) {
@@ -625,11 +651,12 @@
     const artGroup = new T.Group();
     world.add(artGroup);
     const octEdges = new T.EdgesGeometry(new T.OctahedronGeometry(0.1, 0));
+    const prEdges = makePrEdgesGeometry(T);
     let arts = [];
     let artSignature = "";
 
     function rebuildArtifacts(force = false) {
-      const sig = state.artifacts.map((a) => `${a.key}:${a.stageIdx}:${a.status}`).join("|");
+      const sig = state.artifacts.map((a) => `${a.key}:${a.stageIdx}:${a.status}:${a.kind}`).join("|");
       if (!force && sig === artSignature) return;
       artSignature = sig;
       arts.forEach((d) => {
@@ -640,6 +667,7 @@
         d.teth.geometry.dispose();
       });
       arts = state.artifacts.map((d, n) => {
+        const kind = d.kind || "file";
         const col =
           d.status === "stale"
             ? COLORS.stale
@@ -649,7 +677,7 @@
                 ? COLORS.done
                 : COLORS.white;
         const m = new T.LineSegments(
-          octEdges,
+          kind === "pr" ? prEdges : octEdges,
           new T.LineBasicMaterial({ color: col.clone(), transparent: true, opacity: 0.9, depthWrite: false }),
         );
         const anchor = P[d.stageIdx] || P[1];
@@ -666,7 +694,7 @@
         ]);
         const teth = new T.Line(tethGeo, new T.LineBasicMaterial({ color: col.clone(), transparent: true, opacity: 0.2, depthWrite: false }));
         artGroup.add(teth, glow, m);
-        return { key: d.key, stage: STAGE_IDS[d.stageIdx], status: d.status, m, glow, teth, base, ph: n * 1.3, heat: 0 };
+        return { key: d.key, kind, stage: STAGE_IDS[d.stageIdx], status: d.status, m, glow, teth, base, ph: n * 1.3, heat: 0 };
       });
     }
 
@@ -1010,19 +1038,28 @@
       }
 
       const eArt = focus ? (focus.indexOf("art") >= 0 ? 1 : 0.4) : 1;
+      const ePr = focus ? (focus.indexOf("prs") >= 0 ? 1 : 0.4) : 1;
       arts.forEach((d) => {
-        const hot = hl.art === d.key || hl.stage === d.stage || (focus && focus.indexOf("art") >= 0) ? 1 : 0;
+        const isPr = d.kind === "pr";
+        const eItem = isPr ? ePr : eArt;
+        const focusKey = isPr ? "prs" : "art";
+        const hot = hl.art === d.key || hl.stage === d.stage || (focus && focus.indexOf(focusKey) >= 0) ? 1 : 0;
         d.heat += (hot - d.heat) * 0.15;
-        d.m.rotation.x = 0.35;
-        d.m.rotation.y = t * 0.7 + d.ph;
+        if (isPr) {
+          d.m.rotation.x = 0.08;
+          d.m.rotation.y = Math.sin(t * 0.9 + d.ph) * 0.42;
+        } else {
+          d.m.rotation.x = 0.35;
+          d.m.rotation.y = t * 0.7 + d.ph;
+        }
         d.m.position.set(d.base.x, d.base.y + Math.sin(t * 1.1 + d.ph) * 0.04, d.base.z);
         d.glow.position.copy(d.m.position);
         const ds = 1 + d.heat * 0.7;
         d.m.scale.set(ds, ds, ds);
         const pul = d.status === "updating" ? 0.5 + 0.5 * Math.sin(t * 3) : 1;
-        d.m.material.opacity = (0.55 + 0.35 * pul) * eArt;
-        d.teth.material.opacity = 0.2 * eArt;
-        d.glow.material.opacity = (0.14 + d.heat * 0.35 + (d.status === "updating" ? 0.15 * pul : 0)) * eArt;
+        d.m.material.opacity = (0.55 + 0.35 * pul) * eItem;
+        d.teth.material.opacity = 0.2 * eItem;
+        d.glow.material.opacity = (0.14 + d.heat * 0.35 + (d.status === "updating" ? 0.15 * pul : 0)) * eItem;
         const gs = 0.5 + d.heat * 0.4;
         d.glow.scale.set(gs, gs, 1);
       });
@@ -1102,7 +1139,7 @@
           const list = Array.isArray(stg.artifacts) ? stg.artifacts : [];
           list.forEach((a, k) => {
             const dx = list.length === 1 ? 0 : (k - (list.length - 1) / 2) * 0.36;
-            nextArts.push({ key: a.key || a.id, stageIdx: sIdx, dx, status: a.status || "done" });
+            nextArts.push({ key: a.key || a.id, stageIdx: sIdx, dx, status: a.status || "done", kind: a.kind || "file" });
           });
         });
         state.artifacts = nextArts;
@@ -1143,6 +1180,7 @@
         if (io) io.disconnect();
         if (ro) ro.disconnect();
         octEdges.dispose();
+        prEdges.dispose();
         ringGeo.dispose();
         coreGeo.dispose();
         spineGeo.dispose();
