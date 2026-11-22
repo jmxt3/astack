@@ -8,12 +8,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { COMMAND_DOCS, DELEGATE_GUIDE_DATA } from "./command-catalog.mjs";
-import { evaluateTimelineSnapshot, resolveSafeArtifactUri } from "./timeline-engine.mjs";
+import { evaluateTimelineSnapshot, resolveSafeArtifactUri, resolveSafeTaskLogPath } from "./timeline-engine.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STRICT_ID_RE = /^[0-9a-f-]{8,}$/i;
 const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,79}$/;
 const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024;
+const MAX_TASK_LOG_BYTES = 256 * 1024;
 const ARTIFACT_MIME_TYPES = new Map([
   [".md", "text/markdown; charset=utf-8"],
   [".txt", "text/plain; charset=utf-8"],
@@ -274,16 +275,61 @@ function artifactJson(status, payload) {
   };
 }
 
+function readTaskLogBounded(filePath) {
+  const st = fs.statSync(filePath);
+  if (st.size <= MAX_TASK_LOG_BYTES) {
+    return fs.readFileSync(filePath, "utf8");
+  }
+  const fd = fs.openSync(filePath, "r");
+  try {
+    const buf = Buffer.alloc(MAX_TASK_LOG_BYTES);
+    fs.readSync(fd, buf, 0, MAX_TASK_LOG_BYTES, st.size - MAX_TASK_LOG_BYTES);
+    const totalKb = Math.round(st.size / 1024);
+    return `[...showing last 256 KB of ${totalKb} KB task log...]\n\n${buf.toString("utf8")}`;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function createArtifactResponder({
   brainDir,
   defaultConversationId = "",
   allowFixtureIds = false,
 }) {
-  return async ({ conversationId = "", name = "", raw = false } = {}) => {
+  return async ({ conversationId = "", name = "", taskLog = "", raw = false } = {}) => {
     const rawConv = String(conversationId || defaultConversationId || "").trim();
+    const rawTaskLog = String(taskLog || "").trim();
     const rawName = String(name || "").trim();
     if (!rawConv || !isValidConversationId(rawConv, allowFixtureIds)) {
       return artifactJson(400, { error: "Invalid conversationId" });
+    }
+    if (rawTaskLog) {
+      if (!/^task-\d+\.log$/.test(rawTaskLog)) {
+        return artifactJson(400, { error: "Invalid task log name" });
+      }
+      const logPath = resolveSafeTaskLogPath(path.join(brainDir, rawConv), rawTaskLog);
+      if (!logPath) {
+        return artifactJson(404, { error: "Task log not found" });
+      }
+      try {
+        const content = readTaskLogBounded(logPath);
+        if (raw) {
+          return {
+            status: 200,
+            contentType: "text/plain; charset=utf-8",
+            headers: { "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store" },
+            body: Buffer.from(content, "utf8"),
+          };
+        }
+        return artifactJson(200, {
+          name: rawTaskLog,
+          kind: "text",
+          mimeType: "text/plain; charset=utf-8",
+          content,
+        });
+      } catch {
+        return artifactJson(404, { error: "Task log not found" });
+      }
     }
     if (!rawName || /[\\/%:\0]/.test(rawName) || rawName === "." || rawName === "..") {
       return artifactJson(400, { error: "Invalid artifact name" });
@@ -462,6 +508,7 @@ export async function createTimelineServer(options = {}) {
       const artRes = await respondArtifact({
         conversationId: reqUrl.searchParams.get("conversationId") ?? "",
         name: reqUrl.searchParams.get("name") ?? "",
+        taskLog: reqUrl.searchParams.get("taskLog") ?? "",
         raw: reqUrl.searchParams.get("raw") === "1",
       });
       res.writeHead(artRes.status, { "Content-Type": artRes.contentType, ...artRes.headers });
@@ -543,6 +590,7 @@ export async function startTimelineSidecar(options = {}) {
         const artRes = await respondArtifact({
           conversationId: data?.conversationId ?? "",
           name: data?.name ?? "",
+          taskLog: data?.taskLog ?? "",
           raw: data?.raw === "1" || data?.raw === true,
         });
         return new Response(artRes.body, {

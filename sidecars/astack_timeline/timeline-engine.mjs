@@ -201,6 +201,26 @@ export function resolveSafeArtifactUri(brainConvDir, relName) {
   }
 }
 
+/**
+ * Resolves a background task log (`task-<N>.log`) inside `<brainConvDir>/.system_generated/tasks` safely.
+ */
+export function resolveSafeTaskLogPath(brainConvDir, logFile) {
+  if (!brainConvDir || typeof logFile !== "string" || !/^task-\d+\.log$/.test(logFile)) return null;
+  try {
+    const tasksDir = path.join(brainConvDir, ".system_generated", "tasks");
+    if (!fs.existsSync(tasksDir)) return null;
+    const rootReal = fs.realpathSync(tasksDir);
+    const candidate = path.join(rootReal, logFile);
+    if (!fs.existsSync(candidate)) return null;
+    const real = fs.realpathSync(candidate);
+    const rootPrefix = rootReal.endsWith(path.sep) ? rootReal : `${rootReal}${path.sep}`;
+    if (!real.startsWith(rootPrefix) || !fs.statSync(real).isFile()) return null;
+    return real;
+  } catch {
+    return null;
+  }
+}
+
 function findGitLocationsFast(workspaceDir) {
   if (!workspaceDir) return null;
   let current = path.resolve(workspaceDir);
@@ -633,9 +653,10 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
   const pendingScheduleIndices = [];
   const scheduleTaskMap = new Map();
   const swarmMemberById = new Map();
+  const bgJobByTaskId = new Map();
+  let pendingToolQueue = [];
   let pendingWorkflowRun = false;
   let pendingPrTitle = null;
-  let lastRunCmd = null;
   let lastToolNames = new Set();
 
   for (let i = 0; i < lines.length; i++) {
@@ -727,6 +748,12 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
             sa.completedAt = marker.ts;
           }
         }
+        for (const job of bgJobByTaskId.values()) {
+          if (job.status === "running") {
+            job.status = "stopped";
+            job.completedAt = marker.ts;
+          }
+        }
       }
       const senderMatch = step.content.match(/\bsender=([^\s\]]+)/i);
       if (senderMatch) {
@@ -744,29 +771,31 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
             sch.active = false;
           }
         }
+        if (bgJobByTaskId.has(sender)) {
+          const job = bgJobByTaskId.get(sender);
+          if (job && job.status === "running") {
+            const failed = /Command exited with code [1-9]/i.test(step.content);
+            if (failed) {
+              job.status = "failed";
+              job.completedAt = marker.ts;
+            } else if (/finished with result:/i.test(step.content) || !job.isCron) {
+              job.status = "done";
+              job.completedAt = marker.ts;
+            }
+          }
+        }
       }
       continue;
     }
 
     if (step.type === "GENERIC" && typeof step.content === "string") {
+      const shiftedTool = pendingToolQueue.length > 0 ? pendingToolQueue.shift() : null;
       const onlyFileReads = lastToolNames.size > 0 && [...lastToolNames].every((t) => FILE_READ_TOOLS.has(t));
       if (!onlyFileReads) {
         for (const prRef of extractPrReferences(step.content, { urlsOnly: true })) {
           upsertPrEntry(sig.prs, prRef, { ts: marker.ts, title: pendingPrTitle });
           if (pendingPrTitle) pendingPrTitle = null;
         }
-      }
-
-      const bgStarted = step.content.match(/running as a background task with task id:\s*([^\s\r\n"']+)/i);
-      if (bgStarted && lastRunCmd && !lastRunCmd.recordedBg) {
-        lastRunCmd.recordedBg = true;
-        sig.backgroundJobs.push({
-          id: `bg-${sig.backgroundJobs.length}`,
-          taskId: bgStarted[1],
-          summary: summarizeText(lastRunCmd.cmd, 52),
-          startedAt: lastRunCmd.ts || marker.ts,
-          isDaemon: false,
-        });
       }
 
       for (const m of step.content.matchAll(/"conversationId"\s*:\s*"([0-9a-f-]{8,})"/gi)) {
@@ -778,15 +807,56 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
           subagentByConvId.set(cid, idx);
         }
       }
-      const taskCreated = step.content.match(/task id:\s*([^\s\r\n"']+)/i);
-      if (taskCreated && pendingScheduleIndices.length > 0) {
-        const idx = pendingScheduleIndices.shift();
-        sig.schedules[idx].taskId = taskCreated[1];
-        scheduleTaskMap.set(taskCreated[1], idx);
+      const harnessHeader = step.content.split(/\r?\nCommand output:\r?\n/)[0];
+      const taskCreated = harnessHeader.match(/(?:^|\r?\n)(?:Tool is running as a background task with )?task id:\s*([A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)?)\s*(?:\r?\n|$)/i);
+      if (taskCreated) {
+        const taskId = taskCreated[1];
+        const isCommandBg = /Tool is running as a background task/i.test(harnessHeader);
+        if (pendingScheduleIndices.length > 0 && (!isCommandBg || shiftedTool?.kind === "schedule")) {
+          const idx = pendingScheduleIndices.shift();
+          sig.schedules[idx].taskId = taskId;
+          scheduleTaskMap.set(taskId, idx);
+        }
+        if (!bgJobByTaskId.has(taskId)) {
+          let toolMeta = shiftedTool && shiftedTool.kind !== "other" ? shiftedTool : null;
+          if (!toolMeta) {
+            const fallbackIdx = pendingToolQueue.findIndex((t) => t.kind !== "other");
+            if (fallbackIdx >= 0) toolMeta = pendingToolQueue.splice(fallbackIdx, 1)[0];
+          }
+          const taskSlug = taskId.split("/").pop() || taskId;
+          const descLine = step.content.match(/Task Description:\s*([^\r\n]+)/i)?.[1] ?? "";
+          const title = toolMeta?.title || summarizeText(descLine, 68) || taskSlug;
+          const cmdText = toolMeta?.cmd || descLine || "";
+          const candidateLog = /^task-\d+$/.test(taskSlug) ? `${taskSlug}.log` : null;
+          const logFile = candidateLog && resolveSafeTaskLogPath(brainConvDir, candidateLog) ? candidateLog : null;
+          bgJobByTaskId.set(taskId, {
+            id: `bg-${bgJobByTaskId.size}`,
+            taskId,
+            taskSlug,
+            logFile,
+            kind: toolMeta?.kind || "command",
+            title,
+            summary: title,
+            command: summarizeText(cmdText, 120),
+            startedAt: toolMeta?.ts || marker.ts,
+            completedAt: null,
+            status: "running",
+            isDaemon: Boolean(toolMeta?.isDaemon),
+            isCron: Boolean(toolMeta?.isCron),
+          });
+        }
       }
       const taskCancelled = step.content.match(/Task\s+"([^"]+)"\s+(?:was\s+)?cancell?ed/i);
-      if (taskCancelled && scheduleTaskMap.has(taskCancelled[1])) {
-        sig.schedules[scheduleTaskMap.get(taskCancelled[1])].active = false;
+      if (taskCancelled) {
+        const cancelledId = taskCancelled[1];
+        if (scheduleTaskMap.has(cancelledId)) {
+          sig.schedules[scheduleTaskMap.get(cancelledId)].active = false;
+        }
+        if (bgJobByTaskId.has(cancelledId)) {
+          const job = bgJobByTaskId.get(cancelledId);
+          job.status = "stopped";
+          job.completedAt = marker.ts;
+        }
       }
       if (pendingWorkflowRun && (step.status === "DONE" || step.status === "ERROR")) {
         sig.workflow.active = false;
@@ -818,9 +888,50 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
 
     if (!Array.isArray(step.tool_calls)) {
       lastToolNames = new Set();
+      pendingToolQueue = [];
       continue;
     }
     lastToolNames = new Set(step.tool_calls.map((tc) => String(tc?.name ?? "")).filter(Boolean));
+    pendingToolQueue = step.tool_calls.map((tc) => {
+      const tName = String(tc?.name ?? "");
+      const tArgs = tc?.args && typeof tc.args === "object" ? tc.args : {};
+      if (tName === "run_command") {
+        const c = unquoteArg(tArgs.CommandLine || tArgs.commandLine || tArgs.command);
+        const s = unquoteArg(tArgs.toolSummary || tArgs.Description);
+        return {
+          kind: "command",
+          title: s ? summarizeText(s, 72) : summarizeText(c, 64),
+          cmd: c,
+          isDaemon: parseBoolArg(tArgs.IsDaemon),
+          isCron: false,
+          ts: marker.ts,
+        };
+      }
+      if (tName === "schedule") {
+        const prm = unquoteArg(tArgs.Prompt);
+        const cron = unquoteArg(tArgs.CronExpression);
+        return {
+          kind: "schedule",
+          title: summarizeText(prm, 72) || "Scheduled check",
+          cmd: prm,
+          isDaemon: parseBoolArg(tArgs.IsDaemon),
+          isCron: Boolean(cron),
+          ts: marker.ts,
+        };
+      }
+      if (tName === "run_workflow") {
+        const desc = unquoteArg(tArgs.Description || tArgs.ScriptPath);
+        return {
+          kind: "workflow",
+          title: summarizeText(desc, 72) || "Workflow run",
+          cmd: desc,
+          isDaemon: false,
+          isCron: false,
+          ts: marker.ts,
+        };
+      }
+      return { kind: "other" };
+    });
 
     for (const tc of step.tool_calls) {
       const name = String(tc?.name ?? "");
@@ -1028,6 +1139,11 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
           if (tid && scheduleTaskMap.has(tid)) {
             sig.schedules[scheduleTaskMap.get(tid)].active = false;
           }
+          if (tid && bgJobByTaskId.has(tid)) {
+            const job = bgJobByTaskId.get(tid);
+            job.status = "stopped";
+            job.completedAt = marker.ts;
+          }
         }
       } else if (name === "run_command") {
         const cmd = unquoteArg(args.CommandLine || args.commandLine || args.command);
@@ -1054,16 +1170,6 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         if (/\blog\.mjs\b/i.test(cmd)) sig.detected.add("/show-me-your-work");
         if (/\b(?:gh\s+pr\s+create|git\s+push)\b/i.test(cmd)) sig.pushOrPrAt = latestMarker(sig.pushOrPrAt, marker);
         const category = classifyCommandCategory(cmd);
-        const isTrackedBg = parseBoolArg(args.IsDaemon) || category === "test" || category === "verify";
-        lastRunCmd = { cmd, ts: marker.ts, recordedBg: isTrackedBg };
-        if (isTrackedBg) {
-          sig.backgroundJobs.push({
-            id: `bg-${sig.backgroundJobs.length}`,
-            summary: summarizeText(cmd, 48),
-            startedAt: marker.ts,
-            isDaemon: parseBoolArg(args.IsDaemon),
-          });
-        }
         if (category === "test" || category === "verify") {
           pendingTestCmds.set(order, marker);
         }
@@ -1072,6 +1178,39 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
       }
     }
   }
+
+  if (brainConvDir) {
+    const tasksDir = path.join(brainConvDir, ".system_generated", "tasks");
+    try {
+      if (fs.existsSync(tasksDir)) {
+        const knownLogs = new Set([...bgJobByTaskId.values()].map((j) => j.logFile).filter(Boolean));
+        for (const entry of fs.readdirSync(tasksDir, { withFileTypes: true })) {
+          if (!entry.isFile() || !/^task-\d+\.log$/.test(entry.name) || knownLogs.has(entry.name)) continue;
+          const slug = entry.name.replace(/\.log$/, "");
+          const safeLog = resolveSafeTaskLogPath(brainConvDir, entry.name);
+          if (!safeLog) continue;
+          const mtime = fs.statSync(safeLog).mtime.toISOString();
+          bgJobByTaskId.set(slug, {
+            id: `bg-${bgJobByTaskId.size}`,
+            taskId: slug,
+            taskSlug: slug,
+            logFile: entry.name,
+            kind: "command",
+            title: slug,
+            summary: slug,
+            command: "",
+            startedAt: mtime,
+            completedAt: mtime,
+            status: "done",
+            isDaemon: false,
+            isCron: false,
+          });
+        }
+      }
+    } catch {
+    }
+  }
+  sig.backgroundJobs = [...bgJobByTaskId.values()];
 
   for (const sa of sig.subagents) {
     if (sa.status === "running" && sa.childConvId && brainDir) {
@@ -1590,15 +1729,10 @@ function buildActivitySnapshot({ sig, buildStage, reviewStage, artifactCount, ac
   const checksDone = buildStage.subChecks.filter((c) => c.status === "done").length;
   const checksTotal = buildStage.subChecks.length || 3;
 
-  const uniqueBgJobs = [];
-  const seenBg = new Set();
-  for (let i = sig.backgroundJobs.length - 1; i >= 0; i--) {
-    const job = sig.backgroundJobs[i];
-    if (seenBg.has(job.summary)) continue;
-    seenBg.add(job.summary);
-    uniqueBgJobs.unshift(job);
-    if (uniqueBgJobs.length >= 20) break;
-  }
+  const bgItems = [...sig.backgroundJobs];
+  const bgTaskIds = new Set(bgItems.map((j) => j.taskId).filter(Boolean));
+  const unbackedSchedules = activeSchedules.filter((s) => !s.taskId || !bgTaskIds.has(s.taskId));
+  const runningBgCount = bgItems.filter((j) => j.status === "running").length;
 
   const openPrsCount = prItems.filter((p) => p.state === "open").length;
   const mergedPrsCount = prItems.filter((p) => p.state === "merged").length;
@@ -1609,7 +1743,8 @@ function buildActivitySnapshot({ sig, buildStage, reviewStage, artifactCount, ac
     agentsWorkingCount: activeSubagentsCount + workingSwarmCount,
     agentsTotalCount: sig.subagents.length + activeSwarmMembers.length,
     scheduledCount: activeSchedules.length + activeAutomations.length,
-    tasksTotalCount: uniqueBgJobs.length + activeSchedules.length + activeAutomations.length,
+    runningTasksCount: runningBgCount + unbackedSchedules.length + activeAutomations.length,
+    tasksTotalCount: bgItems.length + unbackedSchedules.length + activeAutomations.length,
     artifactCount,
     goal: {
       ...sig.goal,
@@ -1635,8 +1770,9 @@ function buildActivitySnapshot({ sig, buildStage, reviewStage, artifactCount, ac
     schedules: sig.schedules,
     automations: sig.automations,
     backgroundJobs: {
-      count: uniqueBgJobs.length,
-      items: uniqueBgJobs,
+      count: bgItems.length,
+      runningCount: runningBgCount,
+      items: bgItems,
     },
     workflow: {
       active: sig.workflow.active,

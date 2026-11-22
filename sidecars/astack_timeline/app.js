@@ -161,6 +161,10 @@
       add("circle", { cx: "4", cy: "10.8", r: "1.5" });
       add("circle", { cx: "10.2", cy: "10.8", r: "1.5" });
       add("path", { d: "M4 4.7v4.6M4 4.7c0 3 2.4 6.1 4.7 6.1" });
+    } else if (kind === "stop") {
+      svg.setAttribute("stroke-width", "1.3");
+      add("circle", { cx: "7", cy: "7", r: "5.2" });
+      add("path", { d: "M5.1 5.1l3.8 3.8M8.9 5.1l-3.8 3.8" });
     }
     return svg;
   }
@@ -547,6 +551,60 @@
       if (!state.artifact || state.artifact.name !== artifact.name) return;
       state.artifact.loading = false;
       state.artifact.error = `Could not open ${artifact.name} (${err?.message || "request failed"}).`;
+      renderArtifactView();
+    }
+  }
+
+  async function openTaskLog(job, triggerEl = null) {
+    if (!job) return;
+    releaseArtifactObjectUrl();
+    state.artifactReturnEl = triggerEl || document.activeElement;
+    const convId = getConversationId(true);
+    const title = job.title || job.summary || job.taskSlug || "Background Task";
+    const logName = job.logFile || job.taskSlug || "task";
+    let rawUrl = null;
+    if (!isSdkHost() && job.logFile) {
+      const qs = new URLSearchParams();
+      if (convId) qs.set("conversationId", convId);
+      qs.set("taskLog", job.logFile);
+      qs.set("raw", "1");
+      const token = params.get("token");
+      if (token) qs.set("token", token);
+      rawUrl = `/api/artifact?${qs.toString()}`;
+    }
+    state.artifact = {
+      label: title,
+      name: `${logName} · ${job.status || "done"}`,
+      uri: null,
+      loading: Boolean(job.logFile),
+      error: null,
+      data: job.logFile
+        ? null
+        : {
+            kind: "text",
+            content: job.command ? `$ ${job.command}\n\n(No task log file on disk for ${logName})` : `(No task log file on disk for ${logName})`,
+          },
+      rawUrl,
+      objectUrl: null,
+    };
+    switchView("artifact");
+    if (!job.logFile) return;
+    try {
+      const res = await apiFetch("/api/artifact", { conversationId: convId, taskLog: job.logFile, raw: false });
+      if (!res.ok) {
+        const errPayload = await res.json().catch(() => ({}));
+        throw new Error(errPayload.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (!state.artifact || state.artifact.label !== title) return;
+      const prefix = job.command ? `$ ${job.command}\n${"─".repeat(48)}\n` : "";
+      state.artifact.loading = false;
+      state.artifact.data = { kind: "text", content: `${prefix}${data?.content || "(empty log)"}` };
+      renderArtifactView();
+    } catch (err) {
+      if (!state.artifact || state.artifact.label !== title) return;
+      state.artifact.loading = false;
+      state.artifact.error = `Could not open ${logName} (${err?.message || "request failed"}).`;
       renderArtifactView();
     }
   }
@@ -1272,6 +1330,7 @@
     const prTotal = prsInfo.totalCount ?? 0;
     const schedCount = act.scheduledCount ?? 0;
     const bgCount = act.backgroundJobs?.count ?? 0;
+    const runningTasks = act.runningTasksCount ?? ((act.backgroundJobs?.runningCount || 0) + schedCount);
     const tasksTotal = act.tasksTotalCount ?? (bgCount + schedCount);
     const artCount = act.artifactCount ?? 0;
 
@@ -1325,14 +1384,17 @@
       },
       {
         key: "later",
-        countText: String(tasksTotal),
-        label: tasksTotal === 1 ? "task" : "tasks",
+        countText: runningTasks > 0 ? `${runningTasks}/${tasksTotal}` : String(tasksTotal),
+        label: runningTasks > 0 ? "running" : tasksTotal === 1 ? "task" : "tasks",
         icon: "clock",
-        iconTone: schedCount > 0 ? "active" : "",
-        popTitle: "Background Tasks & Schedules",
-        popStatus: schedCount > 0 ? `${schedCount} scheduled` : `${bgCount} run`,
-        popMode: schedCount > 0 ? "active" : "",
-        popDesc: `${bgCount} background task${bgCount === 1 ? "" : "s"} and ${schedCount} active schedule${schedCount === 1 ? "" : "s"}. Click to inspect.`,
+        iconTone: runningTasks > 0 ? "active" : "",
+        popTitle: "Background Tasks",
+        popStatus: runningTasks > 0 ? `${runningTasks} running` : `${tasksTotal} total`,
+        popMode: runningTasks > 0 ? "active" : tasksTotal > 0 ? "done" : "",
+        popDesc:
+          tasksTotal > 0
+            ? `${bgCount} background task${bgCount === 1 ? "" : "s"}${schedCount > 0 ? ` (${schedCount} scheduled)` : ""}. Click to scroll and open task logs.`
+            : "No background tasks or active schedules in this conversation yet.",
       },
     ];
     for (const f of focusDefs) {
@@ -1388,12 +1450,48 @@
     }
 
     if (state.solo === "art") {
+      const box = el("div", "focus-drawer");
+      box.dataset.testid = "focus-drawer-artifacts";
       const fileArtifacts = (snap.stages || []).flatMap((s) => (s.artifacts || []).filter((a) => a.kind !== "pr"));
-      if (fileArtifacts.length > 0) {
-        container.replaceChildren(buildArtifactButtons(fileArtifacts));
+      if (fileArtifacts.length === 0) {
+        box.appendChild(el("p", "focus-empty", "No file artifacts generated in this conversation yet."));
       } else {
-        container.replaceChildren(el("p", "focus-empty", "No file artifacts generated in this conversation yet."));
+        const ul = el("ul", "sub-accordion-list focus-drawer-list");
+        for (const art of fileArtifacts) {
+          const li = el("li", "drawer-item-row");
+          const btn = el("button", "drawer-select-btn");
+          btn.type = "button";
+          const ic = svgIcon("diamond", 10);
+          if (art.status === "updating") {
+            ic.classList.add("pulse");
+            ic.style.color = "var(--tl-primary)";
+          } else if (art.status === "stale") {
+            ic.style.color = "var(--tl-warning)";
+          } else {
+            ic.style.color = "var(--tl-done)";
+          }
+          btn.appendChild(ic);
+          btn.appendChild(el("span", "drawer-item-title", art.label || art.name));
+          if (art.badge) {
+            btn.appendChild(el("span", `artifact-badge ${art.status || ""}`, art.badge));
+          }
+          const chev = svgIcon("chevron", 11);
+          chev.classList.add("drawer-item-chev");
+          btn.appendChild(chev);
+          btn.addEventListener("mouseenter", () => scene?.setHighlight("art", art.key || art.id));
+          btn.addEventListener("mouseleave", () => scene?.setHighlight("art", null));
+          btn.addEventListener("focus", () => scene?.setHighlight("art", art.key || art.id));
+          btn.addEventListener("blur", () => scene?.setHighlight("art", null));
+          btn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            openArtifact(art, btn);
+          });
+          li.appendChild(btn);
+          ul.appendChild(li);
+        }
+        box.appendChild(ul);
       }
+      container.replaceChildren(box);
       container.classList.remove("hidden");
       return;
     }
@@ -1493,9 +1591,10 @@
     if (state.solo === "later") {
       const box = el("div", "focus-drawer");
       box.dataset.testid = "focus-drawer-tasks";
-      const activeScheds = (act.schedules || []).filter((s) => s.active);
-      const activeAutos = (act.automations || []).filter((a) => a.active);
       const bgItems = act.backgroundJobs?.items || [];
+      const bgTaskIds = new Set(bgItems.map((j) => j.taskId).filter(Boolean));
+      const activeScheds = (act.schedules || []).filter((s) => s.active && (!s.taskId || !bgTaskIds.has(s.taskId)));
+      const activeAutos = (act.automations || []).filter((a) => a.active);
       if (activeScheds.length === 0 && activeAutos.length === 0 && bgItems.length === 0) {
         box.appendChild(el("p", "focus-empty", "No background tasks or active schedules yet."));
       } else {
@@ -1525,19 +1624,47 @@
           li.appendChild(el("span", "sub-row-stat active", a.cadence || "on"));
           ul.appendChild(li);
         }
-        for (const job of bgItems.slice(-8).reverse()) {
-          const li = el("li", "sub-row");
+        for (const job of [...bgItems].reverse()) {
+          const li = el("li", "drawer-item-row task-item-row");
+          const btn = el("button", "drawer-select-btn");
+          btn.type = "button";
+          const title = job.title || job.summary || job.taskSlug || "Task";
+          btn.title = job.command ? `${title}\n${job.command}` : title;
           const dw = el("span", "sub-row-dot-wrap");
-          if (job.isDaemon) {
+          if (job.status === "running") {
             dw.appendChild(el("span", "sub-row-dot active"));
+          } else if (job.status === "stopped") {
+            const stIc = svgIcon("stop", 11);
+            stIc.style.color = "var(--tl-fg-muted)";
+            dw.appendChild(stIc);
+          } else if (job.status === "failed") {
+            const failIc = svgIcon("warn", 11);
+            failIc.style.color = "var(--tl-error)";
+            dw.appendChild(failIc);
           } else {
             const chk = svgIcon("check-sm", 10);
             chk.style.color = "var(--tl-done)";
             dw.appendChild(chk);
           }
-          li.appendChild(dw);
-          li.appendChild(el("span", "sub-row-name", job.isDaemon ? "daemon" : "task"));
-          li.appendChild(el("span", "sub-row-task", job.summary));
+          btn.appendChild(dw);
+          btn.appendChild(el("span", "drawer-item-title", title));
+          if (job.startedAt) {
+            const timerEl = el("span", "sub-row-timer", formatElapsedText(job.startedAt, job.completedAt));
+            if (job.status === "running") {
+              timerEl.dataset.timerKind = "elapsed";
+              timerEl.dataset.startedAt = job.startedAt;
+            }
+            btn.appendChild(timerEl);
+          }
+          const chev = svgIcon("chevron", 10);
+          chev.classList.add("drawer-item-chev");
+          btn.appendChild(chev);
+          btn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            openTaskLog(job, btn);
+          });
+          li.appendChild(btn);
+          appendAskButton(li, `What happened in background task "${title}"?`, `Ask /btw about ${title}`);
           ul.appendChild(li);
         }
         box.appendChild(ul);

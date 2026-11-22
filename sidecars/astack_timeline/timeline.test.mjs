@@ -1460,3 +1460,89 @@ test("tracks multi-PR states separately from file artifacts, exposes total agent
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("counts only genuine Antigravity background tasks with toolSummary titles and ignores synchronous commands", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-bgtasks-");
+  const convId = "conv-bgtasks";
+  try {
+    writeText(path.join(brainDir, convId, ".system_generated", "tasks", "task-2.log"), "suite output\n");
+    writeText(path.join(brainDir, convId, ".system_generated", "tasks", "task-4.log"), "server started\n");
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-21T12:00:00Z",
+        tool_calls: [
+          { name: "write_file", args: { Path: "src/index.mjs" } },
+          { name: "run_command", args: { CommandLine: "node --run test", toolSummary: "Run full Node test suite" } },
+          { name: "run_command", args: { CommandLine: "node --check src/index.mjs", toolSummary: "Syntax check" } },
+        ],
+      },
+      {
+        step_index: 1,
+        type: "GENERIC",
+        created_at: "2026-11-21T12:00:01Z",
+        content: "Created file.",
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        created_at: "2026-11-21T12:00:02Z",
+        content: `Created At: 2026-11-21T12:00:02Z\nTool is running as a background task with task id: ${convId}/task-2\nTask Description: node --run test`,
+      },
+      {
+        step_index: 3,
+        type: "GENERIC",
+        created_at: "2026-11-21T12:00:03Z",
+        content: `Created At: 2026-11-21T12:00:03Z\nCompleted At: 2026-11-21T12:00:03Z\nCommand output:\nTool is running as a background task with task id: ${convId}/task-999`,
+      },
+      {
+        step_index: 4,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-21T12:00:10Z",
+        tool_calls: [
+          { name: "run_command", args: { CommandLine: "node server.mjs", IsDaemon: true, toolSummary: "Start preview server" } },
+        ],
+      },
+      {
+        step_index: 5,
+        type: "GENERIC",
+        created_at: "2026-11-21T12:00:11Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-4\n`,
+      },
+      {
+        step_index: 6,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-21T12:00:25Z",
+        content: `[Message] sender=${convId}/task-2 content=Task id "${convId}/task-2" finished with result:\nCommand exited with code 0.`,
+      },
+      {
+        step_index: 7,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-21T12:00:30Z",
+        tool_calls: [{ name: "manage_task", args: { Action: "kill", TaskId: `${convId}/task-4` } }],
+      },
+      {
+        step_index: 8,
+        type: "GENERIC",
+        created_at: "2026-11-21T12:00:31Z",
+        content: `Task "${convId}/task-4" cancelled.`,
+      },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(snap.activity.backgroundJobs.count, 2, "Only real background tasks count; sync commands and stdout echoes excluded");
+    assert.equal(snap.activity.tasksTotalCount, 2);
+    assert.equal(snap.activity.runningTasksCount, 0);
+    assert.deepEqual(
+      snap.activity.backgroundJobs.items.map((j) => ({ slug: j.taskSlug, title: j.title, status: j.status, log: j.logFile })),
+      [
+        { slug: "task-2", title: "Run full Node test suite", status: "done", log: "task-2.log" },
+        { slug: "task-4", title: "Start preview server", status: "stopped", log: "task-4.log" },
+      ],
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
