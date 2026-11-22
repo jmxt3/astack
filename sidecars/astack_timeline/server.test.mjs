@@ -558,3 +558,40 @@ test("createTimelineServer caches async PR status enrichment and returns open/me
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("createTimelineServer serves selectable task logs safely and exposes vertical scrollable drawers without truncation", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-tasklog-"));
+  const brainDir = path.join(root, "brain");
+  const workspaceDir = path.join(root, "repo");
+  const convId = "44444444-5555-6666-7777-888888888888";
+
+  writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+  writeText(path.join(brainDir, convId, ".system_generated", "tasks", "task-42.log"), "TAP version 13\nok 1 - suite passed\n");
+
+  const srv = await createTimelineServer({ brainDir, workspaceDir, port: 0 });
+  try {
+    const okRes = await fetch(`${srv.url}api/artifact?conversationId=${convId}&taskLog=task-42.log`);
+    assert.equal(okRes.status, 200);
+    const payload = await okRes.json();
+    assert.equal(payload.kind, "text");
+    assert.match(payload.content, /ok 1 - suite passed/);
+
+    const badRes = await fetch(`${srv.url}api/artifact?conversationId=${convId}&taskLog=../secret.txt`);
+    assert.equal(badRes.status, 400);
+
+    const missingRes = await fetch(`${srv.url}api/artifact?conversationId=${convId}&taskLog=task-999.log`);
+    assert.equal(missingRes.status, 404);
+
+    const [appJs, cssText] = await Promise.all([
+      (await fetch(`${srv.url}app.js`)).text(),
+      (await fetch(`${srv.url}styles.css`)).text(),
+    ]);
+    assert.match(appJs, /focus-drawer-artifacts/);
+    assert.match(appJs, /openTaskLog\(/);
+    assert.doesNotMatch(appJs, /bgItems\.slice\(-8\)/);
+    assert.match(cssText, /\.focus-drawer-list[\s\S]*overflow-y:\s*auto/);
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
