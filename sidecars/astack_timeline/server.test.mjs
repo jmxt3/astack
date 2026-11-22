@@ -582,14 +582,18 @@ test("createTimelineServer serves selectable task logs safely and exposes vertic
     const missingRes = await fetch(`${srv.url}api/artifact?conversationId=${convId}&taskLog=task-999.log`);
     assert.equal(missingRes.status, 404);
 
-    const [appJs, cssText] = await Promise.all([
+    const [appJs, cssText, sceneJs] = await Promise.all([
       (await fetch(`${srv.url}app.js`)).text(),
       (await fetch(`${srv.url}styles.css`)).text(),
+      (await fetch(`${srv.url}scene-3d.js`)).text(),
     ]);
     assert.match(appJs, /focus-drawer-artifacts/);
     assert.match(appJs, /openTaskLog\(/);
     assert.doesNotMatch(appJs, /bgItems\.slice\(-8\)/);
     assert.match(cssText, /\.focus-drawer-list[\s\S]*overflow-y:\s*auto/);
+    assert.match(sceneJs, /merged:\s*new T\.Color\("#a855f7"\)/);
+    assert.match(sceneJs, /prMergedEdges/);
+    assert.match(sceneJs, /prOpenEdges/);
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });
