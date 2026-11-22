@@ -31,12 +31,13 @@ This prints the `ASTACK` ASCII initiation banner and inspects the workspace read
 Always open your first visible chat message to the user with the `ASTACK` initiation banner inside a fenced ```` ```text ```` code block (verbatim from `setup-banner.mjs` stdout; if Node cannot run, render the same layout below):
 
 ```text
- █████╗ ███████╗████████╗ █████╗  ██████╗██╗  ██╗
-██╔══██╗██╔════╝╚══██╔══╝██╔══██╗██╔════╝██║ ██╔╝
-███████║███████╗   ██║   ███████║██║     █████╔╝
-██╔══██║╚════██║   ██║   ██╔══██║██║     ██╔═██╗
-██║  ██║███████║   ██║   ██║  ██║╚██████╗██║  ██╗
-╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝
+                    ▄▄                      ██
+  ▄▄▄▄     ▄▄▄▄   ▄▄██▄▄   ▄▄▄▄     ▄▄▄▄    ██     ▄▄
+ ██▀ ▀██ ▄█▀  ▀█▄ ▀▀██▀▀  ██▀ ▀██ ▄█▀  ▀█▄  ██   ▄█▀
+  ▄▄▄▄██ ▀█▄▄▄▄     ██     ▄▄▄▄██ ██        ██ ▄█▀
+▄█▀▀  ██    ▀▀▀█▄   ██   ▄█▀▀  ██ ██        ██▀██▄
+██   ▄██ ██    ██   ██   ██   ▄██ ██    ██  ██  ▀██▄
+ ▀███▀██  ▀█▄▄█▀    ▀███  ▀███▀██  ▀█▄▄█▀   ██    ▀██
 GOOGLE ANTIGRAVITY · PLAN · BUILD · PROVE IT WORKS
 > /setup-astack initiated · workspace: <name>
   verify skills : <detected or none>

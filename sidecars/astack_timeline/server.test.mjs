@@ -72,6 +72,12 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     assert.match(htmlText, /data-testid="artifact-view"/);
     assert.doesNotMatch(htmlText, /id="next-bar"|data-testid="timeline-next"/);
 
+    const logoRes = await fetch(`${srv.url}logo.svg`);
+    assert.equal(logoRes.status, 200);
+    assert.match(logoRes.headers.get("content-type") ?? "", /image\/svg\+xml/);
+    const logoText = await logoRes.text();
+    assert.match(logoText, /astack app icon \(dark\)/);
+
     const cssRes = await fetch(`${srv.url}styles.css`);
     assert.equal(cssRes.status, 200);
     assert.match(cssRes.headers.get("content-type") ?? "", /text\/css/);
