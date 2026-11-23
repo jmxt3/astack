@@ -708,7 +708,7 @@ node skills/astack-mode/scripts/worktree-audit.mjs -b origin/main --json
 - **`/plugin` (`load` mode).** Loads Antigravity's built-in plugin management workflow to inspect, install, or package plugins.
 - **`/generative_ui` (`load` mode, App only).** Renders interactive HTML widgets inside App chat for `/arena` scorecards, `/show-me-your-work` timelines, `/ketchup` charts, or `/security-audit` posture summaries (falling back cleanly to Markdown or Mermaid in CLI sessions).
 - **`/antigravity-guide` (`load` mode).** Loads Antigravity's official reference for CLI flags, headless `agy -p` CI runners, Remote Agents, and App configuration.
-- **`node scripts/upstream-watch.mjs`.** Read-only upstream monitor diffing `pstack`, `gstack`, or `security-audit-skill` commits against [`scripts/upstream-watch.json`](../scripts/upstream-watch.json), refusing to write inside the repository (`exit 2` on internal `--out`) and emitting JSON reports to external paths (`--out <external-path>`).
+- **`node scripts/upstream-watch.mjs`.** Read-only upstream monitor diffing watched upstream repository commits configured in [`scripts/upstream-watch.json`](../scripts/upstream-watch.json), refusing to write inside the repository (`exit 2` on internal `--out`) and emitting JSON reports to external paths (`--out <external-path>`).
 
 ---
 
@@ -760,7 +760,7 @@ When `/astack-mode` applies a principle, read its leaf `SKILL.md` first and cite
 Every bundled CLI below supports `-h` / `--help` with exit code `0` and zero module-type warnings:
 
 1. [`scripts/validate-astack.mjs`](../scripts/validate-astack.mjs) validates the plugin manifest, frontmatter, links, leaks, and native-commands sync.
-2. [`scripts/upstream-watch.mjs`](../scripts/upstream-watch.mjs) checks upstream diffs for `pstack`, `gstack`, and `security-audit-skill` read-only.
+2. [`scripts/upstream-watch.mjs`](../scripts/upstream-watch.mjs) checks watched upstream repository diffs read-only against [`scripts/upstream-watch.json`](../scripts/upstream-watch.json).
 3. [`scripts/eval/run-eval.mjs`](../scripts/eval/run-eval.mjs) runs offline routing-intent and schema-validation fixture checks.
 4. [`skills/setup-astack/scripts/setup-banner.mjs`](../skills/setup-astack/scripts/setup-banner.mjs) renders the onboarding banner and runs `--doctor --json` workspace diagnostics.
 5. [`skills/astack-mode/scripts/check-plan.mjs`](../skills/astack-mode/scripts/check-plan.mjs) checks multi-PR plan files against required `multi-phase-plan.md` sections and gates.

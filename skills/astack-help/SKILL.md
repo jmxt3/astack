@@ -5,7 +5,7 @@ description: Guides users through AStack setup, /astack-mode, Antigravity Subage
 
 # AStack Help
 
-Answer the user's question about AStack (João Machete's verification-first Google Antigravity stack built on Lauren Tan's `@poteto` `pstack` and inspired by Garry Tan's `@garrytan` `gstack`; see [CREDITS.md](../../CREDITS.md)), give them a copyable prompt, and link the local skill or guide file that backs it. For a help question, stop after answering instead of executing the task.
+Answer the user's question about AStack (a verification-first engineering plugin for Google Antigravity), give them a copyable prompt, and link the local skill or guide file that backs it. For a help question, stop after answering instead of executing the task.
 
 If the user asks a general Antigravity question (CLI flags, headless CI `agy -p`, App settings, Remote Agents, SDK, or MCP setup) rather than an AStack workflow question, load Antigravity's built-in `antigravity-guide` skill (`load` mode) directly.
 
@@ -99,7 +99,7 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 ## Playbooks, principles & built-in commands
 
 - **Playbooks** are step checklists inside `skills/astack-mode/playbooks/` ("babysit this PR", "land the stack", "take over this branch", "pause safely", "full autopilot").
-- **24 Principles** (`principle-*`) encode Lauren Tan's core engineering bar (`principle-prove-it-works`, `principle-laziness-protocol`, `principle-fix-root-causes`, etc.). See [Guide 08: Principles](../../docs/guide/08-principles.md).
+- **24 Principles** (`principle-*`) encode AStack's core engineering bar (`principle-prove-it-works`, `principle-laziness-protocol`, `principle-fix-root-causes`, etc.). See [Guide 08: Principles](../../docs/guide/08-principles.md).
 - **All 16 Native Antigravity Commands:** Complete mapping across `run`, `load`, `contract`, and `recommend` modes lives in [`native-commands.md`](../astack-mode/references/native-commands.md) and [`plan-contract.md`](../astack-mode/references/plan-contract.md). None of `/swarm`, `/run-workflow`, `/boost`, `/teamwork`, `/goal`, `/plan`, `/grill-me`, `/learn`, `/agy-customizations`, `/plugin`, `/automation`, `/schedule`, `/browser`, `/btw`, `/generative_ui`, or `/antigravity-guide` are shadowed.
 
 ## Fix a run that went wrong

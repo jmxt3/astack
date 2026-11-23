@@ -3,13 +3,13 @@ trigger: model_decision
 description: >-
   Routing guidance when the user asks for rigorous engineering workflows,
   opening or updating pull requests with statecharts and verification proof,
-  AStack/PStack playbooks, empirical verification harnesses ("Control Glass"),
+  AStack playbooks, empirical verification harnesses ("Control Glass"),
   or choosing between Subagents, /boost, /swarm, and /teamwork.
 ---
 
 # AStack Orchestration Guidance
 
-AStack is João Machete's verification-first engineering plugin for Google Antigravity, built on Lauren Tan's (`@poteto`) `pstack` and inspired by Garry Tan's (`@garrytan`) `gstack`.
+AStack is a verification-first engineering plugin for Google Antigravity.
 
 When the user asks for engineering rigor, opening or updating a pull request, debugging with evidence, performance hillclimbing, multi-agent code bakeoffs, verification skills, planning before coding, or invokes `/astack-mode`:
 

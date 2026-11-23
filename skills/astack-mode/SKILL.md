@@ -1,6 +1,6 @@
 ---
 name: astack-mode
-description: Verification-first engineering mode for Google Antigravity: concise replies, deliberate Antigravity Subagents and Swarms, unslopped prose, simple code, and empirically proven work. Built on pstack (@poteto) and inspired by gstack (@garrytan). Use for /astack-mode or requests to prove changes before reporting done.
+description: Verification-first engineering mode for Google Antigravity: concise replies, deliberate Antigravity Subagents and Swarms, unslopped prose, simple code, and empirically proven work. Use for /astack-mode or requests to prove changes before reporting done.
 disable-model-invocation: true
 ---
 

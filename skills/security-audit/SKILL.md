@@ -1,6 +1,6 @@
 ---
 name: security-audit
-description: Coverage-led security guidance, PR-diff boundary checks, and 6-phase vulnerability audits for codebases, APIs, CLIs, libraries, AI/LLM tools, and daemons. Adapted from cloudflare/security-audit-skill for Antigravity. Use for security audits, threat models, vulnerability hunting, or PR security reviews.
+description: Coverage-led security guidance, PR-diff boundary checks, and 6-phase vulnerability audits for codebases, APIs, CLIs, libraries, AI/LLM tools, and daemons. Use for security audits, threat models, vulnerability hunting, or PR security reviews.
 license: MIT
 ---
 
@@ -44,7 +44,7 @@ In full audit mode, resolve these before Phase 1:
 
 - **Skill directory**: Absolute directory containing this `SKILL.md`.
 - **Target**: Absolute repository root under review.
-- **Output directory**: New writable directory outside the target, defaulting to `path.join(os.homedir(), "security-audit-skill", repoName, "run-<N>")` where `<N>` is the next unused integer. Write inside the target repository only when the user explicitly selects a path verified to be gitignored.
+- **Output directory**: New writable directory outside the target, defaulting to `path.join(os.homedir(), "astack-security-audit", repoName, "run-<N>")` where `<N>` is the next unused integer. Write inside the target repository only when the user explicitly selects a path verified to be gitignored.
 - **Source ref**: Checked-out commit SHA and whether the worktree is dirty.
 
 The parent is the sole writer of shared root files (`run-metadata.json`, `architecture.md`, `coverage-ledger.json`, `findings.json`, `REPORT.md`, `FINDINGS-DETAIL.md`, `NEEDS-VALIDATION.md`). Each hunter or verifier receives `<output-dir>/agents/<agent-id>/` with writable `scratch/` and parent-owned `artifacts/`. Canonical IDs match `^[a-z0-9][a-z0-9_-]{0,63}$` and must not equal Windows reserved names (`con`, `prn`, `aux`, `nul`, `com1`–`com9`, `lpt1`–`lpt9`). Never fall back to `/tmp` or host `$HOME` as target scratch.

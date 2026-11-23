@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Setup AStack
 
-Interactive workspace onboarding for AStack (`astack`), João Machete's verification-first Google Antigravity engineering stack built on Lauren Tan's (`@poteto`) `pstack` and inspired by Garry Tan's (`@garrytan`) `gstack`, integrated natively with `invoke_subagent`, `/boost`, `/swarm`, `/teamwork`, `/goal`, and `/schedule`.
+Interactive workspace onboarding for AStack (`astack`), a verification-first engineering plugin for Google Antigravity integrated natively with `invoke_subagent`, `/boost`, `/swarm`, `/teamwork`, `/goal`, and `/schedule`.
 
 AStack is zero-config for models by default. Subagents (`invoke_subagent`) and `/swarm` workers omit model overrides so they inherit whatever model you picked in Antigravity's UI selector, including **Orchestrator**, effort controls, and newly launched weekly models, while `/arena` discovers cross-family models live at runtime via `swarm{action: "models", all: true}`. Setup focuses on giving agents empirical verification and safety guardrails for this repository.
 

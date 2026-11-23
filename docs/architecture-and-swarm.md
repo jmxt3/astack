@@ -1,7 +1,6 @@
 # AStack Architecture & Antigravity Mode Integration
 
-**Author & Maintainer:** **João Machete** ([`@jmxt3`](https://github.com/jmxt3))  
-**Foundations & Inspiration:** Built on **Lauren Tan (`@poteto`)**'s [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) (MIT License) and inspired by **Garry Tan (`@garrytan`)**'s [`gstack`](https://github.com/garrytan/gstack) (MIT License, conceptual inspiration with no code copied). See [CREDITS.md](../CREDITS.md).
+**Author & Maintainer:** **João Machete** ([`@jmxt3`](https://github.com/jmxt3))
 
 AStack provides a verification-first engineering environment (Control Glass verification skills, materialized feature maps, engineering playbooks, and anti-slop discipline) built natively for **Google Antigravity**, pairing it with **Orchestrator** (dynamic bidirectional model routing), `Subagents`, all 16 native Antigravity slash commands ([`native-commands.md`](../skills/astack-mode/references/native-commands.md), including `/plan`, `/grill-me`, `/learn`, `/boost`, `/swarm`, `/teamwork`, `/run-workflow`, `/goal`, `/schedule`, `/automation`, `/browser`), and opt-in lifecycle hooks.
 
@@ -111,9 +110,9 @@ AStack centralizes Antigravity wire normalization, per-actor receipt logging, po
 
 AStack includes [`docs/automations/beacon/`](./automations/beacon/README.md), [`docs/automations/pr-triage/`](./automations/pr-triage/README.md), and [`docs/automations/weekly-correct/`](./automations/weekly-correct/README.md), dormant automation templates adapted to Antigravity `/automation` (`sidecar.json` + `CRON_TZ=` + `agentapi`), **Remote Agents** (`agy --remote-agent`), headless `agy -p` runners, and `/schedule`.
 
-## Lineage: What AStack Kept, Adapted, and Built Natively
+## Native Antigravity Component Map
 
-| Lineage / Concept | AStack Antigravity Equivalent | Notes |
+| Capability | AStack Antigravity Implementation | Notes |
 |---|---|---|
 | Plugin manifest and lifecycle hooks | [`plugin.json`](../plugin.json) + opt-in [`hooks.json`](../hooks.json) | Verified by [`validate-astack.mjs`](../scripts/validate-astack.mjs) and `agy plugin validate --strict` |
 | Mode router, help, and repo setup | [`/astack-mode`](../skills/astack-mode/SKILL.md), [`/astack-help`](../skills/astack-help/SKILL.md), [`/setup-astack`](../skills/setup-astack/SKILL.md) | `SKILL.md` allows `name`, `description`, `disable-model-invocation` (`34` manual-only / `29` auto-invocable), `license`, `compatibility`; body `<= 24,000` bytes; `astack-agent` inherits context and `comment-sicko` sets `inheritCustomizations: false` |

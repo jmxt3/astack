@@ -1,6 +1,6 @@
 # Antigravity Multi-Agent Orchestration & Swarm Coordination
 
-AStack adapts Lauren Tan's (`@poteto`) high-trust `pstack` workflows natively to Google Antigravity's orchestration tiers and native slash commands ([native-commands.md](./native-commands.md)).
+AStack integrates its verification-first workflows natively with Google Antigravity's orchestration tiers and native slash commands ([native-commands.md](./native-commands.md)).
 
 ## 1. Choose the Right Execution Tier
 
@@ -21,7 +21,7 @@ AStack adapts Lauren Tan's (`@poteto`) high-trust `pstack` workflows natively to
 
 ## 3. Native `/swarm` Coordinator Contract
 
-AStack deliberately renames `pstack`'s lightweight parallel runner to [`/fanout`](../../fanout/SKILL.md) (`skills/fanout/`) so Antigravity's built-in `/swarm` is never shadowed. When running a native Swarm:
+AStack names its lightweight parallel subagent runner [`/fanout`](../../fanout/SKILL.md) (`skills/fanout/`) so Antigravity's built-in `/swarm` is never shadowed. When running a native Swarm:
 
 1. **Name & structure the board**:
    - Call `swarm{action: "title", title: "<short descriptive title>"}`.
