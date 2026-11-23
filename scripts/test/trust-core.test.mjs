@@ -604,6 +604,39 @@ test("recordReceipt and computeFreshness ignore brain artifact and out-of-worksp
     );
     assert.ok(worktreeReceipt, "Legitimate writes inside ~/.gemini/antigravity/worktrees/... must still record receipts");
     assert.deepEqual(worktreeReceipt.paths, ["src/app.js"]);
+
+    const linkedWtDir = path.join(artifactDir, "linked-wt");
+    const wtGitMeta = path.join(repo, ".git", "worktrees", "linked-wt");
+    fs.mkdirSync(wtGitMeta, { recursive: true });
+    fs.writeFileSync(path.join(wtGitMeta, "HEAD"), `${head}\n`, "utf8");
+    fs.writeFileSync(path.join(wtGitMeta, "commondir"), "../..\n", "utf8");
+    fs.mkdirSync(path.join(linkedWtDir, "src"), { recursive: true });
+    fs.writeFileSync(path.join(linkedWtDir, ".git"), `gitdir: ${wtGitMeta}\n`, "utf8");
+    const linkedWtReceipt = recordReceipt(
+      {
+        kind: "tool-write",
+        conversationId: "conv-linked-wt",
+        tool: "edit_file",
+        filePath: path.join(linkedWtDir, "src", "fix.js"),
+        workspaceDir: repo,
+      },
+      { trustDir, headSha: head, now: "2026-11-20T10:02:04Z" },
+    );
+    assert.ok(linkedWtReceipt, "Writes inside a linked git worktree sharing commonDir with workspaceDir must record receipts");
+
+    assert.equal(
+      recordReceipt(
+        {
+          kind: "tool-write",
+          conversationId: "conv-1",
+          tool: "write_file",
+          filePath: path.join(os.homedir(), ".gemini", "jetski", "brain", "conv-1", "walkthrough.md"),
+          workspaceDir: repo,
+        },
+        { trustDir, now: "2026-11-20T10:02:05Z" },
+      ),
+      null,
+    );
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });

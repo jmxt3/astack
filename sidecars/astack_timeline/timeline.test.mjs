@@ -1546,3 +1546,228 @@ test("counts only genuine Antigravity background tasks with toolSummary titles a
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("clears Plan gate and unmutes Build & Prove when downstream walkthrough, PR review, or shipping already occurred", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-downstream-");
+  const convId = "conv-downstream-pr-iter";
+  const verifierChildId = "55555555-5555-4555-8555-555555555555";
+  try {
+    const headSha = "0123456789abcdef0123456789abcdef01234567";
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+    writeText(path.join(brainDir, convId, "implementation_plan.md"), "# Plan\n");
+    writeText(path.join(brainDir, convId, "walkthrough.md"), "# Walkthrough\n");
+    writeTranscript(brainDir, verifierChildId, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-22T10:03:00Z", content: "Looks good." },
+    ]);
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-22T10:00:00Z",
+        content: "<USER_REQUEST>/plan /grill-me build auth contract</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-22T10:01:00Z",
+        tool_calls: [
+          { name: "read_file", args: { Path: "/plugin/skills/how/SKILL.md" } },
+          { name: "read_file", args: { Path: "/plugin/skills/why/SKILL.md" } },
+          { name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "Verifier", Prompt: "Check PR" } },
+        ],
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        created_at: "2026-11-22T10:01:05Z",
+        content: JSON.stringify({ conversationId: verifierChildId }),
+      },
+      {
+        step_index: 3,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-22T10:04:00Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: "git push origin feat/auth" } }],
+      },
+      {
+        step_index: 4,
+        type: "GENERIC",
+        created_at: "2026-11-22T10:04:05Z",
+        content: "https://github.com/acme/demo/pull/237\n",
+      },
+    ]);
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-22T10:03:30Z",
+        conversationId: convId,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.deepEqual(
+      snap.stages.map((s) => s.status),
+      ["done", "done", "done", "done"],
+      "Downstream walkthrough + verify + push must clear stale Plan gate, complete Build & Prove, and stop PR Review from spinning",
+    );
+    assert.equal(snap.workflowMode, "pr_iteration");
+    assert.equal(snap.workflowLabel, "PR iteration");
+    assert.equal(snap.liveLabel, "Live");
+    assert.equal(snap.activity.activeStageId, "ship");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("marks Plan and Build as Earlier in standalone PR review sessions and keeps post-ship re-review active", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-pr-only-");
+  const convId = "conv-pr-review-only";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-22T11:00:00Z",
+        content: "<USER_REQUEST>/review-pr check https://github.com/acme/demo/pull/237</USER_REQUEST>",
+      },
+    ]);
+
+    const reviewOnly = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(reviewOnly.stages[0].status, "skipped");
+    assert.equal(reviewOnly.stages[0].skippedReason, "earlier");
+    assert.equal(reviewOnly.stages[1].status, "skipped");
+    assert.equal(reviewOnly.stages[1].skippedReason, "earlier");
+    assert.equal(reviewOnly.stages[2].status, "active");
+    assert.equal(reviewOnly.workflowMode, "pr_review");
+    assert.equal(reviewOnly.workflowLabel, "PR review");
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-22T11:00:00Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: "git push origin feat/pr-237" } }],
+      },
+      {
+        step_index: 1,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-22T11:05:00Z",
+        content: "<USER_REQUEST>/review-pr re-verify after latest fix</USER_REQUEST>",
+      },
+    ]);
+    const postShipReview = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(postShipReview.stages[2].status, "active", "Re-running /review-pr after push must remain active");
+    assert.equal(postShipReview.workflowMode, "pr_iteration");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("detects edits in sibling git repos, linked worktrees, and cross-machine repo paths while ignoring brain and temp writes", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-multi-repo-");
+  const siblingRepo = path.join(root, "player-support-gaia");
+  const convId = "conv-multi-repo";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(siblingRepo, ".git", "HEAD"), "ref: refs/heads/feat/pr-237\n");
+    writeText(path.join(siblingRepo, "apps", "server", "src", "chat", "setup.ts"), "export const ok = true;\n");
+    writeText(path.join(brainDir, convId, "implementation_plan.md"), "# Plan\n");
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-22T12:00:00Z",
+        tool_calls: [{ name: "write_to_file", args: { TargetFile: path.join(brainDir, convId, "implementation_plan.md") } }],
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-22T12:01:00Z",
+        tool_calls: [
+          { name: "write_to_file", args: { TargetFile: "/Users/dev/.gemini/jetski/brain/conv-x/notes.md" } },
+          { name: "write_to_file", args: { TargetFile: "/tmp/scratch-note.txt" } },
+          { name: "write_to_file", args: { TargetFile: "../outside.js" } },
+        ],
+      },
+    ]);
+    const ignoredOnly = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(ignoredOnly.stages[0].status, "waiting_gate", "Brain/tmp/traversal writes must not clear Plan gate");
+    assert.equal(ignoredOnly.stages[1].status, "pending");
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-22T12:00:00Z",
+        tool_calls: [{ name: "write_to_file", args: { TargetFile: path.join(brainDir, convId, "implementation_plan.md") } }],
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-22T12:02:00Z",
+        tool_calls: [
+          { name: "replace_file_content", args: { TargetFile: path.join(siblingRepo, "apps", "server", "src", "chat", "setup.ts") } },
+          { name: "edit_file", args: { Path: "/Users/other-machine/dev/repo/src/client.ts" } },
+        ],
+      },
+    ]);
+    const crossRepoSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(crossRepoSnap.stages[0].status, "done", "Sibling repo or cross-machine edits after plan must mark Plan done");
+    assert.equal(crossRepoSnap.stages[1].status, "active", "Sibling repo or cross-machine edits must activate Build & Prove");
+    assert.equal(crossRepoSnap.activity.changedFilesCount, 2);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("keeps a brand-new /plan written after earlier shipped work in waiting_gate", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-replan-");
+  const convId = "conv-replan";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(brainDir, convId, "implementation_plan.md"), "# Plan 2\n");
+    writeText(path.join(brainDir, convId, "walkthrough.md"), "# Walkthrough 1\n");
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-22T10:00:00Z",
+        tool_calls: [
+          { name: "write_to_file", args: { TargetFile: path.join(brainDir, convId, "walkthrough.md") } },
+          { name: "run_command", args: { CommandLine: "git push origin feat/task-1" } },
+        ],
+      },
+      {
+        step_index: 1,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-22T10:10:00Z",
+        content: "<USER_REQUEST>/plan design task 2</USER_REQUEST>",
+      },
+      {
+        step_index: 2,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-22T10:11:00Z",
+        tool_calls: [{ name: "write_to_file", args: { TargetFile: path.join(brainDir, convId, "implementation_plan.md") } }],
+      },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(snap.stages[0].status, "waiting_gate", "New plan written after prior shipping must pause at review checkpoint");
+    assert.equal(snap.liveLabel, "Review");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

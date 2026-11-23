@@ -205,7 +205,26 @@ function redactSummary(text) {
 }
 
 const EXTERNAL_ARTIFACT_PATH_RE = /(?:^|\/)(?:\.gemini|\.system_generated)(?:\/|$)/i;
-const BRAIN_OR_GENERATED_RE = /(?:^|\/)(?:\.gemini\/antigravity(?:-cli)?\/brain|\.system_generated)(?:\/|$)/i;
+const BRAIN_OR_GENERATED_RE = /(?:^|\/)(?:\.gemini\/(?:antigravity(?:-cli)?|jetski)\/brain|\.system_generated)(?:\/|$)/i;
+
+function isSameGitCommonRepo(workspaceDir, targetFile) {
+  if (!workspaceDir || !targetFile) return false;
+  try {
+    const wsDirs = resolveGitDirs(workspaceDir);
+    if (!wsDirs?.commonDir) return false;
+    let dir = path.dirname(targetFile);
+    while (dir && !fs.existsSync(dir)) {
+      const parent = path.dirname(dir);
+      if (parent === dir) return false;
+      dir = parent;
+    }
+    const targetDirs = resolveGitDirs(dir);
+    if (!targetDirs?.commonDir) return false;
+    return path.resolve(wsDirs.commonDir).toLowerCase() === path.resolve(targetDirs.commonDir).toLowerCase();
+  } catch {
+    return false;
+  }
+}
 
 function normalizeRelPath(workspaceDir, filePath) {
   if (!filePath) return "";
@@ -227,7 +246,12 @@ function isNonWorkspaceWritePath(filePath, { workspaceDir = "", artifactDir = ""
   }
   if (workspaceDir) {
     const rel = path.relative(path.resolve(workspaceDir), resolvedFile);
-    if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return true;
+    if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+      if (path.isAbsolute(filePath) && !EXTERNAL_ARTIFACT_PATH_RE.test(norm) && isSameGitCommonRepo(workspaceDir, resolvedFile)) {
+        return false;
+      }
+      return true;
+    }
     return EXTERNAL_ARTIFACT_PATH_RE.test(rel.replace(/\\/g, "/"));
   }
   return EXTERNAL_ARTIFACT_PATH_RE.test(norm);
