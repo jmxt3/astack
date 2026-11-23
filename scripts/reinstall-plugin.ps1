@@ -24,12 +24,20 @@ function Fail-Script {
 }
 
 function Invoke-Agy {
-  param([string[]]$Arguments)
+  param(
+    [string[]]$Arguments,
+    [switch]$Quiet
+  )
   $prevPref = $ErrorActionPreference
   try {
     $ErrorActionPreference = "Continue"
-    & agy @Arguments
-    return $LASTEXITCODE
+    $global:LASTEXITCODE = 0
+    if ($Quiet) {
+      & agy @Arguments 2>&1 | Out-Null
+    } else {
+      & agy @Arguments | Out-Host
+    }
+    return [int]$LASTEXITCODE
   } finally {
     $ErrorActionPreference = $prevPref
   }
@@ -108,7 +116,7 @@ $closedAntigravity = $false
 
 Write-Host "[1/3] Stopping plugin processes and uninstalling $PluginName..."
 Stop-LockingProcesses -PluginDir $InstalledDir
-$null = Invoke-Agy @("plugin", "uninstall", $PluginName)
+$null = Invoke-Agy @("plugin", "uninstall", $PluginName) -Quiet
 
 Write-Host "[2/3] Cleaning leftover directory $InstalledDir..."
 if (Test-Path -LiteralPath $InstalledDir) {
