@@ -60,6 +60,28 @@ const CURSOR_LEAK_PATTERNS = [
   { id: "legacy-automation-name", regex: /\bbenn[y]\b/gi },
 ];
 
+const INSPIRATION_LEAK_PATTERNS = [
+  { id: "inspiration-lauren-tan", regex: /\b(?:lauren|laura)\s+tan\b/gi },
+  { id: "inspiration-garry-tan", regex: /\b(?:garry|gary)\s+tan\b/gi },
+  { id: "inspiration-poteto", regex: /(?<![a-zA-Z0-9_])@?poteto\b/gi },
+  { id: "inspiration-garrytan", regex: /(?<![a-zA-Z0-9_])@?garrytan\b/gi },
+  { id: "inspiration-pstack", regex: /\bpstack\b/gi },
+  { id: "inspiration-gstack", regex: /\bgstack\b/gi },
+  { id: "inspiration-security-audit-skill", regex: /\b(?:cloudflare\/)?security-audit-skill\b/gi },
+];
+
+function checkInspirationLeaks(rel, content, errors) {
+  for (const { id, regex } of INSPIRATION_LEAK_PATTERNS) {
+    regex.lastIndex = 0;
+    if (regex.test(content)) {
+      errors.push({
+        file: rel,
+        message: `Inspiration reference leak matched (${id}); keep upstream attribution in README.md or CREDITS.md`,
+      });
+    }
+  }
+}
+
 const PRINCIPLE_REF_REGEX = /\b(principle-[a-z0-9][a-z0-9-]*)\b/g;
 
 function stripUrls(text) {
@@ -688,6 +710,9 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
         errors.push({ file: rel, message: `Cursor runtime leak matched (${id})` });
       }
     }
+    if (rel !== "README.md" && rel !== "CREDITS.md") {
+      checkInspirationLeaks(rel, content, errors);
+    }
 
     const seenUnknownPrinciples = new Set();
     PRINCIPLE_REF_REGEX.lastIndex = 0;
@@ -771,6 +796,27 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
       }
     } catch (err) {
       errors.push({ file: "mcp_config.json", message: `Invalid JSON: ${err.message}` });
+    }
+  }
+
+  const runtimeLeakTargets = [
+    "plugin.json",
+    "mcp_config.json",
+    "hooks.json",
+    "scripts/mcp/server.mjs",
+    "scripts/mcp/tools.mjs",
+  ];
+  if (fs.existsSync(sidecarsRoot)) {
+    for (const entry of fs.readdirSync(sidecarsRoot, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        runtimeLeakTargets.push(`sidecars/${entry.name}/sidecar.json`);
+      }
+    }
+  }
+  for (const rel of runtimeLeakTargets) {
+    const abs = path.join(rootDir, ...rel.split("/"));
+    if (fs.existsSync(abs)) {
+      checkInspirationLeaks(rel, fs.readFileSync(abs, "utf8"), errors);
     }
   }
 
