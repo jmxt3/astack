@@ -21,6 +21,7 @@
     toastTimer: null,
     popoverHideTimer: null,
     popoverAnchor: null,
+    progressPopover: null,
     pulsedTimers: new Set(),
   };
 
@@ -889,10 +890,12 @@
       }
       return { text: "Needs re-run", cls: "stale" };
     }
-    if (status === "waiting_gate") return { text: "Gate", cls: "waiting_gate" };
+    if (status === "waiting_gate") return { text: "Review", cls: "waiting_gate" };
     if (status === "error") return { text: "Escalated", cls: "error" };
     if (status === "next") return { text: "Next", cls: "next" };
-    if (status === "skipped") return { text: "Skipped", cls: "muted" };
+    if (status === "skipped") {
+      return { text: stage?.skippedReason === "earlier" ? "Earlier" : "Skipped", cls: "muted" };
+    }
     return null;
   }
 
@@ -1755,7 +1758,7 @@
     const act = snap?.activity || {};
     const focalStage = snap?.stages?.find((s) => s.id === act.activeStageId);
     const pillText = focalStage
-      ? `${focalStage.label} ${focalStage.status === "active" ? "running" : focalStage.status === "waiting_gate" ? "gate" : focalStage.status}`
+      ? `${focalStage.label} ${focalStage.status === "active" ? "running" : focalStage.status === "waiting_gate" ? "review" : focalStage.status}`
       : "Ready";
 
     const header = el("header", "delegate-header");
@@ -1950,7 +1953,43 @@
 
   function render(snap) {
     if (!snap) return;
-    document.getElementById("progress").textContent = `${snap.doneCount} / ${snap.totalCount}`;
+    const progressEl = document.getElementById("progress");
+    const WORKFLOW_MODE_COPY = {
+      pr_iteration: {
+        title: "PR Iteration",
+        status: "Advisory",
+        desc: "Iterating on an existing PR. Earlier stages are optional—jump straight to Build, PR Review, or Ship.",
+      },
+      pr_review: {
+        title: "PR Review",
+        status: "Advisory",
+        desc: "Reviewing an existing PR. Plan and Build are optional when work was completed earlier.",
+      },
+      direct_build: {
+        title: "Direct Flow",
+        status: "Advisory",
+        desc: "Jumped directly to implementation. Plan is optional and stages act as advisory checkpoints.",
+      },
+    };
+    const modeInfo = WORKFLOW_MODE_COPY[snap.workflowMode];
+    if (progressEl) {
+      if (snap.workflowLabel && modeInfo) {
+        progressEl.textContent = snap.workflowLabel;
+        progressEl.className = "progress is-mode";
+        state.progressPopover = { title: modeInfo.title, statusText: modeInfo.status, mode: "", desc: modeInfo.desc };
+      } else {
+        progressEl.textContent = `${snap.doneCount} / ${snap.totalCount}`;
+        progressEl.className = "progress";
+        state.progressPopover = {
+          title: "Advisory Workflow Guide",
+          statusText: `${snap.doneCount} / ${snap.totalCount}`,
+          mode: "",
+          desc: "Stages are advisory guidelines, not mandatory gates. Enter at any stage or skip steps already completed.",
+        };
+      }
+      progressEl.tabIndex = 0;
+      progressEl.title = state.progressPopover.desc;
+    }
     applyLiveStatus(snap);
 
     const RISK_TITLES = ["Low risk", "Medium risk", "High risk", "Critical risk"];
@@ -2074,9 +2113,10 @@
     if (!state.userToggled) {
       state.expanded.clear();
       const focus =
-        snap.stages.find((s) => s.status === "error" || s.status === "waiting_gate") ||
+        snap.stages.find((s) => s.status === "error") ||
         snap.stages.find((s) => s.status === "active") ||
-        snap.stages.find((s) => s.status === "stale");
+        snap.stages.find((s) => s.status === "stale") ||
+        snap.stages.find((s) => s.status === "waiting_gate");
       if (focus) state.expanded.add(focus.id);
     }
 
@@ -2110,7 +2150,7 @@
         const stemCls =
           stage.status === "active"
             ? "stem flow"
-            : stage.status === "done" || stage.status === "skipped"
+            : stage.status === "done"
               ? "stem done"
               : "stem";
         const stem = el("span", stemCls);
@@ -2134,8 +2174,8 @@
       const stLabel = stageStatusLabel(stage.status, stage);
       if (stLabel) {
         stepBtn.appendChild(el("span", `status-text ${stLabel.cls}`, stLabel.text));
-      } else if (stage.gate === "GATE" && stage.status === "pending") {
-        stepBtn.appendChild(el("span", "status-text muted", "Gate"));
+      } else if (stage.id === "plan" && stage.status === "pending") {
+        stepBtn.appendChild(el("span", "status-text muted", "Optional"));
       }
       const chev = svgIcon("chevron", 14);
       chev.classList.add("chev");
@@ -2264,6 +2304,18 @@
     popEl.addEventListener("mouseleave", scheduleHidePopover);
     popEl.addEventListener("focusin", cancelHidePopover);
     popEl.addEventListener("focusout", scheduleHidePopover);
+  }
+
+  const progressElInit = document.getElementById("progress");
+  if (progressElInit) {
+    const openProgressPopover = () => {
+      const info = state.progressPopover;
+      if (info?.desc) showStatusPopover(progressElInit, info.title, info.statusText, info.mode, info.desc);
+    };
+    progressElInit.addEventListener("mouseenter", openProgressPopover);
+    progressElInit.addEventListener("mouseleave", scheduleHidePopover);
+    progressElInit.addEventListener("focus", openProgressPopover);
+    progressElInit.addEventListener("blur", scheduleHidePopover);
   }
 
   document.addEventListener("keydown", (ev) => {

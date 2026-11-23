@@ -115,6 +115,20 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   color: var(--tl-fg-muted);
+  cursor: help;
+}
+
+.progress.is-mode {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--tl-line);
+  background: var(--tl-fill);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
 }
 
 .live {
@@ -332,8 +346,8 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   background: #6f757a;
 }
 
-.scene-stage-dot.done,
-.scene-stage-dot.skipped { background: #22c55e; }
+.scene-stage-dot.done { background: #22c55e; }
+.scene-stage-dot.skipped { background: #6f757a; }
 .scene-stage-dot.active,
 .scene-stage-dot.next { background: #5aa2ff; }
 .scene-stage-dot.stale,

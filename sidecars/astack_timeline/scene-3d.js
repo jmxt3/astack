@@ -172,7 +172,7 @@
     let P = projectStagePositions();
 
     function statusColor(status) {
-      if (status === "done" || status === "skipped") return COLORS.done;
+      if (status === "done") return COLORS.done;
       if (status === "stale" || status === "waiting_gate") return COLORS.stale;
       if (status === "error") return COLORS.error;
       if (status === "active" || status === "next") return accent;
