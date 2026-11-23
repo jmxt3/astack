@@ -589,8 +589,13 @@ test("createTimelineServer serves selectable task logs safely and exposes vertic
     ]);
     assert.match(appJs, /focus-drawer-artifacts/);
     assert.match(appJs, /openTaskLog\(/);
+    assert.match(appJs, /PR Iteration/);
+    assert.match(appJs, /"Earlier"/);
+    assert.match(appJs, /"Optional"/);
     assert.doesNotMatch(appJs, /bgItems\.slice\(-8\)/);
     assert.match(cssText, /\.focus-drawer-list[\s\S]*overflow-y:\s*auto/);
+    assert.match(cssText, /\.progress\.is-mode\b/);
+    assert.match(cssText, /\.scene-stage-dot\.skipped\s*\{\s*background:\s*#6f757a/);
     assert.match(sceneJs, /merged:\s*new T\.Color\("#a855f7"\)/);
     assert.match(sceneJs, /prMergedEdges/);
     assert.match(sceneJs, /prOpenEdges/);

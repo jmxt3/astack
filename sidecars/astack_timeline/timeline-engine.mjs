@@ -55,7 +55,7 @@ export const TIMELINE_STEPS = [
     id: "plan",
     number: 1,
     label: "Plan",
-    summary: "Agree on a written plan before editing code.",
+    summary: "Optional written plan before editing code.",
     gate: "GATE",
     primaryCommand: "/plan",
     optionalCommands: ["/grill-me"],
@@ -585,25 +585,74 @@ function collectExtraBrainArtifacts(brainConvDir) {
   return out;
 }
 
-const BRAIN_OR_GENERATED_RE = /(?:^|\/)(?:\.gemini\/antigravity(?:-cli)?\/brain|\.system_generated)(?:\/|$)/i;
+const BRAIN_OR_GENERATED_RE = /(?:^|\/)(?:\.gemini\/(?:antigravity(?:-cli)?|jetski)\/brain|\.system_generated)(?:\/|$)/i;
 const LOCAL_ARTIFACT_RE = /(?:^|\/)(?:\.system_generated|\.gemini)(?:\/|$)/i;
+const ANTIGRAVITY_WORKTREE_RE = /(?:^|\/)\.gemini\/antigravity(?:-cli)?\/worktrees(?:\/|$)/i;
+const NON_PROJECT_ABS_RE = /(?:^|\/)(?:tmp|temp|var\/folders|appdata\/local\/temp|\.(?:gemini|claude|cursor|vscode|config|cache))(?:\/|$)/i;
+const PROJECT_PATH_HINT_RE = /(?:^|\/)(?:worktrees?|src|apps|packages|lib|scripts|tests?|cmd|internal|pkg|services|server|client|web|api|skills|docs|config|helm|charts|infra)\//i;
 
-function isWorkspaceFileTarget(rawPath, workspaceDir, brainConvDir) {
+function isAbsoluteAnyPlatform(rawPath) {
+  return path.isAbsolute(rawPath) || /^[a-zA-Z]:[/\\]/.test(String(rawPath ?? ""));
+}
+
+function isDirInsideGitRepo(targetPath) {
+  if (!targetPath) return false;
+  try {
+    let dir = path.dirname(targetPath);
+    while (dir && !fs.existsSync(dir)) {
+      const parent = path.dirname(dir);
+      if (parent === dir) return false;
+      dir = parent;
+    }
+    return Boolean(dir && findGitLocationsFast(dir));
+  } catch {
+    return false;
+  }
+}
+
+function isWorkspaceFileTarget(rawPath, workspaceDir, brainConvDir, brainDir = "") {
   if (!rawPath) return false;
   const norm = normalizePosix(rawPath);
   if (BRAIN_OR_GENERATED_RE.test(norm)) return false;
+  const isAbs = isAbsoluteAnyPlatform(rawPath);
+  if (!isAbs && (norm === ".." || norm.startsWith("../"))) return false;
   const resolved = workspaceDir ? path.resolve(workspaceDir, rawPath) : path.resolve(rawPath);
-  if (brainConvDir) {
-    const convNorm = normalizePosix(path.resolve(brainConvDir)).replace(/\/$/, "").toLowerCase();
-    const fileNorm = normalizePosix(resolved).toLowerCase();
-    if (fileNorm === convNorm || fileNorm.startsWith(`${convNorm}/`)) return false;
+  const fileNorm = normalizePosix(resolved).toLowerCase();
+  for (const excludedDir of [brainConvDir, brainDir]) {
+    if (!excludedDir) continue;
+    const exNorm = normalizePosix(path.resolve(excludedDir)).replace(/\/$/, "").toLowerCase();
+    if (fileNorm === exNorm || fileNorm.startsWith(`${exNorm}/`)) return false;
   }
   if (workspaceDir) {
     const rel = path.relative(path.resolve(workspaceDir), resolved);
-    if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return false;
-    return !LOCAL_ARTIFACT_RE.test(normalizePosix(rel));
+    if (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) {
+      return !LOCAL_ARTIFACT_RE.test(normalizePosix(rel));
+    }
+    if (!isAbs) return false;
+    if (ANTIGRAVITY_WORKTREE_RE.test(norm)) return true;
+    if (LOCAL_ARTIFACT_RE.test(norm)) return false;
+    if (isDirInsideGitRepo(resolved)) return true;
+    if (NON_PROJECT_ABS_RE.test(norm)) return false;
+    const repoName = resolveWorkspaceRepoName(workspaceDir);
+    if (repoName && norm.toLowerCase().includes(`/${repoName.toLowerCase()}/`)) return true;
+    return PROJECT_PATH_HINT_RE.test(norm);
   }
-  return !path.isAbsolute(rawPath) && norm !== ".." && !norm.startsWith("../") && !LOCAL_ARTIFACT_RE.test(norm);
+  if (isAbs) {
+    if (ANTIGRAVITY_WORKTREE_RE.test(norm)) return true;
+    if (LOCAL_ARTIFACT_RE.test(norm)) return false;
+    if (isDirInsideGitRepo(resolved)) return true;
+    if (NON_PROJECT_ABS_RE.test(norm)) return false;
+    return PROJECT_PATH_HINT_RE.test(norm);
+  }
+  return !LOCAL_ARTIFACT_RE.test(norm);
+}
+
+function formatTrackedChangedFile(rawPath, workspaceDir) {
+  if (!workspaceDir) return normalizePosix(rawPath);
+  const resolved = path.resolve(workspaceDir, rawPath);
+  const rel = normalizePosix(path.relative(path.resolve(workspaceDir), resolved));
+  if (rel && rel !== ".." && !rel.startsWith("../") && !path.isAbsolute(rel)) return rel;
+  return normalizePosix(rawPath);
 }
 
 function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir = "") {
@@ -619,6 +668,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
     planWrittenAt: null,
     planApprovedAt: null,
     approvalIntentAt: null,
+    walkthroughWrittenAt: null,
     astackModeAt: null,
     interrogateAt: null,
     cleanAt: null,
@@ -978,12 +1028,14 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         const p = targetPathOf(args);
         if (/\/implementation_plan\.md$/i.test(p)) {
           sig.planWrittenAt = latestMarker(sig.planWrittenAt, marker);
+        } else if (/\/walkthrough\.md$/i.test(p)) {
+          sig.walkthroughWrittenAt = latestMarker(sig.walkthroughWrittenAt, marker);
         } else if (/\/pr-review\.md$/i.test(p)) {
           sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
-        } else if (isWorkspaceFileTarget(p, workspaceDir, brainConvDir)) {
+        } else if (isWorkspaceFileTarget(p, workspaceDir, brainConvDir, brainDir)) {
           sig.latestWorkspaceWriteAt = latestMarker(sig.latestWorkspaceWriteAt, marker);
           sig.earliestWorkspaceWriteAt = earliestMarker(sig.earliestWorkspaceWriteAt, marker);
-          sig.changedFiles.add(workspaceDir ? normalizePosix(path.relative(path.resolve(workspaceDir), path.resolve(workspaceDir, p))) : p);
+          sig.changedFiles.add(formatTrackedChangedFile(p, workspaceDir));
           if (!DOC_EXT_RE.test(p)) {
             sig.latestCodeWriteAt = latestMarker(sig.latestCodeWriteAt, marker);
           }
@@ -1227,7 +1279,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
 
 function mergeChildTranscriptSignals(sig, brainDir, workspaceDir, parentConvId) {
   if (!brainDir || sig.childConvIds.size === 0) return sig;
-  const mergeKeys = ["cleanAt", "verifyRunAt", "latestCodeWriteAt", "latestWorkspaceWriteAt"];
+  const mergeKeys = ["cleanAt", "verifyRunAt", "latestCodeWriteAt", "latestWorkspaceWriteAt", "walkthroughWrittenAt"];
   for (const childId of sig.childConvIds) {
     if (!childId || childId === parentConvId) continue;
     const childConvDir = path.join(brainDir, childId);
@@ -1337,40 +1389,58 @@ function buildSetupReadiness(setup, sig) {
   };
 }
 
-function buildPlanStage({ hasConv, setupState, sig, planArtifact, planWrittenMarker, latestAnyWrite }) {
+function buildPlanStage({
+  hasConv,
+  setupState,
+  sig,
+  planArtifact,
+  planWrittenMarker,
+  latestAnyWrite,
+  planClearedByDownstream,
+  downstreamProgressed,
+}) {
   const editsAfterPlan = Boolean(planWrittenMarker && latestAnyWrite && isMarkerAfter(latestAnyWrite, planWrittenMarker));
   const diskPlanApproved = Boolean(!sig.planWrittenAt && planArtifact && sig.approvalIntentAt);
-  const planApproved = Boolean(
+  const explicitApproved = Boolean(
     (sig.planApprovedAt && (!planWrittenMarker || isMarkerAfter(sig.planApprovedAt, planWrittenMarker))) ||
       diskPlanApproved ||
       editsAfterPlan,
   );
+  const planApproved = Boolean(explicitApproved || planClearedByDownstream);
   const grillMe = Boolean(sig.grillMeAt || (sig.planContractAt && sig.askQuestionAt));
   const triggered = Boolean(sig.planCmdAt || sig.planContractAt || planWrittenMarker);
 
   let status = "pending";
+  let skippedReason = null;
   if (planWrittenMarker && planApproved) status = "done";
   else if (planWrittenMarker) status = "waiting_gate";
-  else if (Boolean(latestAnyWrite) && !triggered) status = "skipped";
-  else if (triggered || grillMe) status = "active";
+  else if ((Boolean(latestAnyWrite) || downstreamProgressed) && !triggered && !grillMe) {
+    status = "skipped";
+    skippedReason = downstreamProgressed && !latestAnyWrite ? "earlier" : "direct";
+  } else if (triggered || grillMe) status = "active";
   else if (!hasConv) status = setupState.status === "ready" ? "next" : "pending";
   else if (setupState.status !== "needs_setup") status = "next";
 
   const detail = status === "waiting_gate"
-    ? "implementation_plan.md staged. Review comments and click Proceed."
+    ? "implementation_plan.md staged. Review and click Proceed when ready, or continue directly."
     : status === "done"
-      ? "Plan approved and execution started."
+      ? explicitApproved
+        ? "Plan approved and execution started."
+        : "Plan completed; work progressed to later stages."
       : status === "skipped"
-        ? "Skipped for direct edit flow."
+        ? skippedReason === "earlier"
+          ? "Optional — started directly on an existing PR."
+          : "Skipped for direct edit flow."
         : status === "active"
           ? grillMe
             ? "Clarifying requirements via /grill-me."
             : "Planning in progress — drafting implementation_plan.md."
-          : "Write implementation_plan.md before editing code.";
+          : "Optional written plan before editing code.";
 
   return {
     ...TIMELINE_STEPS[0],
     status,
+    ...(skippedReason ? { skippedReason } : {}),
     commands: [
       makeCommandItem("/plan", planWrittenMarker ? "done" : status === "active" ? "active" : status === "next" ? "next" : "pending"),
       makeCommandItem("/grill-me", grillMe ? "done" : "pending", true),
@@ -1394,17 +1464,24 @@ function buildBuildStage({
   reviewStarted,
   reviewFresh,
   walkthroughArtifact,
+  shipped,
 }) {
   const planningActive = (planStatus === "active" || planStatus === "waiting_gate") && !hasEdits;
   const astackModeActive = !planningActive && Boolean(sig.astackModeAt || hasEdits);
   const walkthroughComplete = Boolean(walkthroughArtifact);
   const hasBuildableWork = Boolean(hasEdits || walkthroughComplete || (reviewStarted && reviewFresh));
+  const shippedWalkthroughDone = Boolean(walkthroughComplete && shipped && !hasEdits);
   let status = "pending";
+  let skippedReason = null;
   if (!planningActive) {
     if (buildStale) status = "stale";
     else if (verifyFresh && hasBuildableWork && (!hasCodeEdits || cleanFresh || walkthroughComplete || (reviewStarted && reviewFresh))) status = "done";
+    else if (shippedWalkthroughDone) status = "done";
     else if (astackModeActive || Boolean(sig.interrogateAt) || cleanDone || (verifyDone && hasEdits)) status = "active";
-    else if (planStatus === "done" || planStatus === "skipped") status = "next";
+    else if (reviewStarted || shipped) {
+      status = "skipped";
+      skippedReason = "earlier";
+    } else if (planStatus === "done" || planStatus === "skipped") status = "next";
   }
 
   const editsStatus = hasEdits ? "done" : "pending";
@@ -1454,16 +1531,21 @@ function buildBuildStage({
         ? "Code edits cleaned and verified on HEAD."
         : hasEdits && !hasCodeEdits
           ? "Documentation edits verified on HEAD."
-          : walkthroughComplete
-            ? "Edits verified on HEAD with walkthrough recorded."
-            : "Changes verified on HEAD for PR review."
-      : status === "active"
-        ? "Running build, cleanup, and live verification."
-        : "Run /astack-mode with your goal and done check.";
+          : shippedWalkthroughDone && !verifyFresh
+            ? "Walkthrough recorded and PR already shipped."
+            : walkthroughComplete
+              ? "Edits verified on HEAD with walkthrough recorded."
+              : "Changes verified on HEAD for PR review."
+      : status === "skipped"
+        ? "Optional — reviewing or iterating on an existing PR."
+        : status === "active"
+          ? "Running build, cleanup, and live verification."
+          : "Run /astack-mode with your goal and done check.";
 
   return {
     ...TIMELINE_STEPS[1],
     status,
+    ...(skippedReason ? { skippedReason } : {}),
     commands: [
       makeCommandItem(
         "/astack-mode",
@@ -1477,7 +1559,18 @@ function buildBuildStage({
   };
 }
 
-function buildReviewStage({ buildStatus, reviewStarted, staleFromReceipts, reviewFresh, reviewArtifact, evidence, maxReviewRounds, shipped }) {
+function buildReviewStage({
+  buildStatus,
+  reviewStarted,
+  staleFromReceipts,
+  reviewFresh,
+  reviewArtifact,
+  evidence,
+  maxReviewRounds,
+  shipped,
+  prVerifierRunning,
+  reviewAfterShip,
+}) {
   const roundState = evidence?.roundState ?? "open";
   const reviewRound = evidence?.reviewRound ?? 0;
   const verdict = evidence?.verifier?.verdict ?? null;
@@ -1488,6 +1581,8 @@ function buildReviewStage({ buildStatus, reviewStarted, staleFromReceipts, revie
   else if (reviewStarted && staleFromReceipts) status = "stale";
   else if (reviewStarted && reviewFresh && (reviewArtifact || reviewPass)) {
     status = shipped || evidence?.autoMergeEligible ? "done" : "waiting_gate";
+  } else if (reviewStarted && shipped && reviewFresh && !prVerifierRunning && !reviewAfterShip) {
+    status = "done";
   } else if (reviewStarted) status = "active";
   else if (buildStatus === "done") status = "next";
 
@@ -1496,9 +1591,11 @@ function buildReviewStage({ buildStatus, reviewStarted, staleFromReceipts, revie
     : status === "stale"
       ? "New changes invalidated prior PR evidence. Re-run /review-pr."
       : status === "waiting_gate"
-        ? `Risk Tier ${evidence?.riskTier ?? 1} (${evidence?.riskLabel ?? "medium"}) · pr-verifier ${verdict ?? "pending"} (${reviewRound}/${maxReviewRounds}). Awaiting your visual review.`
+        ? `Risk Tier ${evidence?.riskTier ?? 1} (${evidence?.riskLabel ?? "medium"}) · pr-verifier ${verdict ?? "pending"} (${reviewRound}/${maxReviewRounds}). Ready for your visual review.`
         : status === "done"
-          ? `PR review passed (Tier ${evidence?.riskTier ?? 1}).`
+          ? reviewArtifact || reviewPass
+            ? `PR review passed (Tier ${evidence?.riskTier ?? 1}).`
+            : "PR review ran before push."
           : "Compile pr-review.md and run isolated pr-verifier.";
 
   return {
@@ -1610,13 +1707,14 @@ function selectActiveStageId(stepViews) {
     const match = stepViews.find((s) => s.status === targetStatus);
     if (match) return match.id;
   }
-  return "plan";
+  const lastDone = [...stepViews].reverse().find((s) => s.status === "done");
+  return lastDone ? lastDone.id : "plan";
 }
 
 function buildStageArtifacts(stage, { planArtifact, walkthroughArtifact, reviewArtifact, brainConvDir, pr, prs, shipped }) {
   if (stage.id === "plan") {
     if (!planArtifact) return [];
-    const badge = stage.status === "done" ? "approved" : stage.status === "waiting_gate" ? "gate" : "";
+    const badge = stage.status === "done" ? "approved" : stage.status === "waiting_gate" ? "review" : "";
     return [{ id: "plan", key: "plan", name: planArtifact.name, label: "Implementation Plan", uri: planArtifact.uri, status: stage.status === "done" ? "done" : "updating", badge, kind: "file" }];
   }
   if (stage.id === "build") {
@@ -1638,7 +1736,7 @@ function buildStageArtifacts(stage, { planArtifact, walkthroughArtifact, reviewA
   if (stage.id === "review") {
     if (!reviewArtifact) return [];
     const status = stage.status === "stale" ? "stale" : stage.status === "done" ? "done" : "updating";
-    const badge = stage.status === "stale" ? "stale" : stage.status === "waiting_gate" ? "gate" : "";
+    const badge = stage.status === "stale" ? "stale" : stage.status === "waiting_gate" ? "review" : "";
     return [{ id: "review", key: "review", name: reviewArtifact.name, label: "PR review dossier", uri: reviewArtifact.uri, status, badge, kind: "file" }];
   }
   if (stage.id === "ship") {
@@ -1665,9 +1763,11 @@ function buildStageArtifacts(stage, { planArtifact, walkthroughArtifact, reviewA
 
 function buildStageCollapsedSummary(stage, pr, prs, shipped) {
   if (stage.id === "plan") {
-    if (stage.status === "done") return "Plan approved.";
-    if (stage.status === "waiting_gate") return "implementation_plan.md awaiting approval.";
-    if (stage.status === "skipped") return "Skipped for direct edit flow.";
+    if (stage.status === "done") return "Plan completed.";
+    if (stage.status === "waiting_gate") return "implementation_plan.md ready for review.";
+    if (stage.status === "skipped") {
+      return stage.skippedReason === "earlier" ? "Not needed — started at PR review." : "Skipped for direct edit flow.";
+    }
     if (stage.status === "active") return "Drafting implementation plan.";
     return stage.summary;
   }
@@ -1679,11 +1779,12 @@ function buildStageCollapsedSummary(stage, pr, prs, shipped) {
       return onlyClean ? "Code edited after cleanup." : "New edits landed after verification.";
     }
     if (stage.status === "done") return "Cleaned and verified on HEAD.";
+    if (stage.status === "skipped") return "Completed earlier or not needed for this flow.";
     return stage.summary;
   }
   if (stage.id === "review") {
     if (stage.status === "stale") return "Your latest edits came after the last review.";
-    if (stage.status === "waiting_gate") return "Awaiting your visual review.";
+    if (stage.status === "waiting_gate") return "Ready for your visual review.";
     if (stage.status === "error") return stage.detail;
     if (stage.status === "done") return "PR review passed.";
     return stage.summary;
@@ -1838,6 +1939,16 @@ export function evaluateTimelineSnapshot({
     }
   }
 
+  let walkthroughMarker = sig.walkthroughWrittenAt;
+  if (!walkthroughMarker && walkthroughArtifact) {
+    try {
+      const mtime = fs.statSync(path.join(brainConvDir, "walkthrough.md")).mtime.toISOString();
+      walkthroughMarker = makeMarker(mtime, 0);
+    } catch {
+      walkthroughMarker = makeMarker(null, 0);
+    }
+  }
+
   let latestCodeWrite = sig.latestCodeWriteAt;
   let latestAnyWrite = sig.latestWorkspaceWriteAt;
   let earliestAnyWrite = sig.earliestWorkspaceWriteAt;
@@ -1846,12 +1957,13 @@ export function evaluateTimelineSnapshot({
   let hadReceiptWrite = false;
   let hasVerifyReceipt = false;
   let receiptPush = false;
+  let receiptPushMarker = null;
 
   for (const r of receipts) {
     const m = makeMarker(r.ts, Number.MAX_SAFE_INTEGER);
     if (r.kind === "file_write") {
       const workspacePaths = Array.isArray(r.paths)
-        ? r.paths.filter((p) => isWorkspaceFileTarget(p, workspaceDir, brainConvDir))
+        ? r.paths.filter((p) => isWorkspaceFileTarget(p, workspaceDir, brainConvDir, brainDir))
         : [];
       if (Array.isArray(r.paths) && r.paths.length > 0 && workspacePaths.length === 0) continue;
       hadReceiptWrite = true;
@@ -1867,7 +1979,10 @@ export function evaluateTimelineSnapshot({
       for (const prRef of extractPrReferences(r.summary)) {
         upsertPrEntry(sig.prs, prRef, { ts: r.ts });
       }
-      if (/\b(?:gh\s+pr\s+create|git\s+push)\b/i.test(r.summary)) receiptPush = true;
+      if (/\b(?:gh\s+pr\s+create|git\s+push)\b/i.test(r.summary)) {
+        receiptPush = true;
+        receiptPushMarker = latestMarker(receiptPushMarker, m);
+      }
     }
     if (r.kind === "command" && r.ok && /\barch-audit\.mjs\b/i.test(String(r.summary ?? ""))) {
       latestReceiptClean = latestMarker(latestReceiptClean, m);
@@ -1904,6 +2019,15 @@ export function evaluateTimelineSnapshot({
   const effectiveCleanFresh = cleanDone && !cleanStale;
   const buildStale = staleFromReceipts || cleanStale || Boolean(sig.verifyRunAt && hasPostEditVerify && !verifyFresh && hasCodeEdits);
   const shipped = Boolean(sig.pushOrPrAt || receiptPush);
+  const latestPushMarker = latestMarker(sig.pushOrPrAt, receiptPushMarker);
+  const latestDownstreamMarker = latestMarker(latestMarker(walkthroughMarker, sig.reviewPrAt), latestPushMarker);
+  const downstreamProgressed = Boolean(walkthroughArtifact || reviewStarted || shipped);
+  const planClearedByDownstream = Boolean(
+    downstreamProgressed &&
+      (!sig.planWrittenAt || !latestDownstreamMarker || !isMarkerAfter(sig.planWrittenAt, latestDownstreamMarker)),
+  );
+  const prVerifierRunning = sig.subagents.some((sa) => sa.type === "pr-verifier" && sa.status === "running");
+  const reviewAfterShip = Boolean(sig.reviewPrAt && latestPushMarker && isMarkerAfter(sig.reviewPrAt, latestPushMarker));
 
   const setupState = buildSetupReadiness(setup, sig);
   if (setup.verifySkills.some((s) => !s.endsWith("-formal"))) sig.detected.add("/create-verification-skill");
@@ -1915,7 +2039,16 @@ export function evaluateTimelineSnapshot({
     buildStageSubCommands("setup", sig.detected, new Set((setupState.commands || []).map((c) => c.command))),
   );
 
-  const planStage = buildPlanStage({ hasConv, setupState, sig, planArtifact, planWrittenMarker, latestAnyWrite });
+  const planStage = buildPlanStage({
+    hasConv,
+    setupState,
+    sig,
+    planArtifact,
+    planWrittenMarker,
+    latestAnyWrite,
+    planClearedByDownstream,
+    downstreamProgressed,
+  });
   const buildStage = buildBuildStage({
     planStatus: planStage.status,
     sig,
@@ -1929,6 +2062,7 @@ export function evaluateTimelineSnapshot({
     reviewStarted,
     reviewFresh,
     walkthroughArtifact,
+    shipped,
   });
   const reviewStage = buildReviewStage({
     buildStatus: buildStage.status,
@@ -1939,6 +2073,8 @@ export function evaluateTimelineSnapshot({
     evidence,
     maxReviewRounds,
     shipped,
+    prVerifierRunning,
+    reviewAfterShip,
   });
   const mergedPrNumbers = sig.prs.size > 0 ? readMergedPrNumbersFast(workspaceDir) : new Set();
   const prItems = [...sig.prs.values()].map((item) => {
@@ -1994,6 +2130,34 @@ export function evaluateTimelineSnapshot({
     Boolean(buildStage.subChecks?.some((c) => c.id === "clean" && c.status === "stale")) &&
     Boolean(buildStage.subChecks?.some((c) => c.id === "verify" && c.status === "done"));
 
+  let workflowMode = "standard";
+  let workflowLabel = null;
+  if (!hasConv) {
+    workflowMode = "idle";
+  } else if (
+    shipped &&
+    (buildStage.status === "active" ||
+      buildStage.status === "stale" ||
+      reviewStage.status === "active" ||
+      reviewStage.status === "stale" ||
+      reviewStage.status === "error" ||
+      (prItems.some((p) => p.state === "open") && (hasEdits || reviewStarted || Boolean(sig.babysitAt))))
+  ) {
+    workflowMode = "pr_iteration";
+    workflowLabel = "PR iteration";
+  } else if (
+    !shipped &&
+    reviewStarted &&
+    planStage.status === "skipped" &&
+    (buildStage.status === "skipped" || buildStage.status === "pending")
+  ) {
+    workflowMode = "pr_review";
+    workflowLabel = "PR review";
+  } else if (planStage.status === "skipped") {
+    workflowMode = "direct_build";
+    workflowLabel = "Direct flow";
+  }
+
   let liveState = "ok";
   let liveLabel = hasConv ? "Live" : "Idle";
   if (reviewStage.status === "error") {
@@ -2004,7 +2168,7 @@ export function evaluateTimelineSnapshot({
     liveLabel = onlyBuildCleanStale ? "Re-clean" : "Stale";
   } else if (planStage.status === "waiting_gate" || reviewStage.status === "waiting_gate") {
     liveState = "warn";
-    liveLabel = "Gate";
+    liveLabel = "Review";
   }
 
   const riskTier = evidence?.riskTier ?? null;
@@ -2028,6 +2192,8 @@ export function evaluateTimelineSnapshot({
     freshness: receipts.length > 0 || evidence ? receiptFreshness : null,
     reviewRound,
     maxReviewRounds,
+    workflowMode,
+    workflowLabel,
     doneCount: stepViews.filter((s) => s.status === "done" || s.status === "skipped").length,
     totalCount: stepViews.length,
     liveState,
