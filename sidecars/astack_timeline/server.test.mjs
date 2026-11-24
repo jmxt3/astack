@@ -613,3 +613,28 @@ test("createTimelineServer serves selectable task logs safely and exposes vertic
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("createTimelineServer serves app.js without duplicate native title tooltips on popover-backed labels", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-tooltip-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const appRes = await fetch(`${srv.url}app.js`);
+    assert.equal(appRes.status, 200);
+    const appJs = await appRes.text();
+
+    assert.match(appJs, /attachStatusPopover\(seg,/);
+    assert.match(appJs, /showStatusPopover\(progressElInit,/);
+    assert.match(appJs, /attachStatusPopover\(node,\s*part\.popTitle,/);
+
+    assert.doesNotMatch(appJs, /\bseg\.title\s*=/);
+    assert.doesNotMatch(appJs, /\bprogressEl\.title\s*=/);
+    assert.doesNotMatch(appJs, /\bnode\.title\s*=\s*part\.popDesc\b/);
+    assert.doesNotMatch(appJs, /\.title\s*=[^\n;]*;?\s*\n\s*attach(?:Status|Command)Popover\(/);
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
