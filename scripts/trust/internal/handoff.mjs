@@ -20,6 +20,7 @@ import {
   isProtectedTrustStorePath,
   readTrustSettings,
   resolvePluginDataDir,
+  resolveRealPathBestEffort,
 } from "./outcomes.mjs";
 import {
   evaluateDecisionTable,
@@ -27,6 +28,7 @@ import {
   loadBoundaries,
   loadRiskPolicy,
   resolveEnrolledWorkspaceScope,
+  scanBacktickSubstitution,
   scanBalancedSubshell,
   splitShellPipelines,
   stripTransparentWrappers,
@@ -267,6 +269,20 @@ function extractProcessSubAndHereStrings(segment) {
       i++;
       continue;
     }
+    if (ch === "$" && next === "(") {
+      const sub = scanBalancedSubshell(segment, i + 1);
+      if (sub.closed) {
+        i = sub.closeIdx;
+        continue;
+      }
+    }
+    if (ch === "`") {
+      const tick = scanBacktickSubstitution(segment, i);
+      if (tick.closed) {
+        i = tick.closeIdx;
+        continue;
+      }
+    }
     if (!inDouble && ch === "$" && next === "'") {
       i += 2;
       while (i < segment.length) {
@@ -402,10 +418,10 @@ function checkPipedShellInputs(raw, resolvedTrustRoot, options, depth) {
         if (hasBase64Stage) {
           const b64Inputs = [];
           for (const tok of upTokens) {
-            if (B64_TOKEN_RE.test(tok) && tok.length % 4 === 0) {
+            if (B64_TOKEN_RE.test(tok)) {
               b64Inputs.push(tok);
             }
-            if (hasRevStage && tok.length >= 16 && tok.length % 4 === 0) {
+            if (hasRevStage && tok.length >= 16) {
               const revTok = [...tok].reverse().join("");
               if (revTok !== tok && B64_TOKEN_RE.test(revTok)) {
                 b64Inputs.push(revTok);
@@ -435,6 +451,34 @@ function checkPipedShellInputs(raw, resolvedTrustRoot, options, depth) {
   return false;
 }
 
+function advanceCdState(curLexDir, curRealDir, dirArg, options, resolvedTrustRoot, trustParents) {
+  const expanded = expandHomeDirInPath(dirArg);
+  const cleanExpanded = expanded.replace(/^['"]+|['"]+$/g, "");
+  const normTarget = normalizeShellTokenPath(cleanExpanded);
+  const nextLexDir =
+    normTarget.startsWith("/") || /^[a-z]:\//i.test(normTarget) || !curLexDir
+      ? normTarget
+      : path.posix.normalize(`${curLexDir}/${normTarget}`);
+  const realBase = curRealDir || options.workspaceDir || process.cwd();
+  const nextRealRaw = cleanExpanded
+    ? resolveRealPathBestEffort(cleanExpanded, { baseDir: realBase })
+    : curRealDir;
+  const nextRealNorm = nextRealRaw ? normalizePosixLower(nextRealRaw) : "";
+  const isProtectedDir =
+    PLUGIN_DATA_DIR_HINT_RE.test(dirArg) ||
+    PLUGIN_DATA_DIR_HINT_RE.test(nextLexDir) ||
+    PLUGIN_DATA_DIR_HINT_RE.test(nextRealNorm) ||
+    isProtectedTrustStorePath(cleanExpanded, { dataDir: options.dataDir, workspaceDir: realBase }) ||
+    isProtectedTrustStorePath(nextRealRaw, { dataDir: options.dataDir, workspaceDir: realBase }) ||
+    trustParents.has(nextLexDir) ||
+    trustParents.has(nextRealNorm) ||
+    (Boolean(resolvedTrustRoot) &&
+      (normalizePosixLower(cleanExpanded).includes(resolvedTrustRoot) ||
+        nextLexDir.includes(resolvedTrustRoot) ||
+        nextRealNorm.includes(resolvedTrustRoot)));
+  return { nextLexDir, nextRealDir: nextRealRaw, isProtectedDir };
+}
+
 /**
  * Returns true when a shell command attempts to modify `${PLUGIN_DATA}/trust/**` or run mutating `scripts/trust/cli.mjs` commands.
  */
@@ -442,64 +486,76 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
   const raw = String(command ?? "").trim();
   if (!raw) return false;
 
-  const resolvedTrustRoot = normalizePosixLower(
-    path.resolve(path.join(resolvePluginDataDir(options), "trust")),
+  const pluginTrustDir = path.join(resolvePluginDataDir(options), "trust");
+  const resolvedTrustRoot = normalizePosixLower(path.resolve(pluginTrustDir));
+  const resolvedTrustReal = normalizePosixLower(resolveRealPathBestEffort(pluginTrustDir));
+  const trustParents = new Set(
+    [resolvedTrustRoot, resolvedTrustReal].filter(Boolean).map((p) => path.posix.dirname(p)),
   );
   if (checkPipedShellInputs(raw, resolvedTrustRoot, options, _depth)) {
     return true;
   }
 
+  const initialWorkspaceReal =
+    typeof options.workspaceDir === "string" && options.workspaceDir.trim()
+      ? resolveRealPathBestEffort(options.workspaceDir)
+      : "";
+  let cdDir = typeof options._cdDir === "string" ? options._cdDir : "";
+  let cdRealDir =
+    typeof options._cdRealDir === "string" ? options._cdRealDir : initialWorkspaceReal;
+  let cdIntoPluginData = Boolean(options._cdIntoPluginData);
   const taintedVars = new Set(options._taintedVars ?? []);
 
-  if (_depth < 4 && /<<-?/.test(raw) && !raw.includes("<<<") && raw.includes("\n")) {
-    const heredocMatch = raw.match(/(?:^|\r?\n)([^\r\n]*<<-?\s*(?:\\?['"]?[A-Za-z_][A-Za-z0-9_-]*['"]?)[^\r\n]*)\r?\n([\s\S]+)$/);
-    if (heredocMatch) {
-      const headerSegments = splitShellPipelines(heredocMatch[1]).flat();
+  if (_depth < 4 && /(?:^|[^<])<<-?(?!<)/.test(raw) && raw.includes("\n")) {
+    const rawLines = raw.split(/\r?\n/);
+    for (let lineIdx = 0; lineIdx < rawLines.length - 1; lineIdx++) {
+      const headerLine = rawLines[lineIdx];
+      const delimMatch = headerLine.match(
+        /(?:^|[^<])<<-?(?!<)\s*\\?['"]?([A-Za-z_][A-Za-z0-9_-]*)['"]?/,
+      );
+      if (!delimMatch) continue;
+      const delim = delimMatch[1];
+      const remainingLines = rawLines.slice(lineIdx + 1);
+      const endLineIdx = remainingLines.findIndex((l) => l.trim() === delim);
+      const bodyLines = endLineIdx !== -1 ? remainingLines.slice(0, endLineIdx) : remainingLines;
+      if (endLineIdx !== -1) lineIdx += endLineIdx + 1;
+      const body = bodyLines.join("\n");
+      if (!body.trim()) continue;
+
+      const headerSegments = splitShellPipelines(headerLine).flat();
       const headerVerbs = headerSegments
         .map((seg) => getLeadingVerb(tokenizeSimpleWords(seg)))
         .filter(Boolean);
-      const body = heredocMatch[2];
       const hasShellSink = headerVerbs.some((v) =>
         ["sh", "bash", "zsh", "dash", "pwsh", "powershell", "cmd"].includes(v),
       );
-      if (hasShellSink || headerVerbs.some((v) => SHELL_AND_INTERPRETER_VERBS.has(v))) {
-        if (matchesProtectedInlinePayload(body, resolvedTrustRoot)) {
-          return true;
-        }
-        if (
-          hasShellSink &&
-          isProtectedTrustShellCommand(body, { ...options, _taintedVars: taintedVars }, _depth + 1)
-        ) {
-          return true;
-        }
-        if (hasShellSink && heredocMatch[1].includes("|")) {
-          const afterHere = heredocMatch[1].replace(/^[\s\S]*<<-?\s*(?:\\?['"]?[A-Za-z_][A-Za-z0-9_-]*['"]?)/, "");
-          const pipeIdx = afterHere.indexOf("|");
-          const downstream = pipeIdx !== -1 ? afterHere.slice(pipeIdx + 1).trim() : "";
-          if (downstream && /\b(?:base64|FromBase64String|rev|xxd)\b/i.test(downstream)) {
-            const delimMatch = heredocMatch[1].match(/<<-?\s*\\?['"]?([A-Za-z_][A-Za-z0-9_-]*)['"]?/);
-            const delim = delimMatch?.[1] ?? "";
-            const bodyLines = body.split(/\r?\n/);
-            const endLineIdx = delim ? bodyLines.findIndex((l) => l.trim() === delim) : -1;
-            const trimmedLines = (endLineIdx !== -1 ? bodyLines.slice(0, endLineIdx) : bodyLines)
-              .map((l) => l.trim().replace(/'/g, ""))
-              .filter(Boolean);
-            const singleLineBody = trimmedLines.join("");
-            const candidates =
-              singleLineBody && !trimmedLines.includes(singleLineBody)
-                ? [...trimmedLines, singleLineBody]
-                : trimmedLines;
-            for (const tok of candidates) {
-              if (
-                checkPipedShellInputs(
-                  `echo '${tok}' | ${downstream}`,
-                  resolvedTrustRoot,
-                  { ...options, _taintedVars: taintedVars },
-                  _depth + 1,
-                )
-              ) {
-                return true;
-              }
+      const hasAnySink = hasShellSink || headerVerbs.some((v) => SHELL_AND_INTERPRETER_VERBS.has(v));
+      if (!hasAnySink) continue;
+
+      if (matchesProtectedInlinePayload(body, resolvedTrustRoot)) {
+        return true;
+      }
+      const heredocOpts = { ...options, _cdDir: cdDir, _cdRealDir: cdRealDir, _taintedVars: taintedVars };
+      if (hasShellSink && isProtectedTrustShellCommand(body, heredocOpts, _depth + 1)) {
+        return true;
+      }
+      if (headerLine.includes("|")) {
+        const afterHere = headerLine.replace(
+          /^[\s\S]*?(?:^|[^<])<<-?(?!<)\s*\\?['"]?[A-Za-z_][A-Za-z0-9_-]*['"]?/,
+          "",
+        );
+        const pipeIdx = afterHere.indexOf("|");
+        const downstream = pipeIdx !== -1 ? afterHere.slice(pipeIdx + 1).trim() : "";
+        if (downstream && /\b(?:base64|FromBase64String|rev|xxd)\b/i.test(downstream)) {
+          const trimmedLines = bodyLines.map((l) => l.trim().replace(/'/g, "")).filter(Boolean);
+          const singleLineBody = trimmedLines.join("");
+          const candidates =
+            singleLineBody && !trimmedLines.includes(singleLineBody)
+              ? [...trimmedLines, singleLineBody]
+              : trimmedLines;
+          for (const tok of candidates) {
+            if (checkPipedShellInputs(`echo '${tok}' | ${downstream}`, resolvedTrustRoot, heredocOpts, _depth + 1)) {
+              return true;
             }
           }
         }
@@ -507,32 +563,25 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
     }
   }
 
-  let cdDir = typeof options._cdDir === "string" ? options._cdDir : "";
-  let cdIntoPluginData = Boolean(options._cdIntoPluginData);
-
   for (const segment of splitShellPipelines(raw).flat()) {
     const tokens = tokenizeSimpleWords(segment);
     if (tokens.length === 0) continue;
 
     const wrapped = stripTransparentWrappers(tokens);
     let segCdDir = cdDir;
+    let segCdRealDir = cdRealDir;
     let segCdIntoPluginData = cdIntoPluginData;
     for (const dirArg of wrapped.chdirDirs) {
-      const expandedDir = expandHomeDirInPath(dirArg);
-      const normDir = normalizeShellTokenPath(expandedDir);
-      segCdDir = normDir.startsWith("/") || /^[a-z]:\//i.test(normDir) || !segCdDir ? normDir : path.posix.normalize(`${segCdDir}/${normDir}`);
-      if (
-        PLUGIN_DATA_DIR_HINT_RE.test(dirArg) ||
-        PLUGIN_DATA_DIR_HINT_RE.test(segCdDir) ||
-        (resolvedTrustRoot && (normalizePosixLower(expandedDir).includes(resolvedTrustRoot) || segCdDir.includes(resolvedTrustRoot)))
-      ) {
-        segCdIntoPluginData = true;
-      }
+      const next = advanceCdState(segCdDir, segCdRealDir, dirArg, options, resolvedTrustRoot, trustParents);
+      segCdDir = next.nextLexDir;
+      segCdRealDir = next.nextRealDir;
+      if (next.isProtectedDir) segCdIntoPluginData = true;
     }
 
     const childOpts = {
       ...options,
       _cdDir: segCdDir,
+      _cdRealDir: segCdRealDir,
       _cdIntoPluginData: segCdIntoPluginData,
       _taintedVars: taintedVars,
     };
@@ -575,6 +624,42 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
     }
 
     const verb = wrapped.verb;
+    const isSymlinkCreateCmd =
+      verb === "ln" ||
+      verb === "mklink" ||
+      (verb === "new-item" && /(?:symboliclink|junction|hardlink)/i.test(segment));
+    if (isSymlinkCreateCmd) {
+      const normSegLower = normalizePosixLower(segment.replace(/["'`\u2018-\u201d]/g, ""));
+      const hitsParentInText = Array.from(trustParents).some((tp) => tp && normSegLower.includes(tp));
+      if (
+        PLUGIN_DATA_DIR_HINT_RE.test(segment) ||
+        TRUST_STORE_HINT_RE.test(segment) ||
+        (resolvedTrustRoot && normSegLower.includes(resolvedTrustRoot)) ||
+        hitsParentInText ||
+        tokens.some((tok) => {
+          const tokClean = tok.replace(/["'`\u2018-\u201d]/g, "");
+          if (!tokClean || tokClean.startsWith("-")) return false;
+          const tokReal = normalizePosixLower(
+            resolveRealPathBestEffort(tokClean, { baseDir: segCdRealDir || options.workspaceDir }),
+          );
+          const inTrustParent = Array.from(trustParents).some(
+            (tp) => tp && (tokReal === tp || tokReal.startsWith(`${tp}/`)),
+          );
+          return (
+            PLUGIN_DATA_DIR_HINT_RE.test(tokClean) ||
+            PLUGIN_DATA_DIR_HINT_RE.test(tokReal) ||
+            inTrustParent ||
+            isProtectedTrustStorePath(tokClean, {
+              dataDir: options.dataDir,
+              workspaceDir: segCdRealDir || options.workspaceDir,
+            })
+          );
+        })
+      ) {
+        return true;
+      }
+    }
+
     const pureRead =
       READ_ONLY_VERBS.has(verb) &&
       !SHELL_WRITE_OPERATOR_RE.test(segment) &&
@@ -635,34 +720,32 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
     if (verb === "cd" || verb === "set-location" || verb === "sl" || verb === "pushd") {
       const targetArg = wrapped.rest.find((t) => !t.startsWith("-") && t.toLowerCase() !== "/d");
       if (targetArg) {
-        const expanded = expandHomeDirInPath(targetArg);
-        const normTarget = normalizeShellTokenPath(expanded);
-        cdDir =
-          normTarget.startsWith("/") || /^[a-z]:\//i.test(normTarget) || !cdDir
-            ? normTarget
-            : path.posix.normalize(`${cdDir}/${normTarget}`);
+        const next = advanceCdState(cdDir, cdRealDir, targetArg, options, resolvedTrustRoot, trustParents);
+        cdDir = next.nextLexDir;
+        cdRealDir = next.nextRealDir;
+        cdIntoPluginData = next.isProtectedDir;
         segCdDir = cdDir;
-        const isPluginDir =
-          PLUGIN_DATA_DIR_HINT_RE.test(targetArg) ||
-          PLUGIN_DATA_DIR_HINT_RE.test(cdDir) ||
-          (resolvedTrustRoot &&
-            (normalizePosixLower(expanded).includes(resolvedTrustRoot) ||
-              cdDir.includes(resolvedTrustRoot) ||
-              cdDir === path.posix.dirname(resolvedTrustRoot)));
-        cdIntoPluginData = isPluginDir;
-        segCdIntoPluginData = isPluginDir;
+        segCdRealDir = cdRealDir;
+        segCdIntoPluginData = cdIntoPluginData;
       }
     }
 
     for (let i = 0; i < tokens.length; i++) {
       const cleanTok = normalizeShellTokenPath(tokens[i]);
       const joinedTok = segCdDir && !cleanTok.startsWith("/") ? path.posix.normalize(`${segCdDir}/${cleanTok}`) : cleanTok;
+      const realTok = segCdRealDir
+        ? normalizePosixLower(
+            resolveRealPathBestEffort(tokens[i].replace(/["'`\u2018-\u201d]/g, ""), { baseDir: segCdRealDir }),
+          )
+        : "";
       const isTrustCli =
         cleanTok.endsWith("scripts/trust/cli.mjs") ||
         cleanTok.endsWith("/trust/cli.mjs") ||
         cleanTok === "trust/cli.mjs" ||
         joinedTok.endsWith("scripts/trust/cli.mjs") ||
-        joinedTok.endsWith("/trust/cli.mjs");
+        joinedTok.endsWith("/trust/cli.mjs") ||
+        realTok.endsWith("scripts/trust/cli.mjs") ||
+        realTok.endsWith("/trust/cli.mjs");
       if (isTrustCli && hasMutatingTrustCliSubcommand(tokens, i)) {
         return true;
       }
@@ -678,12 +761,18 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
       const clean = normalizeShellTokenPath(tok);
       const joinedClean = segCdDir && !clean.startsWith("/") ? path.posix.normalize(`${segCdDir}/${clean}`) : clean;
       const resolvedTokHit = Boolean(resolvedTrustRoot && joinedClean.includes(resolvedTrustRoot));
+      const tokPath = tok
+        .replace(/["'`\u2018-\u201d]/g, "")
+        .replace(/^(?:[0-9&]*>>?|<[<>]?)/, "")
+        .trim();
+      const shiftedFromWs = Boolean(segCdRealDir && segCdRealDir !== initialWorkspaceReal);
       return (
         resolvedTokHit ||
-        ((clean.includes("/") || tok.includes("\\")) &&
-          isProtectedTrustStorePath(tok.replace(/["'`\u2018-\u201d]/g, ""), {
+        (Boolean(tokPath) &&
+          (clean.includes("/") || tok.includes("\\") || shiftedFromWs) &&
+          isProtectedTrustStorePath(tokPath, {
             dataDir: options.dataDir,
-            workspaceDir: options.workspaceDir,
+            workspaceDir: segCdRealDir || options.workspaceDir,
           }))
       );
     });

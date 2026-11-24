@@ -1,3 +1,4 @@
+import { extractCliPrActions } from "./ledger.mjs";
 import { collectLeafSegments, evaluateIrreversible } from "./policy.mjs";
 import {
   HARD_BLOCK_SIGNALS,
@@ -131,6 +132,10 @@ export function classifyActionClass(event) {
     }
     if (DEPLOY_CMD_RE.test(cmd)) return "deploy";
     if (EXTERNAL_MSG_CMD_RE.test(cmd)) return "external_message";
+    const cliActions = extractCliPrActions(cmd);
+    if (cliActions.some((a) => a.kind === "gh-pr-merge")) return "merge";
+    if (cliActions.some((a) => a.kind === "gh-pr-create" || a.kind === "gh-pr-edit-body")) return "open_pr";
+    if (cliActions.some((a) => a.kind === "git-push")) return "push_branch";
     if (MERGE_CMD_RE.test(cmd)) return "merge";
     if (OPEN_PR_CMD_RE.test(cmd)) return "open_pr";
     if (PUSH_CMD_RE.test(cmd)) return "push_branch";

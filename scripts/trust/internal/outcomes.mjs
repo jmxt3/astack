@@ -77,17 +77,18 @@ function stripWinLongPathPrefix(targetPath) {
  * Walks path segments left-to-right, dereferencing symlinks before folding `..`
  * so `lnk/../target` resolves `lnk` first rather than colliding lexically.
  */
-function resolveRealPathBestEffort(rawPath, maxHopsOrOptions = 40) {
+export function resolveRealPathBestEffort(rawPath, maxHopsOrOptions = 40) {
   const maxHops =
     typeof maxHopsOrOptions === "number"
       ? maxHopsOrOptions
       : (maxHopsOrOptions?.maxHops ?? 40);
-  const baseDirRaw =
+  const baseDirRaw = stripWinLongPathPrefix(
     typeof maxHopsOrOptions === "object" && maxHopsOrOptions?.baseDir
       ? String(maxHopsOrOptions.baseDir)
-      : process.cwd();
+      : process.cwd(),
+  );
   const realFn = fs.realpathSync.native ?? fs.realpathSync;
-  const input = String(rawPath ?? "");
+  const input = stripWinLongPathPrefix(String(rawPath ?? ""));
 
   const parsedInput = path.parse(input);
   let prefix;
@@ -269,7 +270,7 @@ export function resolveTrustStoreDir(repoId, options = {}) {
  */
 export function isProtectedTrustStorePath(targetPath, options = {}) {
   if (typeof targetPath !== "string" || !targetPath.trim()) return false;
-  const raw = targetPath.trim();
+  const raw = stripWinLongPathPrefix(targetPath.trim());
   const resolvedBase = path.join(resolvePluginDataDir(options), "trust");
   const baseCandidates = new Set([
     normalizePathForCompare(path.resolve(resolvedBase)),

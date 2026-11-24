@@ -316,13 +316,79 @@ function classifySingleSegment(segment) {
   return "other";
 }
 
-const PRINT_ECHO_PREFIX_RE = /^\s*(?:write-output|write-host|echo|printf)\b/i;
+const PRINT_ECHO_SEGMENT_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]*\s+)*(?:write-output|write-host|echo|printf)(?=[\s"'`]|$)/i;
 
 function stripBalancedCurlyQuotesForPrint(command) {
-  if (!PRINT_ECHO_PREFIX_RE.test(command)) return command;
-  return command
-    .replace(/\u201c[^\u201c\u201d]*\u201d/g, '""')
-    .replace(/\u2018[^\u2018\u2019]*\u2019/g, "''");
+  const str = String(command ?? "");
+  if (!/[\u201c\u2018]/.test(str)) return str;
+  let out = "";
+  let inSingle = false;
+  let inDouble = false;
+  let atSegmentStart = true;
+  let inPrintVerb = false;
+
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (inSingle) {
+      out += ch;
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      out += ch;
+      if (ch === "\\" && i + 1 < str.length) {
+        out += str[i + 1];
+        i++;
+      } else if (ch === '"') {
+        inDouble = false;
+      }
+      continue;
+    }
+    if (ch === "\\" && i + 1 < str.length) {
+      out += ch + str[i + 1];
+      i++;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      atSegmentStart = false;
+      out += ch;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      atSegmentStart = false;
+      out += ch;
+      continue;
+    }
+    if (ch === ";" || ch === "&" || ch === "|" || ch === "\n" || ch === "\r") {
+      inPrintVerb = false;
+      atSegmentStart = true;
+      out += ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      out += ch;
+      continue;
+    }
+    if (atSegmentStart) {
+      atSegmentStart = false;
+      if (PRINT_ECHO_SEGMENT_RE.test(str.slice(i))) {
+        inPrintVerb = true;
+      }
+    }
+    if (inPrintVerb && (ch === "\u201c" || ch === "\u2018")) {
+      const closeCh = ch === "\u201c" ? "\u201d" : "\u2019";
+      const closeIdx = str.indexOf(closeCh, i + 1);
+      if (closeIdx !== -1) {
+        out += ch === "\u201c" ? '""' : "''";
+        i = closeIdx;
+        continue;
+      }
+    }
+    out += ch;
+  }
+  return out;
 }
 
 /**
@@ -882,7 +948,7 @@ const PKG_WRAPPER_VALUE_FLAGS = new Set([
   "-p", "--package", "--from", "-C", "--cwd", "--filter", "--workspace", "-w", "--registry",
 ]);
 
-function extractCliPrActions(command) {
+export function extractCliPrActions(command) {
   const actions = [];
   for (const segment of collectLeafSegments(String(command ?? ""))) {
     const tokens = tokenizeSimpleWords(segment);
@@ -972,13 +1038,14 @@ function extractCliPrActions(command) {
           actions.push({ kind: "gh-pr-merge", tokens: rest });
         } else if (sub2 === "edit") {
           const touchesBody = rest.some((t) => {
-            const lower = t.toLowerCase();
+            const cleanFlag = t.replace(/\\/g, "");
+            const lower = cleanFlag.toLowerCase();
             return (
-              GH_BODY_FLAGS.has(t) ||
+              GH_BODY_FLAGS.has(cleanFlag) ||
               lower.startsWith("--body=") ||
               lower.startsWith("--body-file=") ||
-              (t.startsWith("-b") && t.length > 2) ||
-              (t.startsWith("-F") && t.length > 2)
+              (cleanFlag.startsWith("-b") && cleanFlag.length > 2 && !cleanFlag.startsWith("--")) ||
+              (cleanFlag.startsWith("-F") && cleanFlag.length > 2 && !cleanFlag.startsWith("--"))
             );
           });
           if (touchesBody) {
@@ -996,25 +1063,30 @@ function extractGhBodyText(tokens, workspaceDir) {
   let bodyFile = null;
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
-    const lower = tok.toLowerCase();
-    if (GH_FILL_FLAGS.has(tok) || GH_FILL_FLAGS.has(lower)) {
+    const eqIdx = tok.indexOf("=");
+    const rawHead = eqIdx === -1 ? tok : tok.slice(0, eqIdx);
+    const cleanHead = rawHead.replace(/\\/g, "");
+    const cleanHeadLower = cleanHead.toLowerCase();
+    const cleanAll = tok.replace(/\\/g, "");
+    const cleanAllLower = cleanAll.toLowerCase();
+    if (GH_FILL_FLAGS.has(cleanAll) || GH_FILL_FLAGS.has(cleanAllLower)) {
       return {
         error:
           "gh --fill flags bypass the PR statechart and proof contract; run pr-dossier.mjs --format github --out <body-file> and pass --body-file <body-file>",
       };
     }
-    if (tok === "-b" || lower === "--body") {
+    if (cleanAll === "-b" || cleanAllLower === "--body") {
       bodyText = tokens[++i] ?? "";
-    } else if (tok.startsWith("-b") && tok.length > 2) {
-      bodyText = tok.slice(2);
-    } else if (lower.startsWith("--body=")) {
-      bodyText = tok.slice("--body=".length);
-    } else if (tok === "-F" || lower === "--body-file") {
+    } else if (cleanHeadLower === "--body" && eqIdx !== -1) {
+      bodyText = tok.slice(eqIdx + 1);
+    } else if (cleanAll.startsWith("-b") && cleanAll.length > 2 && !cleanAll.startsWith("--")) {
+      bodyText = tok.replace(/^\\?-\\?b/, "");
+    } else if (cleanAll === "-F" || cleanAllLower === "--body-file") {
       bodyFile = tokens[++i] ?? "";
-    } else if (tok.startsWith("-F") && tok.length > 2) {
-      bodyFile = tok.slice(2);
-    } else if (lower.startsWith("--body-file=")) {
-      bodyFile = tok.slice("--body-file=".length);
+    } else if (cleanHeadLower === "--body-file" && eqIdx !== -1) {
+      bodyFile = tok.slice(eqIdx + 1);
+    } else if (cleanAll.startsWith("-F") && cleanAll.length > 2 && !cleanAll.startsWith("--")) {
+      bodyFile = tok.replace(/^\\?-\\?F/, "");
     }
   }
 

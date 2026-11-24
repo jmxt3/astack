@@ -132,6 +132,9 @@ test("irreversible-guard allows safe commands and flags destructive/trunk comman
     `env -S "-u FOO git push --force origin main"`,
     `git push --f\\orce origin main`,
     `g\\it.exe push --force origin main`,
+    `X="$(echo '"')" git push --force origin main`,
+    "echo `git push --force origin main; true`",
+    'env -S "-u FOO" sh -c "git push --force origin main"',
   ]) {
     const interactive = runHook(
       guardScript,
@@ -700,6 +703,10 @@ test("evidence-gate validates gh CLI and MCP PR bodies against base-branch polic
       'pnpm exec env -S "-u FOO gh pr merge 1"',
       "npx -y --package @cli/gh gh pr merge 1",
       "uvx --from pkg gh pr merge 1",
+      'X="$(echo \'"\')" gh pr merge 1',
+      "echo `gh pr merge 1; true`",
+      'env -S "-u FOO" sh -c "gh pr merge 1"',
+      'gh pr edit 12 --b\\ody "plain"',
     ]) {
       const blocked = runHook(
         evidenceScript,

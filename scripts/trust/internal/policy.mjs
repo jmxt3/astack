@@ -327,7 +327,8 @@ function tryGit(cwd, args) {
 export function resolveBaseRef(workspaceDir, explicitBase, { allowHeadFallback = false } = {}) {
   if (!workspaceDir || !fs.existsSync(workspaceDir)) return null;
   if (explicitBase) {
-    const ok = tryGit(workspaceDir, ["rev-parse", "--verify", explicitBase]);
+    const cleanBase = String(explicitBase).trim();
+    const ok = cleanBase ? tryGit(workspaceDir, ["rev-parse", "--verify", `${cleanBase}^{commit}`]) : null;
     return ok !== null ? explicitBase : null;
   }
   const symOriginHead = tryGit(workspaceDir, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])?.trim();
@@ -631,6 +632,14 @@ export function splitShellPipelines(command) {
       i = sub.closed ? sub.closeIdx : command.length - 1;
       continue;
     }
+    if (!inSingle && ch === "`") {
+      const tick = scanBacktickSubstitution(command, i);
+      if (tick.closed) {
+        buf += command.slice(i, tick.closeIdx + 1);
+        i = tick.closeIdx;
+        continue;
+      }
+    }
     if (ch === "'" && !inDouble) {
       inSingle = !inSingle;
       buf += ch;
@@ -801,6 +810,28 @@ export function scanBalancedSubshell(str, openParenIdx, _depth = 0) {
   return { inner: input.slice(openParenIdx + 1), closeIdx: input.length, closed: false };
 }
 
+/**
+ * Scans a backtick command substitution `` `...` ``, respecting `\` escapes.
+ */
+export function scanBacktickSubstitution(str, openTickIdx) {
+  const input = String(str ?? "");
+  if (openTickIdx < 0 || openTickIdx >= input.length || input[openTickIdx] !== "`") {
+    return { inner: "", closeIdx: openTickIdx, closed: false };
+  }
+  let j = openTickIdx + 1;
+  while (j < input.length) {
+    if (input[j] === "\\" && j + 1 < input.length) {
+      j += 2;
+      continue;
+    }
+    if (input[j] === "`") {
+      return { inner: input.slice(openTickIdx + 1, j), closeIdx: j, closed: true };
+    }
+    j++;
+  }
+  return { inner: input.slice(openTickIdx + 1), closeIdx: input.length, closed: false };
+}
+
 export function extractCommandSubstitutions(segment) {
   const str = String(segment ?? "");
   const out = [];
@@ -853,21 +884,13 @@ export function extractCommandSubstitutions(segment) {
     }
 
     if (ch === "`") {
-      let j = i + 1;
-      while (j < str.length) {
-        if (str[j] === "\\" && j + 1 < str.length) {
-          j += 2;
-          continue;
-        }
-        if (str[j] === "`") break;
-        j++;
-      }
-      if (j < str.length && str[j] === "`") {
-        const inner = str.slice(i + 1, j).trim();
+      const tick = scanBacktickSubstitution(str, i);
+      if (tick.closed) {
+        const inner = tick.inner.trim();
         if (inner && /\s/.test(inner)) {
           out.push(inner);
         }
-        i = j;
+        i = tick.closeIdx;
       }
     }
   }
@@ -944,7 +967,7 @@ export function stripTransparentWrappers(tokens, _depth = 0) {
       if (base === "env") {
         if (opt === "-S" || opt === "--split-string" || /^-[a-zA-Z]*S$/.test(opt)) {
           if (idx + 1 < tokens.length) {
-            const extra = tokens.slice(idx + 2).join(" ").trim();
+            const extra = tokens.slice(idx + 2).map(quoteShellTokenForReparse).join(" ").trim();
             const full = extra ? `${tokens[idx + 1]} ${extra}` : tokens[idx + 1];
             if (full.trim()) splitCommands.push(full.trim());
             idx = tokens.length;
@@ -955,7 +978,7 @@ export function stripTransparentWrappers(tokens, _depth = 0) {
         }
         const attachedSplit = opt.match(/^-[a-zA-Z]*S([\s\S]+)$/);
         if (attachedSplit) {
-          const extra = tokens.slice(idx + 1).join(" ").trim();
+          const extra = tokens.slice(idx + 1).map(quoteShellTokenForReparse).join(" ").trim();
           const full = extra ? `${attachedSplit[1]} ${extra}` : attachedSplit[1];
           if (full.trim()) splitCommands.push(full.trim());
           idx = tokens.length;
@@ -963,7 +986,7 @@ export function stripTransparentWrappers(tokens, _depth = 0) {
         }
         const eqSplit = opt.match(/^--split-string=([\s\S]*)$/i);
         if (eqSplit) {
-          const extra = tokens.slice(idx + 1).join(" ").trim();
+          const extra = tokens.slice(idx + 1).map(quoteShellTokenForReparse).join(" ").trim();
           const full = extra ? `${eqSplit[1]} ${extra}` : eqSplit[1];
           if (full.trim()) splitCommands.push(full.trim());
           idx = tokens.length;
@@ -1204,10 +1227,26 @@ export function tokenizeSimpleWords(segment) {
 
     if (inDouble) {
       inToken = true;
-      if (ch === "\\" && (next === '"' || next === "\\")) {
+      if (ch === "\\" && (next === '"' || next === "\\" || next === "$" || next === "`")) {
         cur += next;
         i++;
         continue;
+      }
+      if (ch === "$" && next === "(") {
+        const sub = scanBalancedSubshell(str, i + 1);
+        if (sub.closed) {
+          cur += str.slice(i, sub.closeIdx + 1);
+          i = sub.closeIdx;
+          continue;
+        }
+      }
+      if (ch === "`") {
+        const tick = scanBacktickSubstitution(str, i);
+        if (tick.closed) {
+          cur += str.slice(i, tick.closeIdx + 1);
+          i = tick.closeIdx;
+          continue;
+        }
       }
       if (ch === '"') {
         inDouble = false;
@@ -1263,6 +1302,26 @@ export function tokenizeSimpleWords(segment) {
         }
       }
       continue;
+    }
+
+    if ((ch === "$" || ch === "<" || ch === ">") && next === "(") {
+      const sub = scanBalancedSubshell(str, i + 1);
+      if (sub.closed) {
+        inToken = true;
+        cur += str.slice(i, sub.closeIdx + 1);
+        i = sub.closeIdx;
+        continue;
+      }
+    }
+
+    if (ch === "`") {
+      const tick = scanBacktickSubstitution(str, i);
+      if (tick.closed) {
+        inToken = true;
+        cur += str.slice(i, tick.closeIdx + 1);
+        i = tick.closeIdx;
+        continue;
+      }
     }
 
     if (!inToken && (ch === "(" || ch === "{")) {

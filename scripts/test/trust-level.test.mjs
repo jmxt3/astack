@@ -24,6 +24,7 @@ import {
   recordReceipt,
   recordRollbackReceipt,
   recordVerifierReceipt,
+  resolveBaseRef,
   resolveEffectiveAutonomy,
   resolvePrStatechart,
   resolveTrustDir,
@@ -1494,6 +1495,12 @@ test("Round 6 hardening blocks symlink-before-.. traversal, quote-aware subshell
     const payload = `rm -rf "${storePosix}"`;
     const b64 = Buffer.from(payload, "utf8").toString("base64");
     const revB64 = [...b64].reverse().join("");
+    const unpaddedRaw = Buffer.from(`rm -rf "${storePosix}"`, "utf8").toString("base64").replace(/=+$/, "");
+    const unpaddedB64 =
+      unpaddedRaw.length % 4 !== 0
+        ? unpaddedRaw
+        : Buffer.from(`rm -rf "${storePosix}" `, "utf8").toString("base64").replace(/=+$/, "");
+    const cliB64 = Buffer.from("node scripts/trust/cli.mjs beast on", "utf8").toString("base64");
     const blockedCommands = [
       `source <(true ")"; ${payload})`,
       `source <(true ")"; echo "${b64}" | base64 -d)`,
@@ -1513,6 +1520,18 @@ test("Round 6 hardening blocks symlink-before-.. traversal, quote-aware subshell
       `perl -e'unlink("${storePosix}/settings.json")'`,
       `echo "${b64}" | base64 -d | xargs -i sh`,
       `echo "${storePosix}/settings.json" | xargs -i rm -f {}`,
+      `X="$(echo '"')" node scripts/trust/cli.mjs promotion auto`,
+      `sh -s "$(echo '"')" < <(echo "${cliB64}" | base64 -d)`,
+      `cat \`rm -rf "${storePosix}"; true\``,
+      `cd lnk && echo '{}' > ../trust/${scope.repoId}/settings.json`,
+      `cd lnk && cd .. && echo '{}' > trust/${scope.repoId}/settings.json`,
+      `env -C lnk sh -c "echo '{}' > ../trust/${scope.repoId}/settings.json"`,
+      `ln -s "$ASTACK_PLUGIN_DATA/sub" evil-lnk`,
+      `env -S "-u FOO" sh -c "node scripts/trust/cli.mjs beast on"`,
+      `true <<< x; cat << 'EOF' | base64 -d | sh\n${b64}\nEOF`,
+      `cat << 'A'\nhi\nA\ncat << 'B' | base64 -d | sh\n${b64}\nB`,
+      `cat << 'EOF' | base64 -d | node\n${cliB64}\nEOF`,
+      `echo "${unpaddedB64}" | base64 -d | sh`,
     ];
     for (const cmd of blockedCommands) {
       assert.equal(isProtectedTrustShellCommand(cmd, { dataDir, workspaceDir: dir }), true, cmd);
@@ -1520,11 +1539,18 @@ test("Round 6 hardening blocks symlink-before-.. traversal, quote-aware subshell
       assert.equal(gate.decision, "deny", cmd);
     }
 
+    assert.equal(resolveBaseRef(dir, "0123456789abcdef0123456789abcdef01234567"), null);
+    assert.equal(
+      isProtectedTrustStorePath(`\\\\?\\${path.join(storeDir, "future-settings.json")}`, { dataDir, workspaceDir: dir }),
+      true,
+    );
+
     const safeCommands = [
       `echo "${b64}" | base64 -d | cat`,
       `powershell -Exec Bypass "Get-Location"`,
       `perl -e'print 1'`,
       `echo hi | xargs -i echo {}`,
+      `ln -s README.md docs-link.md`,
     ];
     for (const cmd of safeCommands) {
       assert.equal(isProtectedTrustShellCommand(cmd, { dataDir, workspaceDir: dir }), false, cmd);
