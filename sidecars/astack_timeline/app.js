@@ -689,7 +689,9 @@
       }
     }
     const doc = window.ASTACK_CATALOG?.commandDocs?.[command];
-    return doc ? { command, copyText: command, ...doc } : null;
+    if (!doc) return null;
+    const invocable = doc.invocable !== false;
+    return { command, invocable, copyText: invocable ? command : null, ...doc };
   }
 
   function positionCommandPopover(pop, anchorEl) {
@@ -719,6 +721,10 @@
 
     const head = el("div", "cmd-popover-head");
     head.appendChild(el("span", "cmd-popover-name", item.command));
+    if (item.invocable === false) {
+      const kindLabel = item.kind === "agent" ? "internal agent" : item.kind === "script" ? "internal script" : "internal";
+      head.appendChild(el("span", "cmd-popover-kind", kindLabel));
+    }
     if (typeof item.docsUrl === "string" && item.docsUrl.startsWith(DOCS_URL_PREFIX)) {
       const link = el("a", "cmd-popover-doc");
       link.href = item.docsUrl;
@@ -729,10 +735,14 @@
       head.appendChild(link);
     }
 
+    const footText = item.invocable === false
+      ? (item.invokedBy ? `Runs automatically via ${item.invokedBy} (not a slash command)` : "Internal step (not a slash command)")
+      : `Click to copy and focus chat (${PASTE_SHORTCUT})`;
+
     pop.replaceChildren(
       head,
       el("p", "cmd-popover-desc", item.description),
-      el("div", "cmd-popover-foot", `Click to copy and focus chat (${PASTE_SHORTCUT})`),
+      el("div", "cmd-popover-foot", footText),
     );
     pop.classList.remove("hidden");
     positionCommandPopover(pop, anchorEl);
@@ -819,18 +829,36 @@
       subWrap.appendChild(el("div", "subcmd-label", "Triggered automatically"));
       const subList = el("div", "subcmd-list");
       for (const sub of autoSubCommands) {
-        const pill = el("button", sub.ran ? "subcmd-pill ran" : "subcmd-pill");
-        pill.type = "button";
-        wireCommandAction(pill, sub);
-        if (sub.ran) {
-          const ic = svgIcon("check-sm", 11);
-          ic.classList.add("chip-icon");
-          pill.appendChild(ic);
+        if (sub.invocable === false) {
+          const pill = el("span", sub.ran ? "subcmd-pill is-internal ran" : "subcmd-pill is-internal");
+          pill.tabIndex = 0;
+          pill.setAttribute("role", "status");
+          pill.dataset.kind = sub.kind || "script";
+          attachCommandPopover(pill, sub);
+          if (sub.ran) {
+            const ic = svgIcon("check-sm", 11);
+            ic.classList.add("chip-icon");
+            pill.appendChild(ic);
+          } else {
+            pill.appendChild(el("span", "subcmd-dot", "·"));
+          }
+          pill.appendChild(el("span", "", sub.command));
+          pill.appendChild(el("span", "subcmd-tag", sub.kind === "agent" ? "agent" : "script"));
+          subList.appendChild(pill);
         } else {
-          pill.appendChild(el("span", "subcmd-dot", "·"));
+          const pill = el("button", sub.ran ? "subcmd-pill ran" : "subcmd-pill");
+          pill.type = "button";
+          wireCommandAction(pill, sub);
+          if (sub.ran) {
+            const ic = svgIcon("check-sm", 11);
+            ic.classList.add("chip-icon");
+            pill.appendChild(ic);
+          } else {
+            pill.appendChild(el("span", "subcmd-dot", "·"));
+          }
+          pill.appendChild(el("span", "", sub.command));
+          subList.appendChild(pill);
         }
-        pill.appendChild(el("span", "", sub.command));
-        subList.appendChild(pill);
       }
       subWrap.appendChild(subList);
       container.appendChild(subWrap);

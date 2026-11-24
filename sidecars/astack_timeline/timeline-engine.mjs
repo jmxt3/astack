@@ -24,9 +24,14 @@ const STAGE_BY_ID = new Map(PIPELINE_STAGES.map((stage) => [stage.id, stage]));
 function makeCommandItem(command, state, optional = false) {
   const doc = COMMAND_DOCS[command] ?? {};
   const trimmed = String(command).trim();
+  const invocable = doc.invocable !== false;
   return {
     command,
-    copyText: trimmed,
+    kind: doc.kind ?? "skill",
+    invocable,
+    invokedBy: doc.invokedBy ?? null,
+    backingPath: doc.backingPath ?? null,
+    copyText: invocable ? trimmed : null,
     state,
     optional,
     description: doc.description ?? "",
@@ -92,7 +97,7 @@ export const TIMELINE_STEPS = [
     summary: "Open the PR and track CI to merge-ready.",
     gate: "AUTO",
     primaryCommand: "/astack-mode open the pr",
-    optionalCommands: ["babysit"],
+    optionalCommands: ["/astack-mode babysit"],
     pipelineStages: [],
   },
 ];
@@ -777,7 +782,14 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
           sig.openPrAt = latestMarker(sig.openPrAt, marker);
           sig.detected.add("/astack-mode open the pr");
         }
+        if (/\bbabysit\b/i.test(body)) {
+          sig.babysitAt = latestMarker(sig.babysitAt, marker);
+          sig.detected.add("/astack-mode babysit");
+        }
         if (/\bland\s+(?:the\s+)?stack\b/i.test(body)) sig.detected.add("/astack-mode land the stack");
+        if (/\b(?:release-and-postmortem|release\s+notes|postmortem)\b/i.test(body)) {
+          sig.detected.add("/astack-mode release-and-postmortem");
+        }
         if (/\bprune\s+worktrees?\b/i.test(body)) sig.detected.add("/astack-mode prune worktrees");
       }
       if (/\bProceeded\s+with\b/i.test(body) || /^(?:approved|approve|proceed|do it|go ahead)\b/i.test(body)) {
@@ -1007,7 +1019,8 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         if (pbRead) {
           const pbName = pbRead[1].toLowerCase();
           if (pbName === "shipping") sig.detected.add("/astack-mode land the stack");
-          else if (pbName === "release-and-postmortem") sig.detected.add("release-and-postmortem");
+          else if (pbName === "babysit") sig.detected.add("/astack-mode babysit");
+          else if (pbName === "release-and-postmortem") sig.detected.add("/astack-mode release-and-postmortem");
           else if (pbName === "worktree-cleanup") sig.detected.add("/astack-mode prune worktrees");
         }
         if (/\/skills\/setup-astack\/SKILL\.md$/i.test(p)) sig.setupAt = latestMarker(sig.setupAt, marker);
@@ -1211,11 +1224,11 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         }
         if (/\bpr-dossier\.mjs\b/i.test(cmd)) {
           sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
-          sig.detected.add("pr-dossier");
+          sig.detected.add("pr-dossier.mjs");
         }
         if (/\bwatch-pr\.mjs\b/i.test(cmd)) {
           sig.babysitAt = latestMarker(sig.babysitAt, marker);
-          sig.detected.add("watch-pr");
+          sig.detected.add("watch-pr.mjs");
         }
         if (/\bworktree-audit\.mjs\b/i.test(cmd)) sig.detected.add("/astack-mode prune worktrees");
         if (/\bstatechart\.mjs\b/i.test(cmd)) sig.detected.add("/statechart");
@@ -1225,8 +1238,17 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         if (category === "test" || category === "verify") {
           pendingTestCmds.set(order, marker);
         }
-      } else if (name === "call_mcp_tool" && unquoteArg(args.ToolName) === "create_pull_request") {
-        sig.pushOrPrAt = latestMarker(sig.pushOrPrAt, marker);
+      } else if (name === "call_mcp_tool") {
+        const mcpTool = unquoteArg(args.ToolName);
+        if (mcpTool === "create_pull_request") {
+          sig.pushOrPrAt = latestMarker(sig.pushOrPrAt, marker);
+        } else if (mcpTool === "compile_pr_dossier") {
+          sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
+          sig.detected.add("pr-dossier.mjs");
+        }
+      } else if (name === "mcp_astack_trust_compile_pr_dossier") {
+        sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
+        sig.detected.add("pr-dossier.mjs");
       }
     }
   }
@@ -1638,7 +1660,7 @@ function buildShipStage({ reviewStatus, shipped, sig }) {
     status,
     commands: [
       makeCommandItem("/astack-mode open the pr", shipped ? "done" : status === "next" ? "next" : "pending"),
-      makeCommandItem("babysit", sig.babysitAt ? "done" : "pending", true),
+      makeCommandItem("/astack-mode babysit", sig.babysitAt ? "done" : "pending", true),
     ],
     subChecks: [],
     detail,
@@ -2032,7 +2054,7 @@ export function evaluateTimelineSnapshot({
   const setupState = buildSetupReadiness(setup, sig);
   if (setup.verifySkills.some((s) => !s.endsWith("-formal"))) sig.detected.add("/create-verification-skill");
   if (setup.verifySkills.some((s) => s.endsWith("-formal"))) sig.detected.add("/create-formal-verification-skill");
-  if (evidence) sig.detected.add("pr-dossier");
+  if (evidence) sig.detected.add("pr-dossier.mjs");
   if (evidence?.verifier?.verdict) sig.detected.add("pr-verifier");
   Object.assign(
     setupState,

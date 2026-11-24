@@ -1,0 +1,767 @@
+{
+  "githubDocsBase": "https://github.com/jmxt3/astack/blob/main",
+  "commands": {
+    "/setup-astack": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Scaffold verify-<app> skills and repo guardrails once per project.",
+      "docsPath": "skills/setup-astack/SKILL.md"
+    },
+    "/create-verification-skill": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Generate .agents/skills/verify-<app>/ and a live feature map.",
+      "docsPath": "skills/create-verification-skill/SKILL.md"
+    },
+    "/create-formal-verification-skill": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Scaffold TLA+ or TypeScript bounded invariant verification checks.",
+      "docsPath": "skills/create-formal-verification-skill/SKILL.md"
+    },
+    "/maintain-verification-skill": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Audit and repair drifted verify-<app> checks against live app behavior.",
+      "docsPath": "skills/maintain-verification-skill/SKILL.md"
+    },
+    "/maintain-formal-verification-skill": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Re-sync TLA+ or bounded TypeScript specs after code changes.",
+      "docsPath": "skills/maintain-formal-verification-skill/SKILL.md"
+    },
+    "/astack-help": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Pick the right skill, playbook, or multi-agent tier without running edits.",
+      "docsPath": "skills/astack-help/SKILL.md"
+    },
+    "/plan": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Investigate read-only and write implementation_plan.md before editing files.",
+      "docsPath": "skills/astack-mode/references/plan-contract.md"
+    },
+    "/grill-me": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Interview you one question at a time to sharpen a rough idea before planning.",
+      "docsPath": "docs/user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute"
+    },
+    "/how": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Trace how a subsystem works right now and which module owns it.",
+      "docsPath": "skills/how/SKILL.md"
+    },
+    "/why": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Trace git history, PRs, and trackers for why code or limits exist.",
+      "docsPath": "skills/why/SKILL.md"
+    },
+    "/in-your-own-words": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Restate the ticket or goal read-only to catch misreads before coding.",
+      "docsPath": "skills/in-your-own-words/SKILL.md"
+    },
+    "/sharpen": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Rewrite an underspecified prompt deeper without executing edits.",
+      "docsPath": "skills/sharpen/SKILL.md"
+    },
+    "/teach": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Explain a subsystem or PR step by step with diagrams and rationale.",
+      "docsPath": "skills/teach/SKILL.md"
+    },
+    "/recall": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Reconstruct recent work from Antigravity transcripts and PR history.",
+      "docsPath": "skills/recall/SKILL.md"
+    },
+    "/architect": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Explore competing boundary designs in parallel and screen red flags.",
+      "docsPath": "skills/architect/SKILL.md"
+    },
+    "/statechart": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Model-check TLA+ state machines and render failing paths as Mermaid charts.",
+      "docsPath": "skills/statechart/SKILL.md"
+    },
+    "/figure-it-out": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Design an auditable hypothesis loop for huge unmapped migrations.",
+      "docsPath": "skills/figure-it-out/SKILL.md"
+    },
+    "/astack-mode": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Run the full playbook to implement, clean the diff, and prove it works live.",
+      "docsPath": "skills/astack-mode/SKILL.md"
+    },
+    "/interrogate": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Run multi-model adversarial review on a contested design or diff.",
+      "docsPath": "skills/interrogate/SKILL.md"
+    },
+    "/deslop": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Strip speculative helpers, shims, and bloat before committing.",
+      "docsPath": "skills/deslop/SKILL.md"
+    },
+    "/no-comments": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Delete narrating comments and flag workarounds via comment-sicko.",
+      "docsPath": "skills/no-comments/SKILL.md"
+    },
+    "/control-ui": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Boot isolated UI servers and verify user flows in a real browser.",
+      "docsPath": "skills/control-ui/SKILL.md"
+    },
+    "/control-cli": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Verify CLIs, daemons, and HTTP APIs in isolated temp workspaces.",
+      "docsPath": "skills/control-cli/SKILL.md"
+    },
+    "/tdd": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Write a minimal failing behavioral test first on cheap local tests.",
+      "docsPath": "skills/tdd/SKILL.md"
+    },
+    "/typescript-best-practices": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Enforce discriminated unions, unknown boundary parsing, and strict TypeScript.",
+      "docsPath": "skills/typescript-best-practices/SKILL.md"
+    },
+    "/arena": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Race competing candidates in isolated branches and graft the cleanest wins.",
+      "docsPath": "skills/arena/SKILL.md"
+    },
+    "/fanout": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Run parallel subagent slices or review arms and consolidate findings.",
+      "docsPath": "skills/fanout/SKILL.md"
+    },
+    "/design-audit": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Audit desktop and mobile layout, keyboard nav, ARIA, and UI states live.",
+      "docsPath": "skills/design-audit/SKILL.md"
+    },
+    "/benchmark-checklist": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Vet performance speedups and regressions across seven empirical checks.",
+      "docsPath": "skills/benchmark-checklist/SKILL.md"
+    },
+    "/show-me-your-work": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Record an append-only TSV decision trail audited against transcripts.",
+      "docsPath": "skills/show-me-your-work/SKILL.md"
+    },
+    "/ketchup": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Summarize recent changes and pending human decisions in plain prose.",
+      "docsPath": "skills/ketchup/SKILL.md"
+    },
+    "/ketchup-video": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Catch up on recent changes as a short subtitled slide video plus open decisions.",
+      "docsPath": "skills/ketchup-video/SKILL.md"
+    },
+    "/bro": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Restate the last agent message in plain human language with no jargon.",
+      "docsPath": "skills/bro/SKILL.md"
+    },
+    "/review-pr": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Compile pr-review.md and run an isolated verifier pass before opening a PR.",
+      "docsPath": "skills/review-pr/SKILL.md"
+    },
+    "pr-dossier.mjs": {
+      "kind": "script",
+      "invocable": false,
+      "backingPath": "skills/review-pr/scripts/pr-dossier.mjs",
+      "invokedBy": "/review-pr",
+      "description": "Compile Risk Tier 0-3 blast radius, receipts, and pr-review.md.",
+      "docsPath": "skills/review-pr/SKILL.md"
+    },
+    "pr-verifier": {
+      "kind": "agent",
+      "invocable": false,
+      "backingPath": "agents/pr-verifier.md",
+      "invokedBy": "/review-pr",
+      "description": "Run isolated fresh-context verification against base-branch REVIEW.md.",
+      "docsPath": "agents/pr-verifier.md"
+    },
+    "/security-audit": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Run opt-in trust-boundary guidance or 6-phase vulnerability audits.",
+      "docsPath": "skills/security-audit/SKILL.md"
+    },
+    "/blast-radius": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Prove downstream caller, wire, and database safety by running real code.",
+      "docsPath": "skills/blast-radius/SKILL.md"
+    },
+    "/audit-architecture": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Scan module boundaries, banned patterns, and shallow modules.",
+      "docsPath": "skills/audit-architecture/SKILL.md"
+    },
+    "/astack-mode open the pr": {
+      "kind": "playbook",
+      "invocable": true,
+      "backingPath": "skills/astack-mode/playbooks/opening-a-pr.md",
+      "description": "Prepare clean commits, compile the PR proof block, and open the PR.",
+      "docsPath": "skills/astack-mode/playbooks/opening-a-pr.md"
+    },
+    "/astack-mode babysit": {
+      "kind": "playbook",
+      "invocable": true,
+      "backingPath": "skills/astack-mode/playbooks/babysit.md",
+      "description": "Watch CI, triage review threads skeptically, and drive the PR to merge-ready.",
+      "docsPath": "skills/astack-mode/playbooks/babysit.md"
+    },
+    "/technical-writing": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Enforce clear active voice and Google/STE rules on docs and PR bodies.",
+      "docsPath": "skills/technical-writing/SKILL.md"
+    },
+    "/unslop": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Remove AI writing tells, forced triplets, and filler from prose.",
+      "docsPath": "skills/unslop/SKILL.md"
+    },
+    "watch-pr.mjs": {
+      "kind": "script",
+      "invocable": false,
+      "backingPath": "skills/astack-mode/scripts/watch-pr/watch-pr.mjs",
+      "invokedBy": "/astack-mode babysit",
+      "description": "Poll GitHub PR checks, mergeability, and review threads to READY.",
+      "docsPath": "skills/astack-mode/playbooks/babysit.md"
+    },
+    "/astack-mode land the stack": {
+      "kind": "playbook",
+      "invocable": true,
+      "backingPath": "skills/astack-mode/playbooks/shipping.md",
+      "description": "Verify each PR via an independent verifier and merge bottom-up.",
+      "docsPath": "skills/astack-mode/playbooks/shipping.md"
+    },
+    "/astack-mode release-and-postmortem": {
+      "kind": "playbook",
+      "invocable": true,
+      "backingPath": "skills/astack-mode/playbooks/release-and-postmortem.md",
+      "description": "Write release notes, run post-deploy smoke checks, and close incidents.",
+      "docsPath": "skills/astack-mode/playbooks/release-and-postmortem.md"
+    },
+    "/correct": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Encode recurring mistakes into types, lints, tests, or rules.",
+      "docsPath": "skills/correct/SKILL.md"
+    },
+    "/reflect": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Mine session transcripts to propose targeted skill improvements.",
+      "docsPath": "skills/reflect/SKILL.md"
+    },
+    "/automate-me": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Distill recurring session habits into a personal workflow skill.",
+      "docsPath": "skills/automate-me/SKILL.md"
+    },
+    "/make-bot-ui": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Build a local or Tailscale button UI that wakes an automation webhook safely.",
+      "docsPath": "skills/make-bot-ui/SKILL.md"
+    },
+    "/astack-mode prune worktrees": {
+      "kind": "playbook",
+      "invocable": true,
+      "backingPath": "skills/astack-mode/playbooks/worktree-cleanup.md",
+      "description": "Audit stale git worktrees and clones safely before removing them.",
+      "docsPath": "skills/astack-mode/playbooks/worktree-cleanup.md"
+    },
+    "/swarm": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Spawn named workers with isolated workspaces and a @verifier on a shared board.",
+      "docsPath": "skills/astack-mode/references/swarm-coordination.md"
+    },
+    "/run-workflow": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Run parallel() and pipeline() Python workflows across many files or staged phases.",
+      "docsPath": "skills/astack-mode/references/native-commands.md"
+    },
+    "/schedule": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Schedule a one-shot timer or recurring cron check inside the active conversation.",
+      "docsPath": "skills/astack-mode/playbooks/babysit.md"
+    },
+    "/automation": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Create a persistent App sidecar automation (sidecar.json with CRON_TZ), dormant until enabled.",
+      "docsPath": "skills/astack-mode/references/native-commands.md"
+    },
+    "/browser": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Delegate live web UI inspection, interaction, and screenshots to the browser subagent.",
+      "docsPath": "skills/control-ui/SKILL.md"
+    },
+    "/boost": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Three-tier multi-agent deep reasoning hierarchy for hard coupled bugs, races, and algorithms.",
+      "docsPath": "skills/astack-mode/playbooks/bug-fix.md"
+    },
+    "/goal": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Harness-owned continuous loop that keeps running until the done predicate holds.",
+      "docsPath": "skills/astack-mode/playbooks/autonomous-run.md"
+    },
+    "/teamwork": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Sentinel scoping interview, binding spec, and agent teams for multi-day campaigns.",
+      "docsPath": "skills/astack-mode/playbooks/orchestrate.md"
+    },
+    "/btw": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Ask a read-only contextual side question without pausing active agents or cluttering history.",
+      "docsPath": "skills/astack-mode/references/native-commands.md"
+    },
+    "/learn": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Distill session corrections into durable rules or skills via learning_proposal.md.",
+      "docsPath": "skills/astack-mode/references/plan-contract.md"
+    },
+    "/agy-customizations": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Load Antigravity schemas, discovery precedence, and formats before authoring customizations.",
+      "docsPath": "skills/astack-mode/references/native-commands.md"
+    },
+    "/antigravity-guide": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Answer questions about Antigravity App, CLI, IDE, Remote Agents, and SDK from official docs.",
+      "docsPath": "skills/astack-mode/references/native-commands.md"
+    },
+    "/generative_ui": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Build interactive HTML widgets in the App or fall back to Mermaid in the CLI.",
+      "docsPath": "skills/astack-mode/references/native-commands.md"
+    },
+    "/mcp-app-development": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Build and package single-file ui:// MCP Apps for inline chat cards and side panes.",
+      "docsPath": "skills/astack-mode/references/native-commands.md"
+    },
+    "/plugin": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Open the Plugins Manager or manage, validate, and package Antigravity plugins.",
+      "docsPath": "skills/astack-mode/references/native-commands.md"
+    },
+    "/compact": {
+      "kind": "native",
+      "invocable": true,
+      "description": "Compact long conversation history to free context window capacity without losing active task state.",
+      "docsPath": "skills/astack-mode/references/native-commands.md"
+    },
+    "subagents": {
+      "kind": "concept",
+      "invocable": false,
+      "description": "Spawn focused background subagents (astack-agent, research, browser, comment-sicko, pr-verifier).",
+      "docsPath": "skills/fanout/SKILL.md"
+    },
+    "research": {
+      "kind": "concept",
+      "invocable": false,
+      "description": "Read-only research subagents spawned by /how and /why to trace callers and history.",
+      "docsPath": "skills/how/SKILL.md"
+    }
+  },
+  "stageCatalog": {
+    "setup": {
+      "autoSubCommands": [
+        "/create-verification-skill",
+        "/create-formal-verification-skill"
+      ],
+      "moreCommands": [
+        "/maintain-verification-skill",
+        "/maintain-formal-verification-skill",
+        "/astack-help"
+      ]
+    },
+    "plan": {
+      "autoSubCommands": [
+        "/how",
+        "/why"
+      ],
+      "moreCommands": [
+        "/in-your-own-words",
+        "/sharpen",
+        "/teach",
+        "/recall",
+        "/architect",
+        "/statechart",
+        "/figure-it-out"
+      ]
+    },
+    "build": {
+      "autoSubCommands": [
+        "/deslop",
+        "/no-comments",
+        "/control-ui",
+        "/control-cli"
+      ],
+      "moreCommands": [
+        "/tdd",
+        "/typescript-best-practices",
+        "/arena",
+        "/fanout",
+        "/design-audit",
+        "/benchmark-checklist",
+        "/show-me-your-work",
+        "/ketchup",
+        "/ketchup-video",
+        "/bro"
+      ]
+    },
+    "review": {
+      "autoSubCommands": [
+        "pr-dossier.mjs",
+        "pr-verifier"
+      ],
+      "moreCommands": [
+        "/security-audit",
+        "/blast-radius",
+        "/audit-architecture"
+      ]
+    },
+    "ship": {
+      "autoSubCommands": [
+        "/technical-writing",
+        "/unslop",
+        "watch-pr.mjs"
+      ],
+      "moreCommands": [
+        "/astack-mode land the stack",
+        "/astack-mode release-and-postmortem",
+        "/correct",
+        "/reflect",
+        "/automate-me",
+        "/make-bot-ui",
+        "/astack-mode prune worktrees"
+      ]
+    }
+  },
+  "delegateGuide": {
+    "picks": [
+      {
+        "id": "subagents",
+        "chipLabel": "Side task",
+        "kicker": "Side task · subagents",
+        "prompt": "Delegate to a research subagent: map every caller of resolveTrustDir and report file and line.",
+        "how": "AStack spawns these itself: astack-agent, research, browser, comment-sicko and pr-verifier."
+      },
+      {
+        "id": "browser",
+        "chipLabel": "UI check",
+        "kicker": "UI check · /browser",
+        "prompt": "/browser Open http://localhost:3000, drive the timeline sidecar, check that receipts render, and capture a screenshot.",
+        "how": "AStack runs it under /control-ui during Build & Prove."
+      },
+      {
+        "id": "swarm",
+        "chipLabel": "Broad",
+        "kicker": "Broad · /swarm",
+        "prompt": "/swarm <task>. One worker per file or package, plus a @verifier that runs the tests before sign-off.",
+        "how": "AStack runs it for broad Build & Prove work and stacked PRs."
+      },
+      {
+        "id": "rw",
+        "chipLabel": "Many of the same",
+        "kicker": "Many of the same · /run-workflow",
+        "prompt": "/run-workflow Review the changed files on this branch in parallel, one reviewer per file, then run pr-verifier once on HEAD and log a one-line verdict per file.",
+        "how": "AStack runs it when many files or packages share the same staged pass. A workflow can use AStack agents such as pr-verifier as its agent type."
+      },
+      {
+        "id": "boost",
+        "chipLabel": "Hard",
+        "kicker": "Hard · /boost",
+        "prompt": "/boost /astack-mode <hard bug>. Reproduce it, isolate the root cause, fix it, and prove it with repeated clean runs.",
+        "how": "AStack suggests it from the bug-fix, perf-issue and hillclimb playbooks. You start it."
+      },
+      {
+        "id": "goal",
+        "chipLabel": "Until done",
+        "kicker": "Until done · /goal",
+        "prompt": "/goal <task>. Done when <checkable predicate>.",
+        "how": "AStack drafts the predicate; hand it an approved plan. You start it."
+      },
+      {
+        "id": "teamwork",
+        "chipLabel": "Multi-day",
+        "kicker": "Multi-day · /teamwork",
+        "prompt": "/teamwork <repo-scale migration or multi-day goal>",
+        "how": "Starts with a scoping interview, then runs on its own. Pairs with the orchestrate playbook."
+      },
+      {
+        "id": "schedule",
+        "chipLabel": "Later",
+        "kicker": "Later · /schedule",
+        "prompt": "/schedule every 10 minutes check watch-pr.mjs --pr <n> --status-only and wake me when CI finishes or new review comments arrive.",
+        "how": "/astack-mode babysit re-arms this during Ship."
+      },
+      {
+        "id": "automation",
+        "chipLabel": "Recurring",
+        "kicker": "Recurring · /automation",
+        "prompt": "/automation every weekday at 9am run /maintain-verification-skill on this repository and post a summary of clean, changed or blocked features.",
+        "how": "App only. AStack creates it dormant; you turn it on in the Automations tab."
+      },
+      {
+        "id": "btw",
+        "chipLabel": "Quick question",
+        "kicker": "Quick question · /btw",
+        "prompt": "/btw Which file defines the receipt freshness check?",
+        "how": "Opens a Side Question tab. Nothing is added to the main conversation."
+      }
+    ],
+    "sections": [
+      {
+        "id": "wider",
+        "title": "Wider",
+        "subtitle": "Split the work across agents",
+        "icon": "swarm",
+        "items": [
+          {
+            "pickId": "subagents",
+            "command": "subagents",
+            "icon": "orbit",
+            "summary": "A focused side task while you keep working: research, a browser check, a test run.",
+            "ownership": "AStack runs"
+          },
+          {
+            "pickId": "browser",
+            "command": "/browser",
+            "icon": "browser",
+            "summary": "Hands UI tests, screenshots and console checks to a browser subagent.",
+            "ownership": "AStack runs"
+          },
+          {
+            "pickId": "swarm",
+            "command": "/swarm",
+            "badge": "Preview",
+            "icon": "swarm",
+            "summary": "Broad work that splits cleanly: named workers and a @verifier coordinate on one shared board.",
+            "ownership": "AStack runs"
+          },
+          {
+            "pickId": "rw",
+            "command": "/run-workflow",
+            "icon": "lanes",
+            "summary": "The same step across many files, or staged phases, run as a script you approve.",
+            "ownership": "AStack runs"
+          }
+        ]
+      },
+      {
+        "id": "deeper",
+        "title": "Deeper",
+        "subtitle": "Hard problems, challenged in rounds",
+        "icon": "spiral",
+        "items": [
+          {
+            "pickId": "boost",
+            "command": "/boost",
+            "badge": "Paid plans",
+            "icon": "spiral",
+            "summary": "Root-cause bugs, race conditions and algorithms. Later workers try to break each attempt before it's accepted.",
+            "ownership": "AStack suggests"
+          }
+        ]
+      },
+      {
+        "id": "longer",
+        "title": "Longer",
+        "subtitle": "Keep going until it's proven",
+        "icon": "loop",
+        "items": [
+          {
+            "pickId": "goal",
+            "command": "/goal",
+            "icon": "loop",
+            "summary": "No early stops: it ends only when every deliverable maps to evidence, and it waits for its subagents.",
+            "ownership": "AStack suggests"
+          },
+          {
+            "pickId": "teamwork",
+            "command": "/teamwork",
+            "badge": "Paid plans",
+            "icon": "milestone",
+            "summary": "Multi-day projects: a scoping interview, a project directory, and milestone audit gates.",
+            "ownership": "AStack suggests"
+          }
+        ]
+      },
+      {
+        "id": "later",
+        "title": "Later",
+        "subtitle": "Run on a timer or on repeat",
+        "icon": "clock",
+        "items": [
+          {
+            "pickId": "schedule",
+            "command": "/schedule",
+            "icon": "clock",
+            "summary": "Wakes the agent later in this conversation, once or on a cron. Pairs with /goal for check-ins.",
+            "ownership": "AStack runs"
+          },
+          {
+            "pickId": "automation",
+            "command": "/automation",
+            "badge": "App only",
+            "icon": "cycle",
+            "summary": "A recurring background task you manage in the Automations tab.",
+            "ownership": "AStack loads"
+          }
+        ]
+      },
+      {
+        "id": "alongside",
+        "title": "Alongside",
+        "subtitle": "Not delegation, but always at hand",
+        "icon": "fork",
+        "items": [
+          {
+            "pickId": "btw",
+            "command": "/btw",
+            "icon": "fork",
+            "summary": "A side question in a read-only fork. Agents keep working and your history stays clean.",
+            "ownership": "You start",
+            "statusPill": "ask bar"
+          },
+          {
+            "pickId": null,
+            "command": "/plan · /grill-me",
+            "copyText": "/plan /grill-me",
+            "icon": "doc",
+            "summary": "Already in Plan. Use both to turn the interview into a plan before /goal takes over.",
+            "ownership": "AStack follows",
+            "statusKind": "plan"
+          },
+          {
+            "pickId": null,
+            "command": "/learn",
+            "copyText": "/learn",
+            "icon": "book",
+            "summary": "After Ship, turns this session's corrections into rules or skills you approve.",
+            "ownership": "AStack follows",
+            "statusKind": "learn"
+          },
+          {
+            "pickId": null,
+            "command": "/compact",
+            "copyText": "/compact",
+            "icon": "compact",
+            "summary": "Compacts long conversation history to free up context without losing active task state.",
+            "ownership": "AStack suggests",
+            "statusPill": "long runs"
+          }
+        ]
+      }
+    ],
+    "delegateMenu": [
+      {
+        "id": "swarm",
+        "command": "/swarm",
+        "icon": "swarm",
+        "summary": "Split work across named workers",
+        "prompt": "/swarm <task>. One worker per file or package, plus a @verifier that runs the tests before sign-off."
+      },
+      {
+        "id": "goal",
+        "command": "/goal",
+        "icon": "loop",
+        "summary": "Keep going until checks pass",
+        "prompt": "/goal <task>. Done when <checkable predicate>."
+      },
+      {
+        "id": "boost",
+        "command": "/boost",
+        "icon": "spiral",
+        "summary": "Stuck on a hard bug or a race",
+        "prompt": "/boost /astack-mode <hard bug>. Reproduce it, isolate the root cause, fix it, and prove it with repeated clean runs."
+      },
+      {
+        "id": "rw",
+        "command": "/run-workflow",
+        "icon": "lanes",
+        "summary": "Same change across many files",
+        "prompt": "/run-workflow For each package, apply <change> in an isolated branch workspace, run its tests, and log a one-line result per package."
+      },
+      {
+        "id": "teamwork",
+        "command": "/teamwork",
+        "icon": "milestone",
+        "summary": "Work that will take days",
+        "prompt": "/teamwork <repo-scale migration or multi-day goal>"
+      },
+      {
+        "id": "schedule",
+        "command": "/schedule",
+        "icon": "clock",
+        "summary": "Check back on something later",
+        "prompt": "/schedule in 30 minutes re-run node --run test and tell me if anything regressed."
+      }
+    ]
+  }
+}

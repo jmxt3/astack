@@ -94,6 +94,8 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     const jsText = await jsRes.text();
     assert.match(jsText, /chip-active-dot/);
     assert.match(jsText, /showStatusPopover/);
+    assert.match(jsText, /is-internal/);
+    assert.match(jsText, /not a slash command/);
     assert.doesNotMatch(jsText, /getElementById\("next-bar"\)/);
 
     const threeRes = await fetch(`${srv.url}vendor/three.min.js`);
@@ -109,6 +111,11 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     assert.match(catalogRes.headers.get("content-type") ?? "", /javascript/);
     const catalogText = await catalogRes.text();
     assert.match(catalogText, /window\.ASTACK_CATALOG\s*=/);
+    assert.match(catalogText, /watch-pr\.mjs/);
+    assert.match(catalogText, /pr-dossier\.mjs/);
+    assert.match(catalogText, /\/astack-mode babysit/);
+    assert.match(catalogText, /\/astack-mode release-and-postmortem/);
+    assert.doesNotMatch(catalogText, /Not wired yet/);
 
     const preloadRes = await fetch(`${srv.url}preload.js`);
     assert.equal(preloadRes.status, 200);
@@ -596,6 +603,8 @@ test("createTimelineServer serves selectable task logs safely and exposes vertic
     assert.match(cssText, /\.focus-drawer-list[\s\S]*overflow-y:\s*auto/);
     assert.match(cssText, /\.progress\.is-mode\b/);
     assert.match(cssText, /\.scene-stage-dot\.skipped\s*\{\s*background:\s*#6f757a/);
+    assert.match(cssText, /\.subcmd-pill\.is-internal\b/);
+    assert.match(cssText, /\.subcmd-tag\b/);
     assert.match(sceneJs, /merged:\s*new T\.Color\("#a855f7"\)/);
     assert.match(sceneJs, /prMergedEdges/);
     assert.match(sceneJs, /prOpenEdges/);

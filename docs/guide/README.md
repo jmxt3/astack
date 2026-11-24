@@ -1,6 +1,6 @@
 # The astack guide
 
-astack is a verification-first engineering plugin for **Google Antigravity**, integrated natively with Antigravity's `Subagents` and 16 public slash commands (`/plan`, `/grill-me`, `/learn`, `/boost`, `/swarm`, `/teamwork`, `/run-workflow`, `/goal`, `/schedule`, `/automation`, `/browser`, `/btw`, `/plugin`, `/agy-customizations`, `/generative_ui`, and `/antigravity-guide`).
+astack is a verification-first engineering plugin for **Google Antigravity**, integrated natively with Antigravity's `Subagents` and 18 public slash commands (`/plan`, `/grill-me`, `/learn`, `/boost`, `/swarm`, `/teamwork`, `/run-workflow`, `/goal`, `/schedule`, `/automation`, `/browser`, `/btw`, `/plugin`, `/agy-customizations`, `/generative_ui`, `/antigravity-guide`, `/mcp-app-development`, and `/compact`).
 
 astack works best when you stop micromanaging the agent. You describe what you want and how you'll know it's done. `/astack-mode` picks the playbook, runs the other skills as the steps need them, escalates to Antigravity's multi-agent modes when work broadens, and shows you the evidence. This guide teaches that habit with realistic prompts. (Want a single-page quickstart, [plan-first approval workflow](../user-guide.md#part-2-plan-first-workflow-write-a-plan-approve-then-execute), daily 5-stage workflow, and power-moves cheat sheet first? Read the [AStack User Guide](../user-guide.md). For the full system model and Antigravity mode routing, read [Architecture & Swarm](../architecture-and-swarm.md).)
 
