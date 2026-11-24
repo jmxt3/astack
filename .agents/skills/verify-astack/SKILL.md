@@ -36,6 +36,7 @@ node scripts/validate-astack.mjs --json | Out-File -FilePath "$EvidenceDir/docto
 - `agy --version` must succeed for full `--strict` Antigravity plugin checks; if `agy` is missing on a host, mark strict `agy` assertions `verified-unreachable` and use `--no-agy` only for structural/link checks.
 - Optional Java (`java -version`): required only when driving live TLC model checking via `statechart.mjs`; if `java` is missing, report TLC execution checks as `verified-unreachable`.
 - Baseline `node scripts/validate-astack.mjs --json` exits `0` with `errors=0` and `warnings=0`.
+- Run `node .agents/skills/sync-astack-surfaces/scripts/audit-surfaces.mjs --json` before shipping changes that touch skills, native commands, playbooks, agents, hooks, timeline UI, or docs (see [Sync AStack Surfaces](../sync-astack-surfaces/SKILL.md)).
 
 ## Drive
 
@@ -43,7 +44,7 @@ Read the feature map first: [features/README.md](./features/README.md).
 
 Drive only the feature files affected by your change (or walk all seven for a full repository check):
 
-1. [Plugin & Strict Antigravity Validation](./features/plugin-validation.md): valid repo pass, `--json` telemetry, `--write-native-commands`, `--apply-frontmatter-policy`, official frontmatter schema, `34/29` manual-only split, `maxAutoInvokeSkills` / `maxAutoInvokeDescriptionBytes` context-budget guard, `comment-sicko` `inheritCustomizations: false`, and negative fixture rejection.
+1. [Plugin & Strict Antigravity Validation](./features/plugin-validation.md): valid repo pass, `--json` telemetry, `--write-native-commands`, `--apply-frontmatter-policy`, official frontmatter schema, `36/29` manual-only split, `maxAutoInvokeSkills` / `maxAutoInvokeDescriptionBytes` context-budget guard, `comment-sicko` `inheritCustomizations: false`, command-surface sync, and negative fixture rejection.
 2. [Read-Only Upstream Watch](./features/upstream-watch.md): `upstream-watch.mjs --source-id pstack|gstack|security-audit-skill|all`, external `--out`, `--out` inside-repo refusal (`exit 2`), `--fail-on-updates`, and SHA-256 byte-identity proof.
 3. [Opt-In Safety & Verification Lifecycle Hooks](./features/lifecycle-hooks.md): stdin/stdout JSON contract checks across split hooks (`receipt-ledger.mjs`, `session-context.mjs`, `irreversible-guard.mjs`, `secret-guard.mjs`, `verify-reminder.mjs`, `evidence-gate.mjs`, `boundary-guard.mjs`, `round-limiter.mjs`).
 4. [Bundled Workflow & Control Glass CLIs](./features/workflow-clis.md): `log.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, `pr-dossier.mjs`, `arch-audit.mjs`, `init-repo-policy.mjs`, `run-eval.mjs` (plus `--replay --json`), `validate-findings.cjs`, `validate-coverage-ledger.cjs`, `control-cli-template.mjs`, and `sidecars/astack_timeline/main.mjs` real stdio, `--help`/`-h`, `--json`, `--dry-run`, exit codes, and preserved evidence in `$ScratchDir`.
