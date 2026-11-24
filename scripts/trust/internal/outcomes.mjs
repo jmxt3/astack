@@ -341,17 +341,22 @@ function normalizeSettings(raw) {
 export function readTrustSettings(repoId, options = {}) {
   const storeDir = resolveTrustStoreDir(repoId, options);
   if (!storeDir) {
-    return { present: false, settingsPath: null, settings: structuredClone(DEFAULT_TRUST_SETTINGS) };
+    return { present: false, parseError: null, settingsPath: null, settings: structuredClone(DEFAULT_TRUST_SETTINGS) };
   }
   const settingsPath = path.join(storeDir, "settings.json");
   if (!fs.existsSync(settingsPath)) {
-    return { present: false, settingsPath, settings: structuredClone(DEFAULT_TRUST_SETTINGS) };
+    return { present: false, parseError: null, settingsPath, settings: structuredClone(DEFAULT_TRUST_SETTINGS) };
   }
   try {
     const parsed = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-    return { present: true, settingsPath, settings: normalizeSettings(parsed) };
-  } catch {
-    return { present: false, settingsPath, settings: structuredClone(DEFAULT_TRUST_SETTINGS) };
+    return { present: true, parseError: null, settingsPath, settings: normalizeSettings(parsed) };
+  } catch (err) {
+    return {
+      present: false,
+      parseError: err?.message ?? "Invalid settings JSON",
+      settingsPath,
+      settings: structuredClone(DEFAULT_TRUST_SETTINGS),
+    };
   }
 }
 

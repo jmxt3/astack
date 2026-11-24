@@ -44,7 +44,7 @@ function makeTempGitRepo(prefix = "astack-hook-") {
   return tmp;
 }
 
-test("hooks.json uses split defaults (3 passive enabled, 6 blocking opt-in) and synced tool matchers", () => {
+test("hooks.json uses split defaults (3 passive enabled, 7 blocking opt-in) and synced tool matchers", () => {
   const cfg = JSON.parse(fs.readFileSync(hooksJsonPath, "utf8"));
   assert.equal(cfg["astack-receipt-ledger"]?.enabled, true);
   assert.equal(cfg["astack-session-context"]?.enabled, true);
@@ -61,11 +61,13 @@ test("hooks.json uses split defaults (3 passive enabled, 6 blocking opt-in) and 
     "astack-evidence-gate",
     "astack-boundary-guard",
     "astack-round-limiter",
+    "astack-trust-gate",
   ]) {
     assert.equal(cfg[key]?.enabled, false, `${key} must ship disabled`);
   }
   assert.equal(cfg["astack-secret-guard"].PreToolUse[0]?.matcher, TOOL_MATCHERS.secretGuard);
   assert.equal(cfg["astack-evidence-gate"].PreToolUse[0]?.matcher, TOOL_MATCHERS.evidenceGate);
+  assert.equal(cfg["astack-trust-gate"].PreToolUse[0]?.matcher, TOOL_MATCHERS.trustGate);
   assert.equal(cfg["astack-boundary-guard"].PreToolUse[0]?.matcher, TOOL_MATCHERS.fileWrite);
   assert.equal(cfg["astack-round-limiter"].PreToolUse[0]?.matcher, TOOL_MATCHERS.fileWrite);
   assert.equal(cfg["astack-verify-reminder"].Stop[0]?.type, "command");

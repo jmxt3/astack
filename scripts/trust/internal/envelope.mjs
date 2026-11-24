@@ -11,6 +11,7 @@ export const FILE_WRITE_TOOLS = [
 export const FILE_WRITE_TOOL_MATCHER = FILE_WRITE_TOOLS.join("|");
 export const SECRET_GUARD_MATCHER = `${FILE_WRITE_TOOL_MATCHER}|run_command`;
 export const EVIDENCE_GATE_MATCHER = "run_command|call_mcp_tool|mcp_.*";
+export const TRUST_GATE_MATCHER = `${SECRET_GUARD_MATCHER}|call_mcp_tool|mcp_.*`;
 export const RECEIPT_LEDGER_MATCHER = `${SECRET_GUARD_MATCHER}|invoke_subagent|run_workflow|call_mcp_tool|mcp_.*`;
 
 const FILE_WRITE_TOOL_SET = new Set(FILE_WRITE_TOOLS);

@@ -124,10 +124,10 @@ test("setup-banner CLI prints ASCII banner and JSON status for --cwd", () => {
     assert.equal(parsed.workspace, "cli-target");
     assert.deepEqual(parsed.verifySkills, ["verify-api"]);
     assert.deepEqual(parsed.tlaFiles, ["Protocol.tla"]);
-    assert.equal(parsed.hooks.total, 9);
+    assert.equal(parsed.hooks.total, 10);
     assert.equal(parsed.hookBreakdown.passiveTotal, 3);
     assert.equal(parsed.hookBreakdown.passiveEnabled, 3);
-    assert.equal(parsed.hookBreakdown.blockingTotal, 6);
+    assert.equal(parsed.hookBreakdown.blockingTotal, 7);
     assert.equal(parsed.hookBreakdown.blockingEnabled, 0);
     assert.equal(parsed.policies.boundaries, false);
 

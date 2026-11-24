@@ -118,5 +118,20 @@
         ]
       }
     ]
+  },
+  "astack-trust-gate": {
+    "enabled": false,
+    "PreToolUse": [
+      {
+        "matcher": "write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content|run_command|call_mcp_tool|mcp_.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./scripts/hooks/trust-gate.mjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }

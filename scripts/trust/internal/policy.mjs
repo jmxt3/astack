@@ -18,6 +18,21 @@ export const DEFAULT_RISK_POLICY = {
   maxReviewRounds: 3,
   maxAssertionWeakeningRatio: 0.25,
   engineeringMcpServers: [...DEFAULT_ENGINEERING_MCP_SERVERS],
+  autonomy: {
+    defaultCeiling: 2,
+    promotion: null,
+    auditSampleRate: 5,
+    maxBrierScore: 0.12,
+    ceilings: {
+      docs: 3,
+      tests: 3,
+      ui: 3,
+      skills: 3,
+      tooling: 3,
+      core: 3,
+      governance: 2,
+    },
+  },
   humanGates: {
     planApproval: "nontrivial",
     prReview: "always",
@@ -200,10 +215,24 @@ function mergeRiskPolicy(custom) {
   const engineeringMcpServers = Array.isArray(custom.engineeringMcpServers)
     ? [...new Set(custom.engineeringMcpServers.filter((s) => typeof s === "string" && s.trim()).map((s) => s.trim()))]
     : [...DEFAULT_RISK_POLICY.engineeringMcpServers];
+  const mergedCeilings = {
+    ...DEFAULT_RISK_POLICY.autonomy.ceilings,
+    ...(custom.autonomy?.ceilings && typeof custom.autonomy.ceilings === "object"
+      ? custom.autonomy.ceilings
+      : {}),
+  };
+  const rawGov = Number(mergedCeilings.governance);
+  mergedCeilings.governance = Number.isFinite(rawGov) ? Math.max(1, Math.min(2, Math.floor(rawGov))) : 2;
+  const mergedAutonomy = {
+    ...DEFAULT_RISK_POLICY.autonomy,
+    ...(custom.autonomy && typeof custom.autonomy === "object" ? custom.autonomy : {}),
+    ceilings: mergedCeilings,
+  };
   return {
     ...DEFAULT_RISK_POLICY,
     ...custom,
     engineeringMcpServers,
+    autonomy: mergedAutonomy,
     humanGates: {
       ...DEFAULT_RISK_POLICY.humanGates,
       ...(custom.humanGates ?? {}),
@@ -1057,4 +1086,263 @@ export function computeAssertionDelta(diffText, maxWeakeningRatio = 0.25) {
   }
   const flagged = (removed > added && weakeningRatio > maxWeakeningRatio) || flaggedFiles.length > 0;
   return { added, removed, weakeningRatio, flagged, flaggedFiles };
+}
+
+const ACTION_LABELS = {
+  read: "Read",
+  local_write: "Local write",
+  local_exec: "Local command",
+  push_branch: "Push",
+  open_pr: "Open PR",
+  merge: "Merge",
+  deploy: "Deploy",
+  external_message: "External message",
+  destructive: "Destructive action",
+};
+
+function formatDecisionReason({
+  verb = "Paused",
+  action,
+  requiredLevel,
+  category,
+  trustLevel,
+  trustScore,
+  residual,
+  riskScore,
+  signals,
+}) {
+  const label = ACTION_LABELS[action] ?? action;
+  const tStr = Number(trustScore ?? 0).toFixed(2);
+  const rStr = Number(riskScore ?? 0).toFixed(2);
+  const sigText = (Array.isArray(signals) ? signals : [])
+    .slice(0, 3)
+    .map((s) => (typeof s === "string" ? s : s?.id))
+    .filter(Boolean)
+    .join(", ");
+  const sigClause = sigText ? ` from ${sigText}` : "";
+  if (requiredLevel === null || requiredLevel === undefined) {
+    return `${verb}. ${label} always requires human approval for ${category} (L${trustLevel}, T ${tStr}). Residual ${residual} (R ${rStr})${sigClause}.`;
+  }
+  return `${verb}. ${label} needs L${requiredLevel} for ${category}, current L${trustLevel} (T ${tStr}). Residual ${residual} (R ${rStr})${sigClause}.`;
+}
+
+/**
+ * One-release read shim mapping legacy `allowTier0AutoMerge` and `humanGates.prReview` flags onto the decision table.
+ */
+export function mapLegacyPolicyFlags(policy = DEFAULT_RISK_POLICY) {
+  const tier0AutoMerge = Boolean(
+    policy?.allowTier0AutoMerge === true &&
+      (policy?.humanGates?.prReview === "tier0-auto" || policy?.humanGates?.prReview === "never"),
+  );
+  const hasExplicitAutonomy = Boolean(policy?.autonomy && typeof policy.autonomy === "object");
+  return {
+    tier0AutoMerge,
+    usedLegacyFlags: Boolean(
+      policy?.allowTier0AutoMerge === true ||
+        (typeof policy?.humanGates?.prReview === "string" &&
+          policy.humanGates.prReview !== "always" &&
+          !hasExplicitAutonomy),
+    ),
+  };
+}
+
+/**
+ * Evaluates the deterministic `(action, residual, trustLevel)` decision table, returning `auto_approve`, `allow`, `force_ask`, or `deny`.
+ */
+export function evaluateDecisionTable({
+  action = "read",
+  residual = "medium",
+  trustLevel = 0,
+  category = "core",
+  trustScore = 0,
+  riskScore = 0,
+  signals = [],
+  beastOn = false,
+  policy = DEFAULT_RISK_POLICY,
+  headless = false,
+  isOwnRevert = false,
+} = {}) {
+  if (action === "read") {
+    return { decision: "allow", requiredLevel: 0, reason: null, viaLegacyShim: false };
+  }
+
+  const askDecision = headless ? "deny" : "force_ask";
+  const askVerb = headless ? "Blocked" : "Paused";
+  const lvl = Number.isFinite(Number(trustLevel)) ? Math.max(0, Math.min(3, Math.floor(Number(trustLevel)))) : 0;
+  const legacy = mapLegacyPolicyFlags(policy);
+
+  if (action === "deploy" || action === "external_message" || action === "destructive") {
+    if (residual === "high" || residual === "blocked") {
+      return {
+        decision: "deny",
+        requiredLevel: null,
+        viaLegacyShim: false,
+        reason: formatDecisionReason({
+          verb: "Blocked",
+          action,
+          requiredLevel: null,
+          category,
+          trustLevel: lvl,
+          trustScore,
+          residual,
+          riskScore,
+          signals,
+        }),
+      };
+    }
+    return {
+      decision: askDecision,
+      requiredLevel: null,
+      viaLegacyShim: false,
+      reason: formatDecisionReason({
+        verb: askVerb,
+        action,
+        requiredLevel: null,
+        category,
+        trustLevel: lvl,
+        trustScore,
+        residual,
+        riskScore,
+        signals,
+      }),
+    };
+  }
+
+  if (residual === "blocked") {
+    const req = action === "merge" ? 3 : action === "push_branch" || action === "open_pr" ? 2 : 1;
+    return {
+      decision: "deny",
+      requiredLevel: req,
+      viaLegacyShim: false,
+      reason: formatDecisionReason({
+        verb: "Blocked",
+        action,
+        requiredLevel: req,
+        category,
+        trustLevel: lvl,
+        trustScore,
+        residual,
+        riskScore,
+        signals,
+      }),
+    };
+  }
+
+  if (action === "local_write" || action === "local_exec") {
+    if (residual === "high") {
+      return {
+        decision: askDecision,
+        requiredLevel: 1,
+        viaLegacyShim: false,
+        reason: formatDecisionReason({
+          verb: askVerb,
+          action,
+          requiredLevel: 1,
+          category,
+          trustLevel: lvl,
+          trustScore,
+          residual,
+          riskScore,
+          signals,
+        }),
+      };
+    }
+    if (beastOn && lvl >= 1) {
+      return { decision: "auto_approve", requiredLevel: 1, reason: null, viaLegacyShim: false };
+    }
+    if (!beastOn) {
+      return { decision: "allow", requiredLevel: 1, reason: null, viaLegacyShim: false };
+    }
+    return {
+      decision: askDecision,
+      requiredLevel: 1,
+      viaLegacyShim: false,
+      reason: formatDecisionReason({
+        verb: askVerb,
+        action,
+        requiredLevel: 1,
+        category,
+        trustLevel: lvl,
+        trustScore,
+        residual,
+        riskScore,
+        signals,
+      }),
+    };
+  }
+
+  if (action === "push_branch" || action === "open_pr") {
+    if (residual === "high") {
+      return {
+        decision: askDecision,
+        requiredLevel: 2,
+        viaLegacyShim: false,
+        reason: formatDecisionReason({
+          verb: askVerb,
+          action,
+          requiredLevel: 2,
+          category,
+          trustLevel: lvl,
+          trustScore,
+          residual,
+          riskScore,
+          signals,
+        }),
+      };
+    }
+    if (beastOn && lvl >= 2) {
+      return { decision: "auto_approve", requiredLevel: 2, reason: null, viaLegacyShim: false };
+    }
+    if (!beastOn) {
+      return { decision: "allow", requiredLevel: 2, reason: null, viaLegacyShim: false };
+    }
+    return {
+      decision: askDecision,
+      requiredLevel: 2,
+      viaLegacyShim: false,
+      reason: formatDecisionReason({
+        verb: askVerb,
+        action,
+        requiredLevel: 2,
+        category,
+        trustLevel: lvl,
+        trustScore,
+        residual,
+        riskScore,
+        signals,
+      }),
+    };
+  }
+
+  if (action === "merge") {
+    if (residual === "low") {
+      if (isOwnRevert && beastOn && lvl >= 2) {
+        return { decision: "auto_approve", requiredLevel: 2, reason: null, viaLegacyShim: false };
+      }
+      if (beastOn && lvl >= 3 && category !== "governance") {
+        return { decision: "auto_approve", requiredLevel: 3, reason: null, viaLegacyShim: false };
+      }
+      if (beastOn && legacy.tier0AutoMerge && (category === "docs" || category === "tests")) {
+        return { decision: "auto_approve", requiredLevel: 3, reason: null, viaLegacyShim: true };
+      }
+    }
+    return {
+      decision: askDecision,
+      requiredLevel: 3,
+      viaLegacyShim: false,
+      reason: formatDecisionReason({
+        verb: askVerb,
+        action,
+        requiredLevel: 3,
+        category,
+        trustLevel: lvl,
+        trustScore,
+        residual,
+        riskScore,
+        signals,
+      }),
+    };
+  }
+
+  return { decision: "allow", requiredLevel: 0, reason: null, viaLegacyShim: false };
 }

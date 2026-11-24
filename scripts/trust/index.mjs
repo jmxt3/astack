@@ -4,6 +4,7 @@ import {
   FILE_WRITE_TOOLS,
   RECEIPT_LEDGER_MATCHER,
   SECRET_GUARD_MATCHER,
+  TRUST_GATE_MATCHER,
   isHeadless,
   parseHookPayload,
   parseHookStdin,
@@ -34,6 +35,7 @@ import {
   computeAssertionDelta,
   evaluateBoundaryViolation,
   evaluateBoundaryWrite,
+  evaluateDecisionTable,
   evaluateIrreversible,
   evaluateSecrets,
   evaluateSessionContext,
@@ -41,6 +43,7 @@ import {
   globToRegex,
   loadBoundaries,
   loadRiskPolicy,
+  mapLegacyPolicyFlags,
   matchesAnyGlob,
   readBaseReviewContext,
   resolveBaseRef,
@@ -118,12 +121,19 @@ import {
   recordOutcomeWithTrustSync,
   resolveEffectiveAutonomy,
 } from "./internal/trust-level.mjs";
+import {
+  evaluateStageContext,
+  evaluateStageHandoff,
+  evaluateTrustGate,
+  isProtectedTrustShellCommand,
+} from "./internal/handoff.mjs";
 
 export const TOOL_MATCHERS = {
   fileWriteTools: FILE_WRITE_TOOLS,
   fileWrite: FILE_WRITE_TOOL_MATCHER,
   secretGuard: SECRET_GUARD_MATCHER,
   evidenceGate: EVIDENCE_GATE_MATCHER,
+  trustGate: TRUST_GATE_MATCHER,
   receiptLedger: RECEIPT_LEDGER_MATCHER,
   command: "run_command",
 };
@@ -168,6 +178,7 @@ export {
   evaluateBoundaryViolation,
   evaluateBoundaryWrite,
   evaluateCategoryState,
+  evaluateDecisionTable,
   evaluateEvidenceGate,
   evaluateIntentScope,
   evaluateIrreversible,
@@ -177,15 +188,20 @@ export {
   evaluateRoundState,
   evaluateSecrets,
   evaluateSessionContext,
+  evaluateStageContext,
+  evaluateStageHandoff,
+  evaluateTrustGate,
   evaluateVerifyReminder,
   extractImportSpecifiers,
   findGitEntry,
   formatPipelineRail,
   globToRegex,
   isHeadless,
+  isProtectedTrustShellCommand,
   isProtectedTrustStorePath,
   loadBoundaries,
   loadRiskPolicy,
+  mapLegacyPolicyFlags,
   matchesAnyGlob,
   parseHookPayload,
   parseHookStdin,
@@ -247,7 +263,15 @@ export function runHook(hookId) {
       return;
     case "pr-intent":
       runHookShell(
-        (event) => evaluatePrIntent(event),
+        (event) => {
+          const prRes = evaluatePrIntent(event);
+          const stageRes = evaluateStageContext(event);
+          const steps = [
+            ...(Array.isArray(prRes?.injectSteps) ? prRes.injectSteps : []),
+            ...(Array.isArray(stageRes?.injectSteps) ? stageRes.injectSteps : []),
+          ];
+          return steps.length > 0 ? { injectSteps: steps } : {};
+        },
         { hint: "pre-invocation", fallback: {} },
       );
       return;
@@ -258,10 +282,20 @@ export function runHook(hookId) {
       runHookShell((event) => evaluateSecrets(event, { headless }), { hint: "pre" });
       return;
     case "verify-reminder":
-      runHookShell((event) => evaluateVerifyReminder(event), { hint: "stop" });
+      runHookShell(
+        (event) => {
+          const verify = evaluateVerifyReminder(event);
+          if (verify.decision !== "allow") return verify;
+          return evaluateStageHandoff(event);
+        },
+        { hint: "stop" },
+      );
       return;
     case "evidence-gate":
       runHookShell((event) => evaluateEvidenceGate(event, { headless }), { hint: "pre" });
+      return;
+    case "trust-gate":
+      runHookShell((event) => evaluateTrustGate(event, { headless }), { hint: "pre" });
       return;
     case "boundary-guard":
       runHookShell((event) => evaluateBoundaryWrite(event, { headless }), { hint: "pre" });

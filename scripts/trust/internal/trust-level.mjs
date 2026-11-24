@@ -36,11 +36,17 @@ const CATEGORY_LABELS = {
  * Computes a deterministic hash of a category's policy definition (globs + base ceiling) to detect category redefinition.
  */
 export function computeCategoryPolicyHash(category, policy = DEFAULT_RISK_POLICY) {
-  const autonomy = policy?.autonomy ?? {};
+  const autonomy = policy?.autonomy ?? DEFAULT_RISK_POLICY.autonomy ?? {};
+  const defaultCap = DEFAULT_RISK_POLICY.autonomy?.ceilings?.[category] ?? (category === "governance" ? 2 : 3);
+  const rawCap = autonomy.ceilings?.[category];
+  const ceiling =
+    typeof rawCap === "number" && Number.isFinite(rawCap)
+      ? Math.max(1, Math.min(category === "governance" ? 2 : 3, Math.floor(rawCap)))
+      : defaultCap;
   const payload = {
     category,
-    ceiling: autonomy.ceilings?.[category] ?? null,
-    tiers: policy?.tiers ?? {},
+    ceiling,
+    tiers: policy?.tiers ?? DEFAULT_RISK_POLICY.tiers,
   };
   return crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 16);
 }
@@ -157,7 +163,7 @@ export function evaluateCategoryState({
       score = score / 2;
       reverted += 1;
       lastBadTsMs = tsMs;
-      earnedLevel = Math.max(0, earnedLevel - 1);
+      earnedLevel = Math.max(0, Math.min(earnedLevel, effectiveCeiling) - 1);
     }
     if (MERGE_OUTCOMES.has(e.outcome)) {
       merges += 1;
@@ -494,6 +500,16 @@ export function recordOutcomeWithTrustSync({
             ceiling: nextCat.ceiling,
             ts: now,
           },
+        },
+        { dataDir, now },
+      );
+    } else if (appended.entry.y === 0 && prevCat.level > 0) {
+      const demotedLevel = Math.min(nextCat.earnedLevel, Math.max(0, prevCat.level - 1));
+      writeTrustSettingsAtomic(
+        effectiveRepoId,
+        {
+          confirmedLevels: { [category]: demotedLevel },
+          lastAutoPromo: null,
         },
         { dataDir, now },
       );
