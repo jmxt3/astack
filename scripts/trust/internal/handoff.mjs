@@ -27,6 +27,7 @@ import {
   loadBoundaries,
   loadRiskPolicy,
   resolveEnrolledWorkspaceScope,
+  scanBalancedSubshell,
   splitShellPipelines,
   stripTransparentWrappers,
   tokenizeSimpleWords,
@@ -208,7 +209,7 @@ function extractXargsTargetCommand(stage) {
       j++;
       break;
     }
-    if ((opt === "-I" || opt === "-i") && j + 1 < rest.length) {
+    if (opt === "-I" && j + 1 < rest.length) {
       replaceStr = rest[j + 1];
       j += 2;
       continue;
@@ -253,19 +254,44 @@ function extractProcessSubAndHereStrings(segment) {
       if (tok) extracted.push(tok);
     }
   }
+  let inSingle = false;
+  let inDouble = false;
   for (let i = 0; i < segment.length - 1; i++) {
-    if ((segment[i] === "<" || segment[i] === ">") && segment[i + 1] === "(") {
-      let depth = 1;
-      let start = i + 2;
-      let j = start;
-      while (j < segment.length && depth > 0) {
-        if (segment[j] === "(") depth++;
-        else if (segment[j] === ")") depth--;
-        j++;
+    const ch = segment[i];
+    const next = segment[i + 1];
+    if (inSingle) {
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+    if (ch === "\\") {
+      i++;
+      continue;
+    }
+    if (!inDouble && ch === "$" && next === "'") {
+      i += 2;
+      while (i < segment.length) {
+        if (segment[i] === "\\" && i + 1 < segment.length) {
+          i += 2;
+          continue;
+        }
+        if (segment[i] === "'") break;
+        i++;
       }
-      const inner = segment.slice(start, depth === 0 ? j - 1 : j).trim();
+      continue;
+    }
+    if (!inDouble && ch === "'") {
+      inSingle = true;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (!inDouble && (ch === "<" || ch === ">") && next === "(") {
+      const sub = scanBalancedSubshell(segment, i + 1);
+      const inner = sub.inner.trim();
       if (inner) extracted.push(inner);
-      i = j - 1;
+      i = sub.closed ? sub.closeIdx : segment.length - 1;
     }
   }
   return extracted;
@@ -344,10 +370,21 @@ function checkPipedShellInputs(raw, resolvedTrustRoot, options, depth) {
           }
         }
         if (hasHexStage) {
+          const hexInputs = [];
           for (const tok of upTokens) {
-            if (!HEX_TOKEN_RE.test(tok) || tok.length % 2 !== 0) continue;
+            if (HEX_TOKEN_RE.test(tok) && tok.length % 2 === 0) {
+              hexInputs.push(tok);
+            }
+            if (hasRevStage && tok.length >= 16 && tok.length % 2 === 0) {
+              const revTok = [...tok].reverse().join("");
+              if (revTok !== tok && HEX_TOKEN_RE.test(revTok)) {
+                hexInputs.push(revTok);
+              }
+            }
+          }
+          for (const hexTok of hexInputs) {
             try {
-              const hexDecoded = Buffer.from(tok, "hex").toString("utf8");
+              const hexDecoded = Buffer.from(hexTok, "hex").toString("utf8");
               const candidates = hasRevStage ? [hexDecoded, [...hexDecoded].reverse().join("")] : [hexDecoded];
               for (const decoded of candidates) {
                 if (
@@ -363,10 +400,21 @@ function checkPipedShellInputs(raw, resolvedTrustRoot, options, depth) {
           }
         }
         if (hasBase64Stage) {
+          const b64Inputs = [];
           for (const tok of upTokens) {
-            if (!B64_TOKEN_RE.test(tok) || tok.length % 4 !== 0) continue;
+            if (B64_TOKEN_RE.test(tok) && tok.length % 4 === 0) {
+              b64Inputs.push(tok);
+            }
+            if (hasRevStage && tok.length >= 16 && tok.length % 4 === 0) {
+              const revTok = [...tok].reverse().join("");
+              if (revTok !== tok && B64_TOKEN_RE.test(revTok)) {
+                b64Inputs.push(revTok);
+              }
+            }
+          }
+          for (const b64Tok of b64Inputs) {
             try {
-              const b64Decoded = Buffer.from(tok, "base64").toString("utf8");
+              const b64Decoded = Buffer.from(b64Tok, "base64").toString("utf8");
               const candidates = hasRevStage ? [b64Decoded, [...b64Decoded].reverse().join("")] : [b64Decoded];
               for (const decoded of candidates) {
                 if (
@@ -401,20 +449,59 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
     return true;
   }
 
+  const taintedVars = new Set(options._taintedVars ?? []);
+
   if (_depth < 4 && /<<-?/.test(raw) && !raw.includes("<<<") && raw.includes("\n")) {
-    const heredocMatch = raw.match(/^([^\n]*<<-?\s*['"]?[A-Za-z_][A-Za-z0-9_]*['"]?[^\n]*)\r?\n([\s\S]+)$/);
+    const heredocMatch = raw.match(/(?:^|\r?\n)([^\r\n]*<<-?\s*(?:\\?['"]?[A-Za-z_][A-Za-z0-9_-]*['"]?)[^\r\n]*)\r?\n([\s\S]+)$/);
     if (heredocMatch) {
-      const headerVerb = getLeadingVerb(tokenizeSimpleWords(heredocMatch[1]));
+      const headerSegments = splitShellPipelines(heredocMatch[1]).flat();
+      const headerVerbs = headerSegments
+        .map((seg) => getLeadingVerb(tokenizeSimpleWords(seg)))
+        .filter(Boolean);
       const body = heredocMatch[2];
-      if (SHELL_AND_INTERPRETER_VERBS.has(headerVerb)) {
+      const hasShellSink = headerVerbs.some((v) =>
+        ["sh", "bash", "zsh", "dash", "pwsh", "powershell", "cmd"].includes(v),
+      );
+      if (hasShellSink || headerVerbs.some((v) => SHELL_AND_INTERPRETER_VERBS.has(v))) {
         if (matchesProtectedInlinePayload(body, resolvedTrustRoot)) {
           return true;
         }
         if (
-          ["sh", "bash", "zsh", "dash", "pwsh", "powershell", "cmd"].includes(headerVerb) &&
-          isProtectedTrustShellCommand(body, options, _depth + 1)
+          hasShellSink &&
+          isProtectedTrustShellCommand(body, { ...options, _taintedVars: taintedVars }, _depth + 1)
         ) {
           return true;
+        }
+        if (hasShellSink && heredocMatch[1].includes("|")) {
+          const afterHere = heredocMatch[1].replace(/^[\s\S]*<<-?\s*(?:\\?['"]?[A-Za-z_][A-Za-z0-9_-]*['"]?)/, "");
+          const pipeIdx = afterHere.indexOf("|");
+          const downstream = pipeIdx !== -1 ? afterHere.slice(pipeIdx + 1).trim() : "";
+          if (downstream && /\b(?:base64|FromBase64String|rev|xxd)\b/i.test(downstream)) {
+            const delimMatch = heredocMatch[1].match(/<<-?\s*\\?['"]?([A-Za-z_][A-Za-z0-9_-]*)['"]?/);
+            const delim = delimMatch?.[1] ?? "";
+            const bodyLines = body.split(/\r?\n/);
+            const endLineIdx = delim ? bodyLines.findIndex((l) => l.trim() === delim) : -1;
+            const trimmedLines = (endLineIdx !== -1 ? bodyLines.slice(0, endLineIdx) : bodyLines)
+              .map((l) => l.trim().replace(/'/g, ""))
+              .filter(Boolean);
+            const singleLineBody = trimmedLines.join("");
+            const candidates =
+              singleLineBody && !trimmedLines.includes(singleLineBody)
+                ? [...trimmedLines, singleLineBody]
+                : trimmedLines;
+            for (const tok of candidates) {
+              if (
+                checkPipedShellInputs(
+                  `echo '${tok}' | ${downstream}`,
+                  resolvedTrustRoot,
+                  { ...options, _taintedVars: taintedVars },
+                  _depth + 1,
+                )
+              ) {
+                return true;
+              }
+            }
+          }
         }
       }
     }
@@ -422,7 +509,6 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
 
   let cdDir = typeof options._cdDir === "string" ? options._cdDir : "";
   let cdIntoPluginData = Boolean(options._cdIntoPluginData);
-  const taintedVars = new Set();
 
   for (const segment of splitShellPipelines(raw).flat()) {
     const tokens = tokenizeSimpleWords(segment);
@@ -444,9 +530,15 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
       }
     }
 
+    const childOpts = {
+      ...options,
+      _cdDir: segCdDir,
+      _cdIntoPluginData: segCdIntoPluginData,
+      _taintedVars: taintedVars,
+    };
+
     const unwrapped = unwrapShellInvocation(segment);
     if (Array.isArray(unwrapped) && unwrapped.length > 0 && _depth < 4) {
-      const childOpts = { ...options, _cdDir: segCdDir, _cdIntoPluginData: segCdIntoPluginData };
       for (const sub of unwrapped) {
         if (isProtectedTrustShellCommand(sub, childOpts, _depth + 1)) {
           return true;
@@ -456,7 +548,6 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
 
     const substitutions = extractCommandSubstitutions(segment);
     if (substitutions.length > 0 && _depth < 4) {
-      const childOpts = { ...options, _cdDir: segCdDir, _cdIntoPluginData: segCdIntoPluginData };
       for (const sub of substitutions) {
         if (isProtectedTrustShellCommand(sub, childOpts, _depth + 1)) {
           return true;
@@ -469,13 +560,15 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
         return true;
       }
       if (_depth < 4) {
-        const childOpts = { ...options, _cdDir: segCdDir, _cdIntoPluginData: segCdIntoPluginData };
         for (const inner of extractProcessSubAndHereStrings(segment)) {
-          if (
-            isProtectedTrustShellCommand(inner, childOpts, _depth + 1) ||
-            checkPipedShellInputs(`${inner} | sh`, resolvedTrustRoot, childOpts, _depth + 1)
-          ) {
+          if (isProtectedTrustShellCommand(inner, childOpts, _depth + 1)) {
             return true;
+          }
+          for (const innerStages of splitShellPipelines(inner)) {
+            const innerPipe = innerStages.join(" | ");
+            if (innerPipe && checkPipedShellInputs(`${innerPipe} | sh`, resolvedTrustRoot, childOpts, _depth + 1)) {
+              return true;
+            }
           }
         }
       }
@@ -516,7 +609,8 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
         (t) =>
           /^-(?:e|p|c|-eval|-print)$/i.test(t) ||
           /^--(?:eval|print)=/i.test(t) ||
-          (/^(?:node|bun|perl|ruby)$/.test(verb) && /^-[a-z]*[ep][a-z]*$/i.test(t)) ||
+          (/^(?:node|bun)$/.test(verb) && /^-[a-z]*[ep][a-z]*$/i.test(t)) ||
+          (/^(?:perl|ruby)$/.test(verb) && /^-[a-zA-Z]*[ep]/i.test(t)) ||
           (/^(?:python|python3|py)$/.test(verb) && /^-[a-zA-Z]*c/.test(t)),
       ) ||
         (verb === "deno" && tokens.some((t) => t.toLowerCase() === "eval")) ||

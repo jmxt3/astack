@@ -625,30 +625,10 @@ export function splitShellPipelines(command) {
       continue;
     }
     if (!inSingle && (ch === "$" || (!inDouble && (ch === "<" || ch === ">"))) && next === "(") {
-      buf += ch + "(";
-      i += 2;
-      let subDepth = 1;
-      let subSingle = false;
-      let subDouble = false;
-      while (i < command.length && subDepth > 0) {
-        const sc = command[i];
-        buf += sc;
-        if (subSingle) {
-          if (sc === "'") subSingle = false;
-        } else if (sc === "\\" && i + 1 < command.length) {
-          i++;
-          buf += command[i];
-        } else if (sc === '"' && !subSingle) {
-          subDouble = !subDouble;
-        } else if (sc === "'" && !subDouble) {
-          subSingle = true;
-        } else if (!subDouble) {
-          if (sc === "(") subDepth++;
-          else if (sc === ")") subDepth--;
-        }
-        i++;
-      }
-      i--;
+      const sub = scanBalancedSubshell(command, i + 1);
+      const endIdx = sub.closed ? sub.closeIdx + 1 : command.length;
+      buf += command.slice(i, endIdx);
+      i = sub.closed ? sub.closeIdx : command.length - 1;
       continue;
     }
     if (ch === "'" && !inDouble) {
@@ -710,7 +690,7 @@ const TRANSPARENT_WRAPPER_ARG_FLAGS = {
 
 const POSITIONAL_PARAM_REF_RE = /\$(?:[@*0-9]|\{[@*0-9][^}]*\})/;
 const WINDOWS_PATH_HINT_RE =
-  /^[A-Za-z]:\\|^\\\\|^\.{1,2}\\|\.(?:exe|cmd|bat|mjs|cjs|js|ts|py|sh|ps1)$|(?:^|\\)(?:bin|usr|scripts|windows|system32|program files|program files \(x86\)|node_modules|appdata|local|roaming|users|temp|tmp)\\/i;
+  /^[A-Za-z]:\\|^\\\\|^\.{1,2}\\|(?:^|\\)(?:bin|usr|scripts|windows|system32|program files|program files \(x86\)|node_modules|appdata|local|roaming|users|temp|tmp)\\/i;
 
 export function normalizeCommandVerb(tok) {
   const stripped = String(tok ?? "").replace(/["'`\u2018-\u201d]/g, "").trim();
@@ -719,6 +699,106 @@ export function normalizeCommandVerb(tok) {
     ? stripped
     : stripped.replace(/\\(?=[A-Za-z0-9._-])/g, "");
   return path.win32.basename(unescaped.replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
+}
+
+/**
+ * Scans a balanced parenthesized subshell `(...)` (for `$(...)`, `<(...)`, `>(...)`),
+ * respecting `'...'`, `$'...'`, `"..."` (including nested `$(...)`), backticks, and escapes.
+ */
+export function scanBalancedSubshell(str, openParenIdx, _depth = 0) {
+  const input = String(str ?? "");
+  if (openParenIdx < 0 || openParenIdx >= input.length || input[openParenIdx] !== "(" || _depth > 16) {
+    return { inner: "", closeIdx: openParenIdx, closed: false };
+  }
+  let inDouble = false;
+  let i = openParenIdx + 1;
+  while (i < input.length) {
+    const ch = input[i];
+    const next = input[i + 1];
+    if (inDouble) {
+      if (ch === "\\" && i + 1 < input.length) {
+        i += 2;
+        continue;
+      }
+      if (ch === "$" && next === "(") {
+        const nested = scanBalancedSubshell(input, i + 1, _depth + 1);
+        i = nested.closed ? nested.closeIdx + 1 : input.length;
+        continue;
+      }
+      if (ch === "`") {
+        i++;
+        while (i < input.length) {
+          if (input[i] === "\\" && i + 1 < input.length) {
+            i += 2;
+            continue;
+          }
+          if (input[i] === "`") break;
+          i++;
+        }
+        i++;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = false;
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === "\\" && i + 1 < input.length) {
+      i += 2;
+      continue;
+    }
+    if (ch === "$" && next === "'") {
+      i += 2;
+      while (i < input.length) {
+        if (input[i] === "\\" && i + 1 < input.length) {
+          i += 2;
+          continue;
+        }
+        if (input[i] === "'") break;
+        i++;
+      }
+      i++;
+      continue;
+    }
+    if (ch === "'") {
+      i++;
+      while (i < input.length && input[i] !== "'") {
+        i++;
+      }
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      i++;
+      continue;
+    }
+    if (ch === "`") {
+      i++;
+      while (i < input.length) {
+        if (input[i] === "\\" && i + 1 < input.length) {
+          i += 2;
+          continue;
+        }
+        if (input[i] === "`") break;
+        i++;
+      }
+      i++;
+      continue;
+    }
+    if (ch === "(") {
+      const nested = scanBalancedSubshell(input, i, _depth + 1);
+      i = nested.closed ? nested.closeIdx + 1 : input.length;
+      continue;
+    }
+    if (ch === ")") {
+      return { inner: input.slice(openParenIdx + 1, i), closeIdx: i, closed: true };
+    }
+    i++;
+  }
+  return { inner: input.slice(openParenIdx + 1), closeIdx: input.length, closed: false };
 }
 
 export function extractCommandSubstitutions(segment) {
@@ -764,30 +844,11 @@ export function extractCommandSubstitutions(segment) {
       continue;
     }
 
-    if (ch === "$" && next === "(") {
-      let depth = 1;
-      let j = i + 2;
-      let subSingle = false;
-      let subDouble = false;
-      while (j < str.length && depth > 0) {
-        const sc = str[j];
-        if (subSingle) {
-          if (sc === "'") subSingle = false;
-        } else if (sc === "\\" && j + 1 < str.length) {
-          j++;
-        } else if (sc === '"' && !subSingle) {
-          subDouble = !subDouble;
-        } else if (sc === "'" && !subDouble) {
-          subSingle = true;
-        } else if (!subDouble) {
-          if (sc === "(") depth++;
-          else if (sc === ")") depth--;
-        }
-        j++;
-      }
-      const inner = str.slice(i + 2, depth === 0 ? j - 1 : j).trim();
+    if ((ch === "$" || (!inDouble && (ch === "<" || ch === ">"))) && next === "(") {
+      const sub = scanBalancedSubshell(str, i + 1);
+      const inner = sub.inner.trim();
       if (inner) out.push(inner);
-      i = j - 1;
+      i = sub.closed ? sub.closeIdx : str.length - 1;
       continue;
     }
 
@@ -840,6 +901,16 @@ function substitutePositionalParams(cmdArg, trailing) {
     return full;
   });
 }
+
+function quoteShellTokenForReparse(tok) {
+  const s = String(tok ?? "");
+  if (s.length === 0) return "''";
+  if (!/[\s"'\\$`|;&<>()*?{}[\]]/.test(s)) return s;
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+const PS_VALUE_FLAG_RE =
+  /^[-/](?:ep|ex(?:ec(?:u(?:t(?:i(?:o(?:n(?:p(?:o(?:l(?:i(?:cy?)?)?)?)?)?)?)?)?)?)?)?|wd|wo(?:r(?:k(?:i(?:n(?:g(?:d(?:i(?:r(?:e(?:c(?:t(?:o(?:ry?)?)?)?)?)?)?)?)?)?)?)?)?)?|of|ou(?:t(?:p(?:u(?:t(?:f(?:o(?:r(?:m(?:at?)?)?)?)?)?)?)?)?)?|if|in(?:p(?:u(?:t(?:f(?:o(?:r(?:m(?:at?)?)?)?)?)?)?)?)?|w(?:i(?:n(?:d(?:o(?:w(?:s(?:t(?:y(?:le?)?)?)?)?)?)?)?)?)?|se(?:t(?:t(?:i(?:n(?:g(?:s(?:f(?:i(?:le?)?)?)?)?)?)?)?)?)?|conf(?:i(?:g(?:u(?:r(?:a(?:t(?:i(?:o(?:n(?:n(?:a(?:me?)?)?|f(?:i(?:le?)?)?)?)?)?)?)?)?)?)?)?)?)$/i;
 
 export function stripTransparentWrappers(tokens, _depth = 0) {
   const chdirDirs = [];
@@ -937,14 +1008,26 @@ export function stripTransparentWrappers(tokens, _depth = 0) {
     }
   }
 
-  if (splitCommands.length > 0 && _depth < 2) {
-    const inner = stripTransparentWrappers(tokenizeSimpleWords(splitCommands[0]), _depth + 1);
+  if (splitCommands.length > 0 && _depth < 3) {
+    const innerTokens = tokenizeSimpleWords(splitCommands[0]);
+    const inner = stripTransparentWrappers(["env", ...innerTokens], _depth + 1);
+    let cleanedSplit = splitCommands;
+    if (inner.splitCommands.length > 0) {
+      cleanedSplit = inner.splitCommands;
+    } else if (inner.verb) {
+      const argTokens =
+        inner.idx > 0 && inner.idx <= innerTokens.length
+          ? innerTokens.slice(inner.idx - 1)
+          : [inner.verb, ...inner.rest];
+      const rebuilt = argTokens.map(quoteShellTokenForReparse).join(" ").trim();
+      if (rebuilt) cleanedSplit = [rebuilt];
+    }
     return {
       idx,
       verb: inner.verb,
       rest: inner.rest,
       chdirDirs: [...chdirDirs, ...inner.chdirDirs],
-      splitCommands,
+      splitCommands: cleanedSplit,
     };
   }
 
@@ -1031,11 +1114,6 @@ export function unwrapShellInvocation(segment) {
   }
 
   if (verb === "pwsh" || verb === "powershell") {
-    const PS_VALUE_FLAGS = new Set([
-      "-executionpolicy", "-ep", "-workingdirectory", "-wd",
-      "-settingsfile", "-configurationname", "-configurationfile",
-      "-inputformat", "-of", "-outputformat", "-if", "-windowstyle", "-w",
-    ]);
     for (let j = 0; j < rest.length; j++) {
       const m = rest[j].match(/^[-/](?:c|co|com|comm|comma|comman|command|cwa|commandwithargs)(?::([\s\S]*))?$/i);
       if (!m) continue;
@@ -1049,7 +1127,7 @@ export function unwrapShellInvocation(segment) {
     if (!hasExplicitFileOrEncoded) {
       for (let j = 0; j < rest.length; j++) {
         const t = rest[j];
-        if (PS_VALUE_FLAGS.has(t.toLowerCase())) {
+        if (PS_VALUE_FLAG_RE.test(t)) {
           j++;
           continue;
         }
@@ -1272,13 +1350,14 @@ function matchGitPushRule(segment) {
   let targetsTrunk = false;
 
   for (const arg of tokens.slice(pushIdx + 1)) {
-    const lower = arg.toLowerCase();
+    const cleanArg = arg.replace(/\\/g, "");
+    const lower = cleanArg.toLowerCase();
     if (lower === "--force" || lower === "-f") hasForce = true;
     else if (lower === "--force-with-lease" || lower.startsWith("--force-with-lease=") || lower === "--force-if-includes") hasLease = true;
     else if (lower === "--delete" || lower === "-d") hasDelete = true;
-    else if (arg.startsWith("+") && arg.length > 1) hasForceRefspec = true;
-    else if (arg.startsWith(":") && isTrunkTargetToken(arg)) hasTrunkDeleteRefspec = true;
-    else if (!arg.startsWith("-") && isTrunkTargetToken(arg)) targetsTrunk = true;
+    else if (cleanArg.startsWith("+") && cleanArg.length > 1) hasForceRefspec = true;
+    else if (cleanArg.startsWith(":") && isTrunkTargetToken(cleanArg)) hasTrunkDeleteRefspec = true;
+    else if (!cleanArg.startsWith("-") && isTrunkTargetToken(cleanArg)) targetsTrunk = true;
   }
 
   return hasForce || hasForceRefspec || hasTrunkDeleteRefspec || (hasDelete && targetsTrunk) || (hasLease && targetsTrunk);

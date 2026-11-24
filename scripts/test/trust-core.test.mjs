@@ -832,3 +832,11 @@ test("evaluatePrIntent sanitizes conversationId and confines pr-intent state fil
     fs.rmSync(parentDir, { recursive: true, force: true });
   }
 });
+
+test("classifyCommandCategory ignores balanced Unicode curly-quoted print payloads while preserving real chained commands", () => {
+  assert.equal(classifyCommandCategory("Write-Output \u201c; vitest \u201d"), "other");
+  assert.equal(classifyCommandCategory("Write-Host \u2018; jest \u2019"), "other");
+  assert.equal(classifyCommandCategory("echo \u201c; pytest \u201d"), "other");
+  assert.equal(classifyCommandCategory("printf \u201c; eslint .\u201d"), "other");
+  assert.equal(classifyCommandCategory("Write-Output \u201cok\u201d && vitest"), "test");
+});

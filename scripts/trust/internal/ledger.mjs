@@ -6,6 +6,7 @@ import {
   DEFAULT_ENGINEERING_MCP_SERVERS,
   collectLeafSegments,
   loadRiskPolicy,
+  normalizeCommandVerb,
   resolveBaseRef,
   stripTransparentWrappers,
   tokenizeSimpleWords,
@@ -315,13 +316,23 @@ function classifySingleSegment(segment) {
   return "other";
 }
 
+const PRINT_ECHO_PREFIX_RE = /^\s*(?:write-output|write-host|echo|printf)\b/i;
+
+function stripBalancedCurlyQuotesForPrint(command) {
+  if (!PRINT_ECHO_PREFIX_RE.test(command)) return command;
+  return command
+    .replace(/\u201c[^\u201c\u201d]*\u201d/g, '""')
+    .replace(/\u2018[^\u2018\u2019]*\u2019/g, "''");
+}
+
 /**
  * Classifies a shell command string in command position into a verification receipt category without trusting read-only arguments.
  */
 export function classifyCommandCategory(command) {
   if (typeof command !== "string" || !command.trim()) return "other";
+  const normalizedInput = stripBalancedCurlyQuotesForPrint(command);
   let best = "other";
-  for (const segment of collectLeafSegments(command)) {
+  for (const segment of collectLeafSegments(normalizedInput)) {
     const cat = classifySingleSegment(segment);
     if ((CATEGORY_PRECEDENCE[cat] ?? 0) > (CATEGORY_PRECEDENCE[best] ?? 0)) {
       best = cat;
@@ -866,33 +877,69 @@ function readWithFallback(primaryTrustDir, workspaceDir, hasExplicitTrustDir, re
   return result;
 }
 
+const PKG_WRAPPER_SUBVERBS = new Set(["exec", "dlx", "x", "run"]);
+const PKG_WRAPPER_VALUE_FLAGS = new Set([
+  "-p", "--package", "--from", "-C", "--cwd", "--filter", "--workspace", "-w", "--registry",
+]);
+
 function extractCliPrActions(command) {
   const actions = [];
   for (const segment of collectLeafSegments(String(command ?? ""))) {
     const tokens = tokenizeSimpleWords(segment);
     const wrapped = stripTransparentWrappers(tokens);
-    let idx = wrapped.idx;
     let verb = wrapped.verb;
+    let restTokens = wrapped.rest;
     while (verb && WRAPPER_VERBS.has(verb)) {
-      idx++;
-      while (idx < tokens.length && tokens[idx]?.startsWith("-")) idx++;
-      verb = idx < tokens.length ? tokens[idx].replace(/["'`\u2018-\u201d\\]/g, "").replace(/.*\//, "").toLowerCase().replace(/\.exe$/, "") : "";
+      const outerVerb = verb;
+      let j = 0;
+      while (j < restTokens.length) {
+        const opt = restTokens[j];
+        if (!opt) {
+          j++;
+          continue;
+        }
+        if (opt === "--") {
+          j++;
+          break;
+        }
+        if (PKG_WRAPPER_VALUE_FLAGS.has(opt) && j + 1 < restTokens.length) {
+          j += 2;
+          continue;
+        }
+        if (opt.startsWith("-")) {
+          j++;
+          continue;
+        }
+        if (PKG_WRAPPER_SUBVERBS.has(opt.toLowerCase()) && /^(?:pnpm|yarn|npm|bun|uv)$/.test(outerVerb)) {
+          j++;
+          continue;
+        }
+        break;
+      }
+      if (j < restTokens.length) {
+        const rewrapped = stripTransparentWrappers(restTokens.slice(j));
+        verb = rewrapped.verb;
+        restTokens = rewrapped.rest;
+      } else {
+        verb = "";
+        restTokens = [];
+      }
     }
-    if (verb) idx++;
     if (verb === "git") {
       let skipNext = false;
-      for (let i = idx; i < tokens.length; i++) {
-        const tok = tokens[i];
+      for (let i = 0; i < restTokens.length; i++) {
+        const tok = restTokens[i];
         if (skipNext) {
           skipNext = false;
           continue;
         }
-        if (GIT_FLAG_WITH_ARG.has(tok)) {
+        const cleanTok = tok.replace(/\\/g, "");
+        if (GIT_FLAG_WITH_ARG.has(cleanTok)) {
           skipNext = true;
           continue;
         }
-        if (tok.startsWith("-")) continue;
-        if (tok.toLowerCase() === "push") {
+        if (cleanTok.startsWith("-")) continue;
+        if (cleanTok.toLowerCase() === "push") {
           actions.push({ kind: "git-push" });
         }
         break;
@@ -900,35 +947,40 @@ function extractCliPrActions(command) {
     } else if (verb === "gh") {
       const positionals = [];
       let skipNext = false;
-      for (let i = idx; i < tokens.length; i++) {
-        const tok = tokens[i];
+      for (let i = 0; i < restTokens.length; i++) {
+        const tok = restTokens[i];
         if (skipNext) {
           skipNext = false;
           continue;
         }
-        if (GH_FLAG_WITH_ARG.has(tok)) {
+        const cleanTok = tok.replace(/\\/g, "");
+        if (GH_FLAG_WITH_ARG.has(cleanTok)) {
           skipNext = true;
           continue;
         }
-        if (tok.startsWith("--repo=")) continue;
-        if (tok.startsWith("-")) continue;
-        positionals.push({ value: tok.toLowerCase(), index: i });
+        if (cleanTok.startsWith("--repo=")) continue;
+        if (cleanTok.startsWith("-")) continue;
+        positionals.push({ value: cleanTok.toLowerCase(), index: i });
         if (positionals.length >= 2) break;
       }
       if (positionals[0]?.value === "pr") {
         const sub2 = positionals[1]?.value;
-        const rest = tokens.slice((positionals[1]?.index ?? idx) + 1);
+        const rest = restTokens.slice((positionals[1]?.index ?? -1) + 1);
         if (sub2 === "create" || sub2 === "new") {
           actions.push({ kind: "gh-pr-create", tokens: rest });
         } else if (sub2 === "merge") {
           actions.push({ kind: "gh-pr-merge", tokens: rest });
         } else if (sub2 === "edit") {
-          const touchesBody = rest.some(
-            (t) =>
+          const touchesBody = rest.some((t) => {
+            const lower = t.toLowerCase();
+            return (
               GH_BODY_FLAGS.has(t) ||
-              t.toLowerCase().startsWith("--body=") ||
-              t.toLowerCase().startsWith("--body-file="),
-          );
+              lower.startsWith("--body=") ||
+              lower.startsWith("--body-file=") ||
+              (t.startsWith("-b") && t.length > 2) ||
+              (t.startsWith("-F") && t.length > 2)
+            );
+          });
           if (touchesBody) {
             actions.push({ kind: "gh-pr-edit-body", tokens: rest });
           }
@@ -953,10 +1005,14 @@ function extractGhBodyText(tokens, workspaceDir) {
     }
     if (tok === "-b" || lower === "--body") {
       bodyText = tokens[++i] ?? "";
+    } else if (tok.startsWith("-b") && tok.length > 2) {
+      bodyText = tok.slice(2);
     } else if (lower.startsWith("--body=")) {
       bodyText = tok.slice("--body=".length);
     } else if (tok === "-F" || lower === "--body-file") {
       bodyFile = tokens[++i] ?? "";
+    } else if (tok.startsWith("-F") && tok.length > 2) {
+      bodyFile = tok.slice(2);
     } else if (lower.startsWith("--body-file=")) {
       bodyFile = tok.slice("--body-file=".length);
     }

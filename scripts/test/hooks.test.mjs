@@ -126,6 +126,26 @@ test("irreversible-guard allows safe commands and flags destructive/trunk comman
     );
     assert.equal(headless.decision, "deny", cmd);
   }
+  for (const cmd of [
+    `echo <(echo $'\\''); git push --force origin main`,
+    `echo <(git push --force origin main)`,
+    `env -S "-u FOO git push --force origin main"`,
+    `git push --f\\orce origin main`,
+    `g\\it.exe push --force origin main`,
+  ]) {
+    const interactive = runHook(
+      guardScript,
+      JSON.stringify({ toolCall: { name: "run_command", args: { CommandLine: cmd } } }),
+      { CI: "", NON_INTERACTIVE: "" },
+    );
+    assert.equal(interactive.decision, "force_ask", cmd);
+    const headless = runHook(
+      guardScript,
+      JSON.stringify({ toolCall: { name: "run_command", args: { CommandLine: cmd } } }),
+      { CI: "true" },
+    );
+    assert.equal(headless.decision, "deny", cmd);
+  }
 });
 
 test("verify-reminder backs Stop hook with ledger freshness, executionNum cap, and ASTACK_REQUIRE_VERIFY=0 override", () => {
@@ -669,6 +689,29 @@ test("evidence-gate validates gh CLI and MCP PR bodies against base-branch polic
       { CI: "true" },
     );
     assert.deepEqual(mcpAllowed, { decision: "allow" });
+
+    for (const cmd of [
+      "gh pr edit 12 -b\"plain\"",
+      "gh pr edit 12 -Fmissing-body.md",
+      "echo <(gh pr merge 1)",
+      "env -S \"-u FOO gh pr merge 1\"",
+      "gh p\\r m\\erge 1",
+      "pnpm exec gh pr merge 1",
+      'pnpm exec env -S "-u FOO gh pr merge 1"',
+      "npx -y --package @cli/gh gh pr merge 1",
+      "uvx --from pkg gh pr merge 1",
+    ]) {
+      const blocked = runHook(
+        evidenceScript,
+        JSON.stringify({
+          workspacePaths: [tmp],
+          artifactDirectoryPath: artifactDir,
+          toolCall: { name: "run_command", args: { CommandLine: cmd } },
+        }),
+        { CI: "true" },
+      );
+      assert.equal(blocked.decision, "deny", cmd);
+    }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });

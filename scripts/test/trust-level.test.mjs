@@ -1469,3 +1469,68 @@ test("setCeiling in auto mode syncs confirmedLevels and lastAutoPromo for Undo, 
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+test("Round 6 hardening blocks symlink-before-.. traversal, quote-aware subshells, env -S flags, heredocs, rev|b64, perl -e, and xargs -i", () => {
+  const { dir, scope } = makeEnrolledRepo("astack-r6-sec-");
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-r6-pd-"));
+  try {
+    const storeDir = resolveTrustStoreDir(scope.repoId, { dataDir });
+    fs.mkdirSync(storeDir, { recursive: true });
+    const storePosix = storeDir.replace(/\\/g, "/");
+    const subDir = path.join(path.dirname(storeDir), "..", "sub");
+    fs.mkdirSync(subDir, { recursive: true });
+    const lnkPath = path.join(dir, "lnk");
+    fs.symlinkSync(subDir, lnkPath, "dir");
+
+    const relDotDot = `lnk/../trust/${scope.repoId}/settings.json`;
+    const absDotDot = `${lnkPath}${path.sep}..${path.sep}trust${path.sep}${scope.repoId}${path.sep}settings.json`;
+    assert.equal(isProtectedTrustStorePath(relDotDot, { dataDir, workspaceDir: dir }), true);
+    assert.equal(isProtectedTrustStorePath(absDotDot, { dataDir, workspaceDir: dir }), true);
+    assert.equal(
+      evaluateTrustGate({ kind: "tool-write", filePath: relDotDot, chunks: ["{}"], workspaceDir: dir }, { dataDir, baseRef: "main" }).decision,
+      "deny",
+    );
+
+    const payload = `rm -rf "${storePosix}"`;
+    const b64 = Buffer.from(payload, "utf8").toString("base64");
+    const revB64 = [...b64].reverse().join("");
+    const blockedCommands = [
+      `source <(true ")"; ${payload})`,
+      `source <(true ")"; echo "${b64}" | base64 -d)`,
+      `cat <(echo $'\\''); rm -rf "${storePosix}"`,
+      `echo "${b64}" $(true $'\\'') | base64 -d | sh`,
+      `sh <(echo "${b64}" | base64 -d; true)`,
+      `D="$ASTACK_PLUGIN_DATA"; cat <(mv "$D/trust/${scope.repoId}/settings.json" /tmp/out)`,
+      `echo "${payload}" | env -S "-u FOO sh"`,
+      `echo "${b64}" | base64 -d | env -S "-u FOO sh"`,
+      `powershell -Exec Bypass "Remove-Item '${storePosix}/settings.json'"`,
+      `pwsh /ep Bypass "Remove-Item '${storePosix}/settings.json'"`,
+      `cat << 'EOF' | sh\nrm -rf "${storePosix}"\nEOF`,
+      `cat << 'EOF' | base64 -d | sh\n${b64}\nEOF`,
+      `true && python3 << 'EOF'\nopen("${storePosix}/settings.json", "w")\nEOF`,
+      `python3 << \\EOF\nopen("${storePosix}/settings.json", "w")\nEOF`,
+      `echo "${revB64}" | rev | base64 -d | sh`,
+      `perl -e'unlink("${storePosix}/settings.json")'`,
+      `echo "${b64}" | base64 -d | xargs -i sh`,
+      `echo "${storePosix}/settings.json" | xargs -i rm -f {}`,
+    ];
+    for (const cmd of blockedCommands) {
+      assert.equal(isProtectedTrustShellCommand(cmd, { dataDir, workspaceDir: dir }), true, cmd);
+      const gate = evaluateTrustGate({ kind: "tool-command", command: cmd, workspaceDir: dir }, { dataDir, baseRef: "main" });
+      assert.equal(gate.decision, "deny", cmd);
+    }
+
+    const safeCommands = [
+      `echo "${b64}" | base64 -d | cat`,
+      `powershell -Exec Bypass "Get-Location"`,
+      `perl -e'print 1'`,
+      `echo hi | xargs -i echo {}`,
+    ];
+    for (const cmd of safeCommands) {
+      assert.equal(isProtectedTrustShellCommand(cmd, { dataDir, workspaceDir: dir }), false, cmd);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});

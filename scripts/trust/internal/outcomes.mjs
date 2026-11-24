@@ -63,63 +63,105 @@ function sleepSyncMs(ms) {
   Atomics.wait(SLEEP_BUFFER, 0, 0, Math.max(1, ms));
 }
 
-function resolveRealPathBestEffort(rawPath, maxHops = 16) {
-  let cur = path.resolve(rawPath);
+function splitUncollapsedSegments(subPath) {
+  return String(subPath ?? "")
+    .split(/[\\/]+/)
+    .filter((seg) => seg.length > 0 && seg !== ".");
+}
+
+function stripWinLongPathPrefix(targetPath) {
+  return /^\\\\\?\\[A-Za-z]:[\\/]/.test(targetPath) ? targetPath.slice(4) : targetPath;
+}
+
+/**
+ * Walks path segments left-to-right, dereferencing symlinks before folding `..`
+ * so `lnk/../target` resolves `lnk` first rather than colliding lexically.
+ */
+function resolveRealPathBestEffort(rawPath, maxHopsOrOptions = 40) {
+  const maxHops =
+    typeof maxHopsOrOptions === "number"
+      ? maxHopsOrOptions
+      : (maxHopsOrOptions?.maxHops ?? 40);
+  const baseDirRaw =
+    typeof maxHopsOrOptions === "object" && maxHopsOrOptions?.baseDir
+      ? String(maxHopsOrOptions.baseDir)
+      : process.cwd();
   const realFn = fs.realpathSync.native ?? fs.realpathSync;
+  const input = String(rawPath ?? "");
 
-  for (let hop = 0; hop < maxHops; hop++) {
-    const tail = [];
-    let probe = cur;
-    let resolvedNext = null;
+  const parsedInput = path.parse(input);
+  let prefix;
+  let queue;
 
-    while (true) {
-      let lst = null;
-      try {
-        lst = fs.lstatSync(probe);
-      } catch (err) {
-        if (err?.code !== "ENOENT") {
-          return cur;
-        }
-      }
-
-      if (lst) {
-        if (lst.isSymbolicLink()) {
-          try {
-            const linkTarget = fs.readlinkSync(probe);
-            let parentReal = path.dirname(probe);
-            try {
-              parentReal = realFn(parentReal);
-            } catch {
-              parentReal = path.dirname(probe);
-            }
-            const targetAbs = path.resolve(parentReal, linkTarget);
-            resolvedNext = tail.length > 0 ? path.join(targetAbs, ...tail.reverse()) : targetAbs;
-            break;
-          } catch {
-            return cur;
-          }
-        }
-        try {
-          const realBase = realFn(probe);
-          return tail.length > 0 ? path.join(realBase, ...tail.reverse()) : realBase;
-        } catch {
-          return cur;
-        }
-      }
-
-      const parent = path.dirname(probe);
-      if (parent === probe) return cur;
-      tail.push(path.basename(probe));
-      probe = parent;
-    }
-
-    if (!resolvedNext || resolvedNext === cur) {
-      return resolvedNext || cur;
-    }
-    cur = resolvedNext;
+  if (parsedInput.root) {
+    prefix = path.resolve(parsedInput.root);
+    queue = splitUncollapsedSegments(input.slice(parsedInput.root.length));
+  } else {
+    const parsedBase = path.parse(baseDirRaw);
+    prefix = parsedBase.root ? path.resolve(parsedBase.root) : path.resolve(process.cwd());
+    queue = [
+      ...(parsedBase.root ? splitUncollapsedSegments(baseDirRaw.slice(parsedBase.root.length)) : splitUncollapsedSegments(baseDirRaw)),
+      ...splitUncollapsedSegments(input),
+    ];
   }
 
-  return cur;
+  let hops = 0;
+  let idx = 0;
+
+  while (idx < queue.length) {
+    const seg = queue[idx];
+    idx += 1;
+
+    if (seg === "..") {
+      const parent = path.dirname(prefix);
+      prefix = parent;
+      continue;
+    }
+
+    const candidate = path.join(prefix, seg);
+    let lst = null;
+    try {
+      lst = fs.lstatSync(candidate);
+    } catch (err) {
+      if (err?.code === "ENOENT" || err?.code === "ENOTDIR") {
+        prefix = candidate;
+        continue;
+      }
+      return idx < queue.length ? path.join(candidate, ...queue.slice(idx)) : candidate;
+    }
+
+    if (lst.isSymbolicLink()) {
+      hops += 1;
+      if (hops > maxHops) {
+        return idx < queue.length ? path.join(candidate, ...queue.slice(idx)) : candidate;
+      }
+      try {
+        const rawTarget = stripWinLongPathPrefix(fs.readlinkSync(candidate));
+        const parsedTarget = path.parse(rawTarget);
+        const remaining = queue.slice(idx);
+        if (parsedTarget.root) {
+          prefix = path.resolve(parsedTarget.root);
+          queue = [...splitUncollapsedSegments(rawTarget.slice(parsedTarget.root.length)), ...remaining];
+        } else {
+          // Relative symlink target resolves against real parent directory (`prefix`).
+          queue = [...splitUncollapsedSegments(rawTarget), ...remaining];
+        }
+        idx = 0;
+        continue;
+      } catch {
+        prefix = candidate;
+        continue;
+      }
+    }
+
+    try {
+      prefix = realFn(candidate);
+    } catch {
+      prefix = candidate;
+    }
+  }
+
+  return prefix;
 }
 
 function normalizePathForCompare(p) {
@@ -234,17 +276,20 @@ export function isProtectedTrustStorePath(targetPath, options = {}) {
     normalizePathForCompare(resolveRealPathBestEffort(resolvedBase)),
   ]);
 
+  const hasWorkspaceDir = typeof options.workspaceDir === "string" && options.workspaceDir.trim().length > 0;
   const rawResolved =
-    !path.isAbsolute(raw) && typeof options.workspaceDir === "string" && options.workspaceDir.trim()
+    !path.isAbsolute(raw) && hasWorkspaceDir
       ? path.resolve(options.workspaceDir, raw)
       : path.resolve(raw);
   const targetCandidates = [
     normalizePathForCompare(rawResolved),
-    normalizePathForCompare(resolveRealPathBestEffort(rawResolved)),
+    normalizePathForCompare(
+      resolveRealPathBestEffort(raw, hasWorkspaceDir ? { baseDir: options.workspaceDir } : undefined),
+    ),
   ];
-  if (!path.isAbsolute(raw) && options.workspaceDir) {
+  if (!path.isAbsolute(raw) && hasWorkspaceDir) {
     targetCandidates.push(normalizePathForCompare(path.resolve(raw)));
-    targetCandidates.push(normalizePathForCompare(resolveRealPathBestEffort(path.resolve(raw))));
+    targetCandidates.push(normalizePathForCompare(resolveRealPathBestEffort(raw)));
   }
 
   for (const target of targetCandidates) {
