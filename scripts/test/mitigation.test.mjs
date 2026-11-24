@@ -259,6 +259,14 @@ test("classifyActionClass never classifies compound/redirected commands or remot
   assert.equal(classifyActionClass({ kind: "tool-command", command: "gh -R org/repo pr merge 12" }), "merge");
   assert.equal(classifyActionClass({ kind: "tool-command", command: "g\\it push origin feat" }), "push_branch");
   assert.equal(classifyActionClass({ kind: "tool-command", command: "gh p\\r m\\erge 1" }), "merge");
+  assert.equal(classifyActionClass({ kind: "tool-command", command: "git m\\erge feat" }), "merge");
+  assert.equal(classifyActionClass({ kind: "tool-command", command: "g\\it merge feat" }), "merge");
+  assert.equal(classifyActionClass({ kind: "tool-command", command: 'git "merge" feat' }), "merge");
+  assert.equal(classifyActionClass({ kind: "tool-command", command: "git --git-dir .git merge feat" }), "merge");
+  assert.equal(classifyActionClass({ kind: "tool-command", command: "gh `pr mer`ge 1" }), "merge");
+  assert.equal(classifyActionClass({ kind: "tool-command", command: "gh pr c\\omment 1 --body hi" }), "external_message");
+  assert.equal(classifyActionClass({ kind: "tool-command", command: "gh -R org/repo pr comment 1 --body hi" }), "external_message");
+  assert.equal(classifyActionClass({ kind: "tool-command", command: "npm p\\ublish" }), "deploy");
   assert.equal(classifyActionClass({ kind: "tool-command", command: "git status && git diff --stat" }), "read");
   assert.equal(classifyActionClass({ kind: "tool-mcp", toolName: "push_files" }), "push_branch");
   assert.equal(classifyActionClass({ kind: "tool-mcp", toolName: "create_or_update_file" }), "push_branch");

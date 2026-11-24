@@ -328,8 +328,10 @@ export function resolveBaseRef(workspaceDir, explicitBase, { allowHeadFallback =
   if (!workspaceDir || !fs.existsSync(workspaceDir)) return null;
   if (explicitBase) {
     const cleanBase = String(explicitBase).trim();
-    const ok = cleanBase ? tryGit(workspaceDir, ["rev-parse", "--verify", `${cleanBase}^{commit}`]) : null;
-    return ok !== null ? explicitBase : null;
+    const ok = cleanBase
+      ? tryGit(workspaceDir, ["rev-parse", "--verify", "--end-of-options", `${cleanBase}^{commit}`])
+      : null;
+    return ok !== null ? cleanBase : null;
   }
   const symOriginHead = tryGit(workspaceDir, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])?.trim();
   const candidates = [
@@ -633,7 +635,7 @@ export function splitShellPipelines(command) {
       continue;
     }
     if (!inSingle && ch === "`") {
-      const tick = scanBacktickSubstitution(command, i);
+      const tick = scanBacktickSubstitution(command, i, { stopAtDoubleQuote: inDouble });
       if (tick.closed) {
         buf += command.slice(i, tick.closeIdx + 1);
         i = tick.closeIdx;
@@ -813,7 +815,7 @@ export function scanBalancedSubshell(str, openParenIdx, _depth = 0) {
 /**
  * Scans a backtick command substitution `` `...` ``, respecting `\` escapes.
  */
-export function scanBacktickSubstitution(str, openTickIdx) {
+export function scanBacktickSubstitution(str, openTickIdx, { stopAtDoubleQuote = false } = {}) {
   const input = String(str ?? "");
   if (openTickIdx < 0 || openTickIdx >= input.length || input[openTickIdx] !== "`") {
     return { inner: "", closeIdx: openTickIdx, closed: false };
@@ -824,12 +826,96 @@ export function scanBacktickSubstitution(str, openTickIdx) {
       j += 2;
       continue;
     }
+    if (stopAtDoubleQuote && input[j] === '"') {
+      return { inner: "", closeIdx: openTickIdx, closed: false };
+    }
     if (input[j] === "`") {
       return { inner: input.slice(openTickIdx + 1, j), closeIdx: j, closed: true };
     }
     j++;
   }
   return { inner: input.slice(openTickIdx + 1), closeIdx: input.length, closed: false };
+}
+
+/**
+ * Unescapes PowerShell backticks outside single quotes so multi-backtick PS escapes
+ * (including across double quotes and whitespace) can be audited structurally.
+ */
+export function stripPowerShellBackticks(command) {
+  const str = String(command ?? "");
+  if (!str.includes("`")) return str;
+  let out = "";
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    const next = str[i + 1];
+    if (inSingle) {
+      out += ch;
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      if (ch === "\\" && next !== undefined) {
+        out += ch + next;
+        i++;
+        continue;
+      }
+      if (ch === "`") {
+        if (next === "\r" && str[i + 2] === "\n") {
+          out += " ";
+          i += 2;
+        } else if (next === "\n") {
+          out += " ";
+          i++;
+        } else if (next === '"') {
+          out += '\\"';
+          i++;
+        } else if (next === "`") {
+          i++;
+        } else if (next !== undefined) {
+          out += next;
+          i++;
+        }
+        continue;
+      }
+      out += ch;
+      if (ch === '"') inDouble = false;
+      continue;
+    }
+    if (ch === "\\" && next !== undefined) {
+      out += ch + next;
+      i++;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      out += ch;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      out += ch;
+      continue;
+    }
+    if (ch === "`") {
+      if (next === "\r" && str[i + 2] === "\n") {
+        out += " ";
+        i += 2;
+      } else if (next === "\n") {
+        out += " ";
+        i++;
+      } else if (next === "`") {
+        i++;
+      } else if (next !== undefined) {
+        out += next;
+        i++;
+      }
+      continue;
+    }
+    out += ch;
+  }
+  return out;
 }
 
 export function extractCommandSubstitutions(segment) {
@@ -992,12 +1078,12 @@ export function stripTransparentWrappers(tokens, _depth = 0) {
           idx = tokens.length;
           break;
         }
-        if ((opt === "-C" || opt === "--chdir") && idx + 1 < tokens.length) {
+        if ((opt === "-C" || opt === "--chdir" || /^-[a-zA-Z0-9]*C$/.test(opt)) && idx + 1 < tokens.length) {
           chdirDirs.push(tokens[idx + 1]);
           idx += 2;
           continue;
         }
-        const attachedChdir = opt.match(/^-[a-zA-Z]*C([\s\S]+)$/);
+        const attachedChdir = opt.match(/^-[a-zA-Z0-9]*C([\s\S]+)$/);
         if (attachedChdir) {
           chdirDirs.push(attachedChdir[1]);
           idx++;
@@ -1007,6 +1093,10 @@ export function stripTransparentWrappers(tokens, _depth = 0) {
         if (eqChdir) {
           chdirDirs.push(eqChdir[1]);
           idx++;
+          continue;
+        }
+        if (/^-[a-zA-Z0-9]*u$/.test(opt) && idx + 1 < tokens.length) {
+          idx += 2;
           continue;
         }
       }
@@ -1241,7 +1331,7 @@ export function tokenizeSimpleWords(segment) {
         }
       }
       if (ch === "`") {
-        const tick = scanBacktickSubstitution(str, i);
+        const tick = scanBacktickSubstitution(str, i, { stopAtDoubleQuote: true });
         if (tick.closed) {
           cur += str.slice(i, tick.closeIdx + 1);
           i = tick.closeIdx;
@@ -1397,7 +1487,7 @@ function matchGitPushRule(segment) {
   const tokens = tokenizeSimpleWords(segment);
   const { idx: startIdx } = stripTransparentWrappers(tokens);
   const pushIdx = tokens.findIndex(
-    (t, i) => i > startIdx && t.replace(/\\/g, "").toLowerCase() === "push",
+    (t, i) => i > startIdx && t.replace(/[\\`]/g, "").toLowerCase() === "push",
   );
   if (pushIdx === -1) return false;
 
@@ -1409,7 +1499,7 @@ function matchGitPushRule(segment) {
   let targetsTrunk = false;
 
   for (const arg of tokens.slice(pushIdx + 1)) {
-    const cleanArg = arg.replace(/\\/g, "");
+    const cleanArg = arg.replace(/[\\`]/g, "");
     const lower = cleanArg.toLowerCase();
     if (lower === "--force" || lower === "-f") hasForce = true;
     else if (lower === "--force-with-lease" || lower.startsWith("--force-with-lease=") || lower === "--force-if-includes") hasLease = true;
@@ -1423,7 +1513,16 @@ function matchGitPushRule(segment) {
 }
 
 function findDestructiveMatch(command) {
-  const leaves = collectLeafSegments(command);
+  const raw = String(command ?? "");
+  const leaves = [...collectLeafSegments(raw)];
+  if (raw.includes("`")) {
+    const psView = stripPowerShellBackticks(raw);
+    if (psView !== raw) {
+      for (const seg of collectLeafSegments(psView)) {
+        if (!leaves.includes(seg)) leaves.push(seg);
+      }
+    }
+  }
   const hasDbClient = leaves.some((seg) =>
     getLeadingCommandVerbs(seg).some((verb) => DB_CLI_VERBS.has(verb)),
   );

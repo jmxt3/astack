@@ -1,5 +1,11 @@
 import { extractCliPrActions } from "./ledger.mjs";
-import { collectLeafSegments, evaluateIrreversible } from "./policy.mjs";
+import {
+  collectLeafSegments,
+  evaluateIrreversible,
+  stripPowerShellBackticks,
+  stripTransparentWrappers,
+  tokenizeSimpleWords,
+} from "./policy.mjs";
 import {
   HARD_BLOCK_SIGNALS,
   bucketFromScore,
@@ -100,6 +106,151 @@ function isStrictlyReadOnlyCommand(cmd) {
   return segments.every((seg) => !SHELL_MUTATION_OPERATOR_RE.test(seg) && READ_ONLY_CMD_RE.test(seg));
 }
 
+const ACTION_CLASS_PRECEDENCE = {
+  deploy: 5,
+  external_message: 4,
+  merge: 3,
+  open_pr: 2,
+  push_branch: 1,
+};
+const ACTION_PKG_WRAPPERS = new Set(["npx", "pnpm", "yarn", "pnpx", "bunx", "uvx"]);
+const ACTION_PKG_SUBVERBS = new Set(["exec", "dlx", "x", "run"]);
+const ACTION_PKG_VALUE_FLAGS = new Set([
+  "-p", "--package", "--from", "-C", "--cwd", "--filter", "--workspace", "-w", "--registry",
+]);
+const GIT_VALUE_FLAGS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"]);
+const GH_VALUE_FLAGS = new Set(["-R", "--repo", "-H", "--hostname"]);
+
+function readPositionalsSkippingFlags(tokens, valueFlags) {
+  const positionals = [];
+  const flags = [];
+  let skipNext = false;
+  for (let i = 0; i < tokens.length; i++) {
+    const clean = tokens[i].replace(/[\\`]/g, "");
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    if (valueFlags.has(clean)) {
+      flags.push(clean.toLowerCase());
+      skipNext = true;
+      continue;
+    }
+    if (clean.startsWith("-")) {
+      flags.push(clean.toLowerCase());
+      continue;
+    }
+    positionals.push(clean.toLowerCase());
+  }
+  return { positionals, flags };
+}
+
+function classifyShellSegmentAction(segment) {
+  const wrapped = stripTransparentWrappers(tokenizeSimpleWords(segment));
+  let verb = wrapped.verb;
+  let rest = wrapped.rest;
+  while (verb && ACTION_PKG_WRAPPERS.has(verb)) {
+    const outerVerb = verb;
+    let j = 0;
+    while (j < rest.length) {
+      const opt = rest[j];
+      if (!opt) {
+        j++;
+        continue;
+      }
+      if (opt === "--") {
+        j++;
+        break;
+      }
+      if (ACTION_PKG_VALUE_FLAGS.has(opt) && j + 1 < rest.length) {
+        j += 2;
+        continue;
+      }
+      if (opt.startsWith("-")) {
+        j++;
+        continue;
+      }
+      if (ACTION_PKG_SUBVERBS.has(opt.replace(/[\\`]/g, "").toLowerCase()) && /^(?:pnpm|yarn|npm|bun|uv)$/.test(outerVerb)) {
+        j++;
+        continue;
+      }
+      break;
+    }
+    if (j < rest.length) {
+      const nextWrap = stripTransparentWrappers(rest.slice(j));
+      verb = nextWrap.verb;
+      rest = nextWrap.rest;
+    } else {
+      verb = "";
+      rest = [];
+    }
+  }
+  if (!verb) return null;
+
+  if (verb === "sendmail") return "external_message";
+  if (verb === "git") {
+    const { positionals } = readPositionalsSkippingFlags(rest, GIT_VALUE_FLAGS);
+    if (positionals[0] === "merge") return "merge";
+    if (positionals[0] === "push") return "push_branch";
+    return null;
+  }
+  if (verb === "gh") {
+    const { positionals } = readPositionalsSkippingFlags(rest, GH_VALUE_FLAGS);
+    if (positionals[0] === "pr") {
+      if (positionals[1] === "merge") return "merge";
+      if (positionals[1] === "comment" || positionals[1] === "review") return "external_message";
+      if (positionals[1] === "create" || positionals[1] === "new" || positionals[1] === "edit") return "open_pr";
+    } else if (positionals[0] === "issue" && positionals[1] === "comment") {
+      return "external_message";
+    } else if (positionals[0] === "release" && positionals[1] === "create") {
+      return "deploy";
+    }
+    return null;
+  }
+
+  const { positionals, flags } = readPositionalsSkippingFlags(rest, new Set());
+  if ((verb === "kubectl" || verb === "terraform") && positionals[0] === "apply") return "deploy";
+  if (verb === "pulumi" && positionals[0] === "up") return "deploy";
+  if (verb === "vercel" && flags.includes("--prod")) return "deploy";
+  if ((verb === "fly" || verb === "flyctl" || verb === "wrangler") && positionals[0] === "deploy") return "deploy";
+  if (verb === "gcloud" && positionals.includes("deploy")) return "deploy";
+  if ((verb === "npm" || verb === "pnpm" || verb === "yarn") && positionals[0] === "publish") return "deploy";
+  return null;
+}
+
+function classifyShellCommandActions(cmd) {
+  let best = null;
+  const pick = (candidate) => {
+    if (!candidate) return;
+    if (!best || ACTION_CLASS_PRECEDENCE[candidate] > ACTION_CLASS_PRECEDENCE[best]) {
+      best = candidate;
+    }
+  };
+  for (const act of extractCliPrActions(cmd)) {
+    if (act.kind === "gh-pr-merge") pick("merge");
+    else if (act.kind === "gh-pr-create" || act.kind === "gh-pr-edit-body") pick("open_pr");
+    else if (act.kind === "git-push") pick("push_branch");
+  }
+  const leaves = [...collectLeafSegments(cmd)];
+  if (cmd.includes("`")) {
+    const psView = stripPowerShellBackticks(cmd);
+    if (psView !== cmd) {
+      for (const s of collectLeafSegments(psView)) {
+        if (!leaves.includes(s)) leaves.push(s);
+      }
+    }
+  }
+  for (const seg of leaves) {
+    pick(classifyShellSegmentAction(seg));
+  }
+  if (DEPLOY_CMD_RE.test(cmd)) pick("deploy");
+  if (EXTERNAL_MSG_CMD_RE.test(cmd)) pick("external_message");
+  if (MERGE_CMD_RE.test(cmd)) pick("merge");
+  if (OPEN_PR_CMD_RE.test(cmd)) pick("open_pr");
+  if (PUSH_CMD_RE.test(cmd)) pick("push_branch");
+  return best;
+}
+
 /**
  * Classifies a normalized hook event into one of the 9 canonical `ActionClass` levels.
  */
@@ -130,15 +281,8 @@ export function classifyActionClass(event) {
     if (evaluateIrreversible(cmd, { headless: true }).decision !== "allow") {
       return "destructive";
     }
-    if (DEPLOY_CMD_RE.test(cmd)) return "deploy";
-    if (EXTERNAL_MSG_CMD_RE.test(cmd)) return "external_message";
-    const cliActions = extractCliPrActions(cmd);
-    if (cliActions.some((a) => a.kind === "gh-pr-merge")) return "merge";
-    if (cliActions.some((a) => a.kind === "gh-pr-create" || a.kind === "gh-pr-edit-body")) return "open_pr";
-    if (cliActions.some((a) => a.kind === "git-push")) return "push_branch";
-    if (MERGE_CMD_RE.test(cmd)) return "merge";
-    if (OPEN_PR_CMD_RE.test(cmd)) return "open_pr";
-    if (PUSH_CMD_RE.test(cmd)) return "push_branch";
+    const matchedAction = classifyShellCommandActions(cmd);
+    if (matchedAction) return matchedAction;
     if (isStrictlyReadOnlyCommand(cmd)) return "read";
     return "local_exec";
   }

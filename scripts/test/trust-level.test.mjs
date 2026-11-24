@@ -1501,6 +1501,27 @@ test("Round 6 hardening blocks symlink-before-.. traversal, quote-aware subshell
         ? unpaddedRaw
         : Buffer.from(`rm -rf "${storePosix}" `, "utf8").toString("base64").replace(/=+$/, "");
     const cliB64 = Buffer.from("node scripts/trust/cli.mjs beast on", "utf8").toString("base64");
+    const revPayload = [...payload].reverse().join("");
+    const relRmB64 = Buffer.from(`rm -rf "../trust/${scope.repoId}/settings.json"`, "utf8").toString("base64");
+    const bareLinkPath = path.join(dir, "innocent-link.json");
+    fs.symlinkSync(path.join(storeDir, "settings.json"), bareLinkPath);
+
+    const sameLineMultiHeredoc = [
+      "cat << A; cat << B | base64 -d | sh",
+      "hi",
+      "A",
+      b64,
+      "B",
+    ].join("\n");
+    const indentedHeredoc = [
+      "python3 << EOF",
+      'doc = """',
+      "  EOF",
+      '"""',
+      `open("${storePosix}/settings.json", "w")`,
+      "EOF",
+    ].join("\n");
+
     const blockedCommands = [
       `source <(true ")"; ${payload})`,
       `source <(true ")"; echo "${b64}" | base64 -d)`,
@@ -1532,6 +1553,21 @@ test("Round 6 hardening blocks symlink-before-.. traversal, quote-aware subshell
       `cat << 'A'\nhi\nA\ncat << 'B' | base64 -d | sh\n${b64}\nB`,
       `cat << 'EOF' | base64 -d | node\n${cliB64}\nEOF`,
       `echo "${unpaddedB64}" | base64 -d | sh`,
+      "node scripts/trust/cli.mjs bea`st `on",
+      'echo "a`b"; node scripts/trust/cli.mjs beast on; echo "c`d"',
+      `base64 -d << 'EOF' | sh\n${cliB64}\nEOF`,
+      `rev << 'EOF' | sh\n${revPayload}\nEOF`,
+      sameLineMultiHeredoc,
+      `cat << 1 | base64 -d | sh\n${b64}\n1`,
+      `cat << 'E.1' | base64 -d | sh\n${b64}\nE.1`,
+      indentedHeredoc,
+      `cd lnk\nbase64 -d << 'EOF' | sh\n${relRmB64}\nEOF`,
+      `env -iC lnk sh -c "echo '{}' > ../trust/${scope.repoId}/settings.json"`,
+      `echo '{}' > innocent-link.json`,
+      `3<>./lnk/../trust/${scope.repoId}/settings.json`,
+      `ni -ItemType SymbolicLink -Path evil2 -Target "$ASTACK_PLUGIN_DATA/sub"`,
+      `cp -s "$ASTACK_PLUGIN_DATA/sub" evil3`,
+      `sh <<< "$(echo '${cliB64}' | base64 -d)"`,
     ];
     for (const cmd of blockedCommands) {
       assert.equal(isProtectedTrustShellCommand(cmd, { dataDir, workspaceDir: dir }), true, cmd);
@@ -1540,9 +1576,35 @@ test("Round 6 hardening blocks symlink-before-.. traversal, quote-aware subshell
     }
 
     assert.equal(resolveBaseRef(dir, "0123456789abcdef0123456789abcdef01234567"), null);
+    assert.equal(resolveBaseRef(dir, " main "), "main");
     assert.equal(
       isProtectedTrustStorePath(`\\\\?\\${path.join(storeDir, "future-settings.json")}`, { dataDir, workspaceDir: dir }),
       true,
+    );
+    assert.equal(
+      isProtectedTrustStorePath(`\\\\.\\${path.join(storeDir, "future-settings.json")}`, { dataDir, workspaceDir: dir }),
+      true,
+    );
+
+    const blockedAssessment = {
+      residual: "blocked",
+      category: "core",
+      score: 0.9,
+      signals: [{ id: "test_regression", severity: 3, label: "Suite regressed" }],
+    };
+    assert.equal(
+      evaluateTrustGate(
+        { kind: "tool-command", command: "node --test", workspaceDir: dir },
+        { dataDir, baseRef: "main", headless: true, assessment: blockedAssessment },
+      ).decision,
+      "allow",
+    );
+    assert.equal(
+      evaluateTrustGate(
+        { kind: "tool-command", command: "node --test && node evil.js", workspaceDir: dir },
+        { dataDir, baseRef: "main", headless: true, assessment: blockedAssessment },
+      ).decision,
+      "deny",
     );
 
     const safeCommands = [

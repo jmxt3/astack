@@ -70,7 +70,7 @@ function splitUncollapsedSegments(subPath) {
 }
 
 function stripWinLongPathPrefix(targetPath) {
-  return /^\\\\\?\\[A-Za-z]:[\\/]/.test(targetPath) ? targetPath.slice(4) : targetPath;
+  return /^\\\\[?.]\\[A-Za-z]:[\\/]/.test(targetPath) ? targetPath.slice(4) : targetPath;
 }
 
 /**

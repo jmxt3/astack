@@ -8,6 +8,7 @@ import {
   loadRiskPolicy,
   normalizeCommandVerb,
   resolveBaseRef,
+  stripPowerShellBackticks,
   stripTransparentWrappers,
   tokenizeSimpleWords,
 } from "./policy.mjs";
@@ -950,7 +951,17 @@ const PKG_WRAPPER_VALUE_FLAGS = new Set([
 
 export function extractCliPrActions(command) {
   const actions = [];
-  for (const segment of collectLeafSegments(String(command ?? ""))) {
+  const rawCmd = String(command ?? "");
+  const leafList = [...collectLeafSegments(rawCmd)];
+  if (rawCmd.includes("`")) {
+    const psView = stripPowerShellBackticks(rawCmd);
+    if (psView !== rawCmd) {
+      for (const s of collectLeafSegments(psView)) {
+        if (!leafList.includes(s)) leafList.push(s);
+      }
+    }
+  }
+  for (const segment of leafList) {
     const tokens = tokenizeSimpleWords(segment);
     const wrapped = stripTransparentWrappers(tokens);
     let verb = wrapped.verb;
@@ -999,7 +1010,7 @@ export function extractCliPrActions(command) {
           skipNext = false;
           continue;
         }
-        const cleanTok = tok.replace(/\\/g, "");
+        const cleanTok = tok.replace(/[\\`]/g, "");
         if (GIT_FLAG_WITH_ARG.has(cleanTok)) {
           skipNext = true;
           continue;
@@ -1019,7 +1030,7 @@ export function extractCliPrActions(command) {
           skipNext = false;
           continue;
         }
-        const cleanTok = tok.replace(/\\/g, "");
+        const cleanTok = tok.replace(/[\\`]/g, "");
         if (GH_FLAG_WITH_ARG.has(cleanTok)) {
           skipNext = true;
           continue;
@@ -1038,7 +1049,7 @@ export function extractCliPrActions(command) {
           actions.push({ kind: "gh-pr-merge", tokens: rest });
         } else if (sub2 === "edit") {
           const touchesBody = rest.some((t) => {
-            const cleanFlag = t.replace(/\\/g, "");
+            const cleanFlag = t.replace(/[\\`]/g, "");
             const lower = cleanFlag.toLowerCase();
             return (
               GH_BODY_FLAGS.has(cleanFlag) ||
@@ -1065,9 +1076,9 @@ function extractGhBodyText(tokens, workspaceDir) {
     const tok = tokens[i];
     const eqIdx = tok.indexOf("=");
     const rawHead = eqIdx === -1 ? tok : tok.slice(0, eqIdx);
-    const cleanHead = rawHead.replace(/\\/g, "");
+    const cleanHead = rawHead.replace(/[\\`]/g, "");
     const cleanHeadLower = cleanHead.toLowerCase();
-    const cleanAll = tok.replace(/\\/g, "");
+    const cleanAll = tok.replace(/[\\`]/g, "");
     const cleanAllLower = cleanAll.toLowerCase();
     if (GH_FILL_FLAGS.has(cleanAll) || GH_FILL_FLAGS.has(cleanAllLower)) {
       return {
@@ -1080,30 +1091,46 @@ function extractGhBodyText(tokens, workspaceDir) {
     } else if (cleanHeadLower === "--body" && eqIdx !== -1) {
       bodyText = tok.slice(eqIdx + 1);
     } else if (cleanAll.startsWith("-b") && cleanAll.length > 2 && !cleanAll.startsWith("--")) {
-      bodyText = tok.replace(/^\\?-\\?b/, "");
+      bodyText = tok.replace(/^[\\`]*-[\\`]*b/, "");
     } else if (cleanAll === "-F" || cleanAllLower === "--body-file") {
       bodyFile = tokens[++i] ?? "";
     } else if (cleanHeadLower === "--body-file" && eqIdx !== -1) {
       bodyFile = tok.slice(eqIdx + 1);
     } else if (cleanAll.startsWith("-F") && cleanAll.length > 2 && !cleanAll.startsWith("--")) {
-      bodyFile = tok.replace(/^\\?-\\?F/, "");
+      bodyFile = tok.replace(/^[\\`]*-[\\`]*F/, "");
     }
   }
 
   if (bodyFile !== null) {
-    if (bodyFile === "-") {
+    const trimmedFile = String(bodyFile).trim();
+    if (!trimmedFile) {
+      return {
+        error: "missing --body-file path; pass --body-file <path-to-compiled-pr-body.md>",
+      };
+    }
+    if (trimmedFile === "-") {
       return {
         error:
           "stdin PR body (-F -) cannot be pre-validated; pass --body-file <path-to-compiled-pr-body.md>",
       };
     }
-    const abs = path.isAbsolute(bodyFile)
-      ? bodyFile
-      : path.resolve(workspaceDir || process.cwd(), bodyFile);
-    if (!fs.existsSync(abs)) {
-      return { error: `PR body file not found (${bodyFile})` };
+    const abs = path.isAbsolute(trimmedFile)
+      ? trimmedFile
+      : path.resolve(workspaceDir || process.cwd(), trimmedFile);
+    let stat = null;
+    try {
+      stat = fs.statSync(abs);
+    } catch {
+      return { error: `PR body file not found (${trimmedFile})` };
     }
-    return { bodyText: fs.readFileSync(abs, "utf8") };
+    if (!stat.isFile()) {
+      return { error: `PR body target is not a regular file (${trimmedFile})` };
+    }
+    try {
+      return { bodyText: fs.readFileSync(abs, "utf8") };
+    } catch (err) {
+      return { error: `Unable to read PR body file (${trimmedFile}): ${err?.message || "read error"}` };
+    }
   }
   if (bodyText !== null) {
     return { bodyText };

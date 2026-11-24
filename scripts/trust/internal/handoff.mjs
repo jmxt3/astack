@@ -23,6 +23,7 @@ import {
   resolveRealPathBestEffort,
 } from "./outcomes.mjs";
 import {
+  collectLeafSegments,
   evaluateDecisionTable,
   extractCommandSubstitutions,
   loadBoundaries,
@@ -31,6 +32,7 @@ import {
   scanBacktickSubstitution,
   scanBalancedSubshell,
   splitShellPipelines,
+  stripPowerShellBackticks,
   stripTransparentWrappers,
   tokenizeSimpleWords,
   unwrapShellInvocation,
@@ -252,6 +254,9 @@ function extractProcessSubAndHereStrings(segment) {
   if (hereIdx !== -1) {
     const rhs = segment.slice(hereIdx + 3).trim();
     if (rhs) extracted.push(rhs);
+    for (const sub of extractCommandSubstitutions(rhs)) {
+      if (sub) extracted.push(sub);
+    }
     for (const tok of tokenizeSimpleWords(rhs)) {
       if (tok) extracted.push(tok);
     }
@@ -495,6 +500,12 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
   if (checkPipedShellInputs(raw, resolvedTrustRoot, options, _depth)) {
     return true;
   }
+  if (_depth < 3 && raw.includes("`")) {
+    const psView = stripPowerShellBackticks(raw);
+    if (psView !== raw && isProtectedTrustShellCommand(psView, options, _depth + 1)) {
+      return true;
+    }
+  }
 
   const initialWorkspaceReal =
     typeof options.workspaceDir === "string" && options.workspaceDir.trim()
@@ -508,57 +519,130 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
 
   if (_depth < 4 && /(?:^|[^<])<<-?(?!<)/.test(raw) && raw.includes("\n")) {
     const rawLines = raw.split(/\r?\n/);
+    let heredocCdDir = cdDir;
+    let heredocCdRealDir = cdRealDir;
+    const heredocTaintedVars = new Set(taintedVars);
+
     for (let lineIdx = 0; lineIdx < rawLines.length - 1; lineIdx++) {
       const headerLine = rawLines[lineIdx];
-      const delimMatch = headerLine.match(
-        /(?:^|[^<])<<-?(?!<)\s*\\?['"]?([A-Za-z_][A-Za-z0-9_-]*)['"]?/,
-      );
-      if (!delimMatch) continue;
-      const delim = delimMatch[1];
-      const remainingLines = rawLines.slice(lineIdx + 1);
-      const endLineIdx = remainingLines.findIndex((l) => l.trim() === delim);
-      const bodyLines = endLineIdx !== -1 ? remainingLines.slice(0, endLineIdx) : remainingLines;
-      if (endLineIdx !== -1) lineIdx += endLineIdx + 1;
-      const body = bodyLines.join("\n");
-      if (!body.trim()) continue;
-
-      const headerSegments = splitShellPipelines(headerLine).flat();
-      const headerVerbs = headerSegments
-        .map((seg) => getLeadingVerb(tokenizeSimpleWords(seg)))
-        .filter(Boolean);
-      const hasShellSink = headerVerbs.some((v) =>
-        ["sh", "bash", "zsh", "dash", "pwsh", "powershell", "cmd"].includes(v),
-      );
-      const hasAnySink = hasShellSink || headerVerbs.some((v) => SHELL_AND_INTERPRETER_VERBS.has(v));
-      if (!hasAnySink) continue;
-
-      if (matchesProtectedInlinePayload(body, resolvedTrustRoot)) {
-        return true;
-      }
-      const heredocOpts = { ...options, _cdDir: cdDir, _cdRealDir: cdRealDir, _taintedVars: taintedVars };
-      if (hasShellSink && isProtectedTrustShellCommand(body, heredocOpts, _depth + 1)) {
-        return true;
-      }
-      if (headerLine.includes("|")) {
-        const afterHere = headerLine.replace(
-          /^[\s\S]*?(?:^|[^<])<<-?(?!<)\s*\\?['"]?[A-Za-z_][A-Za-z0-9_-]*['"]?/,
-          "",
-        );
-        const pipeIdx = afterHere.indexOf("|");
-        const downstream = pipeIdx !== -1 ? afterHere.slice(pipeIdx + 1).trim() : "";
-        if (downstream && /\b(?:base64|FromBase64String|rev|xxd)\b/i.test(downstream)) {
-          const trimmedLines = bodyLines.map((l) => l.trim().replace(/'/g, "")).filter(Boolean);
-          const singleLineBody = trimmedLines.join("");
-          const candidates =
-            singleLineBody && !trimmedLines.includes(singleLineBody)
-              ? [...trimmedLines, singleLineBody]
-              : trimmedLines;
-          for (const tok of candidates) {
-            if (checkPipedShellInputs(`echo '${tok}' | ${downstream}`, resolvedTrustRoot, heredocOpts, _depth + 1)) {
-              return true;
+      const heredocMatches = [
+        ...headerLine.matchAll(
+          /(?:^|[^<])(<<-?)(?!<)\s*(?:\\?(["'])([^\r\n]*?)\2|\\?([^\s'"`;&|<>()]+))/g,
+        ),
+      ];
+      if (heredocMatches.length === 0) {
+        for (const seg of splitShellPipelines(headerLine).flat()) {
+          const hToks = tokenizeSimpleWords(seg);
+          if (hToks.length === 0) continue;
+          const hWrap = stripTransparentWrappers(hToks);
+          for (const dArg of hWrap.chdirDirs) {
+            const next = advanceCdState(heredocCdDir, heredocCdRealDir, dArg, options, resolvedTrustRoot, trustParents);
+            heredocCdDir = next.nextLexDir;
+            heredocCdRealDir = next.nextRealDir;
+          }
+          for (const tok of hToks) {
+            const assign = tok.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.+)$/);
+            if (assign) {
+              const valNorm = assign[2].replace(/["'`]/g, "").replace(/\\/g, "/").toLowerCase();
+              if (TAINTED_VAR_VALUE_RE.test(valNorm) || (resolvedTrustRoot && valNorm.includes(resolvedTrustRoot))) {
+                heredocTaintedVars.add(assign[1]);
+              }
+            }
+          }
+          const psAssign = seg.match(
+            /^(?:\[[A-Za-z0-9_.\[\]]+\]\s*)?\$(?:(?:script|global|local|private):)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/i,
+          );
+          if (psAssign) {
+            const valNorm = psAssign[2].replace(/["'`]/g, "").replace(/\\/g, "/").toLowerCase();
+            if (TAINTED_VAR_VALUE_RE.test(valNorm) || (resolvedTrustRoot && valNorm.includes(resolvedTrustRoot))) {
+              heredocTaintedVars.add(psAssign[1]);
+            }
+          }
+          if (hWrap.verb === "cd" || hWrap.verb === "set-location" || hWrap.verb === "sl" || hWrap.verb === "pushd") {
+            const targetArg = hWrap.rest.find((t) => !t.startsWith("-") && t.toLowerCase() !== "/d");
+            if (targetArg) {
+              const next = advanceCdState(heredocCdDir, heredocCdRealDir, targetArg, options, resolvedTrustRoot, trustParents);
+              heredocCdDir = next.nextLexDir;
+              heredocCdRealDir = next.nextRealDir;
             }
           }
         }
+        continue;
+      }
+
+      let bodyCursor = lineIdx + 1;
+      const pipelinesOnHeader = splitShellPipelines(headerLine);
+      for (const hm of heredocMatches) {
+        const op = hm[1];
+        const delim = hm[3] !== undefined ? hm[3] : (hm[4] ?? "");
+        if (bodyCursor >= rawLines.length) break;
+        const remainingLines = rawLines.slice(bodyCursor);
+        const endLineIdx = remainingLines.findIndex((l) =>
+          op === "<<-" ? l.replace(/^\t+/, "") === delim : l === delim,
+        );
+        const bodyLines = endLineIdx !== -1 ? remainingLines.slice(0, endLineIdx) : remainingLines;
+        bodyCursor += endLineIdx !== -1 ? endLineIdx + 1 : remainingLines.length;
+        const body = bodyLines.join("\n");
+        if (!body.trim()) continue;
+
+        const heredocOpts = {
+          ...options,
+          _cdDir: heredocCdDir,
+          _cdRealDir: heredocCdRealDir,
+          _taintedVars: heredocTaintedVars,
+        };
+        const targetPipes = pipelinesOnHeader.filter((stages) =>
+          stages.some((st) => st.includes(op) && (delim === "" || st.includes(delim))),
+        );
+        const pipelinesToCheck = targetPipes.length > 0 ? targetPipes : pipelinesOnHeader;
+        for (const stages of pipelinesToCheck) {
+          const stageVerbs = stages.map((seg) => getLeadingVerb(tokenizeSimpleWords(seg))).filter(Boolean);
+          const hasShellSink = stageVerbs.some((v) =>
+            ["sh", "bash", "zsh", "dash", "pwsh", "powershell", "cmd"].includes(v),
+          );
+          const hasAnySink = hasShellSink || stageVerbs.some((v) => SHELL_AND_INTERPRETER_VERBS.has(v));
+          if (!hasAnySink) continue;
+
+          if (matchesProtectedInlinePayload(body, resolvedTrustRoot)) {
+            return true;
+          }
+          if (hasShellSink && isProtectedTrustShellCommand(body, heredocOpts, _depth + 1)) {
+            return true;
+          }
+          const stageIdx = stages.findIndex((st) => st.includes(op) && (delim === "" || st.includes(delim)));
+          if (stageIdx !== -1) {
+            const rawStage = stages[stageIdx];
+            const cleanedStage = rawStage
+              .replace(/(?:^|[^<])<<-?(?!<)\s*(?:\\?(["'])[^\r\n]*?\1|\\?[^\s'"`;&|<>()]+)/g, "")
+              .trim();
+            const stageVerb = cleanedStage ? getLeadingVerb(tokenizeSimpleWords(cleanedStage)) : "";
+            const tailStages = stages.slice(stageIdx + 1);
+            const hasDecoder =
+              /\b(?:base64|FromBase64String|rev|xxd)\b/i.test(cleanedStage) ||
+              tailStages.some((st) => /\b(?:base64|FromBase64String|rev|xxd)\b/i.test(st));
+            if (hasDecoder) {
+              const trimmedLines = bodyLines.map((l) => l.trim().replace(/'/g, "")).filter(Boolean);
+              const singleLineBody = trimmedLines.join("");
+              const candidates =
+                singleLineBody && !trimmedLines.includes(singleLineBody)
+                  ? [...trimmedLines, singleLineBody]
+                  : trimmedLines;
+              for (const tok of candidates) {
+                const rebuiltStages =
+                  !cleanedStage || stageVerb === "cat"
+                    ? [...stages.slice(0, stageIdx), `echo '${tok}'`, ...tailStages]
+                    : [...stages.slice(0, stageIdx), `echo '${tok}'`, cleanedStage, ...tailStages];
+                const rebuilt = rebuiltStages.join(" | ");
+                if (checkPipedShellInputs(rebuilt, resolvedTrustRoot, heredocOpts, _depth + 1)) {
+                  return true;
+                }
+              }
+            }
+          }
+        }
+      }
+      if (bodyCursor - 1 > lineIdx) {
+        lineIdx = bodyCursor - 1;
       }
     }
   }
@@ -627,7 +711,8 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
     const isSymlinkCreateCmd =
       verb === "ln" ||
       verb === "mklink" ||
-      (verb === "new-item" && /(?:symboliclink|junction|hardlink)/i.test(segment));
+      ((verb === "new-item" || verb === "ni") && /(?:symboliclink|junction|hardlink)/i.test(segment)) ||
+      (verb === "cp" && tokens.some((t) => /^-[a-zA-Z]*s[a-zA-Z]*$|^--symbolic-link$/i.test(t)));
     if (isSymlinkCreateCmd) {
       const normSegLower = normalizePosixLower(segment.replace(/["'`\u2018-\u201d]/g, ""));
       const hitsParentInText = Array.from(trustParents).some((tp) => tp && normSegLower.includes(tp));
@@ -763,13 +848,14 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
       const resolvedTokHit = Boolean(resolvedTrustRoot && joinedClean.includes(resolvedTrustRoot));
       const tokPath = tok
         .replace(/["'`\u2018-\u201d]/g, "")
-        .replace(/^(?:[0-9&]*>>?|<[<>]?)/, "")
+        .replace(/^(?:[0-9&]*>>?|[0-9]*<[<>]?)/, "")
         .trim();
       const shiftedFromWs = Boolean(segCdRealDir && segCdRealDir !== initialWorkspaceReal);
       return (
         resolvedTokHit ||
         (Boolean(tokPath) &&
-          (clean.includes("/") || tok.includes("\\") || shiftedFromWs) &&
+          !tokPath.startsWith("-") &&
+          (clean.includes("/") || tok.includes("\\") || shiftedFromWs || Boolean(options.workspaceDir)) &&
           isProtectedTrustStorePath(tokPath, {
             dataDir: options.dataDir,
             workspaceDir: segCdRealDir || options.workspaceDir,
@@ -1015,13 +1101,37 @@ export function evaluateTrustGate(event, options = {}) {
         : readIntentCard(trustDir, event.conversationId || "default");
     const headless = options.headless ?? isHeadless();
 
+const PURE_VERIFY_NAV_VERBS = new Set(["cd", "set-location", "sl", "pushd", "true"]);
+
+function isPureVerificationCommand(command) {
+  const leaves = collectLeafSegments(String(command ?? ""));
+  if (leaves.length === 0) return false;
+  let hasVerifyLeaf = false;
+  for (const leaf of leaves) {
+    const cat = classifyCommandCategory(leaf);
+    if (cat === "test" || cat === "verify" || cat === "lint") {
+      hasVerifyLeaf = true;
+      continue;
+    }
+    if (classifyActionClass({ kind: "tool-command", command: leaf }) === "read") {
+      continue;
+    }
+    const leadVerb = getLeadingVerb(tokenizeSimpleWords(leaf));
+    if (PURE_VERIFY_NAV_VERBS.has(leadVerb) && !SHELL_WRITE_OPERATOR_RE.test(leaf)) {
+      continue;
+    }
+    return false;
+  }
+  return hasVerifyLeaf;
+}
+
     const assessment =
       options.assessment ??
       buildActionAssessment({ event, action, scope, policy, receipts, evidence, intent, headSha });
 
     if (
       action === "local_exec" &&
-      ["test", "verify", "lint"].includes(classifyCommandCategory(event.command))
+      isPureVerificationCommand(event.command)
     ) {
       const nonRegBlockers = (assessment.signals ?? []).filter(
         (s) => s.id !== "test_regression" && s.severity === 3,
