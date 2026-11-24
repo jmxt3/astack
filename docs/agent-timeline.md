@@ -174,7 +174,7 @@ node skills/setup-astack/scripts/setup-banner.mjs --doctor --json
 
 ### Opt-in and passive lifecycle hooks (`hooks.json`) and always-on rules
 
-- **Function.** [`hooks.json`](../hooks.json) defines `9` Node 22+ hooks: `3` passive observe-only hooks enabled by default (`astack-receipt-ledger`, `astack-session-context`, `astack-pr-intent`) plus `6` opt-in blocking gates disabled by default (`"enabled": false`): `astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, and `astack-round-limiter`.
+- **Function.** [`hooks.json`](../hooks.json) defines `10` Node 22+ hooks: `3` passive observe-only hooks enabled by default (`astack-receipt-ledger`, `astack-session-context`, `astack-pr-intent`) plus `7` opt-in blocking gates disabled by default (`"enabled": false`): `astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, `astack-round-limiter`, and `astack-trust-gate`.
 - **Rule pinning.** Copy [`rules/astack-orchestration.md`](../rules/astack-orchestration.md) into `.agents/rules/` if you want AStack routing active without typing `/astack-mode` every turn. See [Guide 01: Setup](./guide/01-setup.md) and [Guide 09: Make it yours](./guide/09-make-it-yours.md#optional-override-subagent-tiers-with-astack-modelsmd) for optional `astack-models.md` overrides.
 
 ---

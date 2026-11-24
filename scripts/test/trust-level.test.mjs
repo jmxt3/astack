@@ -1576,14 +1576,16 @@ test("Round 6 hardening blocks symlink-before-.. traversal, quote-aware subshell
 
     assert.equal(resolveBaseRef(dir, "0123456789abcdef0123456789abcdef01234567"), null);
     assert.equal(resolveBaseRef(dir, " main "), "main");
-    assert.equal(
-      isProtectedTrustStorePath(`\\\\?\\${path.join(storeDir, "future-settings.json")}`, { dataDir, workspaceDir: dir }),
-      true,
-    );
-    assert.equal(
-      isProtectedTrustStorePath(`\\\\.\\${path.join(storeDir, "future-settings.json")}`, { dataDir, workspaceDir: dir }),
-      true,
-    );
+    if (process.platform === "win32") {
+      assert.equal(
+        isProtectedTrustStorePath(`\\\\?\\${path.join(storeDir, "future-settings.json")}`, { dataDir, workspaceDir: dir }),
+        true,
+      );
+      assert.equal(
+        isProtectedTrustStorePath(`\\\\.\\${path.join(storeDir, "future-settings.json")}`, { dataDir, workspaceDir: dir }),
+        true,
+      );
+    }
 
     const blockedAssessment = {
       residual: "blocked",

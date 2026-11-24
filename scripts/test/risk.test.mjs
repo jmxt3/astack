@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -101,30 +103,87 @@ test("risk-backtest.mjs replays origin/main history and flags PR #13 with follow
     assert.match(h.stdout, /Usage: node scripts\/eval\/risk-backtest\.mjs/);
   }
 
-  const run = spawnSync(process.execPath, [backtestCli, "--base", "origin/main", "--json"], {
+  const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), "astack-backtest-"));
+  try {
+    const commitFile = (relPath, content, subject) => {
+      const abs = path.join(tmpRepo, relPath);
+      if (content === null) {
+        fs.rmSync(abs, { force: true });
+      } else {
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        fs.writeFileSync(abs, content, "utf8");
+      }
+      execFileSync("git", ["add", "-A"], { cwd: tmpRepo, stdio: "ignore" });
+      execFileSync("git", ["commit", "-m", subject], { cwd: tmpRepo, stdio: "ignore" });
+    };
+
+    execFileSync("git", ["init", "-b", "main"], { cwd: tmpRepo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "t@t.com"], { cwd: tmpRepo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "T"], { cwd: tmpRepo, stdio: "ignore" });
+    commitFile("README.md", "# Demo\n", "docs: init (#12)");
+    commitFile(
+      "sidecars/demo/sidecar.json",
+      `${JSON.stringify({ workspace_uris: ["."], access_grants: ["run_command"] }, null, 2)}\n`,
+      "feat(sidecars): add interactive demo (#13)",
+    );
+    commitFile("sidecars/demo/app.js", "export const ok = 1;\n", "feat(ui): render demo panel (#14)");
+    commitFile(
+      "sidecars/demo/sidecar.json",
+      null,
+      "fix(sidecars): remove permission-gated sidecar (#15)",
+    );
+    commitFile("scripts/tool.mjs", "export const tool = 1;\n", "chore: add helper tool (#16)");
+
+    const synRun = spawnSync(process.execPath, [backtestCli, "--cwd", tmpRepo, "--base", "main", "--json"], {
+      cwd: rootDir,
+      encoding: "utf8",
+    });
+    assert.equal(synRun.status, 0, synRun.stderr);
+    const synParsed = JSON.parse(synRun.stdout);
+    assert.equal(synParsed.count, 5);
+    assert.equal(typeof synParsed.brierScore, "number");
+    assert.ok(synParsed.brierScore >= 0 && synParsed.brierScore <= 1);
+
+    const synPr13 = synParsed.rows.find((r) => r.prNumber === 13);
+    assert.ok(synPr13, "Expected synthetic PR #13 in backtest");
+    assert.ok(synPr13.signals.includes("bundled_sidecar_permissions"));
+    assert.ok(synPr13.signals.includes("touches_governance"));
+    assert.equal(synPr13.residual, "blocked");
+    assert.equal(synPr13.outcome, "follow_up_fix");
+    assert.match(synPr13.matchedBy ?? "", /#15/);
+
+    const synPr15 = synParsed.rows.find((r) => r.prNumber === 15);
+    assert.ok(synPr15, "Expected synthetic PR #15 in backtest");
+    assert.equal(synPr15.signals.includes("bundled_sidecar_permissions"), false);
+
+    const synDirect = runRiskBacktest({ cwd: tmpRepo, baseRef: "main", limit: 15 });
+    assert.equal(synDirect.count, synParsed.count);
+  } finally {
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+
+  const shallow = spawnSync("git", ["rev-parse", "--is-shallow-repository"], {
     cwd: rootDir,
     encoding: "utf8",
   });
-  assert.equal(run.status, 0, run.stderr);
-  const parsed = JSON.parse(run.stdout);
-  assert.ok(parsed.count >= 5, `Expected historical PR commits, got ${parsed.count}`);
-  assert.equal(typeof parsed.brierScore, "number");
-  assert.ok(parsed.brierScore >= 0 && parsed.brierScore <= 1);
-
-  const pr13 = parsed.rows.find((r) => r.prNumber === 13);
-  assert.ok(pr13, "Expected PR #13 in origin/main backtest");
-  assert.ok(pr13.signals.includes("bundled_sidecar_permissions"), `PR #13 signals: ${pr13.signals}`);
-  assert.ok(pr13.signals.includes("touches_governance"), `PR #13 signals: ${pr13.signals}`);
-  assert.equal(pr13.residual, "blocked");
-  assert.equal(pr13.outcome, "follow_up_fix");
-  assert.match(pr13.matchedBy ?? "", /#15/);
-
-  const pr15 = parsed.rows.find((r) => r.prNumber === 15);
-  assert.ok(pr15, "Expected PR #15 in origin/main backtest");
-  assert.equal(pr15.signals.includes("bundled_sidecar_permissions"), false);
-
-  const direct = runRiskBacktest({ cwd: rootDir, baseRef: "origin/main", limit: 15 });
-  assert.equal(direct.count, parsed.count);
+  const hasOriginMain = spawnSync("git", ["rev-parse", "--verify", "origin/main"], {
+    cwd: rootDir,
+    encoding: "utf8",
+  });
+  if (shallow.status === 0 && shallow.stdout.trim() === "false" && hasOriginMain.status === 0) {
+    const run = spawnSync(process.execPath, [backtestCli, "--base", "origin/main", "--json"], {
+      cwd: rootDir,
+      encoding: "utf8",
+    });
+    assert.equal(run.status, 0, run.stderr);
+    const parsed = JSON.parse(run.stdout);
+    assert.ok(parsed.count >= 5, `Expected historical PR commits, got ${parsed.count}`);
+    const pr13 = parsed.rows.find((r) => r.prNumber === 13);
+    assert.ok(pr13, "Expected PR #13 in origin/main backtest");
+    assert.equal(pr13.residual, "blocked");
+    assert.equal(pr13.outcome, "follow_up_fix");
+    assert.match(pr13.matchedBy ?? "", /#15/);
+  }
 });
 
 test("assessChange still fires untested_change when a newer file_write invalidates an earlier passing test receipt", () => {
