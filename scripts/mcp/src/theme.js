@@ -103,6 +103,21 @@ export function renderStatus(msg) {
   el.textContent = msg || "";
 }
 
+export function renderErrorCard(title, message) {
+  const root = document.getElementById("app");
+  if (!root) return;
+  const shell = domEl("div", "shell");
+  const hdr = domEl("div", "hdr");
+  hdr.appendChild(domEl("h2", "title", title));
+  const badges = domEl("div", "badges");
+  badges.appendChild(domEl("span", "pill err", "ERROR"));
+  hdr.appendChild(badges);
+  const card = domEl("div", "card");
+  card.appendChild(domEl("p", "muted", message));
+  shell.append(hdr, card);
+  root.replaceChildren(shell);
+}
+
 export async function openFileInSidePane(app, fileUri, setStatus) {
   if (!fileUri) return;
   try {
