@@ -4,6 +4,7 @@ import {
   compilePrDossier,
   computeFreshness,
   evaluateIntentScope,
+  evaluateRepoTrust,
   formatPipelineRail,
   loadRiskPolicy,
   readEvidenceSnapshot,
@@ -377,20 +378,61 @@ function handleDoctorWorkspace(args = {}) {
   };
 }
 
-function handleGetTrustStatus(args = {}) {
+function handleGetTrustStatus(args = {}, context = {}) {
   const workspaceDir = path.resolve(args.cwd || process.cwd());
   const artifactDir = args.artifactDir || null;
+  const scope = resolveWorkspaceScope(workspaceDir);
   const trustDir = resolveTrustDir({ workspaceDir, artifactDir });
   const receipts = trustDir ? readMergedReceipts(trustDir) : [];
   const evidence = trustDir ? readEvidenceSnapshot(trustDir) : null;
   const headSha = readHeadShaFast(workspaceDir);
   const freshness = computeFreshness({ receipts, headSha, priorEvidence: evidence });
-  const baseRef = resolveBaseRef(workspaceDir);
+  const baseRef = scope.kind === "enrolled_repo" ? scope.baseRef : resolveBaseRef(workspaceDir);
   const { present: policyPresent, policy } = loadRiskPolicy(workspaceDir, { baseRef });
   const rail = formatPipelineRail({ playbook: args.playbook || "feature", policy });
+  const trust =
+    scope.kind !== "non_repo"
+      ? evaluateRepoTrust({
+          repoId: scope.repoId,
+          policy,
+          dataDir: args.dataDir ?? context.dataDir ?? null,
+        })
+      : null;
+
+  const calibration = trust
+    ? {
+        chainValid: trust.chainValid,
+        frozen: trust.frozen,
+        totalOutcomes: trust.totalOutcomes,
+        maxBrierScore: trust.maxBrierScore,
+        byCategory: Object.fromEntries(
+          trust.categoryList.map((c) => [
+            c.id,
+            {
+              level: c.level,
+              ceiling: c.ceiling,
+              score: c.score,
+              brier: c.brier,
+              clean: c.clean,
+              edited: c.edited,
+              reverted: c.reverted,
+              promoReady: c.promoReady,
+            },
+          ]),
+        ),
+      }
+    : null;
+
+  const trustLine =
+    scope.kind === "non_repo"
+      ? "Scope: non_repo (AStack trust inactive)"
+      : scope.kind === "git_unregistered"
+        ? `Scope: git_unregistered (repoId=${scope.repoId}, Trust OFF)`
+        : `Scope: enrolled_repo (repoId=${scope.repoId}, beast=${trust.beastOn ? "on" : "off"}, promotion=${trust.promotionMode}, chain=${trust.chainValid ? "valid" : "BROKEN"})`;
 
   const text = [
     `HEAD: ${headSha ?? "none"} | Freshness: ${freshness} | Receipts: ${receipts.length} | TrustDir: ${trustDir ?? "none"}`,
+    trustLine,
     "",
     rail,
   ].join("\n");
@@ -399,12 +441,15 @@ function handleGetTrustStatus(args = {}) {
     content: [{ type: "text", text }],
     structuredContent: {
       workspaceDir,
+      scope,
       trustDir,
       headSha,
       freshness,
       receiptCount: receipts.length,
       policyPresent,
       evidence,
+      trust,
+      calibration,
       recentReceipts: receipts.slice(-20),
     },
   };
@@ -519,7 +564,7 @@ export function dispatchToolCall(name, args = {}, context = {}) {
       case "doctor_workspace":
         return handleDoctorWorkspace(args);
       case "get_trust_status":
-        return handleGetTrustStatus(args);
+        return handleGetTrustStatus(args, context);
       case "record_proof_manifest":
         return handleRecordProofManifest({ ...args, dataDir: context.dataDir });
       case "declare_intent":

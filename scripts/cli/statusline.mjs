@@ -5,10 +5,12 @@ import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
   computeFreshness,
+  evaluateRepoTrust,
   readEvidenceSnapshot,
   readHeadShaFast,
   readMergedReceipts,
   resolveTrustDir,
+  resolveWorkspaceScope,
 } from "../trust/index.mjs";
 
 const USAGE = `Usage: node scripts/cli/statusline.mjs [options]
@@ -104,6 +106,22 @@ export function readCliPipelineState(rawPayload) {
             : "Ready";
 
   const tier = typeof evidence?.riskTier === "number" ? evidence.riskTier : null;
+  const riskAssessment = evidence?.riskAssessment ?? null;
+  const riskScore = typeof riskAssessment?.score === "number" ? riskAssessment.score : null;
+  const activeCategory = riskAssessment?.category ?? null;
+  let trustLevel = null;
+  let beastOn = false;
+  if (headSha) {
+    const fastScope = resolveWorkspaceScope(workspaceDir, { checkEnrollment: false });
+    if (fastScope.kind !== "non_repo" && fastScope.repoId) {
+      const repoTrust = evaluateRepoTrust({ repoId: fastScope.repoId });
+      beastOn = repoTrust.beastOn;
+      const cat = activeCategory ? repoTrust.categories[activeCategory] : null;
+      if (cat && (repoTrust.totalOutcomes > 0 || repoTrust.beastOn)) {
+        trustLevel = cat.level;
+      }
+    }
+  }
   const ctxPct =
     typeof payload?.context_window?.used_percentage === "number"
       ? Math.round(payload.context_window.used_percentage)
@@ -119,6 +137,10 @@ export function readCliPipelineState(rawPayload) {
     freshness,
     activeStage,
     tier,
+    riskScore,
+    activeCategory,
+    trustLevel,
+    beastOn,
     ctxPct,
     width,
     stages: { plan: planSym, build: buildSym, review: reviewSym, ship: shipSym },
@@ -148,6 +170,11 @@ function colorizeFreshness(freshness) {
 export function renderStatusLine(rawPayload, { ansi = true } = {}) {
   const s = readCliPipelineState(rawPayload);
   const tierPart = s.tier !== null ? `Tier ${s.tier}` : null;
+  const riskPart = s.riskScore !== null ? `R ${s.riskScore.toFixed(2)}` : null;
+  const trustPart =
+    s.trustLevel !== null
+      ? `${s.beastOn ? "Beast " : ""}${s.activeCategory ? `${s.activeCategory} ` : ""}L${s.trustLevel}`
+      : null;
   const ctxPart = s.ctxPct !== null ? `${s.ctxPct}% ctx` : null;
 
   if (s.width < 70) {
@@ -159,6 +186,8 @@ export function renderStatusLine(rawPayload, { ansi = true } = {}) {
     const parts = [
       `AStack [P${p} B${b} R${r} S${sh}]`,
       tierPart ? `T${s.tier}` : null,
+      s.trustLevel !== null ? `L${s.trustLevel}` : null,
+      riskPart,
       ansi ? colorizeFreshness(shortFresh) : shortFresh,
       s.ctxPct !== null ? `${s.ctxPct}%` : null,
     ].filter(Boolean);
@@ -175,6 +204,8 @@ export function renderStatusLine(rawPayload, { ansi = true } = {}) {
   const parts = [
     `${header} [${segs}]`,
     tierPart,
+    riskPart,
+    trustPart,
     ansi ? colorizeFreshness(s.freshness) : s.freshness,
     ctxPart,
   ].filter(Boolean);

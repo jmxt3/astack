@@ -14,16 +14,16 @@
     "prReview": "always"
   },
   "autonomy": {
-    "promotion": "manual",
+    "defaultCeiling": 2,
     "auditSampleRate": 5,
     "maxBrierScore": 0.12,
     "ceilings": {
-      "docs": 2,
-      "tests": 2,
-      "ui": 2,
-      "skills": 2,
-      "tooling": 2,
-      "core": 2,
+      "docs": 3,
+      "tests": 3,
+      "ui": 3,
+      "skills": 3,
+      "tooling": 3,
+      "core": 3,
       "governance": 2
     }
   },
