@@ -20,6 +20,8 @@ import {
   resolveBaseRef,
 } from "./policy.mjs";
 import { assessChange } from "./risk.mjs";
+import { resolveResidual } from "./mitigation.mjs";
+import { readIntentCard } from "./intent.mjs";
 import {
   renderGitHubPrProof,
   resolvePrStatechart,
@@ -521,16 +523,6 @@ export function compilePrDossier({
   );
   const risk = classifyRiskTier(fileEntries.map((f) => f.file), policy);
   const { boundaries } = loadBoundaries(workspaceDir);
-  const riskAssessment = assessChange({
-    diffText,
-    numstat: numstatText,
-    statusText,
-    policy,
-    receipts,
-    boundaries,
-    action: "open_pr",
-    headSha,
-  });
   const clusters = clusterChangedFiles(fileEntries);
 
   let findingsDoc = null;
@@ -658,6 +650,44 @@ export function compilePrDossier({
     }));
 
   const riskLabel = policy.tiers?.[String(risk.tier)]?.label ?? "medium";
+  let intentCard = null;
+  if (trustDir && fs.existsSync(trustDir)) {
+    const intentFiles = fs
+      .readdirSync(trustDir, { withFileTypes: true })
+      .filter((d) => d.isFile() && /^intent\..+\.json$/i.test(d.name))
+      .map((d) => d.name)
+      .sort();
+    if (intentFiles.length > 0) {
+      const convId = intentFiles[intentFiles.length - 1].slice("intent.".length, -".json".length);
+      intentCard = readIntentCard(trustDir, convId);
+    }
+  }
+  const rawAssessment = assessChange({
+    diffText,
+    numstat: numstatText,
+    statusText,
+    policy,
+    receipts,
+    boundaries,
+    intent: intentCard,
+    action: "open_pr",
+    headSha,
+  });
+  const riskAssessment = resolveResidual(rawAssessment, receipts, {
+    headSha,
+    priorEvidence: {
+      ...(priorEvidence ?? {}),
+      verifier: {
+        verdict: rawVerifierVerdict,
+        headSha: effectiveVerifierHead,
+        stale: findingsStale,
+        importantCount,
+        reviewViolationCount,
+      },
+    },
+    proofManifest,
+    intent: intentCard,
+  });
   const evidence = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),

@@ -214,7 +214,7 @@ export function parseHookPayload(payload, hint) {
         parsedMcpArgs = safeArgs;
       }
       if (lowerTool.startsWith("mcp_") && !toolName) {
-        const prMatch = rawToolName.match(/^mcp_(.+?)_(create_pull_request|update_pull_request)$/i);
+        const prMatch = rawToolName.match(/^mcp_(.+?)_(create_pull_request|update_pull_request|merge_pull_request)$/i);
         if (prMatch) {
           serverName = serverName || prMatch[1];
           toolName = prMatch[2];

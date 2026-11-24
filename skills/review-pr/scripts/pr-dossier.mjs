@@ -3,7 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
-import { compilePrDossier, validatePrBodyContract } from "../../../scripts/trust/index.mjs";
+import {
+  compilePrDossier,
+  readHeadShaFast,
+  recordVerifierReceipt,
+  resolveTrustDir,
+  validateFindingsDocument,
+  validatePrBodyContract,
+} from "../../../scripts/trust/index.mjs";
 
 const USAGE = `Usage: node skills/review-pr/scripts/pr-dossier.mjs [options]
 
@@ -13,6 +20,7 @@ Options:
   --cwd <dir>              Repository working directory (defaults to cwd)
   --artifact-dir <dir>     Conversation artifact directory for receipts & evidence.json
   --findings <path>        Optional path to pr-verifier findings.json
+  --record-verifier        Append a verifier receipt from --findings before compiling evidence.json
   --screenshots <paths>    Comma-separated screenshot paths to embed in carousel (antigravity mode)
   --format <mode>          Output format: antigravity (default) or github
   --proof-manifest <path>  Optional path to proof-manifest.json
@@ -33,6 +41,7 @@ function main() {
       cwd: { type: "string" },
       "artifact-dir": { type: "string" },
       findings: { type: "string" },
+      "record-verifier": { type: "boolean", default: false },
       screenshots: { type: "string" },
       format: { type: "string", default: "antigravity" },
       "proof-manifest": { type: "string" },
@@ -76,8 +85,28 @@ function main() {
     ? values.screenshots.split(",").map((s) => s.trim()).filter(Boolean)
     : [];
 
+  const cwd = values.cwd ?? process.cwd();
+  if (values["record-verifier"] && values.findings) {
+    const absFindings = path.resolve(cwd, values.findings);
+    const findingsDoc = JSON.parse(fs.readFileSync(absFindings, "utf8"));
+    const errs = validateFindingsDocument(findingsDoc);
+    if (errs.length > 0) {
+      throw new Error(`Invalid findings.json (${absFindings}): ${errs.join("; ")}`);
+    }
+    const trustDir = resolveTrustDir({ workspaceDir: cwd, artifactDir: values["artifact-dir"] ?? null });
+    if (trustDir) {
+      recordVerifierReceipt({
+        trustDir,
+        conversationId: "pr-verifier",
+        headSha: findingsDoc.headSha?.trim() || readHeadShaFast(cwd),
+        verdict: findingsDoc.verdict,
+        findingsPath: absFindings,
+      });
+    }
+  }
+
   const result = compilePrDossier({
-    cwd: values.cwd ?? process.cwd(),
+    cwd,
     baseRef: values.base,
     headRef: values.head,
     artifactDir: values["artifact-dir"] ?? null,

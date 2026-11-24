@@ -10,6 +10,7 @@ import {
   tokenizeSimpleWords,
 } from "./policy.mjs";
 import { validatePrBodyContract } from "./pr-proof.mjs";
+import { readIntentCard } from "./intent.mjs";
 import { resolveGitDirs, resolveWorkspaceScope } from "./workspace-scope.mjs";
 
 export { resolveGitDirs, resolveWorkspaceScope };
@@ -387,6 +388,38 @@ export function recordVerifierReceipt({
 }
 
 /**
+ * Appends a rollback receipt onto `<trustDir>/receipts.<conversationId>.jsonl` for current HEAD.
+ */
+export function recordRollbackReceipt({
+  trustDir,
+  conversationId = "default",
+  headSha = null,
+  plan,
+  kind = "revert",
+  now = new Date().toISOString(),
+}) {
+  if (!trustDir || typeof plan !== "string" || !plan.trim()) return null;
+  fs.mkdirSync(trustDir, { recursive: true });
+  const entry = {
+    schemaVersion: 1,
+    ts: now,
+    conversationId,
+    kind: "rollback",
+    category: "verify",
+    headSha,
+    treeDirty: null,
+    ok: true,
+    summary: redactSummary(`rollback (${kind}): ${plan}`),
+    paths: [],
+    rollbackKind: kind,
+    plan: plan.trim(),
+  };
+  const targetFile = path.join(trustDir, `receipts.${conversationId}.jsonl`);
+  fs.appendFileSync(targetFile, `${JSON.stringify(entry)}\n`, "utf8");
+  return entry;
+}
+
+/**
  * Reads and merges all per-actor receipt logs under `trustDir` sorted chronologically.
  */
 export function readMergedReceipts(trustDir) {
@@ -702,6 +735,8 @@ function extractCliPrActions(command) {
         const rest = tokens.slice((positionals[1]?.index ?? idx) + 1);
         if (sub2 === "create" || sub2 === "new") {
           actions.push({ kind: "gh-pr-create", tokens: rest });
+        } else if (sub2 === "merge") {
+          actions.push({ kind: "gh-pr-merge", tokens: rest });
         } else if (sub2 === "edit") {
           const touchesBody = rest.some(
             (t) =>
@@ -865,6 +900,8 @@ export function evaluateEvidenceGate(event, options = {}) {
       actions = [{ kind: "mcp-pr-create", body: event.args?.body }];
     } else if (mcpTool === "update_pull_request" && typeof event.args?.body === "string") {
       actions = [{ kind: "mcp-pr-edit-body", body: event.args.body }];
+    } else if (mcpTool === "merge_pull_request") {
+      actions = [{ kind: "mcp-pr-merge", args: event.args ?? {} }];
     }
   }
   if (actions.length === 0) {
@@ -892,8 +929,14 @@ export function evaluateEvidenceGate(event, options = {}) {
     }).policy;
 
   const reasons = [];
+  const isMergeAction = actions.some((a) => a.kind === "gh-pr-merge" || a.kind === "mcp-pr-merge");
   const needsFreshness = actions.some(
-    (a) => a.kind === "git-push" || a.kind === "gh-pr-create" || a.kind === "mcp-pr-create",
+    (a) =>
+      a.kind === "git-push" ||
+      a.kind === "gh-pr-create" ||
+      a.kind === "mcp-pr-create" ||
+      a.kind === "gh-pr-merge" ||
+      a.kind === "mcp-pr-merge",
   );
 
   if (needsFreshness) {
@@ -932,10 +975,59 @@ export function evaluateEvidenceGate(event, options = {}) {
     }
   }
 
+  if (isMergeAction) {
+    const verifier = evidence?.verifier ?? null;
+    const hasFreshVerifierReceipt = receipts.some(
+      (r) =>
+        r?.kind === "verifier" &&
+        r.ok &&
+        (r.verdict === "PASS" || r.verdict === "PASS_WITH_NOTES") &&
+        (!headSha || !r.headSha || r.headSha === headSha),
+    );
+    const hasEvidenceVerifierPass = Boolean(
+      verifier &&
+        !verifier.stale &&
+        (verifier.verdict === "PASS" || verifier.verdict === "PASS_WITH_NOTES") &&
+        (verifier.importantCount ?? 0) === 0 &&
+        (verifier.reviewViolationCount ?? 0) === 0 &&
+        (!headSha || verifier.headSha === headSha),
+    );
+    if (!hasFreshVerifierReceipt && !hasEvidenceVerifierPass) {
+      reasons.push("merge requires isolated pr-verifier PASS receipt on current HEAD");
+    }
+
+    const residual = evidence?.riskAssessment?.residual ?? null;
+    if (residual === "blocked") {
+      reasons.push("residual risk is blocked for merge");
+    }
+
+    const intentCard =
+      options.intent ??
+      (trustDir ? readIntentCard(trustDir, event.conversationId || "default") : null);
+    const hasRollbackReceipt = receipts.some(
+      (r) => r?.kind === "rollback" && r.ok && (!headSha || !r.headSha || r.headSha === headSha),
+    );
+    const evidenceRollback = evidence?.riskAssessment?.rollback;
+    const hasEvidenceRollback = Boolean(
+      evidenceRollback &&
+        evidenceRollback.kind &&
+        evidenceRollback.kind !== "none" &&
+        typeof evidenceRollback.plan === "string" &&
+        evidenceRollback.plan.trim() &&
+        !/^manual rollback required/i.test(evidenceRollback.plan),
+    );
+    const hasIntentRollback = Boolean(
+      intentCard?.rollbackPlan && String(intentCard.rollbackPlan).trim(),
+    );
+    if (!hasRollbackReceipt && !hasEvidenceRollback && !hasIntentRollback) {
+      reasons.push("merge requires a rollback receipt or rollback plan on HEAD");
+    }
+  }
+
   const prContract = policy?.prDescriptionContract;
   if (prContract?.enabled === true) {
     for (const act of actions) {
-      if (act.kind === "git-push") continue;
+      if (act.kind === "git-push" || act.kind === "gh-pr-merge" || act.kind === "mcp-pr-merge") continue;
       let bodyText = "";
       if (act.kind === "gh-pr-create" || act.kind === "gh-pr-edit-body") {
         const extracted = extractGhBodyText(act.tokens, event.workspaceDir);
@@ -959,6 +1051,12 @@ export function evaluateEvidenceGate(event, options = {}) {
   }
 
   const detail = reasons.join("; ");
+  if (isMergeAction) {
+    return {
+      decision: "deny",
+      reason: `AStack evidence-gate: denied unverified merge (${detail}).`,
+    };
+  }
   return {
     decision: headless ? "deny" : "force_ask",
     reason: headless
@@ -994,7 +1092,7 @@ export function evaluateRoundLimit(event, options = {}) {
   return {
     decision: headless ? "deny" : "force_ask",
     reason: headless
-      ? `AStack round-limiter: blocked edit after ${evidence.reviewRound}/${maxRounds} failed review rounds.`
-      : `AStack round-limiter: remediation reached ${evidence.reviewRound}/${maxRounds} failed rounds. Escalate to human review or approve override.`,
+      ? `AStack round-limiter: blocked edit after ${evidence.reviewRound}/${maxRounds} failed review rounds. Escalate with the 2+ failed hypotheses tried.`
+      : `AStack round-limiter: remediation reached ${evidence.reviewRound}/${maxRounds} failed rounds. Escalate to human review with the 2+ failed hypotheses tried or approve override.`,
   };
 }
