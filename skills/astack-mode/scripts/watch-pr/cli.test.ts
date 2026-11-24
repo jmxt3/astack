@@ -1,4 +1,18 @@
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "../test-compat.ts";
+import {
+  applyTrustSettingsAction,
+  evaluateRepoTrust,
+  readOutcomeLedger,
+  recordOutcomeWithTrustSync,
+  recordReceipt,
+  resolveTrustDir,
+  resolveWorkspaceScope,
+  writeEvidenceSnapshotAtomic,
+} from "../../../../scripts/trust/index.mjs";
 import { type CliRuntime, main, parseArgs } from "./cli.ts";
 import { fakeReader, passingCheck } from "./fakes.test-helper.ts";
 import { renderJson, renderPretty } from "./render.ts";
@@ -93,6 +107,11 @@ describe("parseArgs", () => {
       ["--stack", "--queued-stack"],
       ["--stack-prs", "1,2"],
       ["--queued-stack", "--stack-prs", "1,1"],
+      ["--category", "bogus"],
+      ["--risk", "-0.1"],
+      ["--risk", "1.5"],
+      ["--risk", "NaN"],
+      ["--risk", ""],
     ];
     for (const argv of invalid) {
       const harness = testRuntime(fakeReader());
@@ -219,6 +238,540 @@ describe("main", () => {
     const harness = testRuntime(reader);
     expect(await main(["--help"], harness.runtime)).toBe(0);
     expect(harness.stdout.join("")).toContain("JSON (NDJSON while polling)");
+    expect(harness.stdout.join("")).toContain("--record-outcome");
     expect(reader.calls).toEqual([]);
+  });
+});
+
+function makeEnrolledTempRepo(prefix: string): {
+  readonly dir: string;
+  readonly headSha: string;
+  readonly policy: Record<string, unknown>;
+} {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  execFileSync("git", ["init", "-b", "main"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "t@t.com"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "Tester"], { cwd: dir, stdio: "ignore" });
+  const policy = {
+    schemaVersion: 1,
+    autonomy: {
+      defaultCeiling: 2,
+      ceilings: { docs: 3, tests: 3, ui: 3, skills: 3, tooling: 3, core: 3, governance: 2 },
+    },
+  };
+  fs.mkdirSync(path.join(dir, ".agents"), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, ".agents", "risk-policy.json"),
+    `${JSON.stringify(policy, null, 2)}\n`,
+    "utf8"
+  );
+  fs.writeFileSync(path.join(dir, "README.md"), "# Demo\n", "utf8");
+  execFileSync("git", ["add", "."], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "init"], { cwd: dir, stdio: "ignore" });
+  const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
+  return { dir, headSha, policy };
+}
+
+describe("opt-in outcome recording (--record-outcome)", () => {
+  it("records clean, approved_with_edits (changes requested or human commits), and human_override with trust sync", async () => {
+    const { dir, headSha, policy } = makeEnrolledTempRepo("astack-watch-pr-out-");
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-watch-pr-data-"));
+    try {
+      const scope = resolveWorkspaceScope(dir);
+      expect(scope.kind).toBe("enrolled_repo");
+      if (scope.kind !== "enrolled_repo") throw new Error("expected enrolled_repo");
+
+      const shaClean = "1".repeat(40);
+      const cleanReader = fakeReader({
+        facts: {
+          state: "MERGED",
+          mergedAt: "2026-07-26T00:00:00Z",
+          headRefOid: shaClean,
+          reviewDecision: "APPROVED",
+        },
+        reviews: [{ state: "APPROVED" }],
+        commitRollups: [{ oid: shaClean, state: "SUCCESS" }],
+      });
+      const cleanHarness = testRuntime(cleanReader);
+      const cleanCode = await main(
+        [
+          "--owner",
+          "owner",
+          "--repo",
+          "repo",
+          "--pr",
+          "41",
+          "--record-outcome",
+          "--cwd",
+          dir,
+          "--data-dir",
+          dataDir,
+          "--category",
+          "ui",
+          "--risk",
+          "0.12",
+        ],
+        cleanHarness.runtime
+      );
+      expect(cleanCode).toBe(0);
+      expect(cleanHarness.stderr).toEqual([]);
+      expect(JSON.parse(cleanHarness.stdout[0])).toMatchObject({ kind: "READY", exitCode: 0 });
+
+      const shaChanges = "2".repeat(40);
+      const changesReqReader = fakeReader({
+        facts: {
+          state: "MERGED",
+          mergedAt: "2026-07-26T01:00:00Z",
+          headRefOid: shaChanges,
+          reviewDecision: "APPROVED",
+        },
+        reviews: [{ state: "CHANGES_REQUESTED" }, { state: "APPROVED" }],
+        commitRollups: [{ oid: shaChanges, state: "SUCCESS" }],
+      });
+      const changesHarness = testRuntime(changesReqReader);
+      expect(
+        await main(
+          [
+            "--owner",
+            "owner",
+            "--repo",
+            "repo",
+            "--pr",
+            "42",
+            "--record-outcome",
+            "--cwd",
+            dir,
+            "--data-dir",
+            dataDir,
+            "--category",
+            "ui",
+            "--risk",
+            "0.25",
+          ],
+          changesHarness.runtime
+        )
+      ).toBe(0);
+
+      const trustDir = resolveTrustDir({ workspaceDir: dir });
+      if (trustDir === null) throw new Error("expected trustDir");
+      const shaAgent = "3".repeat(40);
+      const shaHuman = "4".repeat(40);
+      recordReceipt(
+        { kind: "tool-write", conversationId: "wpr", filePath: "sidecars/astack_timeline/app.js", workspaceDir: dir },
+        { trustDir, headSha: shaAgent, now: "2026-07-26T02:00:00Z" }
+      );
+      writeEvidenceSnapshotAtomic(trustDir, {
+        headSha: shaHuman,
+        riskAssessment: { category: "ui", score: 0.31 },
+      });
+      const humanCommitReader = fakeReader({
+        facts: {
+          state: "MERGED",
+          mergedAt: "2026-07-26T02:30:00Z",
+          headRefOid: shaHuman,
+          reviewDecision: "APPROVED",
+        },
+        reviews: [{ state: "APPROVED" }],
+        commitRollups: [
+          { oid: shaAgent, state: "SUCCESS" },
+          { oid: shaHuman, state: "SUCCESS" },
+        ],
+      });
+      const humanHarness = testRuntime(humanCommitReader);
+      expect(
+        await main(
+          [
+            "--owner",
+            "owner",
+            "--repo",
+            "repo",
+            "--pr",
+            "43",
+            "--record-outcome",
+            "--cwd",
+            dir,
+            "--data-dir",
+            dataDir,
+          ],
+          humanHarness.runtime
+        )
+      ).toBe(0);
+
+      for (let i = 0; i < 6; i++) {
+        recordOutcomeWithTrustSync({
+          workspaceDir: dir,
+          scope,
+          policy,
+          category: "ui",
+          outcome: "clean",
+          headSha,
+          predictedR: 0.05,
+          now: `2026-07-25T0${i}:00:00.000Z`,
+          dataDir,
+        });
+      }
+      applyTrustSettingsAction({
+        repoId: scope.repoId,
+        policy,
+        action: { promotionMode: "auto" },
+        now: "2026-07-25T12:00:00.000Z",
+        dataDir,
+      });
+      const beforeClose = evaluateRepoTrust({
+        repoId: scope.repoId,
+        policy,
+        dataDir,
+        nowMs: Date.parse("2026-07-26T00:00:00.000Z"),
+      });
+      expect(beforeClose.categories.ui.level).toBe(1);
+
+      const shaClosed = "5".repeat(40);
+      const closedReader = fakeReader({
+        facts: {
+          state: "CLOSED",
+          mergedAt: null,
+          headRefOid: shaClosed,
+          reviewDecision: null,
+        },
+      });
+      const closedHarness = testRuntime(closedReader);
+      const closedCode = await main(
+        [
+          "--owner",
+          "owner",
+          "--repo",
+          "repo",
+          "--pr",
+          "44",
+          "--record-outcome",
+          "--cwd",
+          dir,
+          "--data-dir",
+          dataDir,
+          "--category",
+          "ui",
+          "--risk",
+          "0.2",
+        ],
+        closedHarness.runtime
+      );
+      expect(closedCode).toBe(6);
+      expect(JSON.parse(closedHarness.stdout[0])).toMatchObject({
+        kind: "BLOCKER",
+        exitCode: 6,
+        blocker: { kind: "merge-gate", reason: "closed-without-merge" },
+      });
+
+      const afterClose = evaluateRepoTrust({
+        repoId: scope.repoId,
+        policy,
+        dataDir,
+        nowMs: Date.parse("2026-07-26T00:00:01.000Z"),
+      });
+      expect(afterClose.categories.ui.level).toBe(0);
+
+      const ledger = readOutcomeLedger(scope.repoId, { dataDir });
+      expect(ledger.chainValid).toBe(true);
+      const watchEntries = ledger.entries.filter((e) => e.source === "watch-pr");
+      expect(watchEntries).toHaveLength(4);
+      expect(watchEntries[0]).toMatchObject({
+        prNumber: 41,
+        headSha: shaClean,
+        category: "ui",
+        outcome: "clean",
+        y: 1,
+        predictedR: 0.12,
+      });
+      expect(watchEntries[1]).toMatchObject({
+        prNumber: 42,
+        headSha: shaChanges,
+        category: "ui",
+        outcome: "approved_with_edits",
+        y: 0.5,
+        predictedR: 0.25,
+      });
+      expect(watchEntries[2]).toMatchObject({
+        prNumber: 43,
+        headSha: shaHuman,
+        category: "ui",
+        outcome: "approved_with_edits",
+        y: 0.5,
+        predictedR: 0.31,
+      });
+      expect(watchEntries[3]).toMatchObject({
+        prNumber: 44,
+        headSha: shaClosed,
+        category: "ui",
+        outcome: "human_override",
+        y: 0,
+        predictedR: 0.2,
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("deduplicates repeated --status-only polls, records queued-stack COMPLETE merges, skips open PRs, and stays silent on non-git/unregistered repos", async () => {
+    const { dir } = makeEnrolledTempRepo("astack-watch-pr-edge-");
+    const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-watch-pr-nogit-"));
+    const unregDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-watch-pr-unreg-"));
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-watch-pr-edge-data-"));
+    try {
+      execFileSync("git", ["init", "-b", "main"], { cwd: unregDir, stdio: "ignore" });
+      execFileSync("git", ["config", "user.email", "t@t.com"], { cwd: unregDir, stdio: "ignore" });
+      execFileSync("git", ["config", "user.name", "Tester"], { cwd: unregDir, stdio: "ignore" });
+      fs.writeFileSync(path.join(unregDir, "a.txt"), "1\n", "utf8");
+      execFileSync("git", ["add", "."], { cwd: unregDir, stdio: "ignore" });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: unregDir, stdio: "ignore" });
+
+      const scope = resolveWorkspaceScope(dir);
+      if (scope.kind !== "enrolled_repo") throw new Error("expected enrolled_repo");
+
+      const openReader = fakeReader({
+        facts: { state: "OPEN", headRefOid: "6".repeat(40) },
+      });
+      const openHarness = testRuntime(openReader);
+      expect(
+        await main(
+          [
+            "--owner",
+            "owner",
+            "--repo",
+            "repo",
+            "--pr",
+            "50",
+            "--record-outcome",
+            "--cwd",
+            dir,
+            "--data-dir",
+            dataDir,
+            "--category",
+            "docs",
+          ],
+          openHarness.runtime
+        )
+      ).toBe(0);
+      expect(readOutcomeLedger(scope.repoId, { dataDir }).entries).toHaveLength(0);
+
+      const shaMerged = "7".repeat(40);
+      const statusReader = fakeReader({
+        facts: {
+          state: "MERGED",
+          mergedAt: "2026-07-26T00:00:00Z",
+          headRefOid: shaMerged,
+        },
+        commitRollups: [{ oid: shaMerged, state: "SUCCESS" }],
+      });
+      const pollArgs = [
+        "--owner",
+        "owner",
+        "--repo",
+        "repo",
+        "--pr",
+        "51",
+        "--status-only",
+        "--record-outcome",
+        "--cwd",
+        dir,
+        "--data-dir",
+        dataDir,
+        "--category",
+        "docs",
+      ];
+      expect(await main(pollArgs, testRuntime(statusReader).runtime)).toBe(0);
+      expect(await main(pollArgs, testRuntime(statusReader).runtime)).toBe(0);
+      expect(readOutcomeLedger(scope.repoId, { dataDir }).entries).toHaveLength(1);
+
+      const shaQ1 = "8".repeat(40);
+      const shaQ2 = "9".repeat(40);
+      const baseQueueReader = fakeReader({
+        facts: { state: "MERGED", mergedAt: "2026-07-26T00:00:00Z" },
+      });
+      const queuedReader: GitHubReader = {
+        ...baseQueueReader,
+        async pullRequest(context) {
+          return {
+            ...(await baseQueueReader.pullRequest(context)),
+            headRefOid: Number(context.number) === 61 ? shaQ1 : shaQ2,
+          };
+        },
+        async commitRollups(context) {
+          return [{ oid: Number(context.number) === 61 ? shaQ1 : shaQ2, state: "SUCCESS" }];
+        },
+      };
+      const queueHarness = testRuntime(queuedReader);
+      expect(
+        await main(
+          [
+            "--owner",
+            "owner",
+            "--repo",
+            "repo",
+            "--queued-stack",
+            "--stack-prs",
+            "61,62",
+            "--record-outcome",
+            "--cwd",
+            dir,
+            "--data-dir",
+            dataDir,
+            "--category",
+            "docs",
+          ],
+          queueHarness.runtime
+        )
+      ).toBe(0);
+      const ledgerAfterQueue = readOutcomeLedger(scope.repoId, { dataDir });
+      expect(ledgerAfterQueue.chainValid).toBe(true);
+      expect(ledgerAfterQueue.entries.map((e) => e.prNumber)).toEqual([51, 61, 62]);
+
+      const trustDirEdge = resolveTrustDir({ workspaceDir: dir });
+      if (trustDirEdge === null) throw new Error("expected trustDir");
+      writeEvidenceSnapshotAtomic(trustDirEdge, {
+        headSha: "b".repeat(40),
+        riskAssessment: { category: "governance", score: 0.99 },
+      });
+      const shaFreshPr = "c".repeat(40);
+      const staleEvReader = fakeReader({
+        facts: {
+          state: "MERGED",
+          mergedAt: "2026-07-26T00:00:00Z",
+          headRefOid: shaFreshPr,
+        },
+        commitRollups: [{ oid: shaFreshPr, state: "SUCCESS" }],
+      });
+      expect(
+        await main(
+          [
+            "--owner",
+            "owner",
+            "--repo",
+            "repo",
+            "--pr",
+            "63",
+            "--record-outcome",
+            "--cwd",
+            dir,
+            "--data-dir",
+            dataDir,
+          ],
+          testRuntime(staleEvReader).runtime
+        )
+      ).toBe(0);
+      const entry63 = readOutcomeLedger(scope.repoId, { dataDir }).entries.find(
+        (e) => e.prNumber === 63
+      );
+      expect(entry63).toMatchObject({
+        prNumber: 63,
+        category: "core",
+        predictedR: 0,
+        outcome: "clean",
+      });
+
+      const noFlagReader = fakeReader({
+        facts: { state: "MERGED", mergedAt: "2026-07-26T00:00:00Z", headRefOid: "a".repeat(40) },
+      });
+      expect(
+        await main(
+          ["--owner", "owner", "--repo", "repo", "--pr", "70"],
+          testRuntime(noFlagReader).runtime
+        )
+      ).toBe(0);
+      expect(noFlagReader.calls).not.toContain("pullRequestReviews");
+
+      for (const badDir of [nonGitDir, unregDir]) {
+        const harness = testRuntime(statusReader);
+        expect(
+          await main(
+            [
+              "--owner",
+              "owner",
+              "--repo",
+              "repo",
+              "--pr",
+              "80",
+              "--record-outcome",
+              "--cwd",
+              badDir,
+              "--data-dir",
+              dataDir,
+              "--category",
+              "docs",
+            ],
+            harness.runtime
+          )
+        ).toBe(0);
+        expect(harness.stderr.join("")).toContain("skipped outcome recording");
+        expect(JSON.parse(harness.stdout[0])).toMatchObject({ kind: "READY", exitCode: 0 });
+      }
+      expect(readOutcomeLedger(scope.repoId, { dataDir }).entries).toHaveLength(4);
+
+      const failingReviewsReader: GitHubReader = {
+        ...statusReader,
+        async pullRequestReviews() {
+          throw new Error("gh reviews unavailable");
+        },
+      };
+      const failRevHarness = testRuntime(failingReviewsReader);
+      expect(
+        await main(
+          [
+            "--owner",
+            "owner",
+            "--repo",
+            "repo",
+            "--pr",
+            "81",
+            "--record-outcome",
+            "--cwd",
+            dir,
+            "--data-dir",
+            dataDir,
+            "--category",
+            "docs",
+          ],
+          failRevHarness.runtime
+        )
+      ).toBe(0);
+      expect(failRevHarness.stderr.join("")).toContain("failed to record outcome");
+      expect(readOutcomeLedger(scope.repoId, { dataDir }).entries).toHaveLength(4);
+
+      const ledgerPath = readOutcomeLedger(scope.repoId, { dataDir }).ledgerPath;
+      if (ledgerPath === null) throw new Error("expected ledgerPath");
+      fs.writeFileSync(
+        ledgerPath,
+        fs.readFileSync(ledgerPath, "utf8").replace('"clean"', '"reverted"'),
+        "utf8"
+      );
+      const tamperedHarness = testRuntime(statusReader);
+      expect(
+        await main(
+          [
+            "--owner",
+            "owner",
+            "--repo",
+            "repo",
+            "--pr",
+            "82",
+            "--record-outcome",
+            "--cwd",
+            dir,
+            "--data-dir",
+            dataDir,
+            "--category",
+            "docs",
+          ],
+          tamperedHarness.runtime
+        )
+      ).toBe(0);
+      expect(tamperedHarness.stderr.join("")).toContain("skipped outcome recording");
+      expect(JSON.parse(tamperedHarness.stdout[0])).toMatchObject({ kind: "READY", exitCode: 0 });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(nonGitDir, { recursive: true, force: true });
+      fs.rmSync(unregDir, { recursive: true, force: true });
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 });

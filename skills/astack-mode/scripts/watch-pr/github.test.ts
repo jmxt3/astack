@@ -12,6 +12,7 @@ import {
   orderStack,
   parseFastCheck,
   parsePullRequest,
+  parsePullRequestReviews,
   parseReviewThreadPage,
   quoteWindowsBatchArg,
   resolveChecks,
@@ -554,6 +555,20 @@ console.log('[{"number":42,"headRefName":"feature","baseRefName":"main","isCross
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  it("parses pull request review states and fails closed on malformed review payloads", () => {
+    expect(
+      parsePullRequestReviews({
+        reviews: [{ state: "CHANGES_REQUESTED" }, { state: "APPROVED" }],
+      })
+    ).toEqual([{ state: "CHANGES_REQUESTED" }, { state: "APPROVED" }]);
+    expect(() => parsePullRequestReviews({ reviews: "invalid" })).toThrow(
+      WatcherQueryError
+    );
+    expect(() => parsePullRequestReviews({ reviews: [{ state: 123 }] })).toThrow(
+      WatcherQueryError
+    );
   });
 
 });

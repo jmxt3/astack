@@ -216,15 +216,18 @@ function synthesizeSessionAssessment({ action, policy, receipts, evidence, inten
   });
 }
 
+function hasFreshEvidenceRisk(evidence, headSha) {
+  if (!evidence?.riskAssessment) return false;
+  const evHead = evidence.headSha || evidence.riskAssessment.headSha || null;
+  return !headSha || !evHead || evHead === headSha;
+}
+
 function buildActionAssessment({ event, action, scope, policy, receipts, evidence, intent, headSha }) {
   if (event.kind === "tool-write" && event.filePath) {
     return buildPendingWriteAssessment({ event, scope, policy, receipts, evidence, intent, headSha });
   }
   const changedFiles = collectReceiptPaths(receipts);
-  const evidenceMatchesHead =
-    Boolean(evidence?.riskAssessment) &&
-    (!headSha || !evidence.headSha || evidence.headSha === headSha);
-  if (evidenceMatchesHead) {
+  if (hasFreshEvidenceRisk(evidence, headSha)) {
     const base = structuredClone(evidence.riskAssessment);
     base.action = action;
     const reg = detectSessionTestRegression(receipts);
@@ -473,7 +476,7 @@ function hasRollbackReady({ receipts, evidence, intent, headSha }) {
   if (receipts.some((r) => r?.kind === "rollback" && r.ok && (!headSha || !r.headSha || r.headSha === headSha))) {
     return true;
   }
-  const rb = evidence?.riskAssessment?.rollback;
+  const rb = hasFreshEvidenceRisk(evidence, headSha) ? evidence?.riskAssessment?.rollback : null;
   if (rb && rb.kind && rb.kind !== "none" && typeof rb.plan === "string" && rb.plan.trim() && !/^manual rollback/i.test(rb.plan)) {
     return true;
   }
@@ -548,10 +551,7 @@ export function evaluateStageHandoff(event, options = {}) {
       return { decision: "allow" };
     }
 
-    const evidenceMatchesHead =
-      Boolean(evidence?.riskAssessment) &&
-      (!headSha || !evidence.headSha || evidence.headSha === headSha);
-    const riskAssessment = evidenceMatchesHead
+    const riskAssessment = hasFreshEvidenceRisk(evidence, headSha)
       ? evidence.riskAssessment
       : changedFiles.length > 0
         ? synthesizeSessionAssessment({
@@ -730,9 +730,9 @@ export function evaluateStageContext(event, options = {}) {
           ? "2. Build & Verify"
           : "1. Plan & Intent";
 
-    const riskAssessment =
-      evidence?.riskAssessment ??
-      (changedFiles.length > 0
+    const riskAssessment = hasFreshEvidenceRisk(evidence, headSha)
+      ? evidence.riskAssessment
+      : changedFiles.length > 0
         ? synthesizeSessionAssessment({
             action: "open_pr",
             policy,
@@ -742,7 +742,7 @@ export function evaluateStageContext(event, options = {}) {
             headSha,
             changedFiles,
           })
-        : null);
+        : null;
     const category =
       riskAssessment?.category ??
       intent?.category ??

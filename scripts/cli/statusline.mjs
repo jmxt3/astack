@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   computeFreshness,
   evaluateRepoTrust,
+  loadRiskPolicy,
   readEvidenceSnapshot,
   readHeadShaFast,
   readMergedReceipts,
@@ -106,28 +107,44 @@ export function readCliPipelineState(rawPayload) {
             : "Ready";
 
   const tier = typeof evidence?.riskTier === "number" ? evidence.riskTier : null;
-  const riskAssessment = evidence?.riskAssessment ?? null;
+  let enrolledScope = null;
+  if (headSha) {
+    const fastScope = resolveWorkspaceScope(workspaceDir, { checkEnrollment: false });
+    if (
+      fastScope.kind !== "non_repo" &&
+      fastScope.repoRoot &&
+      fs.existsSync(path.join(fastScope.repoRoot, ".agents", "risk-policy.json"))
+    ) {
+      const verified = resolveWorkspaceScope(workspaceDir);
+      if (verified.kind === "enrolled_repo" && verified.repoId) {
+        enrolledScope = verified;
+      }
+    }
+  }
+
+  const evidenceHead = evidence?.headSha || evidence?.riskAssessment?.headSha || null;
+  const evidenceMatchesHead =
+    Boolean(evidence?.riskAssessment) &&
+    Boolean(headSha) &&
+    (!evidenceHead || evidenceHead === headSha);
+  const riskAssessment = enrolledScope && evidenceMatchesHead ? evidence.riskAssessment : null;
   const riskScore = typeof riskAssessment?.score === "number" ? riskAssessment.score : null;
   let activeCategory = riskAssessment?.category ?? null;
   let trustLevel = null;
   let beastOn = false;
-  if (headSha) {
-    const fastScope = resolveWorkspaceScope(workspaceDir, { checkEnrollment: false });
-    if (fastScope.kind !== "non_repo" && fastScope.repoId) {
-      const repoTrust = evaluateRepoTrust({ repoId: fastScope.repoId });
-      beastOn = repoTrust.beastOn;
-      if (repoTrust.totalOutcomes > 0 || repoTrust.beastOn) {
-        if (!activeCategory) {
-          const best = [...repoTrust.categoryList].sort(
-            (a, b) => b.level - a.level || b.totalOutcomes - a.totalOutcomes,
-          )[0];
-          activeCategory = best?.totalOutcomes > 0 ? best.id : "core";
-        }
-        const cat = repoTrust.categories[activeCategory] ?? null;
-        if (cat) {
-          trustLevel = cat.level;
-        }
-      }
+  if (enrolledScope) {
+    const { policy } = loadRiskPolicy(enrolledScope.repoRoot, { baseRef: enrolledScope.baseRef });
+    const repoTrust = evaluateRepoTrust({ repoId: enrolledScope.repoId, policy });
+    beastOn = repoTrust.beastOn;
+    if (!activeCategory) {
+      const best = [...repoTrust.categoryList].sort(
+        (a, b) => b.level - a.level || b.totalOutcomes - a.totalOutcomes,
+      )[0];
+      activeCategory = best?.totalOutcomes > 0 ? best.id : "core";
+    }
+    const cat = repoTrust.categories[activeCategory] ?? null;
+    if (cat) {
+      trustLevel = cat.level;
     }
   }
   const ctxPct =
@@ -194,7 +211,7 @@ export function renderStatusLine(rawPayload, { ansi = true } = {}) {
     const parts = [
       `AStack [P${p} B${b} R${r} S${sh}]`,
       tierPart ? `T${s.tier}` : null,
-      s.trustLevel !== null ? `L${s.trustLevel}` : null,
+      s.trustLevel !== null ? `${s.beastOn ? "Beast " : ""}L${s.trustLevel}` : null,
       riskPart,
       ansi ? colorizeFreshness(shortFresh) : shortFresh,
       s.ctxPct !== null ? `${s.ctxPct}%` : null,

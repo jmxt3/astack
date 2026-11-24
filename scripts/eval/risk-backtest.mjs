@@ -211,6 +211,8 @@ export function runRiskBacktest({
   };
 }
 
+const HIGH_OR_BLOCKED_RESIDUALS = new Set(["high", "blocked"]);
+
 /**
  * Evaluates labeled fixture regression cases from `scripts/eval/fixtures/risk-cases.json`.
  */
@@ -219,6 +221,10 @@ export function runRiskFixtureCases(
 ) {
   const raw = JSON.parse(fs.readFileSync(fixturesPath, "utf8"));
   const results = [];
+  let truePositives = 0;
+  const falsePositives = [];
+  const falseNegatives = [];
+
   for (const tc of raw.cases ?? []) {
     const assessment = assessChange({ diffText: tc.diff });
     const sigIds = new Set(assessment.signals.map((s) => s.id));
@@ -229,15 +235,31 @@ export function runRiskFixtureCases(
     if (tc.expectedResidual && assessment.residual !== tc.expectedResidual) {
       reasons.push(`expected residual ${tc.expectedResidual}, got ${assessment.residual}`);
     }
+    if (Array.isArray(tc.expectedSignals) && tc.expectedSignals.length === 0 && sigIds.size > 0) {
+      reasons.push(`expected zero signals, got ${[...sigIds].join(", ")}`);
+    }
     for (const req of tc.expectedSignals ?? []) {
       if (!sigIds.has(req)) reasons.push(`missing expected signal ${req}`);
     }
     for (const forbid of tc.forbiddenSignals ?? []) {
       if (sigIds.has(forbid)) reasons.push(`unexpected forbidden signal ${forbid}`);
     }
+
+    const expectedHigh = HIGH_OR_BLOCKED_RESIDUALS.has(tc.expectedResidual);
+    const actualHigh = HIGH_OR_BLOCKED_RESIDUALS.has(assessment.residual);
+    if (actualHigh && expectedHigh) {
+      truePositives += 1;
+    } else if (actualHigh && !expectedHigh) {
+      falsePositives.push(tc.id);
+    } else if (!actualHigh && expectedHigh) {
+      falseNegatives.push(tc.id);
+    }
+
     results.push({
       id: tc.id,
       pass: reasons.length === 0,
+      expectedCategory: tc.expectedCategory ?? null,
+      expectedResidual: tc.expectedResidual ?? null,
       category: assessment.category,
       residual: assessment.residual,
       score: assessment.score,
@@ -245,10 +267,27 @@ export function runRiskFixtureCases(
       reasons,
     });
   }
+
+  const highBlockedPrecision =
+    truePositives + falsePositives.length === 0
+      ? 1
+      : Number((truePositives / (truePositives + falsePositives.length)).toFixed(4));
+  const highBlockedRecall =
+    truePositives + falseNegatives.length === 0
+      ? 1
+      : Number((truePositives / (truePositives + falseNegatives.length)).toFixed(4));
+
   return {
-    ok: results.every((r) => r.pass),
+    ok:
+      results.every((r) => r.pass) &&
+      falsePositives.length === 0 &&
+      falseNegatives.length === 0,
     total: results.length,
     passed: results.filter((r) => r.pass).length,
+    highBlockedPrecision,
+    highBlockedRecall,
+    falsePositives,
+    falseNegatives,
     results,
   };
 }

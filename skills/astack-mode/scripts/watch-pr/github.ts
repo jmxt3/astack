@@ -489,6 +489,16 @@ export function parsePullRequest(
     isDraft: object.isDraft,
   };
 }
+export function parsePullRequestReviews(
+  value: unknown
+): readonly T.PullRequestReview[] {
+  const object = record(value, "pull request reviews");
+  const reviews = list(object.reviews, "pull request reviews.reviews");
+  return reviews.map((item, index) => {
+    const review = record(item, `reviews[${index}]`);
+    return { state: string(review.state, `reviews[${index}].state`) };
+  });
+}
 function graphqlArgs(
   query: string,
   context: T.PrContext
@@ -537,6 +547,22 @@ export class GhGitHubReader implements T.GitHubReader {
         "mergeable,mergeStateStatus,reviewDecision,headRefOid,headRefName,baseRefName,state,mergedAt,isDraft",
       ]),
       context
+    );
+  }
+  async pullRequestReviews(
+    context: T.PrContext
+  ): Promise<readonly T.PullRequestReview[]> {
+    return parsePullRequestReviews(
+      await runJson([
+        "gh",
+        "pr",
+        "view",
+        String(context.number),
+        "--repo",
+        `${context.owner}/${context.repo}`,
+        "--json",
+        "reviews",
+      ])
     );
   }
   async openPullRequests(

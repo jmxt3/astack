@@ -832,13 +832,98 @@ test("Stop stage-handoff and PreInvocation stage context via control-cli respect
       evaluateStageContext({ kind: "pre-invocation", workspaceDir: os.tmpdir(), lastUserInput: "hi" }, { dataDir }),
       {},
     );
+
+    const staleSha = "1".repeat(40);
+    const staleWithGovReceipts = evaluateStageContext(
+      { kind: "pre-invocation", conversationId: "conv-stale", workspaceDir: dir, lastUserInput: "continue" },
+      {
+        dataDir,
+        headSha,
+        evidence: {
+          headSha: staleSha,
+          riskAssessment: {
+            headSha: staleSha,
+            category: "docs",
+            residual: "low",
+            score: 0.02,
+            requiredMitigations: [],
+            satisfied: [],
+          },
+        },
+        receipts: [
+          {
+            kind: "file_write",
+            ts: "2026-11-24T00:00:01Z",
+            headSha,
+            ok: true,
+            paths: ["hooks.json"],
+          },
+        ],
+        intent: null,
+      },
+    );
+    assert.equal(staleWithGovReceipts.injectSteps?.length, 1);
+    assert.match(staleWithGovReceipts.injectSteps[0].ephemeralMessage, /category=governance/);
+    assert.match(staleWithGovReceipts.injectSteps[0].ephemeralMessage, /residual=blocked/);
+    assert.doesNotMatch(staleWithGovReceipts.injectSteps[0].ephemeralMessage, /category=docs/);
+    assert.doesNotMatch(staleWithGovReceipts.injectSteps[0].ephemeralMessage, /R=0\.02/);
+
+    const staleWithoutChanges = evaluateStageContext(
+      { kind: "pre-invocation", conversationId: "conv-stale-empty", workspaceDir: dir, lastUserInput: "continue" },
+      {
+        dataDir,
+        headSha,
+        evidence: {
+          headSha: staleSha,
+          riskAssessment: {
+            headSha: staleSha,
+            category: "docs",
+            residual: "high",
+            score: 0.77,
+            requiredMitigations: [],
+            satisfied: [],
+          },
+        },
+        receipts: [],
+        intent: null,
+      },
+    );
+    assert.equal(staleWithoutChanges.injectSteps?.length, 1);
+    assert.doesNotMatch(staleWithoutChanges.injectSteps[0].ephemeralMessage, /category=docs/);
+    assert.doesNotMatch(staleWithoutChanges.injectSteps[0].ephemeralMessage, /R=0\.77/);
+    assert.match(staleWithoutChanges.injectSteps[0].ephemeralMessage, /category=core/);
+    assert.match(staleWithoutChanges.injectSteps[0].ephemeralMessage, /R=0\.00/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
 
-test("exhaustive BFS state-space check proves earned-trust and stage-handoff safety invariants", () => {
+test("exhaustive BFS state-space check matches docs/specs/EarnedTrust.tla and proves all 9 safety invariants", () => {
+  const tlaPath = path.resolve(here, "../../docs/specs/EarnedTrust.tla");
+  const cfgPath = path.resolve(here, "../../docs/specs/EarnedTrust.cfg");
+  assert.equal(fs.existsSync(tlaPath), true, "Missing docs/specs/EarnedTrust.tla");
+  assert.equal(fs.existsSync(cfgPath), true, "Missing docs/specs/EarnedTrust.cfg");
+  const tlaText = fs.readFileSync(tlaPath, "utf8");
+  const cfgText = fs.readFileSync(cfgPath, "utf8");
+  assert.match(tlaText, /MODULE EarnedTrust/);
+  assert.match(cfgText, /SPECIFICATION Spec/);
+  for (const inv of [
+    "TypeOK",
+    "LevelRespectsCeiling",
+    "GovernanceNeverExceedsL2",
+    "GovernanceNeverAutoPromotes",
+    "GovernanceNeverAutoMerges",
+    "ManualNeverExceedsConfirmed",
+    "FrozenForcesL0",
+    "BadOutcomeDemotes",
+    "StageHandoffsBounded",
+  ]) {
+    assert.match(tlaText, new RegExp(`^${inv}\\s*==`, "m"), `Missing TLA+ definition for ${inv}`);
+    assert.match(cfgText, new RegExp(`\\b${inv}\\b`), `Missing cfg INVARIANT ${inv}`);
+  }
+
+  const MAX_STAGE_HOPS = 2;
   const initialStates = [];
   for (const cat of ["ui", "governance"]) {
     initialStates.push({
@@ -849,13 +934,17 @@ test("exhaustive BFS state-space check proves earned-trust and stage-handoff saf
       confirmed: 0,
       level: 0,
       autoPromoted: false,
+      hasUndo: false,
+      undoFrom: 0,
+      chainValid: true,
+      demotionOk: true,
       stage: 1,
       stageHops: 0,
     });
   }
 
   const keyOf = (s) =>
-    `${s.cat}|${s.mode}|${s.ceiling}|${s.earned}|${s.confirmed}|${s.level}|${s.autoPromoted}|${s.stage}|${s.stageHops}`;
+    `${s.cat}|${s.mode}|${s.ceiling}|${s.earned}|${s.confirmed}|${s.level}|${s.autoPromoted}|${s.hasUndo}|${s.undoFrom}|${s.chainValid}|${s.demotionOk}|${s.stage}|${s.stageHops}`;
 
   const visited = new Set();
   const queue = [];
@@ -864,8 +953,10 @@ test("exhaustive BFS state-space check proves earned-trust and stage-handoff saf
     queue.push(s);
   }
 
-  const effectiveLevel = (cat, mode, ceiling, earned, confirmed) => {
-    const cap = cat === "governance" ? Math.min(2, ceiling) : ceiling;
+  const catCap = (cat, ceiling) => (cat === "governance" ? Math.min(2, ceiling) : ceiling);
+  const effectiveLevel = (cat, mode, ceiling, earned, confirmed, chainValid) => {
+    if (!chainValid) return 0;
+    const cap = catCap(cat, ceiling);
     const cappedEarned = Math.min(earned, cap);
     if (mode === "auto" && cat !== "governance") return cappedEarned;
     return Math.min(cappedEarned, confirmed);
@@ -876,81 +967,124 @@ test("exhaustive BFS state-space check proves earned-trust and stage-handoff saf
   while (queue.length > 0) {
     const cur = queue.shift();
 
-    assert.ok(cur.level <= cur.ceiling, `Level ${cur.level} exceeded ceiling ${cur.ceiling}`);
+    assert.ok(cur.level >= 0 && cur.level <= 3, `TypeOK violated for level ${cur.level}`);
+    assert.ok(cur.level <= cur.ceiling, `LevelRespectsCeiling: ${cur.level} > ${cur.ceiling}`);
     if (cur.cat === "governance") {
-      assert.ok(cur.level <= 2, "Governance level exceeded L2");
-      assert.equal(cur.autoPromoted, false, "Governance must never auto-promote");
+      assert.ok(cur.level <= 2 && cur.ceiling <= 2 && cur.earned <= 2, "GovernanceNeverExceedsL2");
+      assert.equal(cur.autoPromoted, false, "GovernanceNeverAutoPromotes");
+      assert.ok(cur.stage < 4, "GovernanceNeverAutoMerges");
     }
-    assert.ok(cur.stageHops <= 2, "Stage transitions exceeded bound 2");
-    assert.ok(cur.stage >= 1 && cur.stage <= 4, "Stage out of bounds");
+    if (cur.chainValid && (cur.mode === "manual" || cur.cat === "governance")) {
+      assert.ok(cur.level <= cur.confirmed, "ManualNeverExceedsConfirmed");
+    }
+    if (!cur.chainValid) {
+      assert.equal(cur.level, 0, "FrozenForcesL0");
+    }
+    assert.equal(cur.demotionOk, true, "BadOutcomeDemotes");
+    assert.ok(cur.stageHops <= MAX_STAGE_HOPS, "StageHandoffsBounded (hops)");
+    assert.ok(cur.stage >= 1 && cur.stage <= 4, "StageHandoffsBounded (stage)");
 
     const nextStates = [];
 
-    const maxCat = cur.cat === "governance" ? 2 : 3;
-    const nextEarnedClean = Math.min(maxCat, cur.earned + 1);
-    const nextLevelClean = effectiveLevel(cur.cat, cur.mode, cur.ceiling, nextEarnedClean, cur.confirmed);
-    const didAuto = cur.mode === "auto" && cur.cat !== "governance" && nextLevelClean > cur.level;
-    nextStates.push({
-      ...cur,
-      earned: nextEarnedClean,
-      confirmed: didAuto ? nextLevelClean : cur.confirmed,
-      level: nextLevelClean,
-      autoPromoted: cur.autoPromoted || didAuto,
-    });
+    if (cur.chainValid) {
+      const cap = catCap(cur.cat, cur.ceiling);
+      const maxCat = cur.cat === "governance" ? 2 : 3;
 
-    const cap = cur.cat === "governance" ? Math.min(2, cur.ceiling) : cur.ceiling;
-    const nextEarnedRev = Math.max(0, Math.min(cur.earned, cap) - 1);
-    const nextConfirmedRev = cur.level > 0 ? Math.min(nextEarnedRev, Math.max(0, cur.level - 1)) : 0;
-    const nextLevelRev = effectiveLevel(cur.cat, cur.mode, cur.ceiling, nextEarnedRev, nextConfirmedRev);
-    if (cur.level > 0) {
-      assert.ok(nextLevelRev < cur.level, "Revert must strictly lower active level when level > 0");
-    }
-    nextStates.push({
-      ...cur,
-      earned: nextEarnedRev,
-      confirmed: nextConfirmedRev,
-      level: nextLevelRev,
-    });
-
-    if (cur.level < Math.min(cur.earned, cap)) {
-      const nextConf = cur.level + 1;
+      const nextEarnedClean = Math.min(maxCat, cur.earned + 1);
+      const nextLevelClean = effectiveLevel(cur.cat, cur.mode, cur.ceiling, nextEarnedClean, cur.confirmed, true);
+      const didAutoClean = cur.mode === "auto" && cur.cat !== "governance" && nextLevelClean > cur.level;
       nextStates.push({
         ...cur,
-        confirmed: nextConf,
-        level: effectiveLevel(cur.cat, cur.mode, cur.ceiling, cur.earned, nextConf),
+        earned: nextEarnedClean,
+        confirmed: didAutoClean ? nextLevelClean : cur.confirmed,
+        level: nextLevelClean,
+        autoPromoted: cur.autoPromoted || didAutoClean,
+        hasUndo: didAutoClean ? true : cur.hasUndo,
+        undoFrom: didAutoClean ? cur.level : cur.undoFrom,
       });
-    }
 
-    const toggledMode = cur.mode === "manual" ? "auto" : "manual";
-    const lvlAfterToggle = effectiveLevel(cur.cat, toggledMode, cur.ceiling, cur.earned, cur.confirmed);
-    const toggleAuto = toggledMode === "auto" && cur.cat !== "governance" && lvlAfterToggle > cur.level;
-    nextStates.push({
-      ...cur,
-      mode: toggledMode,
-      confirmed: toggleAuto ? lvlAfterToggle : cur.confirmed,
-      level: lvlAfterToggle,
-      autoPromoted: cur.autoPromoted || toggleAuto,
-    });
-
-    for (const c of [1, 2, 3]) {
-      const clampedC = cur.cat === "governance" ? Math.min(2, c) : c;
-      const nextConf = Math.min(cur.confirmed, clampedC);
+      const nextEarnedRev = Math.max(0, Math.min(cur.earned, cap) - 1);
+      const nextConfirmedRev = cur.level > 0 ? Math.min(nextEarnedRev, Math.max(0, cur.level - 1)) : 0;
+      const nextLevelRev = effectiveLevel(cur.cat, cur.mode, cur.ceiling, nextEarnedRev, nextConfirmedRev, true);
       nextStates.push({
         ...cur,
-        ceiling: clampedC,
-        confirmed: nextConf,
-        level: effectiveLevel(cur.cat, cur.mode, clampedC, cur.earned, nextConf),
+        earned: nextEarnedRev,
+        confirmed: nextConfirmedRev,
+        level: nextLevelRev,
+        hasUndo: false,
+        undoFrom: 0,
+        demotionOk: cur.demotionOk && (cur.level === 0 || nextLevelRev < cur.level),
       });
-    }
 
-    if (cur.stage < 4 && cur.stageHops < 2) {
-      const reqLvl = cur.stage === 1 ? 1 : cur.stage === 2 ? 2 : 3;
-      if (cur.level >= reqLvl) {
+      if (cur.level < Math.min(cur.earned, cap)) {
+        const nextConf = cur.level + 1;
         nextStates.push({
           ...cur,
-          stage: cur.stage + 1,
-          stageHops: cur.stageHops + 1,
+          confirmed: nextConf,
+          level: effectiveLevel(cur.cat, cur.mode, cur.ceiling, cur.earned, nextConf, true),
+          hasUndo: false,
+          undoFrom: 0,
         });
+      }
+
+      const toggledMode = cur.mode === "manual" ? "auto" : "manual";
+      const lvlAfterToggle = effectiveLevel(cur.cat, toggledMode, cur.ceiling, cur.earned, cur.confirmed, true);
+      const toggleAuto = toggledMode === "auto" && cur.cat !== "governance" && lvlAfterToggle > cur.level;
+      nextStates.push({
+        ...cur,
+        mode: toggledMode,
+        confirmed: toggleAuto ? lvlAfterToggle : cur.confirmed,
+        level: lvlAfterToggle,
+        autoPromoted: cur.autoPromoted || toggleAuto,
+        hasUndo: toggleAuto ? true : cur.hasUndo,
+        undoFrom: toggleAuto ? cur.level : cur.undoFrom,
+      });
+
+      if (cur.hasUndo) {
+        const undoConf = Math.min(cur.undoFrom, cap);
+        nextStates.push({
+          ...cur,
+          mode: "manual",
+          confirmed: undoConf,
+          level: effectiveLevel(cur.cat, "manual", cur.ceiling, cur.earned, undoConf, true),
+          hasUndo: false,
+          undoFrom: 0,
+        });
+      }
+
+      for (const c of [1, 2, 3]) {
+        const clampedC = catCap(cur.cat, c);
+        const baseConf = Math.min(cur.confirmed, clampedC);
+        const nextLvlC = effectiveLevel(cur.cat, cur.mode, clampedC, cur.earned, baseConf, true);
+        const didAutoC = cur.mode === "auto" && cur.cat !== "governance" && nextLvlC > cur.level;
+        nextStates.push({
+          ...cur,
+          ceiling: clampedC,
+          confirmed: didAutoC ? nextLvlC : baseConf,
+          level: nextLvlC,
+          autoPromoted: cur.autoPromoted || didAutoC,
+          hasUndo: didAutoC ? true : cur.hasUndo,
+          undoFrom: didAutoC ? cur.level : cur.undoFrom,
+        });
+      }
+
+      nextStates.push({
+        ...cur,
+        chainValid: false,
+        level: 0,
+        hasUndo: false,
+        undoFrom: 0,
+      });
+
+      if (cur.stage < 4 && cur.stageHops < MAX_STAGE_HOPS) {
+        const reqLvl = cur.stage === 1 ? 1 : cur.stage === 2 ? 2 : 3;
+        if (cur.level >= reqLvl) {
+          nextStates.push({
+            ...cur,
+            stage: cur.stage + 1,
+            stageHops: cur.stageHops + 1,
+          });
+        }
       }
     }
 
@@ -964,8 +1098,8 @@ test("exhaustive BFS state-space check proves earned-trust and stage-handoff saf
     }
   }
 
-  assert.ok(visited.size >= 100, `Expected rich reachable state space, checked ${visited.size} states`);
-  assert.ok(transitionsChecked >= 500, `Expected thorough transition check, got ${transitionsChecked}`);
+  assert.ok(visited.size >= 500, `Expected rich reachable state space, checked ${visited.size} states`);
+  assert.ok(transitionsChecked >= 2000, `Expected thorough transition check, got ${transitionsChecked}`);
 });
 
 test("security regressions: trust-gate blocks flag-prefixed cli.mjs, cd+cli.mjs, env vars, symlinks, workspace-relative paths, unverified merges, and governance handoff", () => {

@@ -389,10 +389,14 @@ export interface ReviewThreadPage {
   readonly threads: readonly RawReviewThread[];
   readonly endCursor: string | null;
 }
+export interface PullRequestReview {
+  readonly state: string;
+}
 export interface GitHubReader {
   originRepo(): Promise<Repository | null>;
   currentPr(pr: PrNumber | null): Promise<PrContext>;
   pullRequest(context: PrContext): Promise<PullRequestFacts>;
+  pullRequestReviews?(context: PrContext): Promise<readonly PullRequestReview[]>;
   openPullRequests(repository: Repository): Promise<readonly OpenPullRequest[]>;
   checksFastPath(context: PrContext): Promise<ChecksFastPath>;
   checkRollupPage(
