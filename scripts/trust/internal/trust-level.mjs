@@ -460,6 +460,38 @@ export function applyTrustSettingsAction({
       if (next.confirmedLevels[category] > requested) {
         next.confirmedLevels[category] = requested;
       }
+      if (next.lastAutoPromo?.catId === category && requested < next.lastAutoPromo.toLvl) {
+        next.lastAutoPromo = null;
+      }
+      const effectiveAfter = resolveEffectiveAutonomy(policy, next);
+      if (!before.frozen && effectiveAfter.promotionMode === "auto" && category !== "governance") {
+        const ledger = readOutcomeLedger(repoId, { dataDir });
+        const catAfter = evaluateCategoryState({
+          category,
+          entries: ledger.entries,
+          ceiling: effectiveAfter.ceilings[category],
+          maxCeiling: effectiveAfter.maxCeilings[category],
+          promotionMode: effectiveAfter.promotionMode,
+          confirmedLevel: next.confirmedLevels[category] ?? 0,
+          maxBrierScore: effectiveAfter.maxBrierScore,
+          policyReset: false,
+          policyResetAtTs: next.categoryPolicyResets?.[category] ?? null,
+          chainValid: ledger.chainValid,
+          nowMs,
+        });
+        const prevLevel = before.categories[category].level;
+        if (catAfter.level > prevLevel) {
+          next.confirmedLevels[category] = catAfter.level;
+          next.lastAutoPromo = {
+            catId: category,
+            fromLvl: prevLevel,
+            toLvl: catAfter.level,
+            score: catAfter.score,
+            ceiling: catAfter.ceiling,
+            ts: now,
+          };
+        }
+      }
     }
 
     if (typeof action.promoteCategory === "string" && action.promoteCategory) {
@@ -511,6 +543,7 @@ export function recordOutcomeWithTrustSync({
   note = "",
   sampledAudit = false,
   auditCompleted = null,
+  dedupeOutcomes = null,
   now = new Date().toISOString(),
   dataDir = null,
   baseRef = undefined,
@@ -530,11 +563,16 @@ export function recordOutcomeWithTrustSync({
     note,
     sampledAudit,
     auditCompleted,
+    dedupeOutcomes,
     now,
     dataDir,
     baseRef,
   });
   const effectiveRepoId = appended.entry.repoId;
+  if (appended.duplicate) {
+    const unchangedTrust = before ?? evaluateRepoTrust({ repoId: effectiveRepoId, policy, dataDir, nowMs });
+    return { ...appended, trust: unchangedTrust };
+  }
   const storeDir = resolveTrustStoreDir(effectiveRepoId, { dataDir });
 
   if (storeDir) {

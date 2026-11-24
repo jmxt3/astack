@@ -344,6 +344,7 @@ export function appendOutcome({
   note = "",
   sampledAudit = false,
   auditCompleted = null,
+  dedupeOutcomes = null,
   now = new Date().toISOString(),
   dataDir = null,
   baseRef = undefined,
@@ -367,6 +368,11 @@ export function appendOutcome({
     throw new Error(`predictedR must be a finite number in [0, 1], got ${predictedR}`);
   }
 
+  const normalizedHeadSha = String(headSha).toLowerCase();
+  const validPrNumber = Number.isInteger(prNumber) && prNumber > 0 ? prNumber : null;
+  const dedupeSet =
+    Array.isArray(dedupeOutcomes) && dedupeOutcomes.length > 0 ? new Set(dedupeOutcomes) : null;
+
   const storeDir = resolveTrustStoreDir(resolvedScope.repoId, { dataDir });
   return withTrustStoreLock(storeDir, "ledger.lock", () => {
     const existing = readOutcomeLedger(resolvedScope.repoId, { dataDir });
@@ -374,13 +380,30 @@ export function appendOutcome({
       throw new Error(`Cannot append outcome: ${existing.reason}`);
     }
 
+    if (dedupeSet && validPrNumber !== null) {
+      const prior = existing.entries.find(
+        (e) =>
+          e.prNumber === validPrNumber &&
+          String(e.headSha ?? "").toLowerCase() === normalizedHeadSha &&
+          dedupeSet.has(e.outcome),
+      );
+      if (prior) {
+        return {
+          duplicate: true,
+          entry: prior,
+          ledgerPath: existing.ledgerPath,
+          entryHash: null,
+        };
+      }
+    }
+
     const entry = {
       schemaVersion: 1,
       ts: now,
       repoId: resolvedScope.repoId,
       category,
-      headSha: String(headSha).toLowerCase(),
-      prNumber: Number.isInteger(prNumber) && prNumber > 0 ? prNumber : null,
+      headSha: normalizedHeadSha,
+      prNumber: validPrNumber,
       outcome,
       y: OUTCOME_SCORES[outcome],
       predictedR: Number(rVal.toFixed(4)),
@@ -394,6 +417,7 @@ export function appendOutcome({
     const serialized = JSON.stringify(entry);
     fs.appendFileSync(existing.ledgerPath, `${serialized}\n`, "utf8");
     return {
+      duplicate: false,
       entry,
       ledgerPath: existing.ledgerPath,
       entryHash: sha256Hex(serialized),

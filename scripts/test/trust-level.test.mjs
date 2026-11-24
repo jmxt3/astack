@@ -893,6 +893,112 @@ test("Stop stage-handoff and PreInvocation stage context via control-cli respect
     assert.doesNotMatch(staleWithoutChanges.injectSteps[0].ephemeralMessage, /R=0\.77/);
     assert.match(staleWithoutChanges.injectSteps[0].ephemeralMessage, /category=core/);
     assert.match(staleWithoutChanges.injectSteps[0].ephemeralMessage, /R=0\.00/);
+
+    const dirtyAfterEvidenceReceipts = [
+      {
+        kind: "file_write",
+        ts: "2026-11-24T10:05:00Z",
+        headSha,
+        ok: true,
+        paths: ["hooks.json"],
+      },
+      {
+        kind: "command",
+        category: "test",
+        ts: "2026-11-24T10:06:00Z",
+        headSha,
+        ok: true,
+        summary: "node --test",
+      },
+    ];
+    const olderEvidenceSameSha = {
+      headSha,
+      generatedAt: "2026-11-24T10:00:00Z",
+      riskAssessment: {
+        headSha,
+        category: "docs",
+        residual: "low",
+        score: 0,
+        signals: [],
+        requiredMitigations: [],
+        satisfied: [],
+      },
+    };
+    const dirtyCtx = evaluateStageContext(
+      { kind: "pre-invocation", conversationId: "conv-dirty-ev", workspaceDir: dir, lastUserInput: "continue" },
+      { dataDir, headSha, evidence: olderEvidenceSameSha, receipts: dirtyAfterEvidenceReceipts, intent: null },
+    );
+    assert.match(dirtyCtx.injectSteps[0].ephemeralMessage, /category=governance/);
+    assert.match(dirtyCtx.injectSteps[0].ephemeralMessage, /residual=blocked/);
+
+    const dirtyHandoff = evaluateStageHandoff(
+      { kind: "stop", conversationId: "conv-dirty-stop", workspaceDir: dir, fullyIdle: true, terminationReason: "model_stop" },
+      { dataDir, headSha, evidence: olderEvidenceSameSha, receipts: dirtyAfterEvidenceReceipts, intent: null },
+    );
+    assert.deepEqual(dirtyHandoff, { decision: "allow" });
+
+    const dirtyPushGate = evaluateTrustGate(
+      { kind: "tool-command", conversationId: "conv-dirty-push", workspaceDir: dir, command: "git push origin feat/x" },
+      { dataDir, headSha, evidence: olderEvidenceSameSha, receipts: dirtyAfterEvidenceReceipts, intent: null },
+    );
+    assert.equal(dirtyPushGate.decision, "deny");
+
+    const innerMismatchCtx = evaluateStageContext(
+      { kind: "pre-invocation", conversationId: "conv-inner-mismatch", workspaceDir: dir, lastUserInput: "continue" },
+      {
+        dataDir,
+        headSha,
+        evidence: {
+          headSha,
+          riskAssessment: { headSha: staleSha, category: "docs", residual: "low", score: 0.01 },
+        },
+        receipts: [{ kind: "file_write", ts: "2026-11-24T10:01:00Z", headSha, ok: true, paths: ["hooks.json"] }],
+        intent: null,
+      },
+    );
+    assert.match(innerMismatchCtx.injectSteps[0].ephemeralMessage, /category=governance/);
+    assert.match(innerMismatchCtx.injectSteps[0].ephemeralMessage, /residual=blocked/);
+
+    const unanchoredEvCtx = evaluateStageContext(
+      { kind: "pre-invocation", conversationId: "conv-unanchored", workspaceDir: dir, lastUserInput: "continue" },
+      {
+        dataDir,
+        headSha,
+        evidence: { riskAssessment: { category: "docs", residual: "high", score: 0.77 } },
+        receipts: [],
+        intent: null,
+      },
+    );
+    assert.doesNotMatch(unanchoredEvCtx.injectSteps[0].ephemeralMessage, /R=0\.77/);
+    assert.match(unanchoredEvCtx.injectSteps[0].ephemeralMessage, /category=core/);
+
+    const resolvedCtx = evaluateStageContext(
+      { kind: "pre-invocation", conversationId: "conv-resolved", workspaceDir: dir, lastUserInput: "continue" },
+      {
+        dataDir,
+        headSha,
+        evidence: {
+          headSha,
+          generatedAt: "2026-11-24T10:00:00Z",
+          riskAssessment: {
+            headSha,
+            category: "tooling",
+            residual: "medium",
+            score: 0.28,
+            signals: [{ id: "untested_change", severity: 2, weight: 0.28, evidence: "scripts/cli/title.mjs" }],
+            requiredMitigations: ["targeted_tests", "test_coverage"],
+            satisfied: [],
+          },
+        },
+        receipts: [
+          { kind: "file_write", ts: "2026-11-24T09:59:00Z", headSha, ok: true, paths: ["scripts/cli/title.mjs"] },
+          { kind: "command", category: "test", ts: "2026-11-24T10:01:00Z", headSha, ok: true, summary: "node --test" },
+        ],
+        intent: null,
+      },
+    );
+    assert.match(resolvedCtx.injectSteps[0].ephemeralMessage, /residual=low R=0\.07/);
+    assert.doesNotMatch(resolvedCtx.injectSteps[0].ephemeralMessage, /missing mitigations/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
     fs.rmSync(dataDir, { recursive: true, force: true });
@@ -1057,14 +1163,15 @@ test("exhaustive BFS state-space check matches docs/specs/EarnedTrust.tla and pr
         const baseConf = Math.min(cur.confirmed, clampedC);
         const nextLvlC = effectiveLevel(cur.cat, cur.mode, clampedC, cur.earned, baseConf, true);
         const didAutoC = cur.mode === "auto" && cur.cat !== "governance" && nextLvlC > cur.level;
+        const clampedDown = clampedC < cur.level;
         nextStates.push({
           ...cur,
           ceiling: clampedC,
           confirmed: didAutoC ? nextLvlC : baseConf,
           level: nextLvlC,
           autoPromoted: cur.autoPromoted || didAutoC,
-          hasUndo: didAutoC ? true : cur.hasUndo,
-          undoFrom: didAutoC ? cur.level : cur.undoFrom,
+          hasUndo: didAutoC ? true : clampedDown ? false : cur.hasUndo,
+          undoFrom: didAutoC ? cur.level : clampedDown ? 0 : cur.undoFrom,
         });
       }
 
@@ -1321,6 +1428,71 @@ test("concurrent trust CLI outcome appends and settings writes remain serialized
     assert.equal(settings.beastOn, true);
     assert.equal(settings.ceilings.ui, 3);
     assert.equal(settings.ceilings.docs, 3);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("setCeiling in auto mode syncs confirmedLevels and lastAutoPromo for Undo, and clamping down clears stale Undo", () => {
+  const { dir, headSha, scope, policy } = makeEnrolledRepo("astack-ceil-undo-");
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-ceil-undo-data-"));
+  try {
+    for (let i = 0; i < 20; i++) {
+      recordOutcomeWithTrustSync({
+        workspaceDir: dir,
+        scope,
+        policy,
+        category: "ui",
+        outcome: "clean",
+        headSha,
+        predictedR: 0.05,
+        dataDir,
+      });
+    }
+    const autoOn = applyTrustSettingsAction({
+      repoId: scope.repoId,
+      policy,
+      action: { promotionMode: "auto" },
+      dataDir,
+    });
+    assert.equal(autoOn.trust.categories.ui.level, 2);
+
+    const raised = applyTrustSettingsAction({
+      repoId: scope.repoId,
+      policy,
+      action: { setCeiling: { category: "ui", ceiling: 3 } },
+      dataDir,
+    });
+    assert.equal(raised.trust.categories.ui.level, 3);
+    assert.equal(raised.trust.lastAutoPromo?.catId, "ui");
+    assert.equal(raised.trust.lastAutoPromo?.fromLvl, 2);
+    assert.equal(raised.trust.lastAutoPromo?.toLvl, 3);
+
+    const undone = applyTrustSettingsAction({
+      repoId: scope.repoId,
+      policy,
+      action: { undoAutoPromo: true },
+      dataDir,
+    });
+    assert.equal(undone.trust.promotionMode, "manual");
+    assert.equal(undone.trust.categories.ui.level, 2);
+    assert.equal(undone.trust.lastAutoPromo, null);
+
+    applyTrustSettingsAction({
+      repoId: scope.repoId,
+      policy,
+      action: { promotionMode: "auto" },
+      dataDir,
+    });
+    const clamped = applyTrustSettingsAction({
+      repoId: scope.repoId,
+      policy,
+      action: { setCeiling: { category: "ui", ceiling: 1 } },
+      dataDir,
+    });
+    assert.equal(clamped.trust.categories.ui.level, 1);
+    assert.equal(clamped.trust.lastAutoPromo, null);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
     fs.rmSync(dataDir, { recursive: true, force: true });

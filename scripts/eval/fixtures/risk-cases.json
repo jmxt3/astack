@@ -46,6 +46,16 @@
       "expectedSignals": ["public_surface_changed", "untested_change"],
       "expectedOutcome": "approved_with_edits",
       "diff": "diff --git a/scripts/trust/index.mjs b/scripts/trust/index.mjs\n--- a/scripts/trust/index.mjs\n+++ b/scripts/trust/index.mjs\n@@ -60,2 +60,3 @@ export {\n   compilePrDossier,\n+  newExportedSymbol,\n };\n"
+    },
+    {
+      "id": "single-untested-tooling-edit",
+      "description": "Small untested non-public tooling script edit stays medium risk, not high or blocked.",
+      "expectedCategory": "tooling",
+      "expectedResidual": "medium",
+      "expectedSignals": ["untested_change"],
+      "forbiddenSignals": ["touches_governance", "public_surface_changed"],
+      "expectedOutcome": "clean",
+      "diff": "diff --git a/scripts/cli/title.mjs b/scripts/cli/title.mjs\n--- a/scripts/cli/title.mjs\n+++ b/scripts/cli/title.mjs\n@@ -10,1 +10,2 @@\n export function formatTitle() {\n+  const label = 'AStack';\n"
     }
   ]
 }

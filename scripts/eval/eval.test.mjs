@@ -20,10 +20,11 @@ test("runEvalSuite passes all routing fixture lint, risk-cases precision, and st
   assert.ok(report.total >= 25);
 
   const riskResults = report.results.filter((r) => r.id.startsWith("risk:"));
-  assert.ok(riskResults.length >= 5);
+  assert.ok(riskResults.length >= 6);
   assert.ok(riskResults.some((r) => r.id === "risk:pr-13-sidecar-permissions" && r.pass));
   assert.ok(riskResults.some((r) => r.id === "risk:seed-assertion-weakening" && r.pass));
   assert.ok(riskResults.some((r) => r.id === "risk:clean-docs-typo" && r.pass));
+  assert.ok(riskResults.some((r) => r.id === "risk:single-untested-tooling-edit" && r.pass));
 
   const precisionInv = report.results.find((r) => r.id === "invariant:risk-high-blocked-precision");
   assert.equal(precisionInv?.pass, true);
@@ -64,6 +65,13 @@ test("runRiskFixtureCases catches high/blocked precision and recall regressions"
     assert.equal(bad.highBlockedRecall, 0);
     assert.deepEqual(bad.falsePositives, ["false-positive-gov-labeled-low"]);
     assert.deepEqual(bad.falseNegatives, ["false-negative-docs-labeled-high"]);
+
+    const emptyFile = path.join(dir, "empty-cases.json");
+    fs.writeFileSync(emptyFile, JSON.stringify({ schemaVersion: 1, cases: [] }), "utf8");
+    const emptyRes = runRiskFixtureCases(emptyFile);
+    assert.equal(emptyRes.ok, false);
+    assert.equal(emptyRes.highBlockedPrecision, 0);
+    assert.equal(emptyRes.highBlockedRecall, 0);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

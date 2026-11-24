@@ -192,6 +192,7 @@ export function runEvalSuite({ rootDir = DEFAULT_ROOT_DIR } = {}) {
   results.push({
     id: "invariant:risk-high-blocked-precision",
     pass:
+      riskReport.total > 0 &&
       riskReport.highBlockedPrecision === 1 &&
       riskReport.falsePositives.length === 0 &&
       riskReport.falseNegatives.length === 0,

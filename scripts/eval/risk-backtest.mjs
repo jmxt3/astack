@@ -268,17 +268,21 @@ export function runRiskFixtureCases(
     });
   }
 
-  const highBlockedPrecision =
-    truePositives + falsePositives.length === 0
+  const hasCases = results.length > 0;
+  const highBlockedPrecision = !hasCases
+    ? 0
+    : truePositives + falsePositives.length === 0
       ? 1
       : Number((truePositives / (truePositives + falsePositives.length)).toFixed(4));
-  const highBlockedRecall =
-    truePositives + falseNegatives.length === 0
+  const highBlockedRecall = !hasCases
+    ? 0
+    : truePositives + falseNegatives.length === 0
       ? 1
       : Number((truePositives / (truePositives + falseNegatives.length)).toFixed(4));
 
   return {
     ok:
+      hasCases &&
       results.every((r) => r.pass) &&
       falsePositives.length === 0 &&
       falseNegatives.length === 0,

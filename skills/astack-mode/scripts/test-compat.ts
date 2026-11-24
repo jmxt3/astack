@@ -69,7 +69,7 @@ function makeMatchers(actual: unknown, negated = false) {
       const ok = actual instanceof ctor;
       check(ok, `Expected value ${negated ? "not " : ""}to be instance of ${ctor.name}`);
     },
-    toThrow(expected?: string | RegExp) {
+    toThrow(expected?: string | RegExp | (abstract new (...args: never[]) => unknown)) {
       const fn = actual as () => unknown;
       let threw: unknown = null;
       let didThrow = false;

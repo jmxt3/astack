@@ -216,18 +216,40 @@ function synthesizeSessionAssessment({ action, policy, receipts, evidence, inten
   });
 }
 
-function hasFreshEvidenceRisk(evidence, headSha) {
+function hasFreshEvidenceRisk(evidence, headSha, receipts = []) {
   if (!evidence?.riskAssessment) return false;
-  const evHead = evidence.headSha || evidence.riskAssessment.headSha || null;
-  return !headSha || !evHead || evHead === headSha;
+  const normHead = typeof headSha === "string" && headSha.trim() ? headSha.trim().toLowerCase() : null;
+  const topHead = typeof evidence.headSha === "string" && evidence.headSha.trim() ? evidence.headSha.trim().toLowerCase() : null;
+  const innerHead =
+    typeof evidence.riskAssessment.headSha === "string" && evidence.riskAssessment.headSha.trim()
+      ? evidence.riskAssessment.headSha.trim().toLowerCase()
+      : null;
+  if (normHead) {
+    if (!topHead && !innerHead) return false;
+    if (topHead && topHead !== normHead) return false;
+    if (innerHead && innerHead !== normHead) return false;
+  }
+  const evidenceTs = evidence.generatedAt || evidence.riskAssessment.predictedAt || null;
+  if (evidenceTs && Array.isArray(receipts)) {
+    const hasNewerWrite = receipts.some(
+      (r) => r?.kind === "file_write" && r.ts && String(r.ts) > String(evidenceTs),
+    );
+    if (hasNewerWrite) return false;
+  }
+  return true;
 }
 
-function buildActionAssessment({ event, action, scope, policy, receipts, evidence, intent, headSha }) {
-  if (event.kind === "tool-write" && event.filePath) {
-    return buildPendingWriteAssessment({ event, scope, policy, receipts, evidence, intent, headSha });
-  }
-  const changedFiles = collectReceiptPaths(receipts);
-  if (hasFreshEvidenceRisk(evidence, headSha)) {
+function resolveEvidenceOrSessionAssessment({
+  action,
+  policy,
+  receipts,
+  evidence,
+  intent,
+  headSha,
+  changedFiles,
+  requireChanges = false,
+}) {
+  if (hasFreshEvidenceRisk(evidence, headSha, receipts)) {
     const base = structuredClone(evidence.riskAssessment);
     base.action = action;
     const reg = detectSessionTestRegression(receipts);
@@ -261,7 +283,27 @@ function buildActionAssessment({ event, action, scope, policy, receipts, evidenc
       intent,
     });
   }
+  if (requireChanges && changedFiles.length === 0) {
+    return null;
+  }
   return synthesizeSessionAssessment({ action, policy, receipts, evidence, intent, headSha, changedFiles });
+}
+
+function buildActionAssessment({ event, action, scope, policy, receipts, evidence, intent, headSha }) {
+  if (event.kind === "tool-write" && event.filePath) {
+    return buildPendingWriteAssessment({ event, scope, policy, receipts, evidence, intent, headSha });
+  }
+  const changedFiles = collectReceiptPaths(receipts);
+  return resolveEvidenceOrSessionAssessment({
+    action,
+    policy,
+    receipts,
+    evidence,
+    intent,
+    headSha,
+    changedFiles,
+    requireChanges: false,
+  });
 }
 
 /**
@@ -476,7 +518,7 @@ function hasRollbackReady({ receipts, evidence, intent, headSha }) {
   if (receipts.some((r) => r?.kind === "rollback" && r.ok && (!headSha || !r.headSha || r.headSha === headSha))) {
     return true;
   }
-  const rb = hasFreshEvidenceRisk(evidence, headSha) ? evidence?.riskAssessment?.rollback : null;
+  const rb = hasFreshEvidenceRisk(evidence, headSha, receipts) ? evidence?.riskAssessment?.rollback : null;
   if (rb && rb.kind && rb.kind !== "none" && typeof rb.plan === "string" && rb.plan.trim() && !/^manual rollback/i.test(rb.plan)) {
     return true;
   }
@@ -551,19 +593,20 @@ export function evaluateStageHandoff(event, options = {}) {
       return { decision: "allow" };
     }
 
-    const riskAssessment = hasFreshEvidenceRisk(evidence, headSha)
-      ? evidence.riskAssessment
-      : changedFiles.length > 0
-        ? synthesizeSessionAssessment({
-            action: "open_pr",
-            policy,
-            receipts,
-            evidence,
-            intent,
-            headSha,
-            changedFiles,
-          })
-        : null;
+    const freshness = computeFreshness({ receipts, headSha, priorEvidence: evidence });
+    const fresh = freshness === "fresh" || freshness === "fresh_rebase_patch_id";
+    const verifiedPass = hasFreshVerifierPass({ receipts, evidence, headSha });
+
+    const riskAssessment = resolveEvidenceOrSessionAssessment({
+      action: fresh && verifiedPass ? "merge" : "open_pr",
+      policy,
+      receipts,
+      evidence,
+      intent,
+      headSha,
+      changedFiles,
+      requireChanges: true,
+    });
     if (riskAssessment?.residual === "blocked") {
       return { decision: "allow" };
     }
@@ -576,10 +619,6 @@ export function evaluateStageHandoff(event, options = {}) {
     const residual = riskAssessment?.residual ?? "low";
     const riskScore = riskAssessment?.score ?? 0;
     const signals = riskAssessment?.signals ?? [];
-
-    const freshness = computeFreshness({ receipts, headSha, priorEvidence: evidence });
-    const fresh = freshness === "fresh" || freshness === "fresh_rebase_patch_id";
-    const verifiedPass = hasFreshVerifierPass({ receipts, evidence, headSha });
 
     let transitionId = null;
     let prompt = null;
@@ -730,19 +769,16 @@ export function evaluateStageContext(event, options = {}) {
           ? "2. Build & Verify"
           : "1. Plan & Intent";
 
-    const riskAssessment = hasFreshEvidenceRisk(evidence, headSha)
-      ? evidence.riskAssessment
-      : changedFiles.length > 0
-        ? synthesizeSessionAssessment({
-            action: "open_pr",
-            policy,
-            receipts,
-            evidence,
-            intent,
-            headSha,
-            changedFiles,
-          })
-        : null;
+    const riskAssessment = resolveEvidenceOrSessionAssessment({
+      action: verifiedPass && fresh ? "merge" : "open_pr",
+      policy,
+      receipts,
+      evidence,
+      intent,
+      headSha,
+      changedFiles,
+      requireChanges: true,
+    });
     const category =
       riskAssessment?.category ??
       intent?.category ??

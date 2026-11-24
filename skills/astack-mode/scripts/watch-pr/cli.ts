@@ -239,9 +239,9 @@ export interface CliRuntime {
   readonly stderr: (value: string) => void;
 }
 
-function realRuntime(): CliRuntime {
+function realRuntime(cwd?: string): CliRuntime {
   return {
-    reader: new GhGitHubReader(),
+    reader: new GhGitHubReader(cwd),
     clock: {
       now: () => performance.now() / 1_000,
       observedAt: () => new Date().toISOString(),
@@ -256,15 +256,20 @@ function realRuntime(): CliRuntime {
 
 export async function main(
   argv: readonly string[],
-  runtime: CliRuntime = realRuntime()
+  injectedRuntime?: CliRuntime
 ): Promise<number> {
+  const io: Pick<CliRuntime, "stdout" | "stderr"> = injectedRuntime ?? {
+    stdout: (value) => process.stdout.write(value),
+    stderr: (value) => process.stderr.write(value),
+  };
   let options: CliOptions;
   try {
-    options = parseArgs(argv, runtime);
+    options = parseArgs(argv, io);
   } catch (error) {
     if (!(error instanceof CliExitError)) throw error;
     return error.exitCode;
   }
+  const runtime = injectedRuntime ?? realRuntime(options.outcomeRecording.cwd ?? undefined);
   const render = options.pretty ? renderPretty : renderJson;
   const emit = (verdict: T.ProgressVerdict): void =>
     runtime.stdout(render(verdict));

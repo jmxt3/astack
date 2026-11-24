@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import {
   TRUST_CATEGORIES,
@@ -5,7 +6,6 @@ import {
   classifyObservedOutcome,
   loadRiskPolicy,
   readEvidenceSnapshot,
-  readHeadShaFast,
   readMergedReceipts,
   readOutcomeLedger,
   recordOutcomeWithTrustSync,
@@ -16,9 +16,15 @@ import {
   type TrustCategory,
   type TrustOutcome,
 } from "../../../../scripts/trust/index.mjs";
+import { parseRemote } from "./github.ts";
 import type * as T from "./types.ts";
 
 const HEX40_RE = /^[0-9a-f]{40}$/i;
+const MERGE_DEDUPE_OUTCOMES: readonly TrustOutcome[] = [
+  "clean",
+  "approved_with_edits",
+];
+const CLOSED_DEDUPE_OUTCOMES: readonly TrustOutcome[] = ["human_override"];
 
 export interface OutcomeRecordingOptions {
   readonly enabled: boolean;
@@ -51,6 +57,31 @@ type TerminalOutcomeTarget =
 
 export function isTrustCategory(value: string): value is TrustCategory {
   return (TRUST_CATEGORIES as readonly string[]).includes(value);
+}
+
+function readOriginGitHubRepo(commonDir: string): T.Repository | null {
+  try {
+    const configPath = path.join(commonDir, "config");
+    if (!fs.existsSync(configPath)) return null;
+    const text = fs.readFileSync(configPath, "utf8");
+    let inOrigin = false;
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#") || line.startsWith(";")) continue;
+      if (line.startsWith("[")) {
+        inOrigin = /^\[\s*remote\s+"origin"\s*\]$/i.test(line);
+        continue;
+      }
+      if (!inOrigin) continue;
+      const match = line.match(/^url\s*=\s*(.+)$/i);
+      if (match?.[1]) {
+        return parseRemote(match[1].trim());
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function collectTerminalTargets(
@@ -110,17 +141,28 @@ function collectAgentReceiptShas(receipts: readonly ReceiptEntry[]): string[] {
   return [...seen];
 }
 
+function normalizeSha(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return HEX40_RE.test(trimmed) ? trimmed.toLowerCase() : null;
+}
+
 function inferCategoryAndRisk(args: {
   readonly options: OutcomeRecordingOptions;
   readonly evidence: EvidenceSnapshot | null;
   readonly receipts: readonly ReceiptEntry[];
   readonly headSha: string;
+  readonly branchCommitShas: readonly string[];
 }): { readonly category: TrustCategory; readonly predictedR: number } {
+  const normHead = args.headSha.toLowerCase();
   const evRisk = args.evidence?.riskAssessment ?? null;
-  const evHead = args.evidence?.headSha ?? evRisk?.headSha ?? null;
+  const topHead = normalizeSha(args.evidence?.headSha);
+  const innerHead = normalizeSha(evRisk?.headSha);
   const evidenceMatches =
     evRisk !== null &&
-    (!evHead || evHead.toLowerCase() === args.headSha.toLowerCase());
+    (topHead !== null || innerHead !== null) &&
+    (topHead === null || topHead === normHead) &&
+    (innerHead === null || innerHead === normHead);
 
   let category: TrustCategory | null = args.options.category;
   if (
@@ -132,37 +174,35 @@ function inferCategoryAndRisk(args: {
     category = evRisk.category;
   }
   if (category === null) {
+    const prCommitShas = new Set<string>([normHead]);
+    for (const sha of args.branchCommitShas) {
+      const normalized = normalizeSha(sha);
+      if (normalized !== null) prCommitShas.add(normalized);
+    }
     const matchingPaths: string[] = [];
-    const fallbackPaths: string[] = [];
     for (const receipt of args.receipts) {
       if (receipt.kind !== "file_write" || !Array.isArray(receipt.paths)) continue;
+      const receiptSha = normalizeSha(receipt.headSha);
+      if (receiptSha === null || !prCommitShas.has(receiptSha)) continue;
       for (const filePath of receipt.paths) {
-        if (typeof filePath !== "string" || !filePath) continue;
-        fallbackPaths.push(filePath);
-        if (
-          typeof receipt.headSha === "string" &&
-          receipt.headSha.toLowerCase() === args.headSha.toLowerCase()
-        ) {
+        if (typeof filePath === "string" && filePath) {
           matchingPaths.push(filePath);
         }
       }
     }
-    const pathsToUse = matchingPaths.length > 0 ? matchingPaths : fallbackPaths;
     category =
-      pathsToUse.length > 0 ? classifyDominantCategory(pathsToUse) : "core";
+      matchingPaths.length > 0 ? classifyDominantCategory(matchingPaths) : "core";
   }
 
-  let predictedR = args.options.risk;
-  if (predictedR === null) {
-    predictedR =
-      evidenceMatches &&
-      typeof evRisk.score === "number" &&
-      Number.isFinite(evRisk.score) &&
-      evRisk.score >= 0 &&
-      evRisk.score <= 1
-        ? evRisk.score
-        : 0;
-  }
+  const evidenceScore =
+    evidenceMatches &&
+    typeof evRisk.score === "number" &&
+    Number.isFinite(evRisk.score) &&
+    evRisk.score >= 0 &&
+    evRisk.score <= 1
+      ? evRisk.score
+      : 0;
+  const predictedR: number = args.options.risk !== null ? args.options.risk : evidenceScore;
 
   return { category, predictedR };
 }
@@ -178,25 +218,49 @@ export async function recordVerdictOutcomes(args: {
   const targets = collectTerminalTargets(args.verdict);
   if (targets.length === 0) return [];
 
-  const workspaceDir = path.resolve(args.options.cwd ?? process.cwd());
-  const dataDir = args.options.dataDir ? path.resolve(args.options.dataDir) : null;
-  const scope = resolveWorkspaceScope(workspaceDir);
-  if (scope.kind !== "enrolled_repo" || !scope.repoId) {
+  let scope: ReturnType<typeof resolveWorkspaceScope>;
+  let policy: Record<string, unknown>;
+  let receipts: readonly ReceiptEntry[];
+  let evidence: EvidenceSnapshot | null;
+  let dataDir: string | null;
+  try {
+    const workspaceDir = path.resolve(args.options.cwd ?? process.cwd());
+    dataDir = args.options.dataDir ? path.resolve(args.options.dataDir) : null;
+    scope = resolveWorkspaceScope(workspaceDir);
+    if (scope.kind !== "enrolled_repo" || !scope.repoId) {
+      args.stderr(
+        `watch-pr: skipped outcome recording (workspace scope is ${scope.kind})\n`
+      );
+      return [];
+    }
+    policy = loadRiskPolicy(scope.repoRoot, { baseRef: scope.baseRef }).policy;
+    const trustDir = resolveTrustDir({ workspaceDir: scope.repoRoot });
+    receipts = readMergedReceipts(trustDir);
+    evidence = readEvidenceSnapshot(trustDir);
+  } catch (error) {
     args.stderr(
-      `watch-pr: skipped outcome recording (workspace scope is ${scope.kind})\n`
+      `watch-pr: skipped outcome recording (${error instanceof Error ? error.message : String(error)})\n`
     );
     return [];
   }
 
-  const { policy } = loadRiskPolicy(scope.repoRoot, { baseRef: scope.baseRef });
-  const trustDir = resolveTrustDir({ workspaceDir: scope.repoRoot });
-  const receipts = readMergedReceipts(trustDir);
-  const evidence = readEvidenceSnapshot(trustDir);
+  const originRepo = readOriginGitHubRepo(scope.commonDir);
   const agentReceiptShas = collectAgentReceiptShas(receipts);
   const recorded: RecordedPrOutcome[] = [];
 
   for (const target of targets) {
     try {
+      if (
+        originRepo !== null &&
+        (originRepo.owner.toLowerCase() !== target.context.owner.toLowerCase() ||
+          originRepo.repo.toLowerCase() !== target.context.repo.toLowerCase())
+      ) {
+        args.stderr(
+          `watch-pr: skipped outcome recording for PR #${target.context.number} (PR repo ${target.context.owner}/${target.context.repo} does not match local origin ${originRepo.owner}/${originRepo.repo})\n`
+        );
+        continue;
+      }
+
       let facts = target.facts ?? null;
       if (facts === null) {
         try {
@@ -209,14 +273,18 @@ export async function recordVerdictOutcomes(args: {
         }
       }
 
-      const prHeadSha =
-        facts.headRefOid !== null && HEX40_RE.test(facts.headRefOid)
-          ? facts.headRefOid
-          : null;
-      const fallbackSha = readHeadShaFast(scope.repoRoot);
-      const headSha =
-        prHeadSha ??
-        (fallbackSha !== null && HEX40_RE.test(fallbackSha) ? fallbackSha : null);
+      let branchCommitShas: string[] = [];
+      let headSha = normalizeSha(facts.headRefOid);
+      if (target.kind === "merged" || headSha === null) {
+        const commits = await args.reader.commitRollups(target.context);
+        branchCommitShas = commits
+          .map((commit) => normalizeSha(commit.oid))
+          .filter((oid): oid is string => oid !== null);
+        if (headSha === null && branchCommitShas.length > 0) {
+          headSha = branchCommitShas[branchCommitShas.length - 1];
+        }
+      }
+
       if (headSha === null) {
         args.stderr(
           `watch-pr: skipped outcome recording for PR #${target.context.number} (no valid 40-hex headSha)\n`
@@ -228,24 +296,23 @@ export async function recordVerdictOutcomes(args: {
       if (target.kind === "closed") {
         classified = classifyObservedOutcome({ rejected: true });
       } else {
-        const commits = await args.reader.commitRollups(target.context);
-        const branchCommitShas = commits
-          .map((commit) => commit.oid)
-          .filter((oid) => oid.length > 0);
         const reviews =
           typeof args.reader.pullRequestReviews === "function"
             ? await args.reader.pullRequestReviews(target.context)
             : [];
-
         const changesRequested =
           facts.reviewDecision === "CHANGES_REQUESTED" ||
           reviews.some(
             (review) => review.state.toUpperCase() === "CHANGES_REQUESTED"
           );
+        const branchCommitSet = new Set(branchCommitShas);
+        const matchedAgentShas = agentReceiptShas.filter((sha) =>
+          branchCommitSet.has(sha)
+        );
         classified = classifyObservedOutcome({
           changesRequested,
           branchCommitShas,
-          agentReceiptShas,
+          agentReceiptShas: matchedAgentShas,
         });
       }
 
@@ -256,19 +323,13 @@ export async function recordVerdictOutcomes(args: {
         );
         continue;
       }
-      const duplicate = existing.entries.some(
-        (entry) =>
-          entry.prNumber === target.context.number &&
-          entry.headSha.toLowerCase() === headSha.toLowerCase() &&
-          entry.outcome === classified.outcome
-      );
-      if (duplicate) continue;
 
       const { category, predictedR } = inferCategoryAndRisk({
         options: args.options,
         evidence,
         receipts,
         headSha,
+        branchCommitShas,
       });
 
       const saved = recordOutcomeWithTrustSync({
@@ -282,9 +343,15 @@ export async function recordVerdictOutcomes(args: {
         prNumber: target.context.number,
         source: "watch-pr",
         note: classified.reason,
+        dedupeOutcomes:
+          target.kind === "closed"
+            ? CLOSED_DEDUPE_OUTCOMES
+            : MERGE_DEDUPE_OUTCOMES,
         now: args.clock.observedAt(),
         dataDir,
       });
+
+      if (saved.duplicate) continue;
 
       recorded.push({
         prNumber: target.context.number,

@@ -23,7 +23,6 @@ vars ==
     hasUndo, undoFrom, chainValid, demotionOk, stage, stageHops>>
 
 Min(a, b) == IF a <= b THEN a ELSE b
-Max(a, b) == IF a >= b THEN a ELSE b
 
 CatCap(c, ceil) == IF c = "governance" THEN Min(2, ceil) ELSE ceil
 
@@ -87,8 +86,9 @@ CleanOutcome ==
 BadOutcome ==
   /\ chainValid
   /\ LET cap == CatCap(cat, ceiling)
-         nextEarned == Max(0, Min(earned, cap) - 1)
-         nextConf == IF level > 0 THEN Min(nextEarned, Max(0, level - 1)) ELSE 0
+         capped == Min(earned, cap)
+         nextEarned == IF capped > 0 THEN capped - 1 ELSE 0
+         nextConf == IF level > 0 THEN Min(nextEarned, level - 1) ELSE 0
          nextLevel == EffectiveLevel(cat, mode, ceiling, nextEarned, nextConf, TRUE)
      IN /\ earned' = nextEarned
         /\ confirmed' = nextConf
@@ -143,12 +143,13 @@ SetCeiling(c) ==
          baseConf == Min(confirmed, clamped)
          nextLevel == EffectiveLevel(cat, mode, clamped, earned, baseConf, TRUE)
          didAuto == mode = "auto" /\ cat /= "governance" /\ nextLevel > level
+         clampedDown == clamped < level
      IN /\ ceiling' = clamped
         /\ confirmed' = IF didAuto THEN nextLevel ELSE baseConf
         /\ level' = nextLevel
         /\ autoPromoted' = (autoPromoted \/ didAuto)
-        /\ hasUndo' = IF didAuto THEN TRUE ELSE hasUndo
-        /\ undoFrom' = IF didAuto THEN level ELSE undoFrom
+        /\ hasUndo' = IF didAuto THEN TRUE ELSE IF clampedDown THEN FALSE ELSE hasUndo
+        /\ undoFrom' = IF didAuto THEN level ELSE IF clampedDown THEN 0 ELSE undoFrom
         /\ UNCHANGED <<cat, mode, earned, chainValid, demotionOk, stage, stageHops>>
 
 CorruptLedger ==

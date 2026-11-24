@@ -10,7 +10,9 @@ import {
   readEvidenceSnapshot,
   readHeadShaFast,
   readMergedReceipts,
+  resolveBaseRef,
   resolveTrustDir,
+  resolveTrustStoreDir,
   resolveWorkspaceScope,
 } from "../trust/index.mjs";
 
@@ -108,35 +110,60 @@ export function readCliPipelineState(rawPayload) {
 
   const tier = typeof evidence?.riskTier === "number" ? evidence.riskTier : null;
   let enrolledScope = null;
+  let enrolledPolicy = null;
   if (headSha) {
     const fastScope = resolveWorkspaceScope(workspaceDir, { checkEnrollment: false });
+    const storeDir = fastScope.repoId ? resolveTrustStoreDir(fastScope.repoId) : null;
     if (
       fastScope.kind !== "non_repo" &&
       fastScope.repoRoot &&
-      fs.existsSync(path.join(fastScope.repoRoot, ".agents", "risk-policy.json"))
+      (fs.existsSync(path.join(fastScope.repoRoot, ".agents", "risk-policy.json")) ||
+        Boolean(storeDir && fs.existsSync(storeDir)))
     ) {
-      const verified = resolveWorkspaceScope(workspaceDir);
-      if (verified.kind === "enrolled_repo" && verified.repoId) {
-        enrolledScope = verified;
+      const baseRef = resolveBaseRef(fastScope.repoRoot);
+      if (baseRef) {
+        const loaded = loadRiskPolicy(fastScope.repoRoot, { baseRef });
+        if (loaded.present && !loaded.error && fastScope.repoId) {
+          enrolledScope = { ...fastScope, kind: "enrolled_repo", baseRef };
+          enrolledPolicy = loaded.policy;
+        }
       }
     }
   }
 
-  const evidenceHead = evidence?.headSha || evidence?.riskAssessment?.headSha || null;
+  const normHead = typeof headSha === "string" && headSha.trim() ? headSha.trim().toLowerCase() : null;
+  const topEvHead =
+    typeof evidence?.headSha === "string" && evidence.headSha.trim()
+      ? evidence.headSha.trim().toLowerCase()
+      : null;
+  const innerEvHead =
+    typeof evidence?.riskAssessment?.headSha === "string" && evidence.riskAssessment.headSha.trim()
+      ? evidence.riskAssessment.headSha.trim().toLowerCase()
+      : null;
   const evidenceMatchesHead =
     Boolean(evidence?.riskAssessment) &&
-    Boolean(headSha) &&
-    (!evidenceHead || evidenceHead === headSha);
+    Boolean(normHead) &&
+    Boolean(topEvHead || innerEvHead) &&
+    (!topEvHead || topEvHead === normHead) &&
+    (!innerEvHead || innerEvHead === normHead);
   const riskAssessment = enrolledScope && evidenceMatchesHead ? evidence.riskAssessment : null;
-  const riskScore = typeof riskAssessment?.score === "number" ? riskAssessment.score : null;
-  let activeCategory = riskAssessment?.category ?? null;
+  const riskScore =
+    typeof riskAssessment?.score === "number" &&
+    Number.isFinite(riskAssessment.score) &&
+    riskAssessment.score >= 0 &&
+    riskAssessment.score <= 1
+      ? riskAssessment.score
+      : null;
+  let activeCategory =
+    typeof riskAssessment?.category === "string" && riskAssessment.category.trim()
+      ? riskAssessment.category.trim()
+      : null;
   let trustLevel = null;
   let beastOn = false;
   if (enrolledScope) {
-    const { policy } = loadRiskPolicy(enrolledScope.repoRoot, { baseRef: enrolledScope.baseRef });
-    const repoTrust = evaluateRepoTrust({ repoId: enrolledScope.repoId, policy });
+    const repoTrust = evaluateRepoTrust({ repoId: enrolledScope.repoId, policy: enrolledPolicy });
     beastOn = repoTrust.beastOn;
-    if (!activeCategory) {
+    if (!activeCategory || !Object.hasOwn(repoTrust.categories, activeCategory)) {
       const best = [...repoTrust.categoryList].sort(
         (a, b) => b.level - a.level || b.totalOutcomes - a.totalOutcomes,
       )[0];

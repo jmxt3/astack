@@ -61,7 +61,7 @@ function resolveWindowsCommand(cmd: string): { file: string; isBatch: boolean } 
   return { file: cmd, isBatch: /\.(?:cmd|bat)$/i.test(cmd) };
 }
 
-function run(argv: readonly [string, ...string[]]): Promise<CommandResult> {
+function run(argv: readonly [string, ...string[]], cwd?: string): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const resolved = resolveWindowsCommand(argv[0]);
     let child;
@@ -78,10 +78,12 @@ function run(argv: readonly [string, ...string[]]): Promise<CommandResult> {
             {
               stdio: ["ignore", "pipe", "pipe"],
               windowsVerbatimArguments: true,
+              ...(cwd ? { cwd } : {}),
             }
           )
         : spawn(resolved.file, argv.slice(1), {
             stdio: ["ignore", "pipe", "pipe"],
+            ...(cwd ? { cwd } : {}),
           });
     } catch (error) {
       reject(error);
@@ -98,7 +100,7 @@ function run(argv: readonly [string, ...string[]]): Promise<CommandResult> {
       stderr += chunk;
     });
     child.on("error", reject);
-    child.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr }));
+    child.on("close", (code: number | null) => resolve({ code: code ?? -1, stdout, stderr }));
   });
 }
 function parseJson(text: string, label: string): unknown {
@@ -112,8 +114,8 @@ function parseJson(text: string, label: string): unknown {
     });
   }
 }
-async function runJson(argv: readonly [string, ...string[]]): Promise<unknown> {
-  const result = await run(argv);
+async function runJson(argv: readonly [string, ...string[]], cwd?: string): Promise<unknown> {
+  const result = await run(argv, cwd);
   if (result.code !== 0)
     throw new WatcherQueryError({
       kind: "command-exit",
@@ -214,7 +216,7 @@ const reviewDecision = (value: unknown): T.ReviewDecision =>
     REVIEW_DECISIONS,
     "pull request.reviewDecision"
   );
-function parseRemote(value: string): T.Repository | null {
+export function parseRemote(value: string): T.Repository | null {
   let normalized = value.trim();
   if (normalized.startsWith("git@github.com:"))
     normalized = `https://github.com/${normalized.slice(15)}`;
@@ -519,15 +521,19 @@ function graphqlArgs(
 }
 
 export class GhGitHubReader implements T.GitHubReader {
+  readonly cwd: string | undefined;
+  constructor(cwd?: string) {
+    this.cwd = cwd;
+  }
   async originRepo(): Promise<T.Repository | null> {
-    const result = await run(["git", "remote", "get-url", "origin"]);
+    const result = await run(["git", "remote", "get-url", "origin"], this.cwd);
     return result.code === 0 ? parseRemote(result.stdout) : null;
   }
   async currentPr(pr: T.PrNumber | null): Promise<T.PrContext> {
     const argv: [string, ...string[]] = ["gh", "pr", "view"];
     if (pr !== null) argv.push(String(pr));
     argv.push("--json", "number,url");
-    const object = record(await runJson(argv), "current PR");
+    const object = record(await runJson(argv, this.cwd), "current PR");
     const parsed = parsePrUrl(string(object.url, "current PR.url"));
     return {
       ...parsed,
