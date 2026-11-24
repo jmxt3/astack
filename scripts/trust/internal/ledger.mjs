@@ -528,6 +528,17 @@ export function recordReceipt(event, options = {}) {
   return entry;
 }
 
+function assertNotSymlink(filePath) {
+  try {
+    if (fs.lstatSync(filePath).isSymbolicLink()) {
+      throw new Error(`Refusing symlink target inside trustDir: ${path.basename(filePath)}`);
+    }
+  } catch (err) {
+    if (err?.code === "ENOENT") return;
+    throw err;
+  }
+}
+
 function resolveSafeReceiptPath(trustDir, conversationId) {
   const safeId = sanitizeConversationId(conversationId || "default");
   const resolvedRoot = path.resolve(trustDir);
@@ -535,6 +546,7 @@ function resolveSafeReceiptPath(trustDir, conversationId) {
   if (path.dirname(targetFile) !== resolvedRoot) {
     throw new Error(`Invalid conversationId escaped trustDir: ${safeId}`);
   }
+  assertNotSymlink(targetFile);
   return { safeId, targetFile };
 }
 
@@ -1009,22 +1021,27 @@ export function evaluatePrIntent(event, options = {}) {
     .slice(0, 16);
 
   if (trustDir) {
-    const stateFile = path.join(trustDir, `pr-intent.${event.conversationId || "default"}.json`);
-    try {
-      if (fs.existsSync(stateFile)) {
-        const prev = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-        if (prev?.lastHash === promptHash) {
-          return {};
+    const safeId = sanitizeConversationId(event.conversationId || "default");
+    const resolvedRoot = path.resolve(trustDir);
+    const stateFile = path.resolve(resolvedRoot, `pr-intent.${safeId}.json`);
+    if (path.dirname(stateFile) === resolvedRoot) {
+      try {
+        assertNotSymlink(stateFile);
+        if (fs.existsSync(stateFile)) {
+          const prev = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+          if (prev?.lastHash === promptHash) {
+            return {};
+          }
         }
+        fs.mkdirSync(resolvedRoot, { recursive: true });
+        fs.writeFileSync(
+          stateFile,
+          `${JSON.stringify({ lastHash: promptHash, ts: new Date().toISOString() })}\n`,
+          "utf8",
+        );
+      } catch {
+        // Fail-open if state file cannot be read or written.
       }
-      fs.mkdirSync(trustDir, { recursive: true });
-      fs.writeFileSync(
-        stateFile,
-        `${JSON.stringify({ lastHash: promptHash, ts: new Date().toISOString() })}\n`,
-        "utf8",
-      );
-    } catch {
-      // Fail-open if state file cannot be read or written.
     }
   }
 

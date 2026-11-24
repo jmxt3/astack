@@ -585,8 +585,9 @@ export function evaluateSecrets(payloadOrEvent, { headless } = {}) {
   };
 }
 
-function splitShellSegments(command) {
-  const segments = [];
+export function splitShellPipelines(command) {
+  const pipelines = [];
+  let stages = [];
   let buf = "";
   let inSingle = false;
   let inDouble = false;
@@ -618,39 +619,168 @@ function splitShellSegments(command) {
     }
     if (!inSingle && !inDouble) {
       if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
-        if (buf.trim()) segments.push(buf.trim());
+        if (buf.trim()) stages.push(buf.trim());
+        if (stages.length > 0) pipelines.push(stages);
+        stages = [];
         buf = "";
         i++;
         continue;
       }
-      if (ch === ";" || ch === "|" || ch === "&" || ch === "\n" || ch === "\r") {
-        if (buf.trim()) segments.push(buf.trim());
+      if (ch === ";" || ch === "&" || ch === "\n" || ch === "\r") {
+        if (buf.trim()) stages.push(buf.trim());
+        if (stages.length > 0) pipelines.push(stages);
+        stages = [];
+        buf = "";
+        continue;
+      }
+      if (ch === "|") {
+        if (buf.trim()) stages.push(buf.trim());
         buf = "";
         continue;
       }
     }
     buf += ch;
   }
-  if (buf.trim()) segments.push(buf.trim());
-  return segments;
+  if (buf.trim()) stages.push(buf.trim());
+  if (stages.length > 0) pipelines.push(stages);
+  return pipelines;
+}
+
+function splitShellSegments(command) {
+  return splitShellPipelines(command).flat();
+}
+
+const ENV_VALUE_FLAGS = new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-a", "--argv0"]);
+const POSITIONAL_PARAM_REF_RE = /\$(?:[@*0-9]|\{[@*0-9][^}]*\})/;
+
+function formatUnwrappedArgs(args) {
+  const out = [];
+  const plain = args.join(" ").trim();
+  if (plain) out.push(plain);
+  if (args.some((a) => /\s/.test(a))) {
+    const quoted = args
+      .map((a) => (/\s/.test(a) ? `"${a.replace(/(["\\])/g, "\\$1")}"` : a))
+      .join(" ")
+      .trim();
+    if (quoted && quoted !== plain) out.push(quoted);
+  }
+  return out;
 }
 
 function unwrapShellInvocation(segment) {
-  const envPrefix = String.raw`(?:(?:(?:[^\s;|&]*[\\/])?env(?:\s+-[A-Za-z0-9]+)*\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]+)\s+)*)(?:&\s+)?`;
-  const binPrefix = String.raw`(?:[^\s;|&]*[\\/])?`;
-  const patterns = [
-    new RegExp(String.raw`^${envPrefix}${binPrefix}(?:sh|bash|zsh|dash)\b[^|;\n]*?\s-[a-zA-Z]*c\s+(?:"((?:\\.|[^"\\])*)"|'([^']*)')(?:\s+.*)?$`, "i"),
-    new RegExp(String.raw`^${envPrefix}${binPrefix}(?:pwsh|powershell)(?:\.exe)?\b[^|;\n]*?\s-(?:c|Command)\s+(?:"((?:\\.|[^"\\])*)"|'([^']*)')(?:\s+.*)?$`, "i"),
-    new RegExp(String.raw`^${envPrefix}${binPrefix}cmd(?:\.exe)?\b[^|;\n]*?\s\/c\s+(?:"([^"]*)"|'([^']*)'|([^\r\n|&;]+))$`, "i"),
-    new RegExp(String.raw`^${envPrefix}eval\s+(?:"((?:\\.|[^"\\])*)"|'([^']*)')(?:\s+.*)?$`, "i"),
-  ];
-  for (const regex of patterns) {
-    const match = segment.match(regex);
-    if (!match) continue;
-    if (match[1] !== undefined) return match[1].replace(/\\(["\\])/g, "$1");
-    if (match[2] !== undefined) return match[2];
-    if (match[3] !== undefined) return match[3].trim();
+  const tokens = tokenizeSimpleWords(segment);
+  if (tokens.length === 0) return null;
+
+  let idx = 0;
+  while (idx < tokens.length) {
+    const tok = tokens[idx];
+    if (!tok || tok === "&" || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tok)) {
+      idx++;
+      continue;
+    }
+    const base = path.win32.basename(tok.replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
+    if (base === "env" || base === "command") {
+      idx++;
+      while (idx < tokens.length) {
+        const opt = tokens[idx];
+        if (opt === "--") {
+          idx++;
+          break;
+        }
+        if (ENV_VALUE_FLAGS.has(opt)) {
+          idx += 2;
+          continue;
+        }
+        if (opt.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(opt)) {
+          idx++;
+          continue;
+        }
+        break;
+      }
+      continue;
+    }
+    break;
   }
+
+  if (idx >= tokens.length) return null;
+  const verb = path.win32.basename(tokens[idx].replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
+  const rest = tokens.slice(idx + 1);
+
+  if (verb === "eval") {
+    const evalArgs = rest[0] === "--" ? rest.slice(1) : rest;
+    const results = formatUnwrappedArgs(evalArgs);
+    return results.length > 0 ? results : null;
+  }
+
+  if (verb === "sh" || verb === "bash" || verb === "zsh" || verb === "dash") {
+    const hasAttachedQuoteC = /(?:^|\s)-[a-zA-Z]*c["']/.test(segment);
+    let cmdArg = null;
+    let trailingStart = -1;
+    for (let j = 0; j < rest.length; j++) {
+      const opt = rest[j];
+      if (opt === "--") break;
+      if (opt === "-o" || opt === "+o") {
+        j++;
+        continue;
+      }
+      const attached = opt.match(/^-[a-zA-Z]*c([\s\S]+)$/i);
+      if (attached && (hasAttachedQuoteC || /[^a-zA-Z]/.test(attached[1]))) {
+        cmdArg = attached[1];
+        trailingStart = j + 1;
+        break;
+      }
+      if (/^-[a-zA-Z]*c[a-zA-Z]*$/i.test(opt) && j + 1 < rest.length) {
+        cmdArg = rest[j + 1];
+        trailingStart = j + 2;
+        break;
+      }
+      if (!opt.startsWith("-") && !opt.startsWith("+")) break;
+    }
+    if (cmdArg === null) return null;
+    const results = [];
+    if (cmdArg.trim()) results.push(cmdArg.trim());
+    if (trailingStart !== -1 && trailingStart < rest.length && POSITIONAL_PARAM_REF_RE.test(cmdArg)) {
+      const trailing = rest.slice(trailingStart);
+      for (const cand of formatUnwrappedArgs(trailing)) {
+        if (!results.includes(cand)) results.push(cand);
+      }
+      if (trailing.length > 1) {
+        for (const cand of formatUnwrappedArgs(trailing.slice(1))) {
+          if (!results.includes(cand)) results.push(cand);
+        }
+      }
+    }
+    return results.length > 0 ? results : null;
+  }
+
+  if (verb === "pwsh" || verb === "powershell") {
+    for (let j = 0; j < rest.length; j++) {
+      const m = rest[j].match(/^-(?:c|co|com|comm|comma|comman|command)(?::([\s\S]*))?$/i);
+      if (!m) continue;
+      const parts = [...(m[1] ? [m[1]] : []), ...rest.slice(j + 1)];
+      const joined = parts.join(" ").trim();
+      return joined ? [joined] : null;
+    }
+    return null;
+  }
+
+  if (verb === "cmd") {
+    const hasAttachedQuoteC = /(?:^|\s)\/[ck]["']/i.test(segment);
+    for (let j = 0; j < rest.length; j++) {
+      const opt = rest[j];
+      const attached = opt.match(/^\/[ck]([\s\S]+)$/i);
+      if (attached && (hasAttachedQuoteC || /[^a-zA-Z]/.test(attached[1]))) {
+        const joined = [attached[1], ...rest.slice(j + 1)].join(" ").trim();
+        return joined ? [joined] : null;
+      }
+      if (/^\/[ck]$/i.test(opt) && j + 1 < rest.length) {
+        const joined = rest.slice(j + 1).join(" ").trim();
+        return joined ? [joined] : null;
+      }
+    }
+    return null;
+  }
+
   return null;
 }
 
@@ -660,8 +790,10 @@ export function collectLeafSegments(command, depth = 0) {
   const leaves = [];
   for (const segment of segments) {
     const unwrapped = unwrapShellInvocation(segment);
-    if (unwrapped) {
-      leaves.push(...collectLeafSegments(unwrapped, depth + 1));
+    if (Array.isArray(unwrapped) && unwrapped.length > 0) {
+      for (const sub of unwrapped) {
+        leaves.push(...collectLeafSegments(sub, depth + 1));
+      }
     } else {
       leaves.push(segment);
     }
@@ -670,11 +802,77 @@ export function collectLeafSegments(command, depth = 0) {
 }
 
 export function tokenizeSimpleWords(segment) {
+  const str = String(segment ?? "");
   const tokens = [];
-  const tokenRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^']*)'|(\S+)/g;
-  let match;
-  while ((match = tokenRegex.exec(segment)) !== null) {
-    tokens.push(match[1] ?? match[2] ?? match[3]);
+  let cur = "";
+  let inToken = false;
+  let inSingle = false;
+  let inDouble = false;
+
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    const next = str[i + 1];
+
+    if (inSingle) {
+      inToken = true;
+      if (ch === "'") {
+        inSingle = false;
+      } else {
+        cur += ch;
+      }
+      continue;
+    }
+
+    if (inDouble) {
+      inToken = true;
+      if (ch === "\\" && (next === '"' || next === "\\")) {
+        cur += next;
+        i++;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = false;
+      } else {
+        cur += ch;
+      }
+      continue;
+    }
+
+    if (/\s/.test(ch)) {
+      if (inToken) {
+        tokens.push(cur);
+        cur = "";
+        inToken = false;
+      }
+      continue;
+    }
+
+    // Preserve Windows backslashes outside quotes except before quotes or whitespace.
+    if (ch === "\\" && (next === '"' || next === "'" || (next !== undefined && /\s/.test(next)))) {
+      cur += next;
+      i++;
+      inToken = true;
+      continue;
+    }
+
+    if (ch === "'") {
+      inSingle = true;
+      inToken = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inDouble = true;
+      inToken = true;
+      continue;
+    }
+
+    cur += ch;
+    inToken = true;
+  }
+
+  if (inToken) {
+    tokens.push(cur);
   }
   return tokens;
 }

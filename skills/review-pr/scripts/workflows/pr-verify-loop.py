@@ -6,16 +6,37 @@ import shlex
 base_ref = str(args.get("base_ref", "origin/main"))
 if not re.fullmatch(r"[A-Za-z0-9._/@~^+-]+", base_ref) or base_ref.startswith("-"):
     raise ValueError(f"Invalid git base_ref: {base_ref!r}")
-artifact_dir = str(args.get("artifact_dir", ""))
+raw_artifact_dir = str(args.get("artifact_dir", "")).strip()
+artifact_dir = os.path.realpath(raw_artifact_dir) if raw_artifact_dir else ""
 max_rounds = min(max(int(args.get("max_rounds", 3)), 1), 3)
-repo_dir = str(args.get("cwd") or (WORKSPACES[0] if WORKSPACES else os.getcwd()))
+repo_dir = os.path.realpath(str(args.get("cwd") or (WORKSPACES[0] if WORKSPACES else os.getcwd())))
 
 
 def quote_shell_arg(value: str) -> str:
     if any(ch in value for ch in ("\0", "\r", "\n")):
         raise ValueError("Shell argument contains unsupported control character")
     if os.name == "nt":
-        if any(ch in value for ch in ("%", "&", "|", "<", ">", "^")):
+        if any(
+            ch in value
+            for ch in (
+                "%",
+                "&",
+                "|",
+                "<",
+                ">",
+                "^",
+                ";",
+                "$",
+                "`",
+                "(",
+                ")",
+                "!",
+                "\u2018",
+                "\u2019",
+                "\u201a",
+                "\u201b",
+            )
+        ):
             raise ValueError("Windows shell argument contains unsupported metacharacter")
         return "'" + value.replace("'", "''") + "'"
     return shlex.quote(value)

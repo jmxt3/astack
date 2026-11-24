@@ -1083,8 +1083,31 @@ test("security regressions: trust-gate blocks flag-prefixed cli.mjs, cd+cli.mjs,
       true,
     );
     assert.equal(isProtectedTrustShellCommand("pwsh -EncodedCommand SQBFAFgA", { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand("pwsh -EncodedCommand:SQBFAFgA", { dataDir }), true);
     assert.equal(isProtectedTrustShellCommand("T=trust; echo {} > /tmp/plugin-data/astack/$T/a/settings.json", { dataDir }), true);
     assert.equal(isProtectedTrustShellCommand('echo {} > /tmp/plugin-data/astack/t"r"ust/a/settings.json', { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand('node "scripts/trust/"cli.mjs beast on', { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand('node scripts/trust/cli.mjs "b"east on', { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand('node scripts/trust/cli.mjs b"e"ast on', { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand("node scripts/trust/cli.mjs b\\east on", { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand('sh -c "$0 $@" node scripts/trust/cli.mjs beast on', { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand('sh -c \'"$@"\' _ node scripts/trust/cli.mjs beast on', { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand('eval "node" "scripts/trust/cli.mjs" "beast" "on"', { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand('env -u UNUSED /bin/bash -c "node scripts/trust/cli.mjs beast on"', { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand('bash -c"node scripts/trust/cli.mjs beast on"', { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand('echo "node scripts/trust/cli.mjs beast on" | bash', { dataDir }), true);
+    assert.equal(
+      isProtectedTrustShellCommand('printf "import(\'./scripts/trust/index.mjs\').then(m=>m.applyTrustSettingsAction({}))" | node --input-type=module', { dataDir }),
+      true,
+    );
+    assert.equal(
+      isProtectedTrustShellCommand("node -e \"import('./scripts/' + 'trust/index.mjs').then(m=>m['applyTrust'+'SettingsAction']({}))\"", { dataDir }),
+      true,
+    );
+    assert.equal(isProtectedTrustShellCommand("node scripts/trust/cli.mjs status", { dataDir }), false);
+    assert.equal(isProtectedTrustShellCommand('echo "hello" | bash', { dataDir }), false);
+    assert.equal(isProtectedTrustShellCommand("node -e \"console.log('a' + 'b')\"", { dataDir }), false);
+    assert.equal(isProtectedTrustShellCommand("cat scripts/trust/cli.mjs | grep beast", { dataDir }), false);
 
     const storeDir = resolveTrustStoreDir(scope.repoId, { dataDir });
     fs.mkdirSync(storeDir, { recursive: true });

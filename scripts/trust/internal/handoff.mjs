@@ -26,6 +26,7 @@ import {
   loadBoundaries,
   loadRiskPolicy,
   resolveEnrolledWorkspaceScope,
+  splitShellPipelines,
   tokenizeSimpleWords,
 } from "./policy.mjs";
 import { assessChange, classifyDominantCategory } from "./risk.mjs";
@@ -85,11 +86,25 @@ const INTERPRETER_VERBS = new Set([
   "perl",
   "ruby",
 ]);
+const SHELL_AND_INTERPRETER_VERBS = new Set([
+  "sh",
+  "bash",
+  "zsh",
+  "dash",
+  "pwsh",
+  "powershell",
+  "cmd",
+  ...INTERPRETER_VERBS,
+]);
+const ENV_WRAPPER_VALUE_FLAGS = new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-a", "--argv0"]);
 const PWSH_ENCODED_FLAG_RE =
-  /^-(?:e|en|enc|enco|encod|encode|encoded|encodedc|encodedco|encodedcom|encodedcomm|encodedcomma|encodedcomman|encodedcommand)$/i;
+  /^-(?:e|en|enc|enco|encod|encode|encoded|encodedc|encodedco|encodedcom|encodedcomm|encodedcomma|encodedcomman|encodedcommand)(?::.*)?$/i;
 const PROTECTED_INLINE_CODE_RE =
   /(?:plugin-data[\\/]astack[\\/]trust|scripts[\\/]trust|\bsettings\.json\b|\bledger\.jsonl\b|\bcli\.mjs\b|\bapplyTrustSettingsAction\b|\bappendOutcome\b|\bwriteTrustSettingsAtomic\b)/i;
+const PROTECTED_INLINE_PARTS_RE =
+  /\bscripts\b[^;\n]{0,40}\btrust\b|\bplugin-data\b[^;\n]{0,40}\btrust\b/i;
 const TAINTED_VAR_VALUE_RE = /(?:trust|plugin-data|settings\.json|ledger\.jsonl|cli\.mjs)/i;
+const B64_TOKEN_RE = /^[A-Za-z0-9+/=]{16,}$/;
 
 function normalizePosixLower(value) {
   return String(value ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
@@ -101,18 +116,70 @@ function normalizeShellTokenPath(tok) {
   return path.posix.normalize(unquoted).toLowerCase();
 }
 
+function normalizeInlinePayload(text) {
+  let collapsed = String(text ?? "");
+  for (let pass = 0; pass < 3; pass++) {
+    const next = collapsed.replace(/["'`]\s*(?:[+.]\s*)?["'`]/g, "");
+    if (next === collapsed) break;
+    collapsed = next;
+  }
+  return collapsed.replace(/["'`]/g, "");
+}
+
+function matchesProtectedInlinePayload(text, resolvedTrustRoot) {
+  const raw = String(text ?? "");
+  const normalized = normalizeInlinePayload(raw);
+  for (const candidate of [raw, normalized]) {
+    if (
+      PROTECTED_INLINE_CODE_RE.test(candidate) ||
+      PROTECTED_INLINE_PARTS_RE.test(candidate) ||
+      TRUST_STORE_HINT_RE.test(candidate) ||
+      (resolvedTrustRoot && normalizePosixLower(candidate).includes(resolvedTrustRoot))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function getLeadingVerb(tokens) {
   let idx = 0;
-  if (tokens[0] === "&") idx++;
-  while (idx < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[idx])) idx++;
-  while (idx < tokens.length && tokens[idx].startsWith("-")) idx++;
-  if (idx >= tokens.length) return "";
-  return path.win32.basename(tokens[idx].replace(/["']/g, "").replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
+  while (idx < tokens.length) {
+    const tok = tokens[idx];
+    if (!tok || tok === "&" || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tok) || tok.startsWith("-")) {
+      idx++;
+      continue;
+    }
+    const base = path.win32.basename(tok.replace(/["']/g, "").replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
+    if (base === "env" || base === "command") {
+      idx++;
+      while (idx < tokens.length) {
+        const sub = tokens[idx];
+        if (sub === "--") {
+          idx++;
+          break;
+        }
+        if (ENV_WRAPPER_VALUE_FLAGS.has(sub)) {
+          idx += 2;
+          continue;
+        }
+        if (sub.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(sub)) {
+          idx++;
+          continue;
+        }
+        break;
+      }
+      continue;
+    }
+    return base;
+  }
+  return "";
 }
 
 function hasMutatingTrustCliSubcommand(tokens, scriptIdx) {
   for (let j = scriptIdx + 1; j < tokens.length; j++) {
-    const arg = tokens[j].toLowerCase();
+    const arg = String(tokens[j] ?? "").replace(/["'\\]/g, "").toLowerCase();
+    if (!arg) continue;
     if (TRUST_CLI_VALUE_FLAGS.has(arg)) {
       j += 1;
       continue;
@@ -123,16 +190,63 @@ function hasMutatingTrustCliSubcommand(tokens, scriptIdx) {
   return false;
 }
 
+function checkPipedShellInputs(raw, resolvedTrustRoot, options, depth) {
+  for (const stages of splitShellPipelines(raw)) {
+    if (stages.length < 2) continue;
+    for (let k = 1; k < stages.length; k++) {
+      const sinkVerb = getLeadingVerb(tokenizeSimpleWords(stages[k]));
+      if (!SHELL_AND_INTERPRETER_VERBS.has(sinkVerb)) continue;
+      const upstreams = stages.slice(0, k);
+      const hasBase64Stage = upstreams.some((u) => /\b(?:base64|FromBase64String)\b/i.test(u));
+      for (const upstream of upstreams) {
+        if (matchesProtectedInlinePayload(upstream, resolvedTrustRoot)) {
+          return true;
+        }
+        const upTokens = tokenizeSimpleWords(upstream);
+        if (depth < 2) {
+          for (const tok of upTokens) {
+            if (!tok || tok.startsWith("-")) continue;
+            if (isProtectedTrustShellCommand(tok, options, depth + 1)) {
+              return true;
+            }
+          }
+        }
+        if (hasBase64Stage) {
+          for (const tok of upTokens) {
+            if (!B64_TOKEN_RE.test(tok) || tok.length % 4 !== 0) continue;
+            try {
+              const decoded = Buffer.from(tok, "base64").toString("utf8");
+              if (
+                matchesProtectedInlinePayload(decoded, resolvedTrustRoot) ||
+                (depth < 2 && isProtectedTrustShellCommand(decoded, options, depth + 1))
+              ) {
+                return true;
+              }
+            } catch {
+              // Ignore non-decodable base64 candidates.
+            }
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
 /**
  * Returns true when a shell command attempts to modify `${PLUGIN_DATA}/trust/**` or run mutating `scripts/trust/cli.mjs` commands.
  */
-export function isProtectedTrustShellCommand(command, options = {}) {
+export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) {
   const raw = String(command ?? "").trim();
   if (!raw) return false;
 
   const resolvedTrustRoot = normalizePosixLower(
     path.resolve(path.join(resolvePluginDataDir(options), "trust")),
   );
+  if (checkPipedShellInputs(raw, resolvedTrustRoot, options, _depth)) {
+    return true;
+  }
+
   let cdDir = "";
   const taintedVars = new Set();
 
@@ -159,13 +273,14 @@ export function isProtectedTrustShellCommand(command, options = {}) {
 
     if (
       INTERPRETER_VERBS.has(verb) &&
-      tokens.some((t) => /^-(?:e|p|c|-eval|-print)$/i.test(t) || /^--(?:eval|print)=/i.test(t))
+      tokens.some(
+        (t) =>
+          /^-(?:e|p|c|-eval|-print)$/i.test(t) ||
+          /^--(?:eval|print)=/i.test(t) ||
+          (/^(?:python|python3|py|perl|ruby)$/.test(verb) && /^-(?:e|c).+/i.test(t)),
+      )
     ) {
-      const unquotedSeg = segment.replace(/["']/g, "");
-      if (
-        PROTECTED_INLINE_CODE_RE.test(unquotedSeg) ||
-        (resolvedTrustRoot && normalizePosixLower(unquotedSeg).includes(resolvedTrustRoot))
-      ) {
+      if (matchesProtectedInlinePayload(segment, resolvedTrustRoot)) {
         return true;
       }
     }

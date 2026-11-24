@@ -13,6 +13,7 @@ import {
   deriveRepoId,
   evaluateBoundaryViolation,
   evaluateEvidenceGate,
+  evaluatePrIntent,
   evaluateRoundLimit,
   evaluateRoundState,
   evaluateSessionContext,
@@ -797,5 +798,32 @@ test("resolveWorkspaceScope isolates non-git workspaces, derives worktree-stable
     fs.rmSync(repoA, { recursive: true, force: true });
     fs.rmSync(repoB, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });
+  }
+});
+
+test("evaluatePrIntent sanitizes conversationId and confines pr-intent state files to trustDir", () => {
+  const parentDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-pr-intent-"));
+  const trustDir = path.join(parentDir, "nested", "astack-trust");
+  fs.mkdirSync(trustDir, { recursive: true });
+  try {
+    const res = evaluatePrIntent(
+      {
+        kind: "pre-invocation",
+        conversationId: "../../escape",
+        lastUserInput: "Please open a PR for this branch.",
+        workspaceDir: parentDir,
+      },
+      { trustDir, headSha: "d".repeat(40) },
+    );
+    assert.ok(Array.isArray(res.injectSteps) && res.injectSteps.length === 1);
+    assert.match(res.injectSteps[0].ephemeralMessage, /AStack PR proof workflow triggered/);
+    assert.equal(fs.existsSync(path.join(parentDir, "escape.json")), false);
+    assert.equal(fs.existsSync(path.join(parentDir, "pr-intent...json")), false);
+    assert.equal(fs.existsSync(path.join(parentDir, "nested", "escape.json")), false);
+    const written = fs.readdirSync(trustDir).filter((name) => name.startsWith("pr-intent."));
+    assert.equal(written.length, 1);
+    assert.equal(written[0], "pr-intent.escape.json");
+  } finally {
+    fs.rmSync(parentDir, { recursive: true, force: true });
   }
 });
