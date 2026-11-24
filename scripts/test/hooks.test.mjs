@@ -705,6 +705,7 @@ test("evidence-gate validates gh CLI and MCP PR bodies against base-branch polic
       "env -S \"-u FOO gh pr merge 1\"",
       "gh p\\r m\\erge 1",
       "pnpm exec gh pr merge 1",
+      "pnpm e\\xec gh pr merge 1",
       'pnpm exec env -S "-u FOO gh pr merge 1"',
       "npx -y --package @cli/gh gh pr merge 1",
       "uvx --from pkg gh pr merge 1",

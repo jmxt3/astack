@@ -712,10 +712,6 @@ export function normalizeCommandVerb(tok) {
   return path.win32.basename(unescaped.replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
 }
 
-/**
- * Scans a balanced parenthesized subshell `(...)` (for `$(...)`, `<(...)`, `>(...)`),
- * respecting `'...'`, `$'...'`, `"..."` (including nested `$(...)`), backticks, and escapes.
- */
 export function scanBalancedSubshell(str, openParenIdx, _depth = 0) {
   const input = String(str ?? "");
   if (openParenIdx < 0 || openParenIdx >= input.length || input[openParenIdx] !== "(" || _depth > 16) {
@@ -812,9 +808,6 @@ export function scanBalancedSubshell(str, openParenIdx, _depth = 0) {
   return { inner: input.slice(openParenIdx + 1), closeIdx: input.length, closed: false };
 }
 
-/**
- * Scans a backtick command substitution `` `...` ``, respecting `\` escapes.
- */
 export function scanBacktickSubstitution(str, openTickIdx, { stopAtDoubleQuote = false } = {}) {
   const input = String(str ?? "");
   if (openTickIdx < 0 || openTickIdx >= input.length || input[openTickIdx] !== "`") {
@@ -837,10 +830,6 @@ export function scanBacktickSubstitution(str, openTickIdx, { stopAtDoubleQuote =
   return { inner: input.slice(openTickIdx + 1), closeIdx: input.length, closed: false };
 }
 
-/**
- * Unescapes PowerShell backticks outside single quotes so multi-backtick PS escapes
- * (including across double quotes and whitespace) can be audited structurally.
- */
 export function stripPowerShellBackticks(command) {
   const str = String(command ?? "");
   if (!str.includes("`")) return str;
@@ -1152,6 +1141,60 @@ export function stripTransparentWrappers(tokens, _depth = 0) {
   return { idx, verb, rest, chdirDirs, splitCommands };
 }
 
+const DIRECT_PKG_RUNNERS = new Set(["npx", "pnpx", "bunx", "uvx"]);
+const PKG_MANAGER_VERBS = new Set(["pnpm", "yarn", "npm", "bun", "uv"]);
+const PKG_WRAPPER_SUBVERBS = new Set(["exec", "dlx", "x", "run"]);
+const PKG_WRAPPER_VALUE_FLAGS = new Set([
+  "-p", "--package", "--from", "-C", "--cwd", "--dir", "--filter", "--workspace", "-w", "--registry",
+]);
+
+export function unwrapPackageRunnerInvocation(initialVerb, initialRest) {
+  let verb = initialVerb;
+  let rest = Array.isArray(initialRest) ? initialRest : [];
+  while (verb && (DIRECT_PKG_RUNNERS.has(verb) || PKG_MANAGER_VERBS.has(verb))) {
+    const isPkgMgr = PKG_MANAGER_VERBS.has(verb);
+    let j = 0;
+    let sawDelimiterOrSubverb = !isPkgMgr;
+    while (j < rest.length) {
+      const opt = rest[j];
+      if (!opt) {
+        j++;
+        continue;
+      }
+      if (opt === "--") {
+        sawDelimiterOrSubverb = true;
+        j++;
+        break;
+      }
+      if (PKG_WRAPPER_VALUE_FLAGS.has(opt) && j + 1 < rest.length) {
+        j += 2;
+        continue;
+      }
+      if (opt.startsWith("-")) {
+        j++;
+        continue;
+      }
+      const cleanOpt = opt.replace(/[\\`]/g, "").toLowerCase();
+      if (isPkgMgr && PKG_WRAPPER_SUBVERBS.has(cleanOpt)) {
+        sawDelimiterOrSubverb = true;
+        j++;
+        continue;
+      }
+      break;
+    }
+    if (!sawDelimiterOrSubverb) break;
+    if (j < rest.length) {
+      const nextWrap = stripTransparentWrappers(rest.slice(j));
+      verb = nextWrap.verb;
+      rest = nextWrap.rest;
+    } else {
+      verb = "";
+      rest = [];
+    }
+  }
+  return { verb, rest };
+}
+
 export function unwrapShellInvocation(segment) {
   const tokens = tokenizeSimpleWords(segment);
   if (tokens.length === 0) return null;
@@ -1293,6 +1336,20 @@ export function collectLeafSegments(command, depth = 0) {
   return leaves;
 }
 
+export function collectDualViewLeafSegments(command) {
+  const raw = String(command ?? "");
+  const leaves = [...collectLeafSegments(raw)];
+  if (raw.includes("`")) {
+    const psView = stripPowerShellBackticks(raw);
+    if (psView !== raw) {
+      for (const seg of collectLeafSegments(psView)) {
+        if (!leaves.includes(seg)) leaves.push(seg);
+      }
+    }
+  }
+  return leaves;
+}
+
 export function tokenizeSimpleWords(segment) {
   const str = String(segment ?? "");
   const tokens = [];
@@ -1427,7 +1484,6 @@ export function tokenizeSimpleWords(segment) {
       continue;
     }
 
-    // Preserve Windows backslashes outside quotes except before quotes or whitespace.
     if (ch === "\\" && (next === '"' || next === "'" || (next !== undefined && /\s/.test(next)))) {
       cur += next;
       i++;
@@ -1513,16 +1569,7 @@ function matchGitPushRule(segment) {
 }
 
 function findDestructiveMatch(command) {
-  const raw = String(command ?? "");
-  const leaves = [...collectLeafSegments(raw)];
-  if (raw.includes("`")) {
-    const psView = stripPowerShellBackticks(raw);
-    if (psView !== raw) {
-      for (const seg of collectLeafSegments(psView)) {
-        if (!leaves.includes(seg)) leaves.push(seg);
-      }
-    }
-  }
+  const leaves = collectDualViewLeafSegments(command);
   const hasDbClient = leaves.some((seg) =>
     getLeadingCommandVerbs(seg).some((verb) => DB_CLI_VERBS.has(verb)),
   );

@@ -101,9 +101,6 @@ function makeRevertedEntry(cat: TrustCategory, tier: number): LedgerEntry {
   };
 }
 
-/**
- * Exhaustively verifies base-policy precedence and governance hard caps in resolveEffectiveAutonomy.
- */
 function verifyEffectiveAutonomyPolicyPrecedence(): {
   checked: number;
   violations: number;
@@ -194,9 +191,6 @@ function verifyEffectiveAutonomyPolicyPrecedence(): {
   return { checked, violations, firstFinding };
 }
 
-/**
- * Exhaustively checks every (action, residual, trustLevel, category, beastOn, headless, isOwnRevert) tuple.
- */
 function verifyDecisionTableSafetyMatrix(): {
   checked: number;
   violations: number;
@@ -310,9 +304,6 @@ function verifyDecisionTableSafetyMatrix(): {
   return { checked, violations, firstFinding };
 }
 
-/**
- * Verifies evaluateCategoryState invariants over synthetic ledger histories, plus bad-outcome and audit demotions.
- */
 function verifyCategoryStateAndDemotionInvariants(): {
   checked: number;
   violations: number;
@@ -527,9 +518,6 @@ function bfsStateKey(s: BfsState): string {
   ].join("|");
 }
 
-/**
- * Bounded BFS explorer backed directly by resolveEffectiveAutonomy, evaluateCategoryState, and evaluateDecisionTable.
- */
 function verifyEarnedTrustLifecycleBfs(): {
   visitedStates: number;
   transitions: number;

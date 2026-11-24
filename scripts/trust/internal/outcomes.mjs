@@ -144,7 +144,6 @@ export function resolveRealPathBestEffort(rawPath, maxHopsOrOptions = 40) {
           prefix = path.resolve(parsedTarget.root);
           queue = [...splitUncollapsedSegments(rawTarget.slice(parsedTarget.root.length)), ...remaining];
         } else {
-          // Relative symlink target resolves against real parent directory (`prefix`).
           queue = [...splitUncollapsedSegments(rawTarget), ...remaining];
         }
         idx = 0;
@@ -169,9 +168,6 @@ function normalizePathForCompare(p) {
   return String(p ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
-/**
- * Serializes cross-process read-modify-write access inside `${PLUGIN_DATA}/trust/<repoId>` via an exclusive lockfile.
- */
 export function withTrustStoreLock(storeDir, lockName, fn, { timeoutMs = 4000, staleMs = 15000 } = {}) {
   fs.mkdirSync(storeDir, { recursive: true });
   const lockPath = path.join(storeDir, lockName);

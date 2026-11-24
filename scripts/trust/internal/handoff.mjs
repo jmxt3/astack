@@ -416,7 +416,6 @@ function checkPipedShellInputs(raw, resolvedTrustRoot, options, depth) {
                 }
               }
             } catch {
-              // Ignore non-decodable hex candidates.
             }
           }
         }
@@ -446,7 +445,6 @@ function checkPipedShellInputs(raw, resolvedTrustRoot, options, depth) {
                 }
               }
             } catch {
-              // Ignore non-decodable base64 candidates.
             }
           }
         }

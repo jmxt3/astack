@@ -1113,7 +1113,6 @@ test("security regressions: trust-gate blocks flag-prefixed cli.mjs, cd+cli.mjs,
     assert.equal(isProtectedTrustShellCommand("echo hi | xargs echo", { dataDir }), false);
     assert.equal(isProtectedTrustShellCommand('bash -c "node scripts/trust/cli.mjs status"', { dataDir }), false);
 
-    // Round 4 hardening regressions (wrappers, nested pipes, lexing, here-strings, PS, template obfuscation)
     for (const bypassCmd of [
       'env -S "node scripts/trust/cli.mjs beast on"',
       'env --split-string="node scripts/trust/cli.mjs beast on"',

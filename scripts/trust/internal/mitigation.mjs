@@ -1,10 +1,11 @@
 import { extractCliPrActions } from "./ledger.mjs";
 import {
+  collectDualViewLeafSegments,
   collectLeafSegments,
   evaluateIrreversible,
-  stripPowerShellBackticks,
   stripTransparentWrappers,
   tokenizeSimpleWords,
+  unwrapPackageRunnerInvocation,
 } from "./policy.mjs";
 import {
   HARD_BLOCK_SIGNALS,
@@ -113,11 +114,6 @@ const ACTION_CLASS_PRECEDENCE = {
   open_pr: 2,
   push_branch: 1,
 };
-const ACTION_PKG_WRAPPERS = new Set(["npx", "pnpm", "yarn", "pnpx", "bunx", "uvx"]);
-const ACTION_PKG_SUBVERBS = new Set(["exec", "dlx", "x", "run"]);
-const ACTION_PKG_VALUE_FLAGS = new Set([
-  "-p", "--package", "--from", "-C", "--cwd", "--filter", "--workspace", "-w", "--registry",
-]);
 const GIT_VALUE_FLAGS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"]);
 const GH_VALUE_FLAGS = new Set(["-R", "--repo", "-H", "--hostname"]);
 
@@ -147,44 +143,7 @@ function readPositionalsSkippingFlags(tokens, valueFlags) {
 
 function classifyShellSegmentAction(segment) {
   const wrapped = stripTransparentWrappers(tokenizeSimpleWords(segment));
-  let verb = wrapped.verb;
-  let rest = wrapped.rest;
-  while (verb && ACTION_PKG_WRAPPERS.has(verb)) {
-    const outerVerb = verb;
-    let j = 0;
-    while (j < rest.length) {
-      const opt = rest[j];
-      if (!opt) {
-        j++;
-        continue;
-      }
-      if (opt === "--") {
-        j++;
-        break;
-      }
-      if (ACTION_PKG_VALUE_FLAGS.has(opt) && j + 1 < rest.length) {
-        j += 2;
-        continue;
-      }
-      if (opt.startsWith("-")) {
-        j++;
-        continue;
-      }
-      if (ACTION_PKG_SUBVERBS.has(opt.replace(/[\\`]/g, "").toLowerCase()) && /^(?:pnpm|yarn|npm|bun|uv)$/.test(outerVerb)) {
-        j++;
-        continue;
-      }
-      break;
-    }
-    if (j < rest.length) {
-      const nextWrap = stripTransparentWrappers(rest.slice(j));
-      verb = nextWrap.verb;
-      rest = nextWrap.rest;
-    } else {
-      verb = "";
-      rest = [];
-    }
-  }
+  const { verb, rest } = unwrapPackageRunnerInvocation(wrapped.verb, wrapped.rest);
   if (!verb) return null;
 
   if (verb === "sendmail") return "external_message";
@@ -231,15 +190,7 @@ function classifyShellCommandActions(cmd) {
     else if (act.kind === "gh-pr-create" || act.kind === "gh-pr-edit-body") pick("open_pr");
     else if (act.kind === "git-push") pick("push_branch");
   }
-  const leaves = [...collectLeafSegments(cmd)];
-  if (cmd.includes("`")) {
-    const psView = stripPowerShellBackticks(cmd);
-    if (psView !== cmd) {
-      for (const s of collectLeafSegments(psView)) {
-        if (!leaves.includes(s)) leaves.push(s);
-      }
-    }
-  }
+  const leaves = collectDualViewLeafSegments(cmd);
   for (const seg of leaves) {
     pick(classifyShellSegmentAction(seg));
   }

@@ -4,13 +4,14 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   DEFAULT_ENGINEERING_MCP_SERVERS,
+  collectDualViewLeafSegments,
   collectLeafSegments,
   loadRiskPolicy,
   normalizeCommandVerb,
   resolveBaseRef,
-  stripPowerShellBackticks,
   stripTransparentWrappers,
   tokenizeSimpleWords,
+  unwrapPackageRunnerInvocation,
 } from "./policy.mjs";
 import { sanitizeConversationId } from "./envelope.mjs";
 import { validatePrBodyContract } from "./pr-proof.mjs";
@@ -910,7 +911,6 @@ const PR_QUESTION_ONLY_REGEX =
   /^\s*(?:what\s+is|explain|tell\s+me\s+about|how\s+(?:does|do)\s+(?:a\s+)?pr)\b/i;
 const GH_BODY_FLAGS = new Set(["-b", "--body", "-F", "--body-file"]);
 const GH_FILL_FLAGS = new Set(["-f", "--fill", "--fill-first", "--fill-verbose"]);
-const WRAPPER_VERBS = new Set(["npx", "pnpm", "yarn", "pnpx", "bunx", "uvx", "sudo", "env"]);
 const GIT_FLAG_WITH_ARG = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace"]);
 const GH_FLAG_WITH_ARG = new Set(["-R", "--repo"]);
 
@@ -944,64 +944,13 @@ function readWithFallback(primaryTrustDir, workspaceDir, hasExplicitTrustDir, re
   return result;
 }
 
-const PKG_WRAPPER_SUBVERBS = new Set(["exec", "dlx", "x", "run"]);
-const PKG_WRAPPER_VALUE_FLAGS = new Set([
-  "-p", "--package", "--from", "-C", "--cwd", "--filter", "--workspace", "-w", "--registry",
-]);
-
 export function extractCliPrActions(command) {
   const actions = [];
-  const rawCmd = String(command ?? "");
-  const leafList = [...collectLeafSegments(rawCmd)];
-  if (rawCmd.includes("`")) {
-    const psView = stripPowerShellBackticks(rawCmd);
-    if (psView !== rawCmd) {
-      for (const s of collectLeafSegments(psView)) {
-        if (!leafList.includes(s)) leafList.push(s);
-      }
-    }
-  }
+  const leafList = collectDualViewLeafSegments(command);
   for (const segment of leafList) {
     const tokens = tokenizeSimpleWords(segment);
     const wrapped = stripTransparentWrappers(tokens);
-    let verb = wrapped.verb;
-    let restTokens = wrapped.rest;
-    while (verb && WRAPPER_VERBS.has(verb)) {
-      const outerVerb = verb;
-      let j = 0;
-      while (j < restTokens.length) {
-        const opt = restTokens[j];
-        if (!opt) {
-          j++;
-          continue;
-        }
-        if (opt === "--") {
-          j++;
-          break;
-        }
-        if (PKG_WRAPPER_VALUE_FLAGS.has(opt) && j + 1 < restTokens.length) {
-          j += 2;
-          continue;
-        }
-        if (opt.startsWith("-")) {
-          j++;
-          continue;
-        }
-        if (PKG_WRAPPER_SUBVERBS.has(opt.toLowerCase()) && /^(?:pnpm|yarn|npm|bun|uv)$/.test(outerVerb)) {
-          j++;
-          continue;
-        }
-        break;
-      }
-      if (j < restTokens.length) {
-        const rewrapped = stripTransparentWrappers(restTokens.slice(j));
-        verb = rewrapped.verb;
-        restTokens = rewrapped.rest;
-      } else {
-        verb = "";
-        restTokens = [];
-      }
-    }
+    const { verb, rest: restTokens } = unwrapPackageRunnerInvocation(wrapped.verb, wrapped.rest);
     if (verb === "git") {
       let skipNext = false;
       for (let i = 0; i < restTokens.length; i++) {
@@ -1186,7 +1135,6 @@ export function evaluatePrIntent(event, options = {}) {
           "utf8",
         );
       } catch {
-        // Fail-open if state file cannot be read or written.
       }
     }
   }
