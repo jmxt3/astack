@@ -63,25 +63,57 @@ function sleepSyncMs(ms) {
   Atomics.wait(SLEEP_BUFFER, 0, 0, Math.max(1, ms));
 }
 
-function resolveRealPathBestEffort(rawPath) {
-  const abs = path.resolve(rawPath);
+function resolveRealPathBestEffort(rawPath, maxHops = 16) {
+  let cur = path.resolve(rawPath);
   const realFn = fs.realpathSync.native ?? fs.realpathSync;
-  const tail = [];
-  let cur = abs;
-  while (true) {
-    if (fs.existsSync(cur)) {
+
+  for (let hop = 0; hop < maxHops; hop++) {
+    const tail = [];
+    let probe = cur;
+    let resolvedNext = null;
+
+    while (true) {
+      let lst = null;
       try {
-        const realBase = realFn(cur);
-        return tail.length > 0 ? path.join(realBase, ...tail.reverse()) : realBase;
-      } catch {
-        return abs;
+        lst = fs.lstatSync(probe);
+      } catch (err) {
+        if (err?.code !== "ENOENT") {
+          return cur;
+        }
       }
+
+      if (lst) {
+        if (lst.isSymbolicLink()) {
+          try {
+            const linkTarget = fs.readlinkSync(probe);
+            const targetAbs = path.resolve(path.dirname(probe), linkTarget);
+            resolvedNext = tail.length > 0 ? path.join(targetAbs, ...tail.reverse()) : targetAbs;
+            break;
+          } catch {
+            return cur;
+          }
+        }
+        try {
+          const realBase = realFn(probe);
+          return tail.length > 0 ? path.join(realBase, ...tail.reverse()) : realBase;
+        } catch {
+          return cur;
+        }
+      }
+
+      const parent = path.dirname(probe);
+      if (parent === probe) return cur;
+      tail.push(path.basename(probe));
+      probe = parent;
     }
-    const parent = path.dirname(cur);
-    if (parent === cur) return abs;
-    tail.push(path.basename(cur));
-    cur = parent;
+
+    if (!resolvedNext || resolvedNext === cur) {
+      return resolvedNext || cur;
+    }
+    cur = resolvedNext;
   }
+
+  return cur;
 }
 
 function normalizePathForCompare(p) {

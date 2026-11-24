@@ -99,6 +99,8 @@ test("irreversible-guard allows safe commands and flags destructive/trunk comman
   for (const cmd of [
     "git push origin main --force",
     "git push origin +main",
+    'env -S "git push --force origin main"',
+    'timeout 10 git push --force origin main',
     "git reset --hard HEAD~3",
     "rm -rf /",
     'bash -c "rm -rf /"',

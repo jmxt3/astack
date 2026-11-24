@@ -21,13 +21,14 @@ import {
   resolvePluginDataDir,
 } from "./outcomes.mjs";
 import {
-  collectLeafSegments,
   evaluateDecisionTable,
   loadBoundaries,
   loadRiskPolicy,
   resolveEnrolledWorkspaceScope,
   splitShellPipelines,
+  stripTransparentWrappers,
   tokenizeSimpleWords,
+  unwrapShellInvocation,
 } from "./policy.mjs";
 import { assessChange, classifyDominantCategory } from "./risk.mjs";
 import { evaluateRepoTrust } from "./trust-level.mjs";
@@ -94,36 +95,45 @@ const SHELL_AND_INTERPRETER_VERBS = new Set([
   "pwsh",
   "powershell",
   "cmd",
+  "xargs",
+  "source",
+  ".",
   ...INTERPRETER_VERBS,
 ]);
-const ENV_WRAPPER_VALUE_FLAGS = new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-a", "--argv0"]);
 const PWSH_ENCODED_FLAG_RE =
-  /^-(?:e|en|enc|enco|encod|encode|encoded|encodedc|encodedco|encodedcom|encodedcomm|encodedcomma|encodedcomman|encodedcommand)(?::.*)?$/i;
+  /^[-/](?:e|en|enc|enco|encod|encode|encoded|encodedc|encodedco|encodedcom|encodedcomm|encodedcomma|encodedcomman|encodedcommand)(?::.*)?$/i;
 const PROTECTED_INLINE_CODE_RE =
   /(?:plugin-data[\\/]astack[\\/]trust|scripts[\\/]trust|\bsettings\.json\b|\bledger\.jsonl\b|\bcli\.mjs\b|\bapplyTrustSettingsAction\b|\bappendOutcome\b|\bwriteTrustSettingsAtomic\b)/i;
 const PROTECTED_INLINE_PARTS_RE =
   /\bscripts\b[^;\n]{0,40}\btrust\b|\bplugin-data\b[^;\n]{0,40}\btrust\b/i;
-const TAINTED_VAR_VALUE_RE = /(?:trust|plugin-data|settings\.json|ledger\.jsonl|cli\.mjs)/i;
+const TAINTED_VAR_VALUE_RE =
+  /(?:trust|plugin-data|settings\.json|ledger\.jsonl|cli\.mjs|ASTACK_PLUGIN_DATA|ANTIGRAVITY_PLUGIN_DATA|PLUGIN_DATA)/i;
+const PLUGIN_DATA_DIR_HINT_RE = /(?:ASTACK_PLUGIN_DATA|ANTIGRAVITY_PLUGIN_DATA|PLUGIN_DATA|plugin-data[\\/]astack)/i;
 const B64_TOKEN_RE = /^[A-Za-z0-9+/=]{16,}$/;
+const HEX_TOKEN_RE = /^[0-9a-fA-F]{16,}$/;
+const XARGS_VALUE_FLAGS = new Set([
+  "-n", "-L", "-P", "-I", "-i", "-d", "-s", "-a", "-E", "-e",
+  "--max-args", "--max-lines", "--max-procs", "--replace", "--delimiter", "--max-chars", "--arg-file", "--eof",
+]);
 
 function normalizePosixLower(value) {
   return String(value ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
 function normalizeShellTokenPath(tok) {
-  const unquoted = String(tok ?? "").replace(/["']/g, "").replace(/\\/g, "/").replace(/\/+$/, "");
+  const unquoted = String(tok ?? "").replace(/["'`\u2018-\u201d]/g, "").replace(/\\/g, "/").replace(/\/+$/, "");
   if (!unquoted) return "";
   return path.posix.normalize(unquoted).toLowerCase();
 }
 
 function normalizeInlinePayload(text) {
-  let collapsed = String(text ?? "");
+  let collapsed = String(text ?? "").replace(/\$\{[^}]{0,24}\}/g, "");
   for (let pass = 0; pass < 3; pass++) {
-    const next = collapsed.replace(/["'`]\s*(?:[+.]\s*)?["'`]/g, "");
+    const next = collapsed.replace(/["'`\u2018-\u201d]\s*(?:[+.]\s*)?["'`\u2018-\u201d]/g, "");
     if (next === collapsed) break;
     collapsed = next;
   }
-  return collapsed.replace(/["'`]/g, "");
+  return collapsed.replace(/["'`\u2018-\u201d]/g, "");
 }
 
 function matchesProtectedInlinePayload(text, resolvedTrustRoot) {
@@ -143,42 +153,12 @@ function matchesProtectedInlinePayload(text, resolvedTrustRoot) {
 }
 
 function getLeadingVerb(tokens) {
-  let idx = 0;
-  while (idx < tokens.length) {
-    const tok = tokens[idx];
-    if (!tok || tok === "&" || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tok) || tok.startsWith("-")) {
-      idx++;
-      continue;
-    }
-    const base = path.win32.basename(tok.replace(/["']/g, "").replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
-    if (base === "env" || base === "command") {
-      idx++;
-      while (idx < tokens.length) {
-        const sub = tokens[idx];
-        if (sub === "--") {
-          idx++;
-          break;
-        }
-        if (ENV_WRAPPER_VALUE_FLAGS.has(sub)) {
-          idx += 2;
-          continue;
-        }
-        if (sub.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(sub)) {
-          idx++;
-          continue;
-        }
-        break;
-      }
-      continue;
-    }
-    return base;
-  }
-  return "";
+  return stripTransparentWrappers(tokens).verb;
 }
 
 function hasMutatingTrustCliSubcommand(tokens, scriptIdx) {
   for (let j = scriptIdx + 1; j < tokens.length; j++) {
-    const arg = String(tokens[j] ?? "").replace(/["'\\]/g, "").toLowerCase();
+    const arg = String(tokens[j] ?? "").replace(/["'`\u2018-\u201d\\]/g, "").toLowerCase();
     if (!arg) continue;
     if (TRUST_CLI_VALUE_FLAGS.has(arg)) {
       j += 1;
@@ -190,6 +170,59 @@ function hasMutatingTrustCliSubcommand(tokens, scriptIdx) {
   return false;
 }
 
+function extractXargsTargetCommand(stage) {
+  const tokens = tokenizeSimpleWords(stage);
+  const { idx, verb } = stripTransparentWrappers(tokens);
+  if (verb !== "xargs") return [];
+  const rest = tokens.slice(idx + 1);
+  let j = 0;
+  while (j < rest.length) {
+    const opt = rest[j];
+    if (opt === "--") {
+      j++;
+      break;
+    }
+    if (XARGS_VALUE_FLAGS.has(opt) && j + 1 < rest.length) {
+      j += 2;
+      continue;
+    }
+    if (opt.startsWith("-")) {
+      j++;
+      continue;
+    }
+    break;
+  }
+  return rest.slice(j);
+}
+
+function extractProcessSubAndHereStrings(segment) {
+  const extracted = [];
+  const hereIdx = segment.indexOf("<<<");
+  if (hereIdx !== -1) {
+    const rhs = segment.slice(hereIdx + 3).trim();
+    if (rhs) extracted.push(rhs);
+    for (const tok of tokenizeSimpleWords(rhs)) {
+      if (tok) extracted.push(tok);
+    }
+  }
+  for (let i = 0; i < segment.length - 1; i++) {
+    if ((segment[i] === "<" || segment[i] === ">") && segment[i + 1] === "(") {
+      let depth = 1;
+      let start = i + 2;
+      let j = start;
+      while (j < segment.length && depth > 0) {
+        if (segment[j] === "(") depth++;
+        else if (segment[j] === ")") depth--;
+        j++;
+      }
+      const inner = segment.slice(start, depth === 0 ? j - 1 : j).trim();
+      if (inner) extracted.push(inner);
+      i = j - 1;
+    }
+  }
+  return extracted;
+}
+
 function checkPipedShellInputs(raw, resolvedTrustRoot, options, depth) {
   for (const stages of splitShellPipelines(raw)) {
     if (stages.length < 2) continue;
@@ -198,16 +231,66 @@ function checkPipedShellInputs(raw, resolvedTrustRoot, options, depth) {
       if (!SHELL_AND_INTERPRETER_VERBS.has(sinkVerb)) continue;
       const upstreams = stages.slice(0, k);
       const hasBase64Stage = upstreams.some((u) => /\b(?:base64|FromBase64String)\b/i.test(u));
+      const hasRevStage = upstreams.some((u) => getLeadingVerb(tokenizeSimpleWords(u)) === "rev");
+      const hasHexStage = upstreams.some((u) => /\bxxd\b/i.test(u));
+      const xargsTargetTokens = sinkVerb === "xargs" ? extractXargsTargetCommand(stages[k]) : [];
+
       for (const upstream of upstreams) {
         if (matchesProtectedInlinePayload(upstream, resolvedTrustRoot)) {
           return true;
         }
         const upTokens = tokenizeSimpleWords(upstream);
+        const upVerb = getLeadingVerb(upTokens);
+
+        if (xargsTargetTokens.length > 0 && depth < 2) {
+          const upArgs =
+            READ_ONLY_VERBS.has(upVerb) || upVerb === "echo" || upVerb === "printf" ? upTokens.slice(1) : upTokens;
+          for (const candidate of [
+            [...xargsTargetTokens, ...upArgs].join(" "),
+            [...xargsTargetTokens, ...upTokens].join(" "),
+          ]) {
+            if (candidate && isProtectedTrustShellCommand(candidate, options, depth + 1)) {
+              return true;
+            }
+          }
+        }
+
         if (depth < 2) {
           for (const tok of upTokens) {
             if (!tok || tok.startsWith("-")) continue;
             if (isProtectedTrustShellCommand(tok, options, depth + 1)) {
               return true;
+            }
+          }
+        }
+        if (hasRevStage) {
+          for (const tok of [upstream, ...upTokens]) {
+            if (!tok || tok.length < 4) continue;
+            const reversed = [...tok].reverse().join("");
+            if (
+              matchesProtectedInlinePayload(reversed, resolvedTrustRoot) ||
+              (depth < 2 && isProtectedTrustShellCommand(reversed, options, depth + 1))
+            ) {
+              return true;
+            }
+          }
+        }
+        if (hasHexStage) {
+          for (const tok of upTokens) {
+            if (!HEX_TOKEN_RE.test(tok) || tok.length % 2 !== 0) continue;
+            try {
+              const hexDecoded = Buffer.from(tok, "hex").toString("utf8");
+              const candidates = hasRevStage ? [hexDecoded, [...hexDecoded].reverse().join("")] : [hexDecoded];
+              for (const decoded of candidates) {
+                if (
+                  matchesProtectedInlinePayload(decoded, resolvedTrustRoot) ||
+                  (depth < 2 && isProtectedTrustShellCommand(decoded, options, depth + 1))
+                ) {
+                  return true;
+                }
+              }
+            } catch {
+              // Ignore non-decodable hex candidates.
             }
           }
         }
@@ -247,23 +330,66 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
     return true;
   }
 
-  let cdDir = "";
+  let cdDir = typeof options._cdDir === "string" ? options._cdDir : "";
+  let cdIntoPluginData = Boolean(options._cdIntoPluginData);
   const taintedVars = new Set();
 
-  for (const segment of collectLeafSegments(raw)) {
+  for (const segment of splitShellPipelines(raw).flat()) {
     const tokens = tokenizeSimpleWords(segment);
     if (tokens.length === 0) continue;
 
-    const verb = getLeadingVerb(tokens);
+    const wrapped = stripTransparentWrappers(tokens);
+    let segCdDir = cdDir;
+    let segCdIntoPluginData = cdIntoPluginData;
+    for (const dirArg of wrapped.chdirDirs) {
+      if (PLUGIN_DATA_DIR_HINT_RE.test(dirArg) || (resolvedTrustRoot && normalizePosixLower(dirArg).includes(resolvedTrustRoot))) {
+        segCdIntoPluginData = true;
+      }
+      const normDir = normalizeShellTokenPath(dirArg);
+      segCdDir = normDir.startsWith("/") || !segCdDir ? normDir : path.posix.normalize(`${segCdDir}/${normDir}`);
+    }
+
+    const unwrapped = unwrapShellInvocation(segment);
+    if (Array.isArray(unwrapped) && unwrapped.length > 0 && _depth < 4) {
+      const childOpts = { ...options, _cdDir: segCdDir, _cdIntoPluginData: segCdIntoPluginData };
+      for (const sub of unwrapped) {
+        if (isProtectedTrustShellCommand(sub, childOpts, _depth + 1)) {
+          return true;
+        }
+      }
+    }
+
+    if (segment.includes("<<<") || /[<>]\(/.test(segment)) {
+      if (matchesProtectedInlinePayload(segment, resolvedTrustRoot)) {
+        return true;
+      }
+      if (_depth < 4) {
+        const childOpts = { ...options, _cdDir: segCdDir, _cdIntoPluginData: segCdIntoPluginData };
+        for (const inner of extractProcessSubAndHereStrings(segment)) {
+          if (isProtectedTrustShellCommand(inner, childOpts, _depth + 1)) {
+            return true;
+          }
+        }
+      }
+    }
+
+    const verb = wrapped.verb;
     const pureRead = READ_ONLY_VERBS.has(verb) && !SHELL_WRITE_OPERATOR_RE.test(segment);
 
     for (const tok of tokens) {
       const assign = tok.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.+)$/);
       if (assign) {
-        const valNorm = assign[2].replace(/["']/g, "").replace(/\\/g, "/").toLowerCase();
+        const valNorm = assign[2].replace(/["'`]/g, "").replace(/\\/g, "/").toLowerCase();
         if (TAINTED_VAR_VALUE_RE.test(valNorm) || (resolvedTrustRoot && valNorm.includes(resolvedTrustRoot))) {
           taintedVars.add(assign[1]);
         }
+      }
+    }
+    const psAssign = segment.match(/^\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+    if (psAssign) {
+      const valNorm = psAssign[2].replace(/["'`]/g, "").replace(/\\/g, "/").toLowerCase();
+      if (TAINTED_VAR_VALUE_RE.test(valNorm) || (resolvedTrustRoot && valNorm.includes(resolvedTrustRoot))) {
+        taintedVars.add(psAssign[1]);
       }
     }
 
@@ -271,22 +397,26 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
       return true;
     }
 
-    if (
+    const isInlineInterpreterCall =
       INTERPRETER_VERBS.has(verb) &&
-      tokens.some(
+      (tokens.some(
         (t) =>
           /^-(?:e|p|c|-eval|-print)$/i.test(t) ||
           /^--(?:eval|print)=/i.test(t) ||
-          (/^(?:python|python3|py|perl|ruby)$/.test(verb) && /^-(?:e|c).+/i.test(t)),
-      )
-    ) {
+          (/^(?:node|bun|perl|ruby)$/.test(verb) && /^-[a-z]*[ep][a-z]*$/i.test(t)) ||
+          (/^(?:python|python3|py)$/.test(verb) && /^-[a-z]*c.+/i.test(t)),
+      ) ||
+        (verb === "deno" && tokens.some((t) => t.toLowerCase() === "eval")) ||
+        (verb === "node" && tokens.some((t) => /^(?:--import|--loader|--require|-r)(?:=|$)/i.test(t))));
+
+    if (isInlineInterpreterCall) {
       if (matchesProtectedInlinePayload(segment, resolvedTrustRoot)) {
         return true;
       }
     }
 
     if (!pureRead && taintedVars.size > 0) {
-      const unquotedSeg = segment.replace(/["']/g, "");
+      const unquotedSeg = segment.replace(/["'`]/g, "");
       for (const v of taintedVars) {
         const varRefRe = new RegExp(`(?:\\$\\{?${v}\\}?|\\$env:${v}\\b|%${v}%)`, "i");
         if (varRefRe.test(unquotedSeg)) {
@@ -296,16 +426,24 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
     }
 
     if (verb === "cd" || verb === "set-location" || verb === "sl" || verb === "pushd") {
-      const targetArg = tokens.slice(1).find((t) => !t.startsWith("-"));
+      const targetArg = wrapped.rest.find((t) => !t.startsWith("-"));
       if (targetArg) {
+        if (
+          PLUGIN_DATA_DIR_HINT_RE.test(targetArg) ||
+          (resolvedTrustRoot && normalizePosixLower(targetArg).includes(resolvedTrustRoot))
+        ) {
+          cdIntoPluginData = true;
+          segCdIntoPluginData = true;
+        }
         const normTarget = normalizeShellTokenPath(targetArg);
         cdDir = normTarget.startsWith("/") || !cdDir ? normTarget : path.posix.normalize(`${cdDir}/${normTarget}`);
+        segCdDir = cdDir;
       }
     }
 
     for (let i = 0; i < tokens.length; i++) {
       const cleanTok = normalizeShellTokenPath(tokens[i]);
-      const joinedTok = cdDir && !cleanTok.startsWith("/") ? path.posix.normalize(`${cdDir}/${cleanTok}`) : cleanTok;
+      const joinedTok = segCdDir && !cleanTok.startsWith("/") ? path.posix.normalize(`${segCdDir}/${cleanTok}`) : cleanTok;
       const isTrustCli =
         cleanTok.endsWith("scripts/trust/cli.mjs") ||
         cleanTok.endsWith("/trust/cli.mjs") ||
@@ -317,21 +455,27 @@ export function isProtectedTrustShellCommand(command, options = {}, _depth = 0) 
       }
     }
 
-    const unquotedNormSeg = normalizePosixLower(segment.replace(/["']/g, ""));
+    const unquotedNormSeg = normalizePosixLower(segment.replace(/["'`\u2018-\u201d]/g, ""));
     const touchesResolvedDir = Boolean(resolvedTrustRoot && unquotedNormSeg.includes(resolvedTrustRoot));
-    const touchesHint = TRUST_STORE_HINT_RE.test(segment) || TRUST_STORE_HINT_RE.test(segment.replace(/["']/g, ""));
+    const touchesHint =
+      TRUST_STORE_HINT_RE.test(segment) || TRUST_STORE_HINT_RE.test(segment.replace(/["'`\u2018-\u201d]/g, ""));
+    const touchesCdPluginTrust =
+      segCdIntoPluginData && /(?:^|[\s"'/`\\])trust(?:[\\/]|$)|settings\.json|ledger\.jsonl/i.test(segment);
     const touchesTokenPath = tokens.some((tok) => {
       const clean = normalizeShellTokenPath(tok);
+      const joinedClean = segCdDir && !clean.startsWith("/") ? path.posix.normalize(`${segCdDir}/${clean}`) : clean;
+      const resolvedTokHit = Boolean(resolvedTrustRoot && joinedClean.includes(resolvedTrustRoot));
       return (
-        (clean.includes("/") || tok.includes("\\")) &&
-        isProtectedTrustStorePath(tok.replace(/["']/g, ""), {
-          dataDir: options.dataDir,
-          workspaceDir: options.workspaceDir,
-        })
+        resolvedTokHit ||
+        ((clean.includes("/") || tok.includes("\\")) &&
+          isProtectedTrustStorePath(tok.replace(/["'`\u2018-\u201d]/g, ""), {
+            dataDir: options.dataDir,
+            workspaceDir: options.workspaceDir,
+          }))
       );
     });
 
-    if (touchesResolvedDir || touchesHint || touchesTokenPath) {
+    if (touchesResolvedDir || touchesHint || touchesCdPluginTrust || touchesTokenPath) {
       if (!pureRead) {
         return true;
       }

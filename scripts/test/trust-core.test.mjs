@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import {
+  DEFAULT_RISK_POLICY,
   PIPELINE_STAGES,
   TOOL_MATCHERS,
   classifyCommandCategory,
@@ -823,6 +824,9 @@ test("evaluatePrIntent sanitizes conversationId and confines pr-intent state fil
     const written = fs.readdirSync(trustDir).filter((name) => name.startsWith("pr-intent."));
     assert.equal(written.length, 1);
     assert.equal(written[0], "pr-intent.escape.json");
+    assert.equal(DEFAULT_RISK_POLICY.tiers["1"].globs.includes("sidecars/**"), true);
+    assert.equal(DEFAULT_RISK_POLICY.tiers["2"].globs.includes("mcp_config.json"), true);
+    assert.equal(DEFAULT_RISK_POLICY.tiers["3"].globs.includes("sidecars/*/sidecar.json"), true);
   } finally {
     fs.rmSync(parentDir, { recursive: true, force: true });
   }

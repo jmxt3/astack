@@ -1108,6 +1108,45 @@ test("security regressions: trust-gate blocks flag-prefixed cli.mjs, cd+cli.mjs,
     assert.equal(isProtectedTrustShellCommand('echo "hello" | bash', { dataDir }), false);
     assert.equal(isProtectedTrustShellCommand("node -e \"console.log('a' + 'b')\"", { dataDir }), false);
     assert.equal(isProtectedTrustShellCommand("cat scripts/trust/cli.mjs | grep beast", { dataDir }), false);
+    assert.equal(isProtectedTrustShellCommand('grep foo <<< "bar"', { dataDir }), false);
+    assert.equal(isProtectedTrustShellCommand("echo hi | xargs echo", { dataDir }), false);
+    assert.equal(isProtectedTrustShellCommand('bash -c "node scripts/trust/cli.mjs status"', { dataDir }), false);
+
+    // Round 4 hardening regressions (wrappers, nested pipes, lexing, here-strings, PS, template obfuscation)
+    for (const bypassCmd of [
+      'env -S "node scripts/trust/cli.mjs beast on"',
+      'env --split-string="node scripts/trust/cli.mjs beast on"',
+      "env -C scripts/trust node cli.mjs beast on",
+      "bash -c 'echo \"node scripts/trust/cli.mjs beast on\" | bash'",
+      "bash -c 'printf \"import(\\\"./scripts/trust/index.mjs\\\").then(m=>m.applyTrustSettingsAction({}))\" | node --input-type=module'",
+      "sh -c 'echo bm9kZSBzY3JpcHRzL3RydXN0L2NsaS5tanMgYmVhc3Qgb24= | base64 -d | bash'",
+      'exec bash -c "node scripts/trust/cli.mjs beast on"',
+      'exec node -e "import(\'./scripts/trust/index.mjs\').then(m=>m.applyTrustSettingsAction({}))"',
+      "exec pwsh -EncodedCommand SQBFAFgA",
+      'timeout 10 bash -c "node scripts/trust/cli.mjs beast on"',
+      'bash -c -- "node scripts/trust/cli.mjs beast on"',
+      'bash -c -e "node scripts/trust/cli.mjs beast on"',
+      'bash --rcfile /dev/null -c "node scripts/trust/cli.mjs beast on"',
+      "sh -c 'node scripts/trust/cli.mjs $1 on' _ beast",
+      "node scripts/trust/cli.mjs $'beast' on",
+      "(node scripts/trust/cli.mjs undo)",
+      "powershell /EncodedCommand SQBFAFgA",
+      'pwsh /c "node scripts/trust/cli.mjs beast on"',
+      "node scripts/trust/cli.mjs be`ast on",
+      "node scripts/trust/cli.mjs \u201cb\u201deast on",
+      'bash <<< "node scripts/trust/cli.mjs beast on"',
+      "node --input-type=module <<< \"import('./scripts/trust/index.mjs').then(m=>m.applyTrustSettingsAction({}))\"",
+      'printf "beast on" | xargs node scripts/trust/cli.mjs',
+      'source <(echo "node scripts/trust/cli.mjs beast on")',
+      "deno eval \"import('./scripts/trust/index.mjs').then(m=>m.applyTrustSettingsAction({}))\"",
+      "node --import \"data:text/javascript,import('./scripts/trust/index.mjs').then(m=>m.applyTrustSettingsAction({}))\"",
+      "node -e \"const x='';import(`./scri${x}pts/tr${x}ust/index.mjs`).then(m=>m[`applyTr${x}ustSettingsAction`]({}))\"",
+      'echo "no tsaeb sjm.ilc/tsurt/stpircs edon" | rev | bash',
+      'cd "$ASTACK_PLUGIN_DATA" && echo \'{"beastOn":true}\' > trust/abc/settings.json',
+      "$D = $env:ASTACK_PLUGIN_DATA; Set-Content \"$D/trust/abc/settings.json\" '{}'",
+    ]) {
+      assert.equal(isProtectedTrustShellCommand(bypassCmd, { dataDir }), true, `Expected block for: ${bypassCmd}`);
+    }
 
     const storeDir = resolveTrustStoreDir(scope.repoId, { dataDir });
     fs.mkdirSync(storeDir, { recursive: true });
@@ -1131,6 +1170,16 @@ test("security regressions: trust-gate blocks flag-prefixed cli.mjs, cd+cli.mjs,
         { dataDir, baseRef: "main" },
       );
       assert.equal(symDecision.decision, "deny");
+
+      const danglingTarget = path.join(storeDir, "future-settings.json");
+      const danglingPath = path.join(dir, "dangling-link.json");
+      fs.symlinkSync(danglingTarget, danglingPath);
+      assert.equal(isProtectedTrustStorePath(danglingPath, { dataDir, workspaceDir: dir }), true);
+      const danglingDecision = evaluateTrustGate(
+        { kind: "tool-write", filePath: danglingPath, chunks: ["{}"], workspaceDir: dir },
+        { dataDir, baseRef: "main" },
+      );
+      assert.equal(danglingDecision.decision, "deny");
     }
 
     applyTrustSettingsAction({

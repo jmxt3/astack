@@ -53,13 +53,13 @@ export const DEFAULT_RISK_POLICY = {
     "1": {
       label: "medium",
       description: "Standard feature, UI, or skill updates",
-      globs: ["skills/**", "src/**", "app/**"],
+      globs: ["skills/**", "src/**", "app/**", "sidecars/**"],
       requireHumanApproval: true,
     },
     "2": {
       label: "high",
       description: "Core modules, schemas, public APIs, or configuration",
-      globs: ["scripts/**", "agents/**", "rules/**", "package.json", "plugin.json"],
+      globs: ["scripts/**", "agents/**", "rules/**", "package.json", "plugin.json", "mcp_config.json"],
       requireHumanApproval: true,
     },
     "3": {
@@ -72,6 +72,7 @@ export const DEFAULT_RISK_POLICY = {
         ".github/workflows/**",
         ".agents/**",
         "REVIEW.md",
+        "sidecars/*/sidecar.json",
         "**/*auth*",
         "**/*billing*",
         "**/*payment*",
@@ -607,12 +608,13 @@ export function splitShellPipelines(command) {
       escaped = true;
       continue;
     }
-    if (ch === "'" && !inDouble) {
+    const qch = normalizeQuoteChar(ch);
+    if (qch === "'" && !inDouble) {
       inSingle = !inSingle;
       buf += ch;
       continue;
     }
-    if (ch === '"' && !inSingle) {
+    if (qch === '"' && !inSingle) {
       inDouble = !inDouble;
       buf += ch;
       continue;
@@ -650,8 +652,26 @@ function splitShellSegments(command) {
   return splitShellPipelines(command).flat();
 }
 
-const ENV_VALUE_FLAGS = new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-a", "--argv0"]);
+const TRANSPARENT_WRAPPER_ARG_FLAGS = {
+  env: new Set(["-u", "--unset", "-a", "--argv0"]),
+  exec: new Set(["-a"]),
+  sudo: new Set(["-u", "--user", "-g", "--group", "-C", "--close-from", "-h", "--host", "-p", "--prompt", "-r", "--role", "-t", "--type", "-U", "--other-user", "-T", "--command-timeout"]),
+  nice: new Set(["-n", "--adjustment"]),
+  timeout: new Set(["-k", "--kill-after", "-s", "--signal"]),
+  stdbuf: new Set(["-i", "--input", "-o", "--output", "-e", "--error"]),
+  command: new Set(),
+  builtin: new Set(),
+  nohup: new Set(),
+  setsid: new Set(),
+};
+
 const POSITIONAL_PARAM_REF_RE = /\$(?:[@*0-9]|\{[@*0-9][^}]*\})/;
+
+function normalizeQuoteChar(ch) {
+  if (ch === "'" || ch === "\u2018" || ch === "\u2019" || ch === "\u201a" || ch === "\u201b") return "'";
+  if (ch === '"' || ch === "\u201c" || ch === "\u201d") return '"';
+  return ch;
+}
 
 function formatUnwrappedArgs(args) {
   const out = [];
@@ -667,44 +687,121 @@ function formatUnwrappedArgs(args) {
   return out;
 }
 
-function unwrapShellInvocation(segment) {
-  const tokens = tokenizeSimpleWords(segment);
-  if (tokens.length === 0) return null;
+function substitutePositionalParams(cmdArg, trailing) {
+  const restArgs = trailing.slice(1).join(" ");
+  return cmdArg.replace(/\$(?:\{([@*0-9])(?:[^}]*)\}|([@*0-9]))/g, (full, braced, bare) => {
+    const key = braced ?? bare;
+    if (key === "@" || key === "*") return restArgs;
+    const pos = Number.parseInt(key, 10);
+    if (Number.isInteger(pos) && pos < trailing.length) {
+      return trailing[pos];
+    }
+    return full;
+  });
+}
 
+export function stripTransparentWrappers(tokens) {
+  const chdirDirs = [];
+  const splitCommands = [];
   let idx = 0;
+
   while (idx < tokens.length) {
     const tok = tokens[idx];
-    if (!tok || tok === "&" || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tok)) {
+    if (!tok || tok === "&" || tok === "(" || tok === "{" || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tok)) {
       idx++;
       continue;
     }
-    const base = path.win32.basename(tok.replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
-    if (base === "env" || base === "command") {
-      idx++;
-      while (idx < tokens.length) {
-        const opt = tokens[idx];
-        if (opt === "--") {
-          idx++;
+    const base = path.win32.basename(tok.replace(/["']/g, "").replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
+    if (!Object.hasOwn(TRANSPARENT_WRAPPER_ARG_FLAGS, base)) {
+      break;
+    }
+    const argFlags = TRANSPARENT_WRAPPER_ARG_FLAGS[base];
+    idx++;
+
+    let consumedTimeoutDuration = false;
+    while (idx < tokens.length) {
+      const opt = tokens[idx];
+      if (!opt) {
+        idx++;
+        continue;
+      }
+      if (opt === "--") {
+        idx++;
+        break;
+      }
+      if (base === "env") {
+        if (opt === "-S" || opt === "--split-string" || /^-[a-zA-Z]*S$/.test(opt)) {
+          if (idx + 1 < tokens.length) {
+            const extra = tokens.slice(idx + 2).join(" ").trim();
+            const full = extra ? `${tokens[idx + 1]} ${extra}` : tokens[idx + 1];
+            if (full.trim()) splitCommands.push(full.trim());
+            idx = tokens.length;
+          } else {
+            idx++;
+          }
           break;
         }
-        if (ENV_VALUE_FLAGS.has(opt)) {
+        const eqSplit = opt.match(/^--split-string=([\s\S]*)$/i);
+        if (eqSplit) {
+          const extra = tokens.slice(idx + 1).join(" ").trim();
+          const full = extra ? `${eqSplit[1]} ${extra}` : eqSplit[1];
+          if (full.trim()) splitCommands.push(full.trim());
+          idx = tokens.length;
+          break;
+        }
+        if ((opt === "-C" || opt === "--chdir") && idx + 1 < tokens.length) {
+          chdirDirs.push(tokens[idx + 1]);
           idx += 2;
           continue;
         }
-        if (opt.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(opt)) {
+        const eqChdir = opt.match(/^--chdir=([\s\S]*)$/i);
+        if (eqChdir) {
+          chdirDirs.push(eqChdir[1]);
           idx++;
           continue;
         }
+      }
+      if (argFlags.has(opt) && idx + 1 < tokens.length) {
+        idx += 2;
+        continue;
+      }
+      if ((base === "env" || base === "sudo") && /^[A-Za-z_][A-Za-z0-9_]*=/.test(opt)) {
+        idx++;
+        continue;
+      }
+      if (opt.startsWith("-")) {
+        idx++;
+        continue;
+      }
+      if (base === "timeout" && !consumedTimeoutDuration) {
+        consumedTimeoutDuration = true;
+        idx++;
         break;
       }
-      continue;
+      break;
     }
-    break;
   }
 
-  if (idx >= tokens.length) return null;
-  const verb = path.win32.basename(tokens[idx].replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
-  const rest = tokens.slice(idx + 1);
+  while (idx < tokens.length && tokens[idx]?.startsWith("-")) {
+    idx++;
+  }
+  const verb =
+    idx < tokens.length
+      ? path.win32.basename(tokens[idx].replace(/["'`]/g, "").replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "")
+      : "";
+  const rest = idx < tokens.length ? tokens.slice(idx + 1) : [];
+  return { idx, verb, rest, chdirDirs, splitCommands };
+}
+
+export function unwrapShellInvocation(segment) {
+  const tokens = tokenizeSimpleWords(segment);
+  if (tokens.length === 0) return null;
+
+  const { verb, rest, splitCommands } = stripTransparentWrappers(tokens);
+  if (splitCommands.length > 0) {
+    return splitCommands;
+  }
+  if (!verb) return null;
 
   if (verb === "eval") {
     const evalArgs = rest[0] === "--" ? rest.slice(1) : rest;
@@ -713,34 +810,51 @@ function unwrapShellInvocation(segment) {
   }
 
   if (verb === "sh" || verb === "bash" || verb === "zsh" || verb === "dash") {
-    const hasAttachedQuoteC = /(?:^|\s)-[a-zA-Z]*c["']/.test(segment);
+    const hasAttachedQuoteC = /(?:^|\s)-[a-zA-Z]*c["'\u2018-\u201d]/.test(segment);
+    let hasC = false;
     let cmdArg = null;
     let trailingStart = -1;
     for (let j = 0; j < rest.length; j++) {
       const opt = rest[j];
-      if (opt === "--") break;
-      if (opt === "-o" || opt === "+o") {
+      if (opt === "--") {
+        if (hasC && j + 1 < rest.length) {
+          cmdArg = rest[j + 1];
+          trailingStart = j + 2;
+        }
+        break;
+      }
+      if (opt === "-o" || opt === "+o" || opt === "--rcfile" || opt === "--init-file") {
         j++;
         continue;
       }
-      const attached = opt.match(/^-[a-zA-Z]*c([\s\S]+)$/i);
+      const attached = opt.match(/^-[a-zA-Z]*c([\s\S]+)$/);
       if (attached && (hasAttachedQuoteC || /[^a-zA-Z]/.test(attached[1]))) {
         cmdArg = attached[1];
         trailingStart = j + 1;
         break;
       }
-      if (/^-[a-zA-Z]*c[a-zA-Z]*$/i.test(opt) && j + 1 < rest.length) {
-        cmdArg = rest[j + 1];
-        trailingStart = j + 2;
-        break;
+      if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(opt)) {
+        hasC = true;
+        continue;
       }
-      if (!opt.startsWith("-") && !opt.startsWith("+")) break;
+      if (opt.startsWith("-") || opt.startsWith("+")) {
+        continue;
+      }
+      if (hasC) {
+        cmdArg = opt;
+        trailingStart = j + 1;
+      }
+      break;
     }
     if (cmdArg === null) return null;
     const results = [];
     if (cmdArg.trim()) results.push(cmdArg.trim());
     if (trailingStart !== -1 && trailingStart < rest.length && POSITIONAL_PARAM_REF_RE.test(cmdArg)) {
       const trailing = rest.slice(trailingStart);
+      const substituted = substitutePositionalParams(cmdArg, trailing).trim();
+      if (substituted && !results.includes(substituted)) {
+        results.push(substituted);
+      }
       for (const cand of formatUnwrappedArgs(trailing)) {
         if (!results.includes(cand)) results.push(cand);
       }
@@ -755,7 +869,7 @@ function unwrapShellInvocation(segment) {
 
   if (verb === "pwsh" || verb === "powershell") {
     for (let j = 0; j < rest.length; j++) {
-      const m = rest[j].match(/^-(?:c|co|com|comm|comma|comman|command)(?::([\s\S]*))?$/i);
+      const m = rest[j].match(/^[-/](?:c|co|com|comm|comma|comman|command)(?::([\s\S]*))?$/i);
       if (!m) continue;
       const parts = [...(m[1] ? [m[1]] : []), ...rest.slice(j + 1)];
       const joined = parts.join(" ").trim();
@@ -765,7 +879,7 @@ function unwrapShellInvocation(segment) {
   }
 
   if (verb === "cmd") {
-    const hasAttachedQuoteC = /(?:^|\s)\/[ck]["']/i.test(segment);
+    const hasAttachedQuoteC = /(?:^|\s)\/[ck]["'\u2018-\u201d]/i.test(segment);
     for (let j = 0; j < rest.length; j++) {
       const opt = rest[j];
       const attached = opt.match(/^\/[ck]([\s\S]+)$/i);
@@ -810,35 +924,85 @@ export function tokenizeSimpleWords(segment) {
   let inDouble = false;
 
   for (let i = 0; i < str.length; i++) {
-    const ch = str[i];
-    const next = str[i + 1];
+    const rawCh = str[i];
+    const ch = normalizeQuoteChar(rawCh);
+    const rawNext = str[i + 1];
+    const next = rawNext !== undefined ? normalizeQuoteChar(rawNext) : undefined;
 
     if (inSingle) {
       inToken = true;
       if (ch === "'") {
         inSingle = false;
       } else {
-        cur += ch;
+        cur += rawCh;
       }
       continue;
     }
 
     if (inDouble) {
       inToken = true;
-      if (ch === "\\" && (next === '"' || next === "\\")) {
-        cur += next;
+      if (rawCh === "\\" && (next === '"' || rawNext === "\\")) {
+        cur += rawNext === "\\" ? "\\" : '"';
         i++;
         continue;
       }
       if (ch === '"') {
         inDouble = false;
       } else {
-        cur += ch;
+        cur += rawCh;
       }
       continue;
     }
 
-    if (/\s/.test(ch)) {
+    if (/\s/.test(rawCh)) {
+      if (inToken) {
+        tokens.push(cur);
+        cur = "";
+        inToken = false;
+      }
+      continue;
+    }
+
+    if (rawCh === "$" && next === "'") {
+      inToken = true;
+      i += 2;
+      while (i < str.length) {
+        const qch = str[i];
+        if (normalizeQuoteChar(qch) === "'") break;
+        if (qch === "\\" && i + 1 < str.length) {
+          const esc = str[i + 1];
+          if (esc === "n") {
+            cur += "\n";
+            i += 2;
+          } else if (esc === "r") {
+            cur += "\r";
+            i += 2;
+          } else if (esc === "t") {
+            cur += "\t";
+            i += 2;
+          } else if (esc === "x" && /^[0-9a-fA-F]{2}/.test(str.slice(i + 2, i + 4))) {
+            cur += String.fromCharCode(Number.parseInt(str.slice(i + 2, i + 4), 16));
+            i += 4;
+          } else if (esc === "u" && /^[0-9a-fA-F]{4}/.test(str.slice(i + 2, i + 6))) {
+            cur += String.fromCharCode(Number.parseInt(str.slice(i + 2, i + 6), 16));
+            i += 6;
+          } else {
+            cur += esc;
+            i += 2;
+          }
+        } else {
+          cur += qch;
+          i++;
+        }
+      }
+      continue;
+    }
+
+    if (!inToken && (rawCh === "(" || rawCh === "{")) {
+      continue;
+    }
+
+    if ((rawCh === ")" || rawCh === "}") && !cur.includes("(") && !cur.includes("{")) {
       if (inToken) {
         tokens.push(cur);
         cur = "";
@@ -848,8 +1012,8 @@ export function tokenizeSimpleWords(segment) {
     }
 
     // Preserve Windows backslashes outside quotes except before quotes or whitespace.
-    if (ch === "\\" && (next === '"' || next === "'" || (next !== undefined && /\s/.test(next)))) {
-      cur += next;
+    if (rawCh === "\\" && (next === '"' || next === "'" || (rawNext !== undefined && /\s/.test(rawNext)))) {
+      cur += rawNext === '"' || rawNext === "'" ? next : rawNext;
       i++;
       inToken = true;
       continue;
@@ -867,7 +1031,7 @@ export function tokenizeSimpleWords(segment) {
       continue;
     }
 
-    cur += ch;
+    cur += rawCh;
     inToken = true;
   }
 
@@ -879,10 +1043,9 @@ export function tokenizeSimpleWords(segment) {
 
 function getLeadingCommandVerbs(segment) {
   const tokens = tokenizeSimpleWords(segment);
+  const { idx: startIdx } = stripTransparentWrappers(tokens);
   const verbs = [];
-  let idx = 0;
-  if (tokens[0] === "&") idx++;
-  while (idx < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[idx])) idx++;
+  let idx = startIdx;
   while (idx < tokens.length) {
     const tok = tokens[idx];
     if (tok.startsWith("-")) {
