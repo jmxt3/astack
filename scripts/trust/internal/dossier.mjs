@@ -12,12 +12,14 @@ import {
 } from "./ledger.mjs";
 import {
   computeAssertionDelta,
+  loadBoundaries,
   loadRiskPolicy,
   matchesAnyGlob,
   parsePorcelainPaths,
   readBaseReviewContext,
   resolveBaseRef,
 } from "./policy.mjs";
+import { assessChange } from "./risk.mjs";
 import {
   renderGitHubPrProof,
   resolvePrStatechart,
@@ -285,6 +287,21 @@ export function renderDossierMarkdown({
     "",
   ];
 
+  if (evidence.riskAssessment) {
+    const ra = evidence.riskAssessment;
+    lines.push("## Risk Card", "");
+    lines.push(ra.summary, "");
+    lines.push(
+      `| Field | Value |`,
+      `|---|---|`,
+      `| Category | \`${ra.category}\` |`,
+      `| Risk Score (R) | \`${ra.score.toFixed(2)}\` (inherent \`${ra.inherent}\`, residual \`${ra.residual}\`) |`,
+      `| Rollback | \`${ra.rollback.kind}\`: ${escapeMarkdownCell(ra.rollback.plan)} |`,
+      `| Signals | ${ra.signals.length > 0 ? ra.signals.map((s) => `\`${s.id}\``).join(", ") : "none"} |`,
+      "",
+    );
+  }
+
   lines.push("## Blast Radius Map", "", "```mermaid", "flowchart LR");
   const baseLabel = `Base ${(evidence.baseRef ?? "trunk").replace(/"/g, "'")}`;
   lines.push(`  Base["${baseLabel}"]`);
@@ -503,6 +520,17 @@ export function compilePrDossier({
     policy.maxAssertionWeakeningRatio ?? 0.25,
   );
   const risk = classifyRiskTier(fileEntries.map((f) => f.file), policy);
+  const { boundaries } = loadBoundaries(workspaceDir);
+  const riskAssessment = assessChange({
+    diffText,
+    numstat: numstatText,
+    statusText,
+    policy,
+    receipts,
+    boundaries,
+    action: "open_pr",
+    headSha,
+  });
   const clusters = clusterChangedFiles(fileEntries);
 
   let findingsDoc = null;
@@ -641,6 +669,7 @@ export function compilePrDossier({
     riskTier: risk.tier,
     riskLabel,
     matchedRiskRules: risk.matchedRules,
+    riskAssessment,
     autoMergeEligible,
     reviewRound,
     maxReviewRounds,

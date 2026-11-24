@@ -65,6 +65,16 @@ import {
   validateProofManifest,
 } from "./internal/pr-proof.mjs";
 import { runArchitectureAudit } from "./internal/audit.mjs";
+import {
+  DEFAULT_RISK_WEIGHTS,
+  HARD_BLOCK_SIGNALS,
+  TRUST_CATEGORIES,
+  assessChange,
+  bucketFromScore,
+  classifyDominantCategory,
+  classifyFileCategory,
+  computeNoisyOrScore,
+} from "./internal/risk.mjs";
 
 export const TOOL_MATCHERS = {
   fileWriteTools: FILE_WRITE_TOOLS,
@@ -78,13 +88,21 @@ export const TOOL_MATCHERS = {
 export {
   DEFAULT_ENGINEERING_MCP_SERVERS,
   DEFAULT_RISK_POLICY,
+  DEFAULT_RISK_WEIGHTS,
+  HARD_BLOCK_SIGNALS,
   PIPELINE_STAGES,
+  TRUST_CATEGORIES,
+  assessChange,
+  bucketFromScore,
   classifyCommandCategory,
+  classifyDominantCategory,
+  classifyFileCategory,
   classifyRiskTier,
   clusterChangedFiles,
   compilePrDossier,
   computeAssertionDelta,
   computeFreshness,
+  computeNoisyOrScore,
   deriveRepoId,
   evaluateBoundaryViolation,
   evaluateBoundaryWrite,
