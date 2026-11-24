@@ -827,6 +827,7 @@ test("evaluatePrIntent sanitizes conversationId and confines pr-intent state fil
     assert.equal(DEFAULT_RISK_POLICY.tiers["1"].globs.includes("sidecars/**"), true);
     assert.equal(DEFAULT_RISK_POLICY.tiers["2"].globs.includes("mcp_config.json"), true);
     assert.equal(DEFAULT_RISK_POLICY.tiers["3"].globs.includes("sidecars/*/sidecar.json"), true);
+    assert.equal(classifyCommandCategory('echo "\u201c; node --test ; \u201d"'), "other");
   } finally {
     fs.rmSync(parentDir, { recursive: true, force: true });
   }

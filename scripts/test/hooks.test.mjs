@@ -100,6 +100,11 @@ test("irreversible-guard allows safe commands and flags destructive/trunk comman
     "git push origin main --force",
     "git push origin +main",
     'env -S "git push --force origin main"',
+    'env -S"git push --force origin main"',
+    'echo \u2018; git push --force origin main',
+    'echo $(git push --force origin main)',
+    'time git push --force origin main',
+    'g\\it push --force origin main',
     'timeout 10 git push --force origin main',
     "git reset --hard HEAD~3",
     "rm -rf /",
@@ -430,6 +435,17 @@ test("evidence-gate, boundary-guard, and round-limiter block violations and hono
       { CI: "", NON_INTERACTIVE: "" },
     );
     assert.equal(badPush.decision, "force_ask");
+
+    const wrappedMerge = runHook(
+      evidenceScript,
+      JSON.stringify({
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        toolCall: { name: "run_command", args: { CommandLine: "exec gh pr merge 1" } },
+      }),
+      { NON_INTERACTIVE: "1" },
+    );
+    assert.equal(wrappedMerge.decision, "deny");
 
     writeEvidenceSnapshotAtomic(path.join(artifactDir, "astack-trust"), {
       schemaVersion: 1,

@@ -7,6 +7,7 @@ import {
   collectLeafSegments,
   loadRiskPolicy,
   resolveBaseRef,
+  stripTransparentWrappers,
   tokenizeSimpleWords,
 } from "./policy.mjs";
 import { sanitizeConversationId } from "./envelope.mjs";
@@ -869,25 +870,15 @@ function extractCliPrActions(command) {
   const actions = [];
   for (const segment of collectLeafSegments(String(command ?? ""))) {
     const tokens = tokenizeSimpleWords(segment);
-    let idx = 0;
-    if (tokens[0] === "&") idx++;
-    while (idx < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[idx])) idx++;
-    let verb = "";
-    while (idx < tokens.length) {
-      const tok = tokens[idx];
-      if (tok.startsWith("-")) {
-        idx++;
-        continue;
-      }
-      const base = path.win32.basename(tok.replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
-      if (WRAPPER_VERBS.has(base)) {
-        idx++;
-        continue;
-      }
-      verb = base;
+    const wrapped = stripTransparentWrappers(tokens);
+    let idx = wrapped.idx;
+    let verb = wrapped.verb;
+    while (verb && WRAPPER_VERBS.has(verb)) {
       idx++;
-      break;
+      while (idx < tokens.length && tokens[idx]?.startsWith("-")) idx++;
+      verb = idx < tokens.length ? tokens[idx].replace(/["'`\u2018-\u201d\\]/g, "").replace(/.*\//, "").toLowerCase().replace(/\.exe$/, "") : "";
     }
+    if (verb) idx++;
     if (verb === "git") {
       let skipNext = false;
       for (let i = idx; i < tokens.length; i++) {

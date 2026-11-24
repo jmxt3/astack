@@ -86,7 +86,13 @@ function resolveRealPathBestEffort(rawPath, maxHops = 16) {
         if (lst.isSymbolicLink()) {
           try {
             const linkTarget = fs.readlinkSync(probe);
-            const targetAbs = path.resolve(path.dirname(probe), linkTarget);
+            let parentReal = path.dirname(probe);
+            try {
+              parentReal = realFn(parentReal);
+            } catch {
+              parentReal = path.dirname(probe);
+            }
+            const targetAbs = path.resolve(parentReal, linkTarget);
             resolvedNext = tail.length > 0 ? path.join(targetAbs, ...tail.reverse()) : targetAbs;
             break;
           } catch {

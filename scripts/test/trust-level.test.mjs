@@ -1144,6 +1144,28 @@ test("security regressions: trust-gate blocks flag-prefixed cli.mjs, cd+cli.mjs,
       'echo "no tsaeb sjm.ilc/tsurt/stpircs edon" | rev | bash',
       'cd "$ASTACK_PLUGIN_DATA" && echo \'{"beastOn":true}\' > trust/abc/settings.json',
       "$D = $env:ASTACK_PLUGIN_DATA; Set-Content \"$D/trust/abc/settings.json\" '{}'",
+      'env -S"node scripts/trust/cli.mjs beast on"',
+      "env -Cscripts/trust node cli.mjs beast on",
+      'echo "node scripts/trust/cli.mjs beast on" | env -S "bash"',
+      'echo "bm9kZSBzY3JpcHRzL3RydXN0L2NsaS5tanMgYmVhc3Qgb24=" | base64 -d | env -S "bash -s"',
+      'echo \u2018; node -e "import(\'./scripts/trust/index.mjs\').then(m=>m.applyTrustSettingsAction({}))"',
+      'echo $\'\\\'\'; node -e "import(\'./scripts/trust/index.mjs\').then(m=>m.applyTrustSettingsAction({}))"',
+      'cat $(cp /tmp/fake "$ASTACK_PLUGIN_DATA/trust/abc/settings.json")',
+      'echo "$(node scripts/trust/cli.mjs beast on)"',
+      'bash -O extglob -c "node scripts/trust/cli.mjs beast on"',
+      'time node -e "import(\'./scripts/trust/index.mjs\').then(m=>m.applyTrustSettingsAction({}))"',
+      'n\\ode -e "import(\'./scripts/trust/index.mjs\').then(m=>m.applyTrustSettingsAction({}))"',
+      'powershell "node scripts/trust/cli.mjs beast on"',
+      'pwsh -cwa "node scripts/trust/cli.mjs beast on"',
+      'printf "beast on" | xargs -I{} node scripts/trust/cli.mjs {}',
+      'python3 -Bc "open(\'plugin-data/\' \'astack/\' \'trust/abc/settings.json\',\'w\').write(\'{}\')"',
+      'source <(echo "bm9kZSBzY3JpcHRzL3RydXN0L2NsaS5tanMgYmVhc3Qgb24=" | base64 -d)',
+      "cd ~/.gemini/antigravity/plugin-data && cd astack && echo '{}' > trust/abc/settings.json",
+      "cd /d %ASTACK_PLUGIN_DATA% && echo {} > trust\\abc\\settings.json",
+      "node --input-type=module << 'EOF'\nimport m from './scripts/trust/index.mjs';\nm.applyTrustSettingsAction({});\nEOF",
+      "node scripts/trust/cli.mjs $'\\142east' on",
+      "echo {} > ${env:ASTACK_PLUGIN_DATA}\\trust\\abc\\settings.json",
+      "printf '\\x6eode scripts/\\x74rust/cli.mjs beast on' | bash",
     ]) {
       assert.equal(isProtectedTrustShellCommand(bypassCmd, { dataDir }), true, `Expected block for: ${bypassCmd}`);
     }
@@ -1180,6 +1202,20 @@ test("security regressions: trust-gate blocks flag-prefixed cli.mjs, cd+cli.mjs,
         { dataDir, baseRef: "main" },
       );
       assert.equal(danglingDecision.decision, "deny");
+
+      const subDir = path.join(path.dirname(path.dirname(storeDir)), "sub");
+      fs.mkdirSync(subDir, { recursive: true });
+      const relLeafTarget = path.join("..", "trust", scope.repoId, "settings.json");
+      fs.symlinkSync(relLeafTarget, path.join(subDir, "p.json"));
+      const symDir = path.join(dir, "sym");
+      fs.symlinkSync(subDir, symDir, "dir");
+      const nestedSymPath = path.join(symDir, "p.json");
+      assert.equal(isProtectedTrustStorePath(nestedSymPath, { dataDir, workspaceDir: dir }), true);
+      const nestedDecision = evaluateTrustGate(
+        { kind: "tool-write", filePath: nestedSymPath, chunks: ["{}"], workspaceDir: dir },
+        { dataDir, baseRef: "main" },
+      );
+      assert.equal(nestedDecision.decision, "deny");
     }
 
     applyTrustSettingsAction({
