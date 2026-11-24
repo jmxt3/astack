@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "pr-13-sidecar-permissions",
+      "description": "PR #13 shipped bundled automation sidecars requesting arguments, workspace_uris, and access_grants.",
+      "expectedCategory": "governance",
+      "expectedResidual": "blocked",
+      "expectedSignals": ["bundled_sidecar_permissions", "touches_governance", "new_path"],
+      "expectedOutcome": "follow_up_fix",
+      "diff": "diff --git a/sidecars/astack_pr_triage/sidecar.json b/sidecars/astack_pr_triage/sidecar.json\nnew file mode 100644\n--- /dev/null\n+++ b/sidecars/astack_pr_triage/sidecar.json\n@@ -0,0 +1,12 @@\n+{\n+  \"display_name\": \"AStack PR Triage\",\n+  \"builtin\": \"schedule\",\n+  \"arguments\": [{ \"key\": \"repo_dir\", \"workspace_arg\": {} }],\n+  \"agent_permissions\": {\n+    \"workspace_uris\": [\"${repo_dir}\"],\n+    \"access_grants\": [\"command(gh pr list)\"]\n+  }\n+}\n"
+    },
+    {
+      "id": "pr-15-remove-permission-sidecar",
+      "description": "PR #15 deleted permission-gated sidecar manifests; deletion must not falsely trigger bundled_sidecar_permissions.",
+      "expectedCategory": "governance",
+      "expectedResidual": "blocked",
+      "expectedSignals": ["touches_governance"],
+      "forbiddenSignals": ["bundled_sidecar_permissions"],
+      "expectedOutcome": "clean",
+      "diff": "diff --git a/sidecars/astack_pr_triage/sidecar.json b/sidecars/astack_pr_triage/sidecar.json\ndeleted file mode 100644\n--- a/sidecars/astack_pr_triage/sidecar.json\n+++ /dev/null\n@@ -1,6 +0,0 @@\n-{\n-  \"arguments\": [{ \"key\": \"repo_dir\" }],\n-  \"agent_permissions\": {\n-    \"access_grants\": [\"command(gh pr list)\"]\n-  }\n-}\n"
+    },
+    {
+      "id": "seed-assertion-weakening",
+      "description": "Test diff deletes strict assertions and replaces them with a trivial truthy check.",
+      "expectedCategory": "tests",
+      "expectedResidual": "high",
+      "expectedSignals": ["deletes_assertions"],
+      "expectedOutcome": "human_override",
+      "diff": "diff --git a/tests/auth.test.js b/tests/auth.test.js\n--- a/tests/auth.test.js\n+++ b/tests/auth.test.js\n@@ -5,4 +5,2 @@ test('rejects expired token', () => {\n-  assert.equal(res.status, 401);\n-  assert.equal(res.body.error, 'token_expired');\n+  assert.ok(res);\n });\n"
+    },
+    {
+      "id": "clean-docs-typo",
+      "description": "Pure markdown typo fix with zero runtime risk.",
+      "expectedCategory": "docs",
+      "expectedResidual": "low",
+      "expectedSignals": [],
+      "expectedOutcome": "clean",
+      "diff": "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -10,1 +10,1 @@\n-Run tests before opning a PR.\n+Run tests before opening a PR.\n"
+    },
+    {
+      "id": "public-surface-facade-edit",
+      "description": "Edits scripts/mcp/tools.mjs public exports without accompanying test changes.",
+      "expectedCategory": "core",
+      "expectedResidual": "high",
+      "expectedSignals": ["public_surface_changed", "untested_change"],
+      "expectedOutcome": "approved_with_edits",
+      "diff": "diff --git a/scripts/mcp/tools.mjs b/scripts/mcp/tools.mjs\n--- a/scripts/mcp/tools.mjs\n+++ b/scripts/mcp/tools.mjs\n@@ -60,2 +60,3 @@ export {\n   dispatchToolCall,\n+  newExportedSymbol,\n };\n"
+    },
+    {
+      "id": "trust-core-governance-edit",
+      "description": "Edits scripts/trust/index.mjs without tests; REVIEW.md#2 keeps scripts/trust/** in governance (blocked).",
+      "expectedCategory": "governance",
+      "expectedResidual": "blocked",
+      "expectedSignals": ["touches_governance", "public_surface_changed", "untested_change"],
+      "expectedOutcome": "approved_with_edits",
+      "diff": "diff --git a/scripts/trust/index.mjs b/scripts/trust/index.mjs\n--- a/scripts/trust/index.mjs\n+++ b/scripts/trust/index.mjs\n@@ -60,2 +60,3 @@ export {\n   compilePrDossier,\n+  newExportedSymbol,\n };\n"
+    },
+    {
+      "id": "single-untested-tooling-edit",
+      "description": "Small untested non-public tooling script edit stays medium risk, not high or blocked.",
+      "expectedCategory": "tooling",
+      "expectedResidual": "medium",
+      "expectedSignals": ["untested_change"],
+      "forbiddenSignals": ["touches_governance", "public_surface_changed"],
+      "expectedOutcome": "clean",
+      "diff": "diff --git a/scripts/cli/title.mjs b/scripts/cli/title.mjs\n--- a/scripts/cli/title.mjs\n+++ b/scripts/cli/title.mjs\n@@ -10,1 +10,2 @@\n export function formatTitle() {\n+  const label = 'AStack';\n"
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_ROOT_DIR, RESERVED_SKILL_NAMES } from "../catalog.mjs";
 import { runIncidentReplay } from "./incident-replay.mjs";
+import { runRiskFixtureCases } from "./risk-backtest.mjs";
 import { checkPlan } from "../../skills/astack-mode/scripts/check-plan.mjs";
 
 const require = createRequire(import.meta.url);
@@ -177,6 +178,30 @@ export function runEvalSuite({ rootDir = DEFAULT_ROOT_DIR } = {}) {
     actualProblems: badPlanResult.problems.length,
   });
 
+  const riskFixturesPath = path.join(rootDir, "scripts", "eval", "fixtures", "risk-cases.json");
+  const riskReport = runRiskFixtureCases(riskFixturesPath);
+  for (const rc of riskReport.results) {
+    results.push({
+      id: `risk:${rc.id}`,
+      pass: rc.pass,
+      expected: { category: rc.expectedCategory, residual: rc.expectedResidual },
+      actual: { category: rc.category, residual: rc.residual, score: rc.score, signals: rc.signals },
+      reasons: rc.reasons,
+    });
+  }
+  results.push({
+    id: "invariant:risk-high-blocked-precision",
+    pass:
+      riskReport.total > 0 &&
+      riskReport.highBlockedPrecision === 1 &&
+      riskReport.falsePositives.length === 0 &&
+      riskReport.falseNegatives.length === 0,
+    precision: riskReport.highBlockedPrecision,
+    recall: riskReport.highBlockedRecall,
+    falsePositives: riskReport.falsePositives,
+    falseNegatives: riskReport.falseNegatives,
+  });
+
   const passed = results.filter((r) => r.pass).length;
   return {
     ok: passed === results.length,
@@ -184,6 +209,14 @@ export function runEvalSuite({ rootDir = DEFAULT_ROOT_DIR } = {}) {
     total: results.length,
     passed,
     failed: results.length - passed,
+    riskMetrics: {
+      total: riskReport.total,
+      passed: riskReport.passed,
+      highBlockedPrecision: riskReport.highBlockedPrecision,
+      highBlockedRecall: riskReport.highBlockedRecall,
+      falsePositives: riskReport.falsePositives,
+      falseNegatives: riskReport.falseNegatives,
+    },
     results,
   };
 }

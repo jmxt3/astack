@@ -311,6 +311,12 @@
       "description": "Build a local or Tailscale button UI that wakes an automation webhook safely.",
       "docsPath": "skills/make-bot-ui/SKILL.md"
     },
+    "/beast-mode": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Configure earned autonomy and Beast Mode settings inside human-set Ceilings.",
+      "docsPath": "skills/beast-mode/SKILL.md"
+    },
     "/astack-mode prune worktrees": {
       "kind": "playbook",
       "invocable": true,

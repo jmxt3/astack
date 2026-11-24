@@ -3,12 +3,22 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  DEFAULT_ENGINEERING_MCP_SERVERS,
+  collectDualViewLeafSegments,
   collectLeafSegments,
   loadRiskPolicy,
+  normalizeCommandVerb,
   resolveBaseRef,
+  stripTransparentWrappers,
   tokenizeSimpleWords,
+  unwrapPackageRunnerInvocation,
 } from "./policy.mjs";
+import { sanitizeConversationId } from "./envelope.mjs";
 import { validatePrBodyContract } from "./pr-proof.mjs";
+import { readIntentCard } from "./intent.mjs";
+import { resolveGitDirs, resolveWorkspaceScope } from "./workspace-scope.mjs";
+
+export { resolveGitDirs, resolveWorkspaceScope };
 
 export const PIPELINE_STAGES = [
   {
@@ -78,48 +88,6 @@ export function formatPipelineRail({
   return lines.join("\n");
 }
 
-function findGitEntry(startDir) {
-  if (!startDir) return null;
-  let current = path.resolve(startDir);
-  while (true) {
-    const candidate = path.join(current, ".git");
-    if (fs.existsSync(candidate)) {
-      return { repoRoot: current, dotGitPath: candidate };
-    }
-    const parent = path.dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
-}
-
-/**
- * Resolves `{ repoRoot, gitDir, commonDir }` via pure filesystem reads without spawning `git`.
- */
-export function resolveGitDirs(workspaceDir) {
-  const found = findGitEntry(workspaceDir);
-  if (!found) return null;
-  const stat = fs.statSync(found.dotGitPath);
-  if (stat.isDirectory()) {
-    return {
-      repoRoot: found.repoRoot,
-      gitDir: found.dotGitPath,
-      commonDir: found.dotGitPath,
-    };
-  }
-  if (!stat.isFile()) return null;
-  const raw = fs.readFileSync(found.dotGitPath, "utf8");
-  const match = raw.match(/^gitdir:\s*(.+)$/im);
-  if (!match) return null;
-  const gitDir = path.resolve(found.repoRoot, match[1].trim());
-  const commonFile = path.join(gitDir, "commondir");
-  let commonDir = gitDir;
-  if (fs.existsSync(commonFile)) {
-    const relCommon = fs.readFileSync(commonFile, "utf8").trim();
-    if (relCommon) commonDir = path.resolve(gitDir, relCommon);
-  }
-  return { repoRoot: found.repoRoot, gitDir, commonDir };
-}
-
 /**
  * Reads current HEAD SHA directly from `.git/HEAD` without spawning a child process.
  */
@@ -169,30 +137,276 @@ export function resolveTrustDir({ workspaceDir = "", artifactDir = null } = {}) 
     if (dirs?.commonDir) {
       return path.join(dirs.commonDir, "astack-trust");
     }
-    return path.join(path.resolve(workspaceDir), ".tmp", "astack-trust");
   }
   return null;
 }
 
-const TEST_CMD_REGEX =
-  /\b(?:node\s+--test|node\s+--run\s+test(?::[\w-]+)?|npm\s+(?:run\s+)?test(?::[\w-]+)?|pnpm\s+test|yarn\s+test|bun\s+test|vitest|jest|pytest|cargo\s+test|go\s+test|playwright\s+test)\b/i;
-const LINT_CMD_REGEX =
-  /\b(?:eslint|oxlint|biome|ruff|tsc\b|mypy|pyright|validate-astack|agy\s+plugin\s+validate|arch-audit)\b/i;
-const BUILD_CMD_REGEX =
-  /\b(?:tsc\s+-b|vite\s+build|next\s+build|cargo\s+build|go\s+build|npm\s+run\s+build)\b/i;
-const VERIFY_CMD_REGEX =
-  /\b(?:pr-dossier|statechart|control-ui|control-cli|verify-[\w-]+)\b/i;
+const CATEGORY_PRECEDENCE = { test: 4, verify: 3, lint: 2, build: 1, other: 0 };
+const READ_ONLY_SKIP_VERBS = new Set([
+  "cat",
+  "type",
+  "get-content",
+  "gc",
+  "head",
+  "tail",
+  "ls",
+  "dir",
+  "pwd",
+  "get-childitem",
+  "gci",
+  "select-object",
+  "select",
+  "select-string",
+  "sls",
+  "rg",
+  "ripgrep",
+  "grep",
+  "egrep",
+  "fgrep",
+  "findstr",
+  "stat",
+  "wc",
+  "test-path",
+  "echo",
+  "write-output",
+  "write-host",
+  "printf",
+  "measure-object",
+  "sort-object",
+  "where-object",
+  "out-null",
+  "out-host",
+  "format-table",
+  "remove-item",
+  "rm",
+  "del",
+  "mkdir",
+  "new-item",
+  "cd",
+  "set-location",
+  "sl",
+  "pushd",
+  "popd",
+  "true",
+  "false",
+  "which",
+  "where",
+  "command",
+]);
+const DIRECT_TEST_RUNNERS = new Set(["vitest", "jest", "pytest", "mocha", "ava", "tap", "rspec", "phpunit", "ctest"]);
+const DIRECT_VERIFY_RUNNERS = new Set(["pr-dossier", "statechart", "control-ui", "control-cli"]);
+const DIRECT_LINT_RUNNERS = new Set(["eslint", "oxlint", "biome", "ruff", "mypy", "pyright", "flake8", "shellcheck", "hadolint"]);
+const SCRIPT_RUNNERS = new Set(["node", "tsx", "ts-node", "deno", "bun", "python", "python3", "py", "bash", "sh", "pwsh", "powershell"]);
+const PKG_TEST_RUNNERS = new Set(["npm", "pnpm", "yarn", "bun"]);
+const EXEC_WRAPPERS = new Set(["npx", "pnpx", "bunx", "uv", "uvx"]);
+const NODE_VALUE_FLAGS = new Set(["-r", "--require", "--import", "--loader", "--env-file", "-C", "--conditions", "--title"]);
+const VERIFY_SCRIPT_RE = /^(?:pr-dossier|statechart|verify-[\w-]+|pr-verify-loop|run-eval|risk-backtest)\.(?:[cm]?[jt]sx?|py|sh)$/i;
+const LINT_SCRIPT_RE = /^(?:validate-astack|arch-audit)\.(?:[cm]?[jt]s)$/i;
+const TEST_FILE_RE = /\.(?:test|spec)\.[cm]?[jt]sx?$/i;
+
+function basenameNoExt(tok) {
+  return path.win32
+    .basename(String(tok ?? "").replace(/\//g, "\\"))
+    .toLowerCase()
+    .replace(/\.(?:exe|cmd|bat)$/, "");
+}
+
+function findNodeScriptArg(args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "-e" || arg === "--eval" || arg === "-p" || arg === "--print") {
+      return null;
+    }
+    if (NODE_VALUE_FLAGS.has(arg)) {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("-")) continue;
+    return arg;
+  }
+  return null;
+}
+
+function classifySingleSegment(segment) {
+  const rawTokens = tokenizeSimpleWords(segment)
+    .map((t) => t.replace(/[;}]+$/g, ""))
+    .filter(Boolean);
+  let idx = 0;
+  while (idx < rawTokens.length && (rawTokens[idx] === "&" || rawTokens[idx] === "{" || /^[A-Za-z_][A-Za-z0-9_]*=/.test(rawTokens[idx]))) {
+    idx++;
+  }
+  while (idx < rawTokens.length && rawTokens[idx].startsWith("-")) idx++;
+  if (idx >= rawTokens.length) return "other";
+
+  let verb = basenameNoExt(rawTokens[idx]);
+  let args = rawTokens.slice(idx + 1);
+  if (verb === "measure-command") {
+    let nextIdx = idx + 1;
+    while (nextIdx < rawTokens.length && (rawTokens[nextIdx] === "{" || rawTokens[nextIdx] === "&")) nextIdx++;
+    if (nextIdx >= rawTokens.length) return "other";
+    verb = basenameNoExt(rawTokens[nextIdx]);
+    args = rawTokens.slice(nextIdx + 1);
+  }
+
+  if (!verb || READ_ONLY_SKIP_VERBS.has(verb) || verb === "git") {
+    return "other";
+  }
+
+  if (DIRECT_TEST_RUNNERS.has(verb)) return "test";
+  if (DIRECT_VERIFY_RUNNERS.has(verb) || /^verify-[\w-]+$/.test(verb)) return "verify";
+  if (DIRECT_LINT_RUNNERS.has(verb)) return "lint";
+  if (verb === "playwright" && args.find((a) => !a.startsWith("-"))?.toLowerCase() === "test") return "test";
+
+  if (verb === "tsc") {
+    return args.some((a) => a === "-b" || a === "--build") ? "build" : "lint";
+  }
+  if (verb === "esbuild") return "build";
+  if ((verb === "vite" || verb === "next") && args.find((a) => !a.startsWith("-"))?.toLowerCase() === "build") {
+    return "build";
+  }
+  if (verb === "cargo" || verb === "go" || verb === "dotnet") {
+    const sub = args.find((a) => !a.startsWith("-"))?.toLowerCase();
+    if (sub === "test") return "test";
+    if (sub === "build") return "build";
+  }
+  if (verb === "agy") {
+    const pos = args.filter((a) => !a.startsWith("-")).map((a) => a.toLowerCase());
+    if (pos[0] === "plugin" && pos[1] === "validate") return "lint";
+  }
+
+  if (PKG_TEST_RUNNERS.has(verb)) {
+    const pos = args.filter((a) => !a.startsWith("-")).map((a) => a.toLowerCase());
+    if (pos[0] === "test" || pos[0] === "t") return "test";
+    if (pos[0] === "run" && pos[1]) {
+      if (/^test(?::[\w-]+)?$/.test(pos[1])) return "test";
+      if (/^(?:lint|typecheck|validate|arch-audit)$/.test(pos[1])) return "lint";
+      if (/^build(?::[\w-]+)?$/.test(pos[1])) return "build";
+    }
+  }
+
+  if (EXEC_WRAPPERS.has(verb)) {
+    const pos = args.filter((a) => !a.startsWith("-")).map((a) => a.toLowerCase());
+    const target = pos[0] === "run" ? pos[1] : pos[0];
+    const targetVerb = basenameNoExt(target);
+    if (DIRECT_TEST_RUNNERS.has(targetVerb) || (targetVerb === "playwright" && pos.includes("test"))) return "test";
+    if (DIRECT_VERIFY_RUNNERS.has(targetVerb) || /^verify-[\w-]+$/.test(targetVerb)) return "verify";
+    if (DIRECT_LINT_RUNNERS.has(targetVerb) || targetVerb === "validate-astack" || targetVerb === "arch-audit") {
+      return "lint";
+    }
+  }
+
+  if (SCRIPT_RUNNERS.has(verb)) {
+    if (verb === "node") {
+      if (args.includes("--test")) return "test";
+      const runIdx = args.indexOf("--run");
+      if (runIdx !== -1 && args[runIdx + 1]) {
+        const scriptName = args[runIdx + 1].toLowerCase();
+        if (/^test(?::[\w-]+)?$/.test(scriptName)) return "test";
+        if (/^(?:lint|typecheck|validate)$/.test(scriptName)) return "lint";
+        if (/^build(?::[\w-]+)?$/.test(scriptName)) return "build";
+      }
+    }
+    const scriptArg = verb === "node" ? findNodeScriptArg(args) : args.find((a) => !a.startsWith("-"));
+    if (scriptArg) {
+      const scriptBase = path.win32.basename(scriptArg.replace(/\//g, "\\"));
+      if (TEST_FILE_RE.test(scriptBase)) return "test";
+      if (VERIFY_SCRIPT_RE.test(scriptBase)) return "verify";
+      if (LINT_SCRIPT_RE.test(scriptBase)) return "lint";
+    }
+  }
+
+  return "other";
+}
+
+const PRINT_ECHO_SEGMENT_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]*\s+)*(?:write-output|write-host|echo|printf)(?=[\s"'`]|$)/i;
+
+function stripBalancedCurlyQuotesForPrint(command) {
+  const str = String(command ?? "");
+  if (!/[\u201c\u2018]/.test(str)) return str;
+  let out = "";
+  let inSingle = false;
+  let inDouble = false;
+  let atSegmentStart = true;
+  let inPrintVerb = false;
+
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (inSingle) {
+      out += ch;
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      out += ch;
+      if (ch === "\\" && i + 1 < str.length) {
+        out += str[i + 1];
+        i++;
+      } else if (ch === '"') {
+        inDouble = false;
+      }
+      continue;
+    }
+    if (ch === "\\" && i + 1 < str.length) {
+      out += ch + str[i + 1];
+      i++;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      atSegmentStart = false;
+      out += ch;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      atSegmentStart = false;
+      out += ch;
+      continue;
+    }
+    if (ch === ";" || ch === "&" || ch === "|" || ch === "\n" || ch === "\r") {
+      inPrintVerb = false;
+      atSegmentStart = true;
+      out += ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      out += ch;
+      continue;
+    }
+    if (atSegmentStart) {
+      atSegmentStart = false;
+      if (PRINT_ECHO_SEGMENT_RE.test(str.slice(i))) {
+        inPrintVerb = true;
+      }
+    }
+    if (inPrintVerb && (ch === "\u201c" || ch === "\u2018")) {
+      const closeCh = ch === "\u201c" ? "\u201d" : "\u2019";
+      const closeIdx = str.indexOf(closeCh, i + 1);
+      if (closeIdx !== -1) {
+        out += ch === "\u201c" ? '""' : "''";
+        i = closeIdx;
+        continue;
+      }
+    }
+    out += ch;
+  }
+  return out;
+}
 
 /**
- * Classifies a shell command string into a verification receipt category.
+ * Classifies a shell command string in command position into a verification receipt category without trusting read-only arguments.
  */
 export function classifyCommandCategory(command) {
   if (typeof command !== "string" || !command.trim()) return "other";
-  if (TEST_CMD_REGEX.test(command)) return "test";
-  if (VERIFY_CMD_REGEX.test(command)) return "verify";
-  if (LINT_CMD_REGEX.test(command)) return "lint";
-  if (BUILD_CMD_REGEX.test(command)) return "build";
-  return "other";
+  const normalizedInput = stripBalancedCurlyQuotesForPrint(command);
+  let best = "other";
+  for (const segment of collectLeafSegments(normalizedInput)) {
+    const cat = classifySingleSegment(segment);
+    if ((CATEGORY_PRECEDENCE[cat] ?? 0) > (CATEGORY_PRECEDENCE[best] ?? 0)) {
+      best = cat;
+    }
+  }
+  return best;
 }
 
 function redactSummary(text) {
@@ -321,11 +535,49 @@ function buildReceiptShape(event) {
   };
 }
 
+function matchesAllowedMcpServer(serverName, allowlist) {
+  const norm = String(serverName ?? "").trim().toLowerCase();
+  if (!norm) return false;
+  for (const rawEntry of allowlist ?? []) {
+    const entry = String(rawEntry ?? "").trim().toLowerCase();
+    if (!entry) continue;
+    if (norm === entry) return true;
+    if (entry === "astack_trust" && (norm === "astack-trust" || norm === "astack/trust")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isEngineeringMcpServer(serverName, workspaceDir, options = {}) {
+  if (Array.isArray(options.engineeringMcpServers)) {
+    return matchesAllowedMcpServer(serverName, options.engineeringMcpServers);
+  }
+  if (matchesAllowedMcpServer(serverName, DEFAULT_ENGINEERING_MCP_SERVERS)) {
+    return true;
+  }
+  if (!workspaceDir) return false;
+  const baseRef = resolveBaseRef(workspaceDir);
+  if (!baseRef) return false;
+  const { policy } = loadRiskPolicy(workspaceDir, { baseRef });
+  return matchesAllowedMcpServer(serverName, policy.engineeringMcpServers);
+}
+
 /**
  * Appends a single-actor PostToolUse execution receipt to `<trustDir>/receipts.<conversationId>.jsonl`.
  */
 export function recordReceipt(event, options = {}) {
   if (!event || !RECORDABLE_RECEIPT_KINDS.has(event.kind)) {
+    return null;
+  }
+  const hasExplicitOverride = Boolean(options.trustDir && options.headSha);
+  if (!hasExplicitOverride) {
+    const scope = resolveWorkspaceScope(event.workspaceDir, { checkEnrollment: false });
+    if (scope.kind === "non_repo") {
+      return null;
+    }
+  }
+  if (event.kind === "tool-mcp" && !isEngineeringMcpServer(event.serverName, event.workspaceDir, options)) {
     return null;
   }
   if (event.kind === "tool-write" && isNonWorkspaceWritePath(event.filePath, event)) {
@@ -336,10 +588,11 @@ export function recordReceipt(event, options = {}) {
 
   const headSha = options.headSha ?? readHeadShaFast(event.workspaceDir);
   const shape = buildReceiptShape(event);
+  const { safeId, targetFile } = resolveSafeReceiptPath(trustDir, event.conversationId || "default");
   const entry = {
     schemaVersion: 1,
     ts: options.now ?? new Date().toISOString(),
-    conversationId: event.conversationId || "default",
+    conversationId: safeId,
     kind: shape.kind,
     category: shape.category,
     headSha,
@@ -351,9 +604,30 @@ export function recordReceipt(event, options = {}) {
   };
 
   fs.mkdirSync(trustDir, { recursive: true });
-  const targetFile = path.join(trustDir, `receipts.${entry.conversationId}.jsonl`);
   fs.appendFileSync(targetFile, `${JSON.stringify(entry)}\n`, "utf8");
   return entry;
+}
+
+function assertNotSymlink(filePath) {
+  try {
+    if (fs.lstatSync(filePath).isSymbolicLink()) {
+      throw new Error(`Refusing symlink target inside trustDir: ${path.basename(filePath)}`);
+    }
+  } catch (err) {
+    if (err?.code === "ENOENT") return;
+    throw err;
+  }
+}
+
+function resolveSafeReceiptPath(trustDir, conversationId) {
+  const safeId = sanitizeConversationId(conversationId || "default");
+  const resolvedRoot = path.resolve(trustDir);
+  const targetFile = path.resolve(resolvedRoot, `receipts.${safeId}.jsonl`);
+  if (path.dirname(targetFile) !== resolvedRoot) {
+    throw new Error(`Invalid conversationId escaped trustDir: ${safeId}`);
+  }
+  assertNotSymlink(targetFile);
+  return { safeId, targetFile };
 }
 
 /**
@@ -368,11 +642,12 @@ export function recordVerifierReceipt({
   now = new Date().toISOString(),
 }) {
   if (!trustDir) return null;
+  const { safeId, targetFile } = resolveSafeReceiptPath(trustDir, conversationId || "verifier");
   fs.mkdirSync(trustDir, { recursive: true });
   const entry = {
     schemaVersion: 1,
     ts: now,
-    conversationId,
+    conversationId: safeId,
     kind: "verifier",
     category: "verify",
     headSha,
@@ -382,7 +657,38 @@ export function recordVerifierReceipt({
     paths: findingsPath ? [findingsPath] : [],
     verdict,
   };
-  const targetFile = path.join(trustDir, `receipts.${conversationId}.jsonl`);
+  fs.appendFileSync(targetFile, `${JSON.stringify(entry)}\n`, "utf8");
+  return entry;
+}
+
+/**
+ * Appends a rollback receipt onto `<trustDir>/receipts.<conversationId>.jsonl` for current HEAD.
+ */
+export function recordRollbackReceipt({
+  trustDir,
+  conversationId = "default",
+  headSha = null,
+  plan,
+  kind = "revert",
+  now = new Date().toISOString(),
+}) {
+  if (!trustDir || typeof plan !== "string" || !plan.trim()) return null;
+  const { safeId, targetFile } = resolveSafeReceiptPath(trustDir, conversationId || "default");
+  fs.mkdirSync(trustDir, { recursive: true });
+  const entry = {
+    schemaVersion: 1,
+    ts: now,
+    conversationId: safeId,
+    kind: "rollback",
+    category: "verify",
+    headSha,
+    treeDirty: null,
+    ok: true,
+    summary: redactSummary(`rollback (${kind}): ${plan}`),
+    paths: [],
+    rollbackKind: kind,
+    plan: plan.trim(),
+  };
   fs.appendFileSync(targetFile, `${JSON.stringify(entry)}\n`, "utf8");
   return entry;
 }
@@ -532,6 +838,13 @@ export function evaluateVerifyReminder(event, options = {}) {
   }
 
   const workspaceDir = event.workspaceDir || "";
+  const hasExplicitOverride = options.gitStatus !== undefined || Boolean(options.trustDir && options.headSha);
+  if (!hasExplicitOverride) {
+    const scope = resolveWorkspaceScope(workspaceDir, { checkEnrollment: false });
+    if (scope.kind === "non_repo") {
+      return { decision: "allow" };
+    }
+  }
   let dirtyCode = [];
   if (options.gitStatus !== undefined || (workspaceDir && fs.existsSync(workspaceDir))) {
     let status = options.gitStatus;
@@ -598,7 +911,6 @@ const PR_QUESTION_ONLY_REGEX =
   /^\s*(?:what\s+is|explain|tell\s+me\s+about|how\s+(?:does|do)\s+(?:a\s+)?pr)\b/i;
 const GH_BODY_FLAGS = new Set(["-b", "--body", "-F", "--body-file"]);
 const GH_FILL_FLAGS = new Set(["-f", "--fill", "--fill-first", "--fill-verbose"]);
-const WRAPPER_VERBS = new Set(["npx", "pnpm", "yarn", "pnpx", "bunx", "uvx", "sudo", "env"]);
 const GIT_FLAG_WITH_ARG = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace"]);
 const GH_FLAG_WITH_ARG = new Set(["-R", "--repo"]);
 
@@ -632,43 +944,28 @@ function readWithFallback(primaryTrustDir, workspaceDir, hasExplicitTrustDir, re
   return result;
 }
 
-function extractCliPrActions(command) {
+export function extractCliPrActions(command) {
   const actions = [];
-  for (const segment of collectLeafSegments(String(command ?? ""))) {
+  const leafList = collectDualViewLeafSegments(command);
+  for (const segment of leafList) {
     const tokens = tokenizeSimpleWords(segment);
-    let idx = 0;
-    if (tokens[0] === "&") idx++;
-    while (idx < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[idx])) idx++;
-    let verb = "";
-    while (idx < tokens.length) {
-      const tok = tokens[idx];
-      if (tok.startsWith("-")) {
-        idx++;
-        continue;
-      }
-      const base = path.win32.basename(tok.replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
-      if (WRAPPER_VERBS.has(base)) {
-        idx++;
-        continue;
-      }
-      verb = base;
-      idx++;
-      break;
-    }
+    const wrapped = stripTransparentWrappers(tokens);
+    const { verb, rest: restTokens } = unwrapPackageRunnerInvocation(wrapped.verb, wrapped.rest);
     if (verb === "git") {
       let skipNext = false;
-      for (let i = idx; i < tokens.length; i++) {
-        const tok = tokens[i];
+      for (let i = 0; i < restTokens.length; i++) {
+        const tok = restTokens[i];
         if (skipNext) {
           skipNext = false;
           continue;
         }
-        if (GIT_FLAG_WITH_ARG.has(tok)) {
+        const cleanTok = tok.replace(/[\\`]/g, "");
+        if (GIT_FLAG_WITH_ARG.has(cleanTok)) {
           skipNext = true;
           continue;
         }
-        if (tok.startsWith("-")) continue;
-        if (tok.toLowerCase() === "push") {
+        if (cleanTok.startsWith("-")) continue;
+        if (cleanTok.toLowerCase() === "push") {
           actions.push({ kind: "git-push" });
         }
         break;
@@ -676,33 +973,41 @@ function extractCliPrActions(command) {
     } else if (verb === "gh") {
       const positionals = [];
       let skipNext = false;
-      for (let i = idx; i < tokens.length; i++) {
-        const tok = tokens[i];
+      for (let i = 0; i < restTokens.length; i++) {
+        const tok = restTokens[i];
         if (skipNext) {
           skipNext = false;
           continue;
         }
-        if (GH_FLAG_WITH_ARG.has(tok)) {
+        const cleanTok = tok.replace(/[\\`]/g, "");
+        if (GH_FLAG_WITH_ARG.has(cleanTok)) {
           skipNext = true;
           continue;
         }
-        if (tok.startsWith("--repo=")) continue;
-        if (tok.startsWith("-")) continue;
-        positionals.push({ value: tok.toLowerCase(), index: i });
+        if (cleanTok.startsWith("--repo=")) continue;
+        if (cleanTok.startsWith("-")) continue;
+        positionals.push({ value: cleanTok.toLowerCase(), index: i });
         if (positionals.length >= 2) break;
       }
       if (positionals[0]?.value === "pr") {
         const sub2 = positionals[1]?.value;
-        const rest = tokens.slice((positionals[1]?.index ?? idx) + 1);
+        const rest = restTokens.slice((positionals[1]?.index ?? -1) + 1);
         if (sub2 === "create" || sub2 === "new") {
           actions.push({ kind: "gh-pr-create", tokens: rest });
+        } else if (sub2 === "merge") {
+          actions.push({ kind: "gh-pr-merge", tokens: rest });
         } else if (sub2 === "edit") {
-          const touchesBody = rest.some(
-            (t) =>
-              GH_BODY_FLAGS.has(t) ||
-              t.toLowerCase().startsWith("--body=") ||
-              t.toLowerCase().startsWith("--body-file="),
-          );
+          const touchesBody = rest.some((t) => {
+            const cleanFlag = t.replace(/[\\`]/g, "");
+            const lower = cleanFlag.toLowerCase();
+            return (
+              GH_BODY_FLAGS.has(cleanFlag) ||
+              lower.startsWith("--body=") ||
+              lower.startsWith("--body-file=") ||
+              (cleanFlag.startsWith("-b") && cleanFlag.length > 2 && !cleanFlag.startsWith("--")) ||
+              (cleanFlag.startsWith("-F") && cleanFlag.length > 2 && !cleanFlag.startsWith("--"))
+            );
+          });
           if (touchesBody) {
             actions.push({ kind: "gh-pr-edit-body", tokens: rest });
           }
@@ -718,38 +1023,63 @@ function extractGhBodyText(tokens, workspaceDir) {
   let bodyFile = null;
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
-    const lower = tok.toLowerCase();
-    if (GH_FILL_FLAGS.has(tok) || GH_FILL_FLAGS.has(lower)) {
+    const eqIdx = tok.indexOf("=");
+    const rawHead = eqIdx === -1 ? tok : tok.slice(0, eqIdx);
+    const cleanHead = rawHead.replace(/[\\`]/g, "");
+    const cleanHeadLower = cleanHead.toLowerCase();
+    const cleanAll = tok.replace(/[\\`]/g, "");
+    const cleanAllLower = cleanAll.toLowerCase();
+    if (GH_FILL_FLAGS.has(cleanAll) || GH_FILL_FLAGS.has(cleanAllLower)) {
       return {
         error:
           "gh --fill flags bypass the PR statechart and proof contract; run pr-dossier.mjs --format github --out <body-file> and pass --body-file <body-file>",
       };
     }
-    if (tok === "-b" || lower === "--body") {
+    if (cleanAll === "-b" || cleanAllLower === "--body") {
       bodyText = tokens[++i] ?? "";
-    } else if (lower.startsWith("--body=")) {
-      bodyText = tok.slice("--body=".length);
-    } else if (tok === "-F" || lower === "--body-file") {
+    } else if (cleanHeadLower === "--body" && eqIdx !== -1) {
+      bodyText = tok.slice(eqIdx + 1);
+    } else if (cleanAll.startsWith("-b") && cleanAll.length > 2 && !cleanAll.startsWith("--")) {
+      bodyText = tok.replace(/^[\\`]*-[\\`]*b/, "");
+    } else if (cleanAll === "-F" || cleanAllLower === "--body-file") {
       bodyFile = tokens[++i] ?? "";
-    } else if (lower.startsWith("--body-file=")) {
-      bodyFile = tok.slice("--body-file=".length);
+    } else if (cleanHeadLower === "--body-file" && eqIdx !== -1) {
+      bodyFile = tok.slice(eqIdx + 1);
+    } else if (cleanAll.startsWith("-F") && cleanAll.length > 2 && !cleanAll.startsWith("--")) {
+      bodyFile = tok.replace(/^[\\`]*-[\\`]*F/, "");
     }
   }
 
   if (bodyFile !== null) {
-    if (bodyFile === "-") {
+    const trimmedFile = String(bodyFile).trim();
+    if (!trimmedFile) {
+      return {
+        error: "missing --body-file path; pass --body-file <path-to-compiled-pr-body.md>",
+      };
+    }
+    if (trimmedFile === "-") {
       return {
         error:
           "stdin PR body (-F -) cannot be pre-validated; pass --body-file <path-to-compiled-pr-body.md>",
       };
     }
-    const abs = path.isAbsolute(bodyFile)
-      ? bodyFile
-      : path.resolve(workspaceDir || process.cwd(), bodyFile);
-    if (!fs.existsSync(abs)) {
-      return { error: `PR body file not found (${bodyFile})` };
+    const abs = path.isAbsolute(trimmedFile)
+      ? trimmedFile
+      : path.resolve(workspaceDir || process.cwd(), trimmedFile);
+    let stat = null;
+    try {
+      stat = fs.statSync(abs);
+    } catch {
+      return { error: `PR body file not found (${trimmedFile})` };
     }
-    return { bodyText: fs.readFileSync(abs, "utf8") };
+    if (!stat.isFile()) {
+      return { error: `PR body target is not a regular file (${trimmedFile})` };
+    }
+    try {
+      return { bodyText: fs.readFileSync(abs, "utf8") };
+    } catch (err) {
+      return { error: `Unable to read PR body file (${trimmedFile}): ${err?.message || "read error"}` };
+    }
   }
   if (bodyText !== null) {
     return { bodyText };
@@ -770,6 +1100,13 @@ export function evaluatePrIntent(event, options = {}) {
   }
 
   const workspaceDir = event.workspaceDir || "";
+  const hasExplicitOverride = Boolean(options.trustDir || options.headSha);
+  if (!hasExplicitOverride) {
+    const scope = resolveWorkspaceScope(workspaceDir, { checkEnrollment: false });
+    if (scope.kind === "non_repo") {
+      return {};
+    }
+  }
   const headSha = options.headSha ?? (workspaceDir ? readHeadShaFast(workspaceDir) : null);
   const trustDir = options.trustDir ?? resolveTrustDir(event);
   const promptHash = crypto
@@ -779,22 +1116,26 @@ export function evaluatePrIntent(event, options = {}) {
     .slice(0, 16);
 
   if (trustDir) {
-    const stateFile = path.join(trustDir, `pr-intent.${event.conversationId || "default"}.json`);
-    try {
-      if (fs.existsSync(stateFile)) {
-        const prev = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-        if (prev?.lastHash === promptHash) {
-          return {};
+    const safeId = sanitizeConversationId(event.conversationId || "default");
+    const resolvedRoot = path.resolve(trustDir);
+    const stateFile = path.resolve(resolvedRoot, `pr-intent.${safeId}.json`);
+    if (path.dirname(stateFile) === resolvedRoot) {
+      try {
+        assertNotSymlink(stateFile);
+        if (fs.existsSync(stateFile)) {
+          const prev = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+          if (prev?.lastHash === promptHash) {
+            return {};
+          }
         }
+        fs.mkdirSync(resolvedRoot, { recursive: true });
+        fs.writeFileSync(
+          stateFile,
+          `${JSON.stringify({ lastHash: promptHash, ts: new Date().toISOString() })}\n`,
+          "utf8",
+        );
+      } catch {
       }
-      fs.mkdirSync(trustDir, { recursive: true });
-      fs.writeFileSync(
-        stateFile,
-        `${JSON.stringify({ lastHash: promptHash, ts: new Date().toISOString() })}\n`,
-        "utf8",
-      );
-    } catch {
-      // Fail-open if state file cannot be read or written.
     }
   }
 
@@ -852,10 +1193,20 @@ export function evaluateEvidenceGate(event, options = {}) {
       actions = [{ kind: "mcp-pr-create", body: event.args?.body }];
     } else if (mcpTool === "update_pull_request" && typeof event.args?.body === "string") {
       actions = [{ kind: "mcp-pr-edit-body", body: event.args.body }];
+    } else if (mcpTool === "merge_pull_request") {
+      actions = [{ kind: "mcp-pr-merge", args: event.args ?? {} }];
     }
   }
   if (actions.length === 0) {
     return { decision: "allow" };
+  }
+
+  const hasExplicitOverride = Boolean(options.trustDir && options.headSha);
+  if (!hasExplicitOverride) {
+    const scope = resolveWorkspaceScope(event.workspaceDir, { checkEnrollment: false });
+    if (scope.kind === "non_repo") {
+      return { decision: "allow" };
+    }
   }
 
   const hasExplicitTrust = Boolean(options.trustDir);
@@ -871,8 +1222,14 @@ export function evaluateEvidenceGate(event, options = {}) {
     }).policy;
 
   const reasons = [];
+  const isMergeAction = actions.some((a) => a.kind === "gh-pr-merge" || a.kind === "mcp-pr-merge");
   const needsFreshness = actions.some(
-    (a) => a.kind === "git-push" || a.kind === "gh-pr-create" || a.kind === "mcp-pr-create",
+    (a) =>
+      a.kind === "git-push" ||
+      a.kind === "gh-pr-create" ||
+      a.kind === "mcp-pr-create" ||
+      a.kind === "gh-pr-merge" ||
+      a.kind === "mcp-pr-merge",
   );
 
   if (needsFreshness) {
@@ -911,10 +1268,59 @@ export function evaluateEvidenceGate(event, options = {}) {
     }
   }
 
+  if (isMergeAction) {
+    const verifier = evidence?.verifier ?? null;
+    const hasFreshVerifierReceipt = receipts.some(
+      (r) =>
+        r?.kind === "verifier" &&
+        r.ok &&
+        (r.verdict === "PASS" || r.verdict === "PASS_WITH_NOTES") &&
+        (!headSha || !r.headSha || r.headSha === headSha),
+    );
+    const hasEvidenceVerifierPass = Boolean(
+      verifier &&
+        !verifier.stale &&
+        (verifier.verdict === "PASS" || verifier.verdict === "PASS_WITH_NOTES") &&
+        (verifier.importantCount ?? 0) === 0 &&
+        (verifier.reviewViolationCount ?? 0) === 0 &&
+        (!headSha || verifier.headSha === headSha),
+    );
+    if (!hasFreshVerifierReceipt && !hasEvidenceVerifierPass) {
+      reasons.push("merge requires isolated pr-verifier PASS receipt on current HEAD");
+    }
+
+    const residual = evidence?.riskAssessment?.residual ?? null;
+    if (residual === "blocked") {
+      reasons.push("residual risk is blocked for merge");
+    }
+
+    const intentCard =
+      options.intent ??
+      (trustDir ? readIntentCard(trustDir, event.conversationId || "default") : null);
+    const hasRollbackReceipt = receipts.some(
+      (r) => r?.kind === "rollback" && r.ok && (!headSha || !r.headSha || r.headSha === headSha),
+    );
+    const evidenceRollback = evidence?.riskAssessment?.rollback;
+    const hasEvidenceRollback = Boolean(
+      evidenceRollback &&
+        evidenceRollback.kind &&
+        evidenceRollback.kind !== "none" &&
+        typeof evidenceRollback.plan === "string" &&
+        evidenceRollback.plan.trim() &&
+        !/^manual rollback required/i.test(evidenceRollback.plan),
+    );
+    const hasIntentRollback = Boolean(
+      intentCard?.rollbackPlan && String(intentCard.rollbackPlan).trim(),
+    );
+    if (!hasRollbackReceipt && !hasEvidenceRollback && !hasIntentRollback) {
+      reasons.push("merge requires a rollback receipt or rollback plan on HEAD");
+    }
+  }
+
   const prContract = policy?.prDescriptionContract;
   if (prContract?.enabled === true) {
     for (const act of actions) {
-      if (act.kind === "git-push") continue;
+      if (act.kind === "git-push" || act.kind === "gh-pr-merge" || act.kind === "mcp-pr-merge") continue;
       let bodyText = "";
       if (act.kind === "gh-pr-create" || act.kind === "gh-pr-edit-body") {
         const extracted = extractGhBodyText(act.tokens, event.workspaceDir);
@@ -938,6 +1344,12 @@ export function evaluateEvidenceGate(event, options = {}) {
   }
 
   const detail = reasons.join("; ");
+  if (isMergeAction) {
+    return {
+      decision: "deny",
+      reason: `AStack evidence-gate: denied unverified merge (${detail}).`,
+    };
+  }
   return {
     decision: headless ? "deny" : "force_ask",
     reason: headless
@@ -956,6 +1368,12 @@ export function evaluateRoundLimit(event, options = {}) {
   if (event.kind !== "tool-write") {
     return { decision: "allow" };
   }
+  if (!options.trustDir) {
+    const scope = resolveWorkspaceScope(event.workspaceDir, { checkEnrollment: false });
+    if (scope.kind === "non_repo") {
+      return { decision: "allow" };
+    }
+  }
   const trustDir = options.trustDir ?? resolveTrustDir(event);
   const evidence = readEvidenceSnapshot(trustDir);
   if (!evidence) return { decision: "allow" };
@@ -967,7 +1385,7 @@ export function evaluateRoundLimit(event, options = {}) {
   return {
     decision: headless ? "deny" : "force_ask",
     reason: headless
-      ? `AStack round-limiter: blocked edit after ${evidence.reviewRound}/${maxRounds} failed review rounds.`
-      : `AStack round-limiter: remediation reached ${evidence.reviewRound}/${maxRounds} failed rounds. Escalate to human review or approve override.`,
+      ? `AStack round-limiter: blocked edit after ${evidence.reviewRound}/${maxRounds} failed review rounds. Escalate with the 2+ failed hypotheses tried.`
+      : `AStack round-limiter: remediation reached ${evidence.reviewRound}/${maxRounds} failed rounds. Escalate to human review with the 2+ failed hypotheses tried or approve override.`,
   };
 }

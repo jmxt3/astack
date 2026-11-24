@@ -6,14 +6,21 @@
 
   const state = {
     etag: "",
+    pollSeq: 0,
     snap: null,
     workspaceUri: params.get("workspaceUri") || "",
-    view: params.get("view") === "delegate" || location.hash === "#delegate" ? "delegate" : "timeline",
+    view:
+      params.get("view") === "delegate" || location.hash === "#delegate"
+        ? "delegate"
+        : params.get("view") === "trust" || location.hash === "#trust"
+          ? "trust"
+          : "timeline",
     guideExpandedStage: null,
     guideUserToggled: false,
     guideCmdDrawerOpen: false,
     guideSelectedExampleByStage: {},
     setupDrawerOpen: false,
+    beastDrawerOpen: false,
     expanded: new Set(),
     moreExpanded: new Set(),
     subExpanded: { swarm: false, helpers: false, goal: false, more: false },
@@ -291,6 +298,94 @@
     const urlToken = params.get("token");
     const headers = urlToken ? { "X-Sidecar-Token": urlToken } : undefined;
     return fetch(query ? `${endpoint}?${query}` : endpoint, { method: "GET", headers });
+  }
+
+  function apiPost(endpoint, payload) {
+    if (isSdkHost()) {
+      return window.sidecar.fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {}),
+      });
+    }
+    const headers = { "Content-Type": "application/json" };
+    const urlToken = params.get("token");
+    if (urlToken) headers["X-Sidecar-Token"] = urlToken;
+    return fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload || {}),
+    });
+  }
+
+  function applyTrustPatchToSnapshot(nextTrust) {
+    if (!state.snap?.trust || !nextTrust) return;
+    const prev = state.snap.trust;
+    const categories = Array.isArray(nextTrust.categoryList) ? nextTrust.categoryList : prev.categories;
+    const activeCatState =
+      nextTrust.categories?.[prev.activeCategory] ??
+      categories.find((c) => c.id === prev.activeCategory) ??
+      prev.activeCatState;
+    let promoBanner = null;
+    if (!nextTrust.frozen) {
+      if (nextTrust.lastAutoPromo) {
+        promoBanner = { kind: "auto", ...nextTrust.lastAutoPromo };
+      } else {
+        const readyCat =
+          (activeCatState?.promoReady ? activeCatState : null) ??
+          categories.find((c) => c.promoReady);
+        if (readyCat) {
+          promoBanner = {
+            kind: "manual",
+            catId: readyCat.id,
+            toLvl: readyCat.eligibleNextLevel,
+            count: readyCat.clean + readyCat.edited,
+            score: readyCat.score,
+            brier: readyCat.brier,
+          };
+        }
+      }
+    }
+    state.snap = {
+      ...state.snap,
+      trust: {
+        ...prev,
+        beastOn: Boolean(nextTrust.beastOn),
+        promotionMode: nextTrust.promotionMode || prev.promotionMode,
+        promotionLockedByPolicy: Boolean(nextTrust.promotionLockedByPolicy),
+        chainValid: nextTrust.chainValid !== false,
+        frozen: Boolean(nextTrust.frozen),
+        totalOutcomes: Number(nextTrust.totalOutcomes ?? prev.totalOutcomes ?? 0),
+        activeCatState,
+        categories,
+        promoBanner,
+      },
+    };
+    render(state.snap);
+  }
+
+  async function updateTrustSettings(actionPayload, successMsg) {
+    state.pollSeq += 1;
+    try {
+      const res = await apiPost("/api/trust/settings", {
+        ...actionPayload,
+        conversationId: getConversationId(true),
+        workspaceUri: state.workspaceUri,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data?.error || `Settings update failed (${res.status})`);
+        return;
+      }
+      if (data?.trust) {
+        applyTrustPatchToSnapshot(data.trust);
+      }
+      if (successMsg) showToast(successMsg);
+      state.etag = "";
+      await poll();
+    } catch {
+      showToast("Could not update trust settings");
+    }
   }
 
   function releaseArtifactObjectUrl() {
@@ -1275,6 +1370,77 @@
     detail.appendChild(el("p", "detail-text", stage.detail));
     detail.appendChild(buildCommandChips(stage.commands));
 
+    if (stage.id === "review" && snap.trust?.riskAssessment && snap.trust.scopeKind !== "non_repo") {
+      const ra = snap.trust.riskAssessment;
+      const cat = snap.trust.activeCatState;
+      const rc = el("div", ra.residual === "blocked" ? "risk-card is-err" : ra.residual !== "low" ? "risk-card is-warn" : "risk-card");
+      rc.dataset.testid = "timeline-risk-card";
+      rc.appendChild(el("p", "risk-card-lead", ra.summary || `${ra.residual} risk (R ${(ra.score ?? 0).toFixed(2)})`));
+      if (snap.trust.enrolled && cat) {
+        const whyTone =
+          ra.residual === "blocked"
+            ? "is-err"
+            : snap.trust.beastOn && ra.residual === "low" && cat.level >= 3
+              ? "is-done"
+              : "is-warn";
+        const whyText = !snap.trust.beastOn
+          ? `Beast Mode is Off. Category ${cat.id} is L${cat.level} (T ${cat.score.toFixed(2)}, cap L${cat.ceiling}).`
+          : ra.residual === "blocked"
+            ? `Blocked by hard signal (${(ra.signals || []).map((s) => s.id).join(", ")}). Human review required.`
+            : ra.residual === "low" && cat.level >= 3
+              ? `Auto-eligible at L${cat.level} (${cat.id}, T ${cat.score.toFixed(2)}). Sampled 1-in-5 async audit active.`
+              : `Paused. Merge needs L3 for ${cat.id}, current L${cat.level} (T ${cat.score.toFixed(2)}). Residual ${ra.residual} (R ${(ra.score ?? 0).toFixed(2)}).`;
+        rc.appendChild(el("p", `risk-card-why ${whyTone}`, whyText));
+      }
+      const sigRow = el("div", "subcmd-list");
+      for (const sig of ra.signals || []) {
+        const isHard = sig.id === "touches_governance" || sig.id === "bundled_sidecar_permissions" || sig.id === "scope_drift" || sig.id === "test_regression";
+        const sp = el("span", isHard ? "subcmd-pill is-warn-action" : "subcmd-pill");
+        sp.appendChild(el("span", "", `${sig.id} (${Math.round((sig.weight ?? 0) * 100)}%)`));
+        sigRow.appendChild(sp);
+      }
+      for (const sat of ra.satisfied || []) {
+        const sp = el("span", "subcmd-pill ran");
+        const ic = svgIcon("check-sm", 10);
+        ic.classList.add("chip-icon");
+        sp.append(ic, el("span", "", sat.id));
+        sigRow.appendChild(sp);
+      }
+      if (sigRow.childNodes.length > 0) rc.appendChild(sigRow);
+
+      if (snap.trust.enrolled && snap.fullHeadSha) {
+        const outWrap = el("div", "subcmd-section");
+        outWrap.appendChild(el("span", "subcmd-label", "Record PR outcome (updates local EMA ledger T):"));
+        const outRow = el("div", "subcmd-list");
+        for (const [outcomeKey, lbl] of [
+          ["clean", "Approve clean (y=1)"],
+          ["approved_with_edits", "Approve w/ edits (y=0.5)"],
+          ["reverted", "Reject / revert (y=0)"],
+        ]) {
+          const btn = el("button", outcomeKey === "reverted" ? "subcmd-pill is-sans is-warn-action" : "subcmd-pill is-sans", lbl);
+          btn.type = "button";
+          btn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            updateTrustSettings(
+              {
+                recordOutcome: {
+                  category: ra.category || snap.trust.activeCategory,
+                  outcome: outcomeKey,
+                  headSha: snap.fullHeadSha,
+                  predictedR: ra.score ?? 0,
+                },
+              },
+              `Recorded ${outcomeKey} for ${ra.category || snap.trust.activeCategory}`,
+            );
+          });
+          outRow.appendChild(btn);
+        }
+        outWrap.appendChild(outRow);
+        rc.appendChild(outWrap);
+      }
+      detail.appendChild(rc);
+    }
+
     if (stage.id === "review" && act.workflow?.suggestedReview) {
       const sug = act.workflow.suggestedReview;
       const box = el("div", "faster-workflow");
@@ -1473,6 +1639,17 @@
       strip.appendChild(chip);
     }
     strip.appendChild(el("span", "focus-spacer"));
+    if (snap.trust?.enrolled) {
+      const trustBtn = el("button", "guide-link-btn");
+      trustBtn.type = "button";
+      trustBtn.id = "open-trust-view";
+      trustBtn.dataset.testid = "open-trust-view";
+      const activeLvl = snap.trust.activeCatState?.level ?? 0;
+      trustBtn.appendChild(el("span", "", `Trust · L${activeLvl}`));
+      trustBtn.appendChild(svgIcon("chevron", 10));
+      trustBtn.addEventListener("click", () => switchView("trust"));
+      strip.appendChild(trustBtn);
+    }
     const guideBtn = el("button", "guide-link-btn");
     guideBtn.type = "button";
     guideBtn.id = "open-delegate-guide";
@@ -2048,18 +2225,129 @@
     }
   }
 
+  function renderTrustView(snap) {
+    const container = document.getElementById("trust-view");
+    const trust = snap?.trust;
+    if (!container || !trust) return;
+
+    const header = el("header", "delegate-header");
+    const backBtn = el("button", "back-btn");
+    backBtn.type = "button";
+    backBtn.id = "back-from-trust";
+    backBtn.dataset.testid = "back-from-trust";
+    backBtn.appendChild(svgIcon("back", 10));
+    backBtn.appendChild(el("span", "", "Timeline"));
+    backBtn.addEventListener("click", () => switchView("timeline", true));
+    header.appendChild(backBtn);
+
+    const titleRow = el("div", "delegate-title-row");
+    titleRow.appendChild(el("h1", "title", "Trust & Autonomy"));
+    const statusPill = el("span", "delegate-status-pill");
+    const pDot = el("span", "live-dot");
+    pDot.style.background = "currentColor";
+    statusPill.appendChild(pDot);
+    statusPill.appendChild(
+      el(
+        "span",
+        "",
+        trust.frozen
+          ? "Frozen (ledger invalid)"
+          : trust.beastOn
+            ? `Beast On · ${trust.promotionMode === "auto" ? "Auto promote" : "Manual promote"}`
+            : "Beast Off",
+      ),
+    );
+    titleRow.appendChild(statusPill);
+    header.appendChild(titleRow);
+    header.appendChild(
+      el("p", "delegate-lead", "Earned per (repo, category) from graded outcomes (clean 1, edited 0.5, reverted 0). Plain code routes; human ceilings always cap autonomy."),
+    );
+
+    const picker = el("section", "delegate-picker");
+    picker.appendChild(el("span", "delegate-picker-label", "Autonomy & Promotion Settings (local plugin data, protected from agent writes)"));
+    const row1 = el("div", "delegate-pick-chips");
+    for (const [val, lbl] of [[false, "Beast: Off"], [true, "Beast: On"]]) {
+      const b = el("button", "pick-chip", lbl);
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(Boolean(trust.beastOn) === val));
+      b.addEventListener("click", () => updateTrustSettings({ beastOn: val }, `Beast Mode ${val ? "On" : "Off"}`));
+      row1.appendChild(b);
+    }
+    for (const [val, lbl] of [["manual", "Promote: Manual (default)"], ["auto", "Promote: Auto up to Ceiling"]]) {
+      const b = el("button", "pick-chip", lbl);
+      b.type = "button";
+      b.disabled = val === "auto" && Boolean(trust.promotionLockedByPolicy);
+      b.setAttribute("aria-pressed", String(trust.promotionMode === val));
+      b.addEventListener("click", () => updateTrustSettings({ promotionMode: val }, `Promotion set to ${val}`));
+      row1.appendChild(b);
+    }
+    picker.appendChild(row1);
+
+    const secWrap = el("div", "guide-sections");
+    const sec = el("section", "guide-section");
+    const head = el("div", "guide-section-head");
+    head.append(
+      el("span", "guide-section-title", "Categories"),
+      el("span", "guide-section-sub", `Active: ${trust.activeCategory}`),
+      el("span", trust.chainValid ? "guide-section-stat active" : "guide-section-stat", trust.chainValid ? "Ledger hash chain valid" : "Ledger broken (L0 frozen)"),
+    );
+    sec.appendChild(head);
+
+    for (const cat of trust.categories || []) {
+      const row = el("div", cat.id === trust.activeCategory ? "trust-cat-row is-active-cat" : "trust-cat-row");
+      const top = el("div", "trust-cat-top");
+      top.appendChild(el("span", "trust-cat-name", cat.id));
+      top.appendChild(el("span", cat.level >= 2 ? "guide-status-pill done" : "guide-status-pill", `L${cat.level}`));
+      top.appendChild(el("span", "guide-badge", `T ${Number(cat.score ?? 0).toFixed(2)}`));
+      top.appendChild(el("span", "guide-badge", `Brier ${Number(cat.brier ?? 0).toFixed(2)}`));
+      top.appendChild(el("span", "trust-cat-spacer"));
+      top.appendChild(el("span", "beast-ctrl-label", cat.maxCeiling < 3 ? "Cap (L2 max):" : "Ceiling:"));
+      for (const cap of [1, 2, 3]) {
+        const locked = cap > cat.maxCeiling;
+        const btn = el("button", locked ? "subcmd-pill is-sans is-locked" : "subcmd-pill is-sans", `L${cap}`);
+        btn.type = "button";
+        btn.disabled = locked;
+        btn.setAttribute("aria-pressed", String(cat.ceiling === cap));
+        btn.title = locked ? `${cat.id} is capped at L${cat.maxCeiling}` : `Set ${cat.id} ceiling to L${cap}`;
+        btn.addEventListener("click", () => updateTrustSettings({ setCeiling: { category: cat.id, ceiling: cap } }, `${cat.id} ceiling set to L${cap}`));
+        top.appendChild(btn);
+      }
+
+      const bar = el("div", "trust-ema-bar");
+      const fill = el("div", "trust-ema-fill");
+      fill.style.width = `${Math.round(Number(cat.score ?? 0) * 100)}%`;
+      bar.appendChild(fill);
+
+      const meta = el("div", "trust-cat-meta");
+      meta.appendChild(el("span", "", `${cat.label} · ${cat.clean} clean · ${cat.edited} edited · ${cat.reverted} reverted`));
+      if (cat.promoReady && cat.eligibleNextLevel !== null) {
+        const pBtn = el("button", "subcmd-pill is-sans ran", `Promote -> L${cat.eligibleNextLevel}`);
+        pBtn.type = "button";
+        pBtn.addEventListener("click", () => updateTrustSettings({ promoteCategory: cat.id }, `${cat.id} promoted to L${cat.eligibleNextLevel}`));
+        meta.appendChild(pBtn);
+      }
+
+      row.append(top, bar, meta);
+      sec.appendChild(row);
+    }
+    secWrap.appendChild(sec);
+    container.replaceChildren(header, picker, secWrap);
+  }
+
   function switchView(nextView, restoreFocus = false) {
     const prevView = state.view;
     state.view = nextView;
     state.suppressedPopoverEl = null;
     hideCommandPopover();
     const tlView = document.getElementById("timeline-view");
+    const trView = document.getElementById("trust-view");
     const dgView = document.getElementById("delegate-view");
     const artView = document.getElementById("artifact-view");
     if (!tlView || !dgView || !artView) return;
 
     const views = [
       { key: "timeline", el: tlView },
+      ...(trView ? [{ key: "trust", el: trView }] : []),
       { key: "delegate", el: dgView },
       { key: "artifact", el: artView },
     ];
@@ -2074,7 +2362,10 @@
       releaseArtifactObjectUrl();
     }
 
-    if (nextView === "delegate") {
+    if (nextView === "trust") {
+      renderTrustView(state.snap);
+      document.getElementById("back-from-trust")?.focus();
+    } else if (nextView === "delegate") {
       state.guideUserToggled = false;
       state.guideCmdDrawerOpen = false;
       renderDelegateGuide(state.snap);
@@ -2088,6 +2379,8 @@
       if (restoreFocus) {
         if (prevView === "artifact" && state.artifactReturnEl && document.contains(state.artifactReturnEl)) {
           state.artifactReturnEl.focus();
+        } else if (prevView === "trust") {
+          document.getElementById("open-trust-view")?.focus();
         } else if (prevView === "delegate") {
           document.getElementById("open-delegate-guide")?.focus();
         }
@@ -2153,21 +2446,27 @@
     }
     if (snap.riskTier !== null && snap.riskTier !== undefined) {
       const riskWord = RISK_TITLES[snap.riskTier] || `Tier ${snap.riskTier}`;
+      const raScore = typeof snap.trust?.riskAssessment?.score === "number" ? snap.trust.riskAssessment.score : null;
+      const riskLabel = raScore !== null ? `${riskWord} · R ${raScore.toFixed(2)}` : riskWord;
       const descParts = [];
-      if (snap.riskDescription) {
-        const cleanDesc = snap.riskDescription.trim().replace(/\.+$/, "");
-        descParts.push(`${cleanDesc}.`);
+      if (snap.trust?.riskAssessment?.summary) {
+        descParts.push(snap.trust.riskAssessment.summary);
+      } else {
+        if (snap.riskDescription) {
+          const cleanDesc = snap.riskDescription.trim().replace(/\.+$/, "");
+          descParts.push(`${cleanDesc}.`);
+        }
+        if (Array.isArray(snap.riskMatchedGlobs) && snap.riskMatchedGlobs.length > 0) {
+          descParts.push(`Matched: ${snap.riskMatchedGlobs.join(", ")}.`);
+        }
+        if (snap.riskTier >= 1) descParts.push("Requires human PR review.");
       }
-      if (Array.isArray(snap.riskMatchedGlobs) && snap.riskMatchedGlobs.length > 0) {
-        descParts.push(`Matched: ${snap.riskMatchedGlobs.join(", ")}.`);
-      }
-      if (snap.riskTier >= 1) descParts.push("Requires human PR review.");
       metaParts.push({
-        text: riskWord,
+        text: riskLabel,
         cls: `meta-pill meta-risk tier-${snap.riskTier}`,
         testId: "timeline-risk-badge",
-        popTitle: `Blast-Radius Risk · Tier ${snap.riskTier}`,
-        popStatus: riskWord,
+        popTitle: raScore !== null ? `Risk Score · ${riskWord}` : `Blast-Radius Risk · Tier ${snap.riskTier}`,
+        popStatus: raScore !== null ? `R ${raScore.toFixed(2)}` : riskWord,
         popMode: snap.riskTier >= 3 ? "stale" : snap.riskTier === 0 ? "done" : "",
         popDesc: descParts.join(" "),
       });
@@ -2189,9 +2488,10 @@
       });
     }
     const setupReady = snap.setup?.status === "ready";
+    const isNonRepo = snap.trust?.scopeKind === "non_repo" && Boolean(snap.workspace) && !setupReady;
     const metaRow = document.getElementById("meta-row");
     metaRow.replaceChildren();
-    if (metaParts.length > 0 || setupReady) {
+    if (!isNonRepo && (metaParts.length > 0 || setupReady)) {
       metaRow.classList.remove("hidden");
       metaParts.forEach((part, idx) => {
         if (idx > 0) metaRow.appendChild(el("span", "meta-sep", "·"));
@@ -2212,9 +2512,33 @@
         setupToggle.appendChild(el("span", "", "Setup ready"));
         setupToggle.addEventListener("click", () => {
           state.setupDrawerOpen = !state.setupDrawerOpen;
+          if (state.setupDrawerOpen) state.beastDrawerOpen = false;
           render(state.snap);
         });
         metaRow.appendChild(setupToggle);
+      }
+      if (snap.trust?.enrolled) {
+        const activeCat = snap.trust.activeCatState;
+        const beastToggle = el("button", snap.trust.beastOn ? "meta-btn is-beast" : "meta-btn is-neutral");
+        beastToggle.type = "button";
+        beastToggle.dataset.testid = "timeline-beast-toggle";
+        beastToggle.setAttribute("aria-expanded", String(state.beastDrawerOpen));
+        beastToggle.textContent = snap.trust.beastOn
+          ? `Beast · L${activeCat?.level ?? 0}`
+          : "Beast · Off";
+        beastToggle.addEventListener("click", () => {
+          state.beastDrawerOpen = !state.beastDrawerOpen;
+          if (state.beastDrawerOpen) state.setupDrawerOpen = false;
+          render(state.snap);
+        });
+        metaRow.appendChild(beastToggle);
+      } else if (snap.trust?.scopeKind === "git_unregistered") {
+        const offPill = el("span", "meta-pill", "Trust: Off");
+        offPill.dataset.testid = "timeline-trust-off";
+        offPill.tabIndex = 0;
+        const offDesc = "Add .agents/risk-policy.json on the base branch to enroll this repository.";
+        attachStatusPopover(offPill, "Earned Trust", "Off", "", offDesc);
+        metaRow.appendChild(offPill);
       }
     } else {
       metaRow.classList.add("hidden");
@@ -2231,12 +2555,112 @@
       setupDrawer.classList.add("hidden");
     }
 
+    const beastDrawer = document.getElementById("beast-drawer");
+    if (beastDrawer) {
+      beastDrawer.replaceChildren();
+      if (snap.trust?.enrolled && state.beastDrawerOpen) {
+        const activeCat = snap.trust.activeCatState || { id: snap.trust.activeCategory, level: 0, ceiling: 2, maxCeiling: 3, score: 0, brier: 0 };
+        beastDrawer.classList.remove("hidden");
+
+        const r1 = el("div", "beast-ctrl-row");
+        r1.appendChild(el("span", "beast-ctrl-label", "Beast Mode (run up to earned level)"));
+        const g1 = el("div", "beast-seg-group");
+        for (const [val, lbl] of [[false, "Off"], [true, "On"]]) {
+          const b = el("button", "subcmd-pill is-sans", lbl);
+          b.type = "button";
+          b.setAttribute("aria-pressed", String(Boolean(snap.trust.beastOn) === val));
+          b.addEventListener("click", () => updateTrustSettings({ beastOn: val }, `Beast Mode ${val ? "On" : "Off"}`));
+          g1.appendChild(b);
+        }
+        r1.appendChild(g1);
+
+        const r2 = el("div", "beast-ctrl-row");
+        r2.appendChild(el("span", "beast-ctrl-label", "Promotion"));
+        const g2 = el("div", "beast-seg-group");
+        for (const [val, lbl] of [["manual", "Manual"], ["auto", "Auto"]]) {
+          const b = el("button", "subcmd-pill is-sans", lbl);
+          b.type = "button";
+          b.disabled = val === "auto" && Boolean(snap.trust.promotionLockedByPolicy);
+          b.setAttribute("aria-pressed", String(snap.trust.promotionMode === val));
+          b.addEventListener("click", () => updateTrustSettings({ promotionMode: val }, `Promotion set to ${val}`));
+          g2.appendChild(b);
+        }
+        r2.appendChild(g2);
+
+        const r3 = el("div", "beast-ctrl-row");
+        r3.appendChild(el("span", "beast-ctrl-label", `Ceiling (${activeCat.id})`));
+        const g3 = el("div", "beast-seg-group");
+        for (const cap of [1, 2, 3]) {
+          const locked = cap > activeCat.maxCeiling;
+          const b = el("button", locked ? "subcmd-pill is-sans is-locked" : "subcmd-pill is-sans", `L${cap}`);
+          b.type = "button";
+          b.disabled = locked;
+          b.setAttribute("aria-pressed", String(activeCat.ceiling === cap));
+          b.addEventListener("click", () => updateTrustSettings({ setCeiling: { category: activeCat.id, ceiling: cap } }, `${activeCat.id} ceiling set to L${cap}`));
+          g3.appendChild(b);
+        }
+        r3.appendChild(g3);
+
+        const foot = el("div", "beast-foot-row");
+        foot.appendChild(el("span", "", `Enrolled · T ${Number(activeCat.score ?? 0).toFixed(2)} · Brier ${Number(activeCat.brier ?? 0).toFixed(2)}`));
+        const openTrust = el("button", "guide-link-btn", "Open Trust");
+        openTrust.type = "button";
+        openTrust.style.height = "20px";
+        openTrust.appendChild(svgIcon("chevron", 10));
+        openTrust.addEventListener("click", () => switchView("trust"));
+        foot.appendChild(openTrust);
+
+        beastDrawer.append(r1, r2, r3, foot);
+      } else {
+        beastDrawer.classList.add("hidden");
+      }
+    }
+
+    const promoWrap = document.getElementById("promo-wrap");
+    const promoCard = document.getElementById("promo-card");
+    if (promoWrap && promoCard) {
+      promoCard.replaceChildren();
+      const banner = snap.trust?.enrolled ? snap.trust.promoBanner : null;
+      if (banner) {
+        promoWrap.classList.remove("hidden");
+        promoCard.className = "setup-card is-info";
+        const copy = el("div", "setup-card-copy");
+        if (banner.kind === "auto") {
+          copy.appendChild(el("div", "setup-card-kicker", `Auto promoted · ${banner.catId}`));
+          copy.appendChild(el("p", "setup-card-hint", `${banner.catId} moved L${banner.fromLvl} -> L${banner.toLvl} (T ${Number(banner.score ?? 0).toFixed(2)} · cap L${banner.ceiling}).`));
+          const undoBtn = el("button", "chip next", "Undo");
+          undoBtn.type = "button";
+          undoBtn.dataset.testid = "timeline-promo-undo";
+          undoBtn.addEventListener("click", () => updateTrustSettings({ undoAutoPromo: true }, `Reverted ${banner.catId} · Promotion set to Manual`));
+          promoCard.append(copy, undoBtn);
+        } else {
+          copy.appendChild(el("div", "setup-card-kicker", `Ready for L${banner.toLvl} · ${banner.catId}`));
+          copy.appendChild(el("p", "setup-card-hint", `${banner.count} graded outcomes · T ${Number(banner.score ?? 0).toFixed(2)} · Brier ${Number(banner.brier ?? 0).toFixed(2)}.`));
+          const promoteBtn = el("button", "chip next", `Promote L${banner.toLvl}`);
+          promoteBtn.type = "button";
+          promoteBtn.dataset.testid = "timeline-promo-confirm";
+          promoteBtn.addEventListener("click", () => updateTrustSettings({ promoteCategory: banner.catId }, `${banner.catId} promoted to L${banner.toLvl}`));
+          promoCard.append(copy, promoteBtn);
+        }
+      } else {
+        promoWrap.classList.add("hidden");
+        promoCard.className = "setup-card hidden";
+      }
+    }
+
     const setupWrap = document.getElementById("setup-wrap");
     const setupCard = document.getElementById("setup-card");
     setupCard.replaceChildren();
-    if (snap.setup?.status === "needs_setup") {
+    if (isNonRepo) {
       setupWrap.classList.remove("hidden");
-      setupCard.classList.remove("hidden");
+      setupCard.className = "setup-card is-muted";
+      const copyWrap = el("div", "setup-card-copy");
+      copyWrap.appendChild(el("div", "setup-card-kicker", "Not a git repository (AStack inactive)"));
+      copyWrap.appendChild(el("p", "setup-card-hint", "Media, slide deck, and scratch conversations write zero receipts and never affect software engineering trust."));
+      setupCard.appendChild(copyWrap);
+    } else if (snap.setup?.status === "needs_setup") {
+      setupWrap.classList.remove("hidden");
+      setupCard.className = "setup-card";
       const copyWrap = el("div", "setup-card-copy");
       copyWrap.appendChild(el("div", "setup-card-kicker", "First-time setup · Once per repo"));
       copyWrap.appendChild(el("p", "setup-card-hint", snap.setup.summary));
@@ -2247,7 +2671,7 @@
       }
     } else {
       setupWrap.classList.add("hidden");
-      setupCard.classList.add("hidden");
+      setupCard.className = "setup-card hidden";
     }
 
     renderSceneSection(snap);
@@ -2265,6 +2689,7 @@
 
     const list = document.getElementById("timeline");
     list.replaceChildren();
+    list.classList.toggle("is-dimmed", isNonRepo);
 
     snap.stages.forEach((stage, idx) => {
       const isLast = idx === snap.stages.length - 1;
@@ -2341,6 +2766,9 @@
     });
 
     renderFooter(snap);
+    if (state.view === "trust") {
+      renderTrustView(snap);
+    }
     if (state.view === "delegate") {
       renderDelegateGuide(snap);
     }
@@ -2351,6 +2779,7 @@
 
   async function poll() {
     if (document.hidden) return;
+    const reqSeq = ++state.pollSeq;
     const convId = getConversationId(false);
     try {
       const res = await apiFetch("/api/timeline", {
@@ -2358,8 +2787,9 @@
         workspaceUri: state.workspaceUri,
         etag: state.etag,
       });
-      if (!res.ok) return;
+      if (!res.ok || reqSeq !== state.pollSeq) return;
       const data = await res.json();
+      if (reqSeq !== state.pollSeq) return;
       if (data.unchanged) {
         if (state.snap) applyLiveStatus(state.snap);
         return;
@@ -2368,6 +2798,7 @@
       state.snap = data;
       render(data);
     } catch {
+      if (reqSeq !== state.pollSeq) return;
       document.getElementById("live").className = "live idle";
       document.getElementById("live-label").textContent = "Offline";
     }
@@ -2473,7 +2904,7 @@
         }
         return;
       }
-      if (state.view === "delegate" || state.view === "artifact") {
+      if (state.view === "delegate" || state.view === "artifact" || state.view === "trust") {
         switchView("timeline", true);
       }
     }

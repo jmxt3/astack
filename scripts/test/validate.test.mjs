@@ -299,17 +299,17 @@ test("live AStack repo validates cleanly and enforces UI/Orchestrator and agent 
   }
 });
 
-test("live repo matches scripts/catalog.json manualOnlySkills (36 manual-only, 29 auto-invocable)", () => {
+test("live repo matches scripts/catalog.json manualOnlySkills (37 manual-only, 29 auto-invocable)", () => {
   const catalog = JSON.parse(fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "scripts", "catalog.json"), "utf8"));
   const manualSet = new Set(catalog.manualOnlySkills);
-  assert.equal(manualSet.size, 36);
+  assert.equal(manualSet.size, 37);
 
   const skillDirs = fs
     .readdirSync(path.join(DEFAULT_ROOT_DIR, "skills"), { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name)
     .sort();
-  assert.equal(skillDirs.length, 65);
+  assert.equal(skillDirs.length, 66);
 
   let manualCount = 0;
   let autoCount = 0;
@@ -325,7 +325,7 @@ test("live repo matches scripts/catalog.json manualOnlySkills (36 manual-only, 2
       autoCount++;
     }
   }
-  assert.equal(manualCount, 36);
+  assert.equal(manualCount, 37);
   assert.equal(autoCount, 29);
 });
 
@@ -395,11 +395,13 @@ test("validateAStack rejects hook script gaps, drifted matchers, trust/internal 
   }
 });
 
-test("all 18 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
+test("all 20 bundled CLI entrypoints exit 0 on --help and -h with zero module-type warnings", () => {
   const clis = [
     "scripts/validate-astack.mjs",
     "scripts/upstream-watch.mjs",
     "scripts/eval/run-eval.mjs",
+    "scripts/eval/risk-backtest.mjs",
+    "scripts/trust/cli.mjs",
     "scripts/mcp/server.mjs",
     "scripts/cli/statusline.mjs",
     "scripts/cli/title.mjs",

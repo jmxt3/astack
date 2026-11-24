@@ -7,12 +7,15 @@ import {
   PIPELINE_STAGES,
   TOOL_MATCHERS,
   classifyCommandCategory,
+  classifyDominantCategory,
   computeFreshness,
+  evaluateRepoTrust,
   loadRiskPolicy,
   readEvidenceSnapshot,
   readHeadShaFast,
   readMergedReceipts,
   resolveTrustDir,
+  resolveWorkspaceScope,
 } from "../../scripts/trust/index.mjs";
 
 import { COMMAND_DOCS, STAGE_COMMAND_CATALOG } from "./command-catalog.mjs";
@@ -1923,6 +1926,7 @@ export function evaluateTimelineSnapshot({
   brainDir = "",
   workspaceDir = "",
   prMetaByNumber = null,
+  dataDir = null,
 } = {}) {
   const hasConv = Boolean(conversationId && brainDir);
   const brainConvDir = hasConv ? path.join(brainDir, conversationId) : "";
@@ -1931,7 +1935,13 @@ export function evaluateTimelineSnapshot({
     : "";
 
   const setup = inspectSetupReadiness(workspaceDir);
-  const policyResult = loadRiskPolicy(workspaceDir);
+  const workspaceScope = workspaceDir
+    ? resolveWorkspaceScope(workspaceDir)
+    : { kind: "non_repo", repoRoot: null, gitDir: null, commonDir: null, repoId: null };
+  const policyResult =
+    workspaceScope.kind === "enrolled_repo"
+      ? loadRiskPolicy(workspaceDir, { baseRef: workspaceScope.baseRef })
+      : loadRiskPolicy(workspaceDir);
   const sig = mergeChildTranscriptSignals(
     analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir),
     brainDir,
@@ -2194,10 +2204,57 @@ export function evaluateTimelineSnapshot({
   }
 
   const riskTier = evidence?.riskTier ?? null;
+  const riskAssessment = evidence?.riskAssessment ?? null;
   const riskDescription = riskTier !== null ? (policyResult.policy.tiers?.[String(riskTier)]?.description ?? null) : null;
   const riskMatchedGlobs = riskTier !== null && Array.isArray(evidence?.matchedRiskRules)
     ? [...new Set(evidence.matchedRiskRules.filter((r) => r.tier === riskTier && typeof r.glob === "string").map((r) => r.glob))].slice(0, 4)
     : [];
+
+  const activeCategory =
+    riskAssessment?.category ??
+    (sig.changedFiles.size > 0 ? classifyDominantCategory([...sig.changedFiles]) : "ui");
+  const repoTrust =
+    workspaceScope.kind === "enrolled_repo"
+      ? evaluateRepoTrust({ repoId: workspaceScope.repoId, policy: policyResult.policy, dataDir })
+      : null;
+  const activeCatState = repoTrust?.categories?.[activeCategory] ?? null;
+  let promoBanner = null;
+  if (repoTrust && !repoTrust.frozen) {
+    if (repoTrust.lastAutoPromo) {
+      promoBanner = { kind: "auto", ...repoTrust.lastAutoPromo };
+    } else {
+      const readyCat =
+        (activeCatState?.promoReady ? activeCatState : null) ??
+        repoTrust.categoryList.find((c) => c.promoReady);
+      if (readyCat) {
+        promoBanner = {
+          kind: "manual",
+          catId: readyCat.id,
+          toLvl: readyCat.eligibleNextLevel,
+          count: readyCat.clean + readyCat.edited,
+          score: readyCat.score,
+          brier: readyCat.brier,
+        };
+      }
+    }
+  }
+  const trustState = {
+    scopeKind: workspaceScope.kind,
+    repoId: workspaceScope.repoId,
+    baseRef: workspaceScope.baseRef ?? null,
+    enrolled: workspaceScope.kind === "enrolled_repo",
+    activeCategory,
+    beastOn: repoTrust?.beastOn ?? false,
+    promotionMode: repoTrust?.promotionMode ?? "manual",
+    promotionLockedByPolicy: repoTrust?.promotionLockedByPolicy ?? false,
+    chainValid: repoTrust?.chainValid ?? true,
+    frozen: repoTrust?.frozen ?? false,
+    totalOutcomes: repoTrust?.totalOutcomes ?? 0,
+    activeCatState,
+    categories: repoTrust?.categoryList ?? [],
+    promoBanner,
+    riskAssessment,
+  };
 
   const snapshot = {
     conversationId: conversationId || null,
@@ -2206,7 +2263,9 @@ export function evaluateTimelineSnapshot({
     workspaceName: workspaceDir ? resolveWorkspaceRepoName(workspaceDir) : null,
     branch: setup.branch,
     headSha: setup.headSha ? setup.headSha.slice(0, 7) : null,
+    fullHeadSha: setup.headSha ?? null,
     setup: setupState,
+    trust: trustState,
     riskTier,
     riskLabel: evidence?.riskLabel ?? null,
     riskDescription,

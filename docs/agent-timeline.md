@@ -4,7 +4,7 @@ This guide shows an AI agent how to operate **AStack** (`astack`, sometimes call
 
 ## How AStack works for an AI agent
 
-AStack is a local Google Antigravity plugin (`plugin.json` v0.4.0) backed by markdown skills, playbooks, custom agents, and Node 22+ scripts. It ships `65` skills (`29` auto-invocable workflow skills plus `36` manual-only skills made up of `24` `principle-*` skills and `12` explicit entrypoints listed in [`scripts/catalog.json`](../scripts/catalog.json)), `26` playbooks under `skills/astack-mode/playbooks/`, `4` custom agents ([`astack-engineer`](../agents/astack-engineer.md), [`astack-agent`](../agents/astack-agent.md), [`pr-verifier`](../agents/pr-verifier.md), and [`comment-sicko`](../agents/comment-sicko.md)), `1` conditional rule ([`rules/astack-orchestration.md`](../rules/astack-orchestration.md)), `9` lifecycle hooks (`3` passive observe-only enabled by default plus `6` opt-in blocking gates in [`hooks.json`](../hooks.json)), `1` local MCP server (`astack_trust`), `1` optional Timeline sidecar (`sidecars/astack_timeline/`), and `18` bundled CLI scripts.
+AStack is a local Google Antigravity plugin (`plugin.json` v0.4.0) backed by markdown skills, playbooks, custom agents, and Node 22+ scripts. It ships `66` skills (`29` auto-invocable workflow skills plus `37` manual-only skills made up of `24` `principle-*` skills and `13` explicit entrypoints listed in [`scripts/catalog.json`](../scripts/catalog.json)), `26` playbooks under `skills/astack-mode/playbooks/`, `4` custom agents ([`astack-engineer`](../agents/astack-engineer.md), [`astack-agent`](../agents/astack-agent.md), [`pr-verifier`](../agents/pr-verifier.md), and [`comment-sicko`](../agents/comment-sicko.md)), `1` conditional rule ([`rules/astack-orchestration.md`](../rules/astack-orchestration.md)), `10` lifecycle hooks (`3` passive observe-only enabled by default plus `7` opt-in blocking gates in [`hooks.json`](../hooks.json)), `1` local MCP server (`astack_trust`), `1` optional Timeline sidecar (`sidecars/astack_timeline/`), and `20` bundled CLI scripts.
 
 Follow five core rules on every run:
 
@@ -76,7 +76,7 @@ Scan this chronological table to see every main AStack command, native Antigravi
 | 29 | Stage 5 | `/goal` (`autonomous-run.md`) | Drive unattended iterations until a pass or fail predicate holds | [Goal](#goal-autonomous-runmd) |
 | 30 | Stage 5 | `/schedule` | Set in-session one-shot timers or recurring cron triggers | [Schedule](#schedule) |
 | 31 | Stage 5 | `/automation` and `docs/automations/beacon/` | Configure App persistent background triggers (`sidecar.json`) | [Automation](#automation-and-docsautomationsbeacon) |
-| 32 | Stage 5 | `/make-bot-ui` | Build a local Tailscale button UI waking automation webhooks | [Make Bot UI](#make-bot-ui) |
+| 32 | Stage 5 | `/make-bot-ui` and `/beast-mode` | Build a local Tailscale button UI waking automation webhooks and configure earned autonomy inside Ceilings | [Make Bot UI](#make-bot-ui) |
 | 33 | Stage 5 | `/show-me-your-work` and `log.mjs` | Log append-only TSV decisions and audit against transcripts | [Show Me Your Work](#show-me-your-work-logmjs) |
 | 34 | Stage 5 | `/ketchup` and `/ketchup-video` | Summarize changes and open human decisions in plain text or MP4 | [Ketchup and Ketchup Video](#ketchup-and-ketchup-video) |
 | 35 | Stage 5 | `/bro`, `/btw`, and `pause-safely.md` | Restate replies plainly, ask side questions, or checkpoint WIP | [Bro, Btw, and Pause safely](#bro-and-btw) |
@@ -141,7 +141,7 @@ agy plugin list --json
 
 ### `node scripts/validate-astack.mjs` and `node --run test`
 
-- **Function.** Validates plugin integrity (`plugin.json`, `LICENSE`, frontmatter schema, `24,000`-byte `SKILL.md` limits, `36` manual-only vs `29` auto-invocable split in [`scripts/catalog.json`](../scripts/catalog.json), `RESERVED_SKILL_NAMES` non-collision, command-surface sync across `command-catalog.json` and docs, relative markdown links, `principle-*` references, and `agy plugin validate --strict --json`). Supports `--no-agy`, `--json`, `--write-native-commands` to regenerate [`native-commands.md`](../skills/astack-mode/references/native-commands.md), and `--apply-frontmatter-policy`. Running `node --run test` inside the AStack repository executes `validate` plus `test:plugin`, `test:sidecar`, `test:trust`, `test:helpers`, `test:watch-pr`, `test:statechart`, `test:security-audit`, `test:eval`, `test:mcp`, and `test:cli`.
+- **Function.** Validates plugin integrity (`plugin.json`, `LICENSE`, frontmatter schema, `24,000`-byte `SKILL.md` limits, `37` manual-only vs `29` auto-invocable split in [`scripts/catalog.json`](../scripts/catalog.json), `RESERVED_SKILL_NAMES` non-collision, command-surface sync across `command-catalog.json` and docs, relative markdown links, `principle-*` references, and `agy plugin validate --strict --json`). Supports `--no-agy`, `--json`, `--write-native-commands` to regenerate [`native-commands.md`](../skills/astack-mode/references/native-commands.md), and `--apply-frontmatter-policy`. Running `node --run test` inside the AStack repository executes `validate` plus `test:plugin`, `test:sidecar`, `test:trust`, `test:helpers`, `test:watch-pr`, `test:statechart`, `test:security-audit`, `test:eval`, `test:mcp`, and `test:cli`.
 - **Practical example.** Run validation after editing any skill, rule, or doc inside AStack:
 
 ```bash
@@ -174,7 +174,7 @@ node skills/setup-astack/scripts/setup-banner.mjs --doctor --json
 
 ### Opt-in and passive lifecycle hooks (`hooks.json`) and always-on rules
 
-- **Function.** [`hooks.json`](../hooks.json) defines `9` Node 22+ hooks: `3` passive observe-only hooks enabled by default (`astack-receipt-ledger`, `astack-session-context`, `astack-pr-intent`) plus `6` opt-in blocking gates disabled by default (`"enabled": false`): `astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, and `astack-round-limiter`.
+- **Function.** [`hooks.json`](../hooks.json) defines `10` Node 22+ hooks: `3` passive observe-only hooks enabled by default (`astack-receipt-ledger`, `astack-session-context`, `astack-pr-intent`) plus `7` opt-in blocking gates disabled by default (`"enabled": false`): `astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, `astack-round-limiter`, and `astack-trust-gate`.
 - **Rule pinning.** Copy [`rules/astack-orchestration.md`](../rules/astack-orchestration.md) into `.agents/rules/` if you want AStack routing active without typing `/astack-mode` every turn. See [Guide 01: Setup](./guide/01-setup.md) and [Guide 09: Make it yours](./guide/09-make-it-yours.md#optional-override-subagent-tiers-with-astack-modelsmd) for optional `astack-models.md` overrides.
 
 ---

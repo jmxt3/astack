@@ -5,18 +5,25 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { recordReceipt, writeEvidenceSnapshotAtomic } from "../trust/index.mjs";
+import {
+  applyTrustSettingsAction,
+  recordOutcomeWithTrustSync,
+  recordReceipt,
+  resolveWorkspaceScope,
+  writeEvidenceSnapshotAtomic,
+} from "../trust/index.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(here, "../..");
 const statuslineScript = path.join(rootDir, "scripts", "cli", "statusline.mjs");
 const titleScript = path.join(rootDir, "scripts", "cli", "title.mjs");
 
-function runScript(scriptPath, inputText = "") {
+function runScript(scriptPath, inputText = "", env = {}) {
   return spawnSync(process.execPath, [scriptPath], {
     input: inputText,
     encoding: "utf8",
     timeout: 3000,
+    env: { ...process.env, ...env },
   });
 }
 
@@ -117,5 +124,218 @@ test("statusline.mjs and title.mjs reflect fresh/stale receipts, narrow widths, 
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(convDir, { recursive: true, force: true });
+  }
+});
+
+test("statusline.mjs renders L<x>, Beast, and fresh R on enrolled repos, guards stale evidence.headSha, and omits trust on non-git and unregistered repos", () => {
+  const enrolledRepo = fs.mkdtempSync(path.join(os.tmpdir(), "astack-sl-enrolled-"));
+  const unregRepo = fs.mkdtempSync(path.join(os.tmpdir(), "astack-sl-unreg-"));
+  const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-sl-nongit-"));
+  const convDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-sl-conv-"));
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-sl-data-"));
+  const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+  const env = { ASTACK_PLUGIN_DATA: dataDir };
+
+  try {
+    const transcriptPath = path.join(convDir, ".system_generated", "logs", "transcript.jsonl");
+    const trustDir = path.join(convDir, "astack-trust");
+    fs.mkdirSync(path.dirname(transcriptPath), { recursive: true });
+    fs.writeFileSync(transcriptPath, "{}\n", "utf8");
+
+    execFileSync("git", ["init", "-b", "main"], { cwd: enrolledRepo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "t@t.com"], { cwd: enrolledRepo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "t"], { cwd: enrolledRepo, stdio: "ignore" });
+    fs.mkdirSync(path.join(enrolledRepo, ".agents"), { recursive: true });
+    const policy = {
+      schemaVersion: 1,
+      autonomy: {
+        defaultCeiling: 2,
+        ceilings: { docs: 3, tests: 3, ui: 3, skills: 3, tooling: 3, core: 3, governance: 2 },
+      },
+    };
+    fs.writeFileSync(
+      path.join(enrolledRepo, ".agents", "risk-policy.json"),
+      `${JSON.stringify(policy, null, 2)}\n`,
+      "utf8",
+    );
+    fs.writeFileSync(path.join(enrolledRepo, "app.js"), "console.log(1);\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: enrolledRepo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init enrolled"], { cwd: enrolledRepo, stdio: "ignore" });
+    const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: enrolledRepo, encoding: "utf8" }).trim();
+    const scope = resolveWorkspaceScope(enrolledRepo);
+    assert.equal(scope.kind, "enrolled_repo");
+
+    for (let i = 0; i < 10; i++) {
+      recordOutcomeWithTrustSync({
+        workspaceDir: enrolledRepo,
+        scope,
+        policy,
+        category: "ui",
+        outcome: "clean",
+        headSha,
+        predictedR: 0.08,
+        dataDir,
+      });
+    }
+    applyTrustSettingsAction({
+      repoId: scope.repoId,
+      policy,
+      action: { beastOn: true, promotionMode: "auto" },
+      dataDir,
+    });
+
+    writeEvidenceSnapshotAtomic(trustDir, {
+      schemaVersion: 1,
+      headSha,
+      freshness: "fresh",
+      riskTier: 2,
+      riskAssessment: { category: "ui", score: 0.22, residual: "medium" },
+    });
+
+    const basePayload = {
+      conversation_id: "sl-enrolled",
+      transcript_path: transcriptPath,
+      workspace: { project_dir: enrolledRepo },
+      terminal_width: 120,
+    };
+
+    const enrolledWide = stripAnsi(runScript(statuslineScript, JSON.stringify(basePayload), env).stdout);
+    assert.match(enrolledWide, /R 0\.22/);
+    assert.match(enrolledWide, /Beast ui L2/);
+
+    const enrolledNarrow = stripAnsi(
+      runScript(statuslineScript, JSON.stringify({ ...basePayload, terminal_width: 55 }), env).stdout,
+    );
+    assert.match(enrolledNarrow, /Beast L2/);
+    assert.match(enrolledNarrow, /R 0\.22/);
+
+    applyTrustSettingsAction({
+      repoId: scope.repoId,
+      policy,
+      action: { beastOn: false },
+      dataDir,
+    });
+    const beastOffWide = stripAnsi(runScript(statuslineScript, JSON.stringify(basePayload), env).stdout);
+    assert.doesNotMatch(beastOffWide, /\bBeast\b/);
+    assert.match(beastOffWide, /ui L2/);
+    assert.match(beastOffWide, /R 0\.22/);
+
+    applyTrustSettingsAction({
+      repoId: scope.repoId,
+      policy,
+      action: { beastOn: true },
+      dataDir,
+    });
+    writeEvidenceSnapshotAtomic(trustDir, {
+      schemaVersion: 1,
+      headSha: "1".repeat(40),
+      freshness: "stale_sha",
+      riskTier: 2,
+      riskAssessment: { category: "docs", score: 0.88, residual: "high" },
+    });
+    const staleWide = stripAnsi(runScript(statuslineScript, JSON.stringify(basePayload), env).stdout);
+    assert.doesNotMatch(staleWide, /R 0\.88/);
+    assert.doesNotMatch(staleWide, /\bdocs L/);
+    assert.match(staleWide, /Beast ui L2/);
+
+    writeEvidenceSnapshotAtomic(trustDir, {
+      schemaVersion: 1,
+      headSha,
+      freshness: "fresh",
+      riskTier: 2,
+      riskAssessment: { headSha: "2".repeat(40), category: "docs", score: 0.77, residual: "high" },
+    });
+    const innerMismatch = stripAnsi(runScript(statuslineScript, JSON.stringify(basePayload), env).stdout);
+    assert.doesNotMatch(innerMismatch, /R 0\.77/);
+    assert.doesNotMatch(innerMismatch, /\bdocs L/);
+    assert.match(innerMismatch, /Beast ui L2/);
+
+    writeEvidenceSnapshotAtomic(trustDir, {
+      schemaVersion: 1,
+      headSha: null,
+      freshness: "fresh",
+      riskTier: 2,
+      riskAssessment: { category: "docs", score: 0.66, residual: "high" },
+    });
+    const unanchoredEv = stripAnsi(runScript(statuslineScript, JSON.stringify(basePayload), env).stdout);
+    assert.doesNotMatch(unanchoredEv, /R 0\.66/);
+    assert.match(unanchoredEv, /Beast ui L2/);
+
+    writeEvidenceSnapshotAtomic(trustDir, {
+      schemaVersion: 1,
+      headSha,
+      freshness: "fresh",
+      riskTier: 1,
+      riskAssessment: { headSha, category: "unknown_cat", score: 0.18, residual: "medium" },
+    });
+    const badCatWide = stripAnsi(runScript(statuslineScript, JSON.stringify(basePayload), env).stdout);
+    assert.match(badCatWide, /Beast ui L2/);
+    assert.match(badCatWide, /R 0\.18/);
+
+    const subDir = path.join(enrolledRepo, "nested", "pkg");
+    fs.mkdirSync(subDir, { recursive: true });
+    const subWide = stripAnsi(
+      runScript(
+        statuslineScript,
+        JSON.stringify({ ...basePayload, workspace: { project_dir: subDir } }),
+        env,
+      ).stdout,
+    );
+    assert.match(subWide, /Beast ui L2/);
+    assert.match(subWide, /R 0\.18/);
+
+    fs.rmSync(path.join(enrolledRepo, ".agents", "risk-policy.json"));
+    const deletedPolicyWide = stripAnsi(runScript(statuslineScript, JSON.stringify(basePayload), env).stdout);
+    assert.match(deletedPolicyWide, /Beast ui L2/);
+    assert.match(deletedPolicyWide, /R 0\.18/);
+
+    execFileSync("git", ["init", "-b", "main"], { cwd: unregRepo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "t@t.com"], { cwd: unregRepo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "t"], { cwd: unregRepo, stdio: "ignore" });
+    fs.writeFileSync(path.join(unregRepo, "index.js"), "1\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: unregRepo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init unreg"], { cwd: unregRepo, stdio: "ignore" });
+    const unregSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: unregRepo, encoding: "utf8" }).trim();
+    fs.mkdirSync(path.join(unregRepo, ".agents"), { recursive: true });
+    fs.writeFileSync(
+      path.join(unregRepo, ".agents", "risk-policy.json"),
+      `${JSON.stringify(policy, null, 2)}\n`,
+      "utf8",
+    );
+    writeEvidenceSnapshotAtomic(trustDir, {
+      schemaVersion: 1,
+      headSha: unregSha,
+      freshness: "fresh",
+      riskTier: 1,
+      riskAssessment: { category: "core", score: 0.35, residual: "medium" },
+    });
+    const unregWide = stripAnsi(
+      runScript(
+        statuslineScript,
+        JSON.stringify({ ...basePayload, workspace: { project_dir: unregRepo } }),
+        env,
+      ).stdout,
+    );
+    assert.doesNotMatch(unregWide, /\bBeast\b/);
+    assert.doesNotMatch(unregWide, /\bL[0-3]\b/);
+    assert.doesNotMatch(unregWide, /\bR \d\.\d\d\b/);
+
+    const nonGitWide = stripAnsi(
+      runScript(
+        statuslineScript,
+        JSON.stringify({ cwd: nonGitDir, transcript_path: transcriptPath, terminal_width: 120 }),
+        env,
+      ).stdout,
+    );
+    assert.match(nonGitWide, /no_git/);
+    assert.doesNotMatch(nonGitWide, /\bBeast\b/);
+    assert.doesNotMatch(nonGitWide, /\bL[0-3]\b/);
+    assert.doesNotMatch(nonGitWide, /\bR \d\.\d\d\b/);
+  } finally {
+    fs.rmSync(enrolledRepo, { recursive: true, force: true });
+    fs.rmSync(unregRepo, { recursive: true, force: true });
+    fs.rmSync(nonGitDir, { recursive: true, force: true });
+    fs.rmSync(convDir, { recursive: true, force: true });
+    fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });

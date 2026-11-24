@@ -11,6 +11,7 @@ export const FILE_WRITE_TOOLS = [
 export const FILE_WRITE_TOOL_MATCHER = FILE_WRITE_TOOLS.join("|");
 export const SECRET_GUARD_MATCHER = `${FILE_WRITE_TOOL_MATCHER}|run_command`;
 export const EVIDENCE_GATE_MATCHER = "run_command|call_mcp_tool|mcp_.*";
+export const TRUST_GATE_MATCHER = `${SECRET_GUARD_MATCHER}|call_mcp_tool|mcp_.*`;
 export const RECEIPT_LEDGER_MATCHER = `${SECRET_GUARD_MATCHER}|invoke_subagent|run_workflow|call_mcp_tool|mcp_.*`;
 
 const FILE_WRITE_TOOL_SET = new Set(FILE_WRITE_TOOLS);
@@ -35,7 +36,8 @@ export function sanitizeConversationId(raw) {
   const cleaned = String(raw ?? "default")
     .trim()
     .replace(/[^A-Za-z0-9._-]+/g, "_")
-    .replace(/^_+|_+$/g, "");
+    .replace(/\.{2,}/g, "_")
+    .replace(/^[._]+|[._]+$/g, "");
   return cleaned.slice(0, 80) || "default";
 }
 
@@ -214,7 +216,7 @@ export function parseHookPayload(payload, hint) {
         parsedMcpArgs = safeArgs;
       }
       if (lowerTool.startsWith("mcp_") && !toolName) {
-        const prMatch = rawToolName.match(/^mcp_(.+?)_(create_pull_request|update_pull_request)$/i);
+        const prMatch = rawToolName.match(/^mcp_(.+?)_(create_pull_request|update_pull_request|merge_pull_request)$/i);
         if (prMatch) {
           serverName = serverName || prMatch[1];
           toolName = prMatch[2];

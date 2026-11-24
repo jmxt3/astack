@@ -822,6 +822,7 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
         "astack-receipt-ledger": { event: "PostToolUse", matcher: TOOL_MATCHERS.receiptLedger },
         "astack-secret-guard": { event: "PreToolUse", matcher: TOOL_MATCHERS.secretGuard },
         "astack-evidence-gate": { event: "PreToolUse", matcher: TOOL_MATCHERS.evidenceGate },
+        "astack-trust-gate": { event: "PreToolUse", matcher: TOOL_MATCHERS.trustGate },
         "astack-boundary-guard": { event: "PreToolUse", matcher: TOOL_MATCHERS.fileWrite },
         "astack-round-limiter": { event: "PreToolUse", matcher: TOOL_MATCHERS.fileWrite },
       };

@@ -44,7 +44,7 @@ function makeTempGitRepo(prefix = "astack-hook-") {
   return tmp;
 }
 
-test("hooks.json uses split defaults (3 passive enabled, 6 blocking opt-in) and synced tool matchers", () => {
+test("hooks.json uses split defaults (3 passive enabled, 7 blocking opt-in) and synced tool matchers", () => {
   const cfg = JSON.parse(fs.readFileSync(hooksJsonPath, "utf8"));
   assert.equal(cfg["astack-receipt-ledger"]?.enabled, true);
   assert.equal(cfg["astack-session-context"]?.enabled, true);
@@ -61,11 +61,13 @@ test("hooks.json uses split defaults (3 passive enabled, 6 blocking opt-in) and 
     "astack-evidence-gate",
     "astack-boundary-guard",
     "astack-round-limiter",
+    "astack-trust-gate",
   ]) {
     assert.equal(cfg[key]?.enabled, false, `${key} must ship disabled`);
   }
   assert.equal(cfg["astack-secret-guard"].PreToolUse[0]?.matcher, TOOL_MATCHERS.secretGuard);
   assert.equal(cfg["astack-evidence-gate"].PreToolUse[0]?.matcher, TOOL_MATCHERS.evidenceGate);
+  assert.equal(cfg["astack-trust-gate"].PreToolUse[0]?.matcher, TOOL_MATCHERS.trustGate);
   assert.equal(cfg["astack-boundary-guard"].PreToolUse[0]?.matcher, TOOL_MATCHERS.fileWrite);
   assert.equal(cfg["astack-round-limiter"].PreToolUse[0]?.matcher, TOOL_MATCHERS.fileWrite);
   assert.equal(cfg["astack-verify-reminder"].Stop[0]?.type, "command");
@@ -97,12 +99,47 @@ test("irreversible-guard allows safe commands and flags destructive/trunk comman
   for (const cmd of [
     "git push origin main --force",
     "git push origin +main",
+    'env -S "git push --force origin main"',
+    'env -S"git push --force origin main"',
+    'echo \u2018; git push --force origin main',
+    'echo $(git push --force origin main)',
+    'time git push --force origin main',
+    'g\\it push --force origin main',
+    'timeout 10 git push --force origin main',
     "git reset --hard HEAD~3",
     "rm -rf /",
     'bash -c "rm -rf /"',
     "Remove-Item -Recurse -Force C:\\",
     "psql -c 'DROP TABLE users;'",
     'echo "DROP DATABASE app;" | psql',
+  ]) {
+    const interactive = runHook(
+      guardScript,
+      JSON.stringify({ toolCall: { name: "run_command", args: { CommandLine: cmd } } }),
+      { CI: "", NON_INTERACTIVE: "" },
+    );
+    assert.equal(interactive.decision, "force_ask", cmd);
+    const headless = runHook(
+      guardScript,
+      JSON.stringify({ toolCall: { name: "run_command", args: { CommandLine: cmd } } }),
+      { CI: "true" },
+    );
+    assert.equal(headless.decision, "deny", cmd);
+  }
+  for (const cmd of [
+    `echo <(echo $'\\''); git push --force origin main`,
+    `echo <(git push --force origin main)`,
+    `env -S "-u FOO git push --force origin main"`,
+    `git push --f\\orce origin main`,
+    `g\\it.exe push --force origin main`,
+    `X="$(echo '"')" git push --force origin main`,
+    "echo `git push --force origin main; true`",
+    'env -S "-u FOO" sh -c "git push --force origin main"',
+    "g`it `push --force origin main",
+    "git pu`sh --force origin main",
+    "git push --for`ce origin main",
+    'echo "a`b"; git push --force origin main; echo "c`d"',
+    "env -iC . git push --force origin main",
   ]) {
     const interactive = runHook(
       guardScript,
@@ -427,6 +464,17 @@ test("evidence-gate, boundary-guard, and round-limiter block violations and hono
     );
     assert.equal(badPush.decision, "force_ask");
 
+    const wrappedMerge = runHook(
+      evidenceScript,
+      JSON.stringify({
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        toolCall: { name: "run_command", args: { CommandLine: "exec gh pr merge 1" } },
+      }),
+      { NON_INTERACTIVE: "1" },
+    );
+    assert.equal(wrappedMerge.decision, "deny");
+
     writeEvidenceSnapshotAtomic(path.join(artifactDir, "astack-trust"), {
       schemaVersion: 1,
       headSha: execFileSync("git", ["rev-parse", "HEAD"], { cwd: tmp, encoding: "utf8" }).trim(),
@@ -649,8 +697,194 @@ test("evidence-gate validates gh CLI and MCP PR bodies against base-branch polic
       { CI: "true" },
     );
     assert.deepEqual(mcpAllowed, { decision: "allow" });
+
+    for (const cmd of [
+      "gh pr edit 12 -b\"plain\"",
+      "gh pr edit 12 -Fmissing-body.md",
+      "echo <(gh pr merge 1)",
+      "env -S \"-u FOO gh pr merge 1\"",
+      "gh p\\r m\\erge 1",
+      "pnpm exec gh pr merge 1",
+      "pnpm e\\xec gh pr merge 1",
+      'pnpm exec env -S "-u FOO gh pr merge 1"',
+      "npx -y --package @cli/gh gh pr merge 1",
+      "uvx --from pkg gh pr merge 1",
+      'X="$(echo \'"\')" gh pr merge 1',
+      "echo `gh pr merge 1; true`",
+      'env -S "-u FOO" sh -c "gh pr merge 1"',
+      'gh pr edit 12 --b\\ody "plain"',
+      "gh `pr mer`ge 1",
+      "gh pr mer`ge 1",
+      'gh pr edit 12 --bo`dy "plain"',
+      'echo "a`b"; gh pr merge 1; echo "c`d"',
+      "env -iC . gh pr merge 1",
+      "gh pr create --body-file .",
+      "git push origin feat/x && gh pr create --body-file",
+    ]) {
+      const blocked = runHook(
+        evidenceScript,
+        JSON.stringify({
+          workspacePaths: [tmp],
+          artifactDirectoryPath: artifactDir,
+          toolCall: { name: "run_command", args: { CommandLine: cmd } },
+        }),
+        { CI: "true" },
+      );
+      assert.equal(blocked.decision, "deny", cmd);
+    }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });
+  }
+});
+
+test("non-git workspaces keep all 7 workflow hooks silent with zero disk writes while workstation safety guards stay active", () => {
+  const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), "astack-non-swe-ws-"));
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-non-swe-art-"));
+  const repo = makeTempGitRepo("astack-mcp-filter-repo-");
+  const repoArtDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-mcp-filter-art-"));
+  try {
+    assert.deepEqual(
+      runHook(
+        receiptScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+          toolCall: { name: "run_command", args: { CommandLine: "node --test" } },
+          error: "",
+        }),
+      ),
+      {},
+    );
+    assert.deepEqual(
+      runHook(
+        sessionScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+        }),
+      ),
+      {},
+    );
+    assert.deepEqual(
+      runHook(
+        prIntentScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          hookEventName: "PreInvocation",
+          invocationNum: 1,
+          lastUserInput: "prepare a PR for my video slides",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+        }),
+      ),
+      {},
+    );
+    assert.deepEqual(
+      runHook(
+        stopScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+          terminationReason: "model_stop",
+          fullyIdle: true,
+        }),
+      ),
+      { decision: "allow" },
+    );
+    assert.deepEqual(
+      runHook(
+        evidenceScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+          toolCall: { name: "run_command", args: { CommandLine: "git push origin main" } },
+        }),
+        { CI: "true" },
+      ),
+      { decision: "allow" },
+    );
+    assert.deepEqual(
+      runHook(
+        boundaryScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+          toolCall: { name: "write_file", args: { Path: "notes.js", Content: "export const x = 1;\n" } },
+        }),
+        { CI: "true" },
+      ),
+      { decision: "allow" },
+    );
+    assert.deepEqual(
+      runHook(
+        roundScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+          toolCall: { name: "edit_file", args: { Path: "notes.js", Replacement: "x" } },
+        }),
+        { CI: "true" },
+      ),
+      { decision: "allow" },
+    );
+
+    assert.equal(fs.existsSync(path.join(nonGit, ".tmp", "astack-trust")), false);
+    assert.equal(fs.existsSync(path.join(artifactDir, "astack-trust")), false);
+
+    const secretBlocked = runHook(
+      secretScript,
+      JSON.stringify({
+        workspacePaths: [nonGit],
+        toolCall: { name: "write_file", args: { Path: ".env", Content: "API_KEY=secret\n" } },
+      }),
+      { CI: "true" },
+    );
+    assert.equal(secretBlocked.decision, "deny");
+
+    const irrevBlocked = runHook(
+      guardScript,
+      JSON.stringify({
+        workspacePaths: [nonGit],
+        toolCall: { name: "run_command", args: { CommandLine: "rm -rf /" } },
+      }),
+      { CI: "true" },
+    );
+    assert.equal(irrevBlocked.decision, "deny");
+
+    for (const serverName of ["tella", "gslides"]) {
+      assert.deepEqual(
+        runHook(
+          receiptScript,
+          JSON.stringify({
+            conversationId: "mixed-session",
+            workspacePaths: [repo],
+            artifactDirectoryPath: repoArtDir,
+            toolCall: {
+              name: "call_mcp_tool",
+              args: { ServerName: serverName, ToolName: "update_deck", Arguments: {} },
+            },
+            error: "",
+          }),
+        ),
+        {},
+      );
+    }
+    assert.equal(
+      fs.existsSync(path.join(repoArtDir, "astack-trust", "receipts.mixed-session.jsonl")),
+      false,
+      "Non-SWE MCP tools inside a git repo must not write receipts",
+    );
+  } finally {
+    fs.rmSync(nonGit, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(repoArtDir, { recursive: true, force: true });
   }
 });

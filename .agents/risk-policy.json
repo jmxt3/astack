@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "defaultTier": 1,
+  "allowTier0AutoMerge": false,
+  "maxReviewRounds": 3,
+  "maxAssertionWeakeningRatio": 0.25,
+  "engineeringMcpServers": [
+    "github-mcp-server",
+    "astack_trust",
+    "chrome-devtools-mcp"
+  ],
+  "humanGates": {
+    "planApproval": "nontrivial",
+    "prReview": "always"
+  },
+  "autonomy": {
+    "defaultCeiling": 2,
+    "auditSampleRate": 5,
+    "maxBrierScore": 0.12,
+    "ceilings": {
+      "docs": 3,
+      "tests": 3,
+      "ui": 3,
+      "skills": 3,
+      "tooling": 3,
+      "core": 3,
+      "governance": 2
+    }
+  },
+  "prDescriptionContract": {
+    "enabled": false,
+    "requireStatechart": true,
+    "requireProofTable": true,
+    "forbidLocalLinks": true
+  },
+  "tiers": {
+    "0": {
+      "label": "low",
+      "description": "Documentation, markdown, and standalone test-only updates",
+      "globs": [
+        "**/*.md",
+        "**/*.txt",
+        "docs/**",
+        ".github/ISSUE_TEMPLATE/**"
+      ],
+      "requireHumanApproval": false
+    },
+    "1": {
+      "label": "medium",
+      "description": "Standard feature, UI, or skill updates",
+      "globs": [
+        "skills/**",
+        "sidecars/**",
+        "src/**",
+        "app/**"
+      ],
+      "requireHumanApproval": true
+    },
+    "2": {
+      "label": "high",
+      "description": "Core modules, schemas, public APIs, or configuration",
+      "globs": [
+        "scripts/**",
+        "agents/**",
+        "rules/**",
+        "package.json",
+        "plugin.json",
+        "mcp_config.json"
+      ],
+      "requireHumanApproval": true
+    },
+    "3": {
+      "label": "critical",
+      "description": "Hooks, trust core, sidecar manifests, CI workflows, and governance policy",
+      "globs": [
+        "hooks.json",
+        "scripts/hooks/**",
+        "scripts/trust/**",
+        "sidecars/*/sidecar.json",
+        ".github/workflows/**",
+        ".agents/**",
+        "REVIEW.md",
+        "**/*auth*",
+        "**/*billing*",
+        "**/*payment*",
+        "**/*migration*",
+        "**/security*/**"
+      ],
+      "requireHumanApproval": true
+    }
+  }
+}

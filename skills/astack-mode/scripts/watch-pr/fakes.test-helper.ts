@@ -6,6 +6,7 @@ import type {
   OpenPullRequest,
   PrContext,
   PullRequestFacts,
+  PullRequestReview,
   Repository,
   RawReviewThread,
   ReviewThread,
@@ -16,6 +17,7 @@ import { parsePrNumber } from "./types.ts";
 
 export interface FakeReaderOptions {
   readonly facts?: Partial<Omit<PullRequestFacts, "context">>;
+  readonly reviews?: readonly PullRequestReview[];
   readonly fastPath?: ChecksFastPath;
   readonly rollupPages?: readonly RollupPage[];
   readonly threads?: readonly ReviewThread[];
@@ -101,6 +103,10 @@ export function fakeReader(
     async pullRequest(requested) {
       calls.push("pullRequest");
       return { ...defaults, ...options.facts, context: requested };
+    },
+    async pullRequestReviews() {
+      calls.push("pullRequestReviews");
+      return options.reviews ?? [];
     },
     async openPullRequests() {
       calls.push("openPullRequests");

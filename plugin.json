@@ -3,7 +3,7 @@
   "name": "astack",
   "displayName": "AStack",
   "version": "0.4.0",
-  "description": "Turn Google Antigravity into a disciplined engineering loop: 65 skills, 26 playbooks, split trust hooks, and visual PR reviews that prove code works before merge.",
+  "description": "Turn Google Antigravity into a disciplined engineering loop: 66 skills, 26 playbooks, split trust hooks, and visual PR reviews that prove code works before merge.",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
     "Run /setup-astack to scaffold runtime verification skills and safety guardrails for this repo",

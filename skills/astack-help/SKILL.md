@@ -96,6 +96,7 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 | Turn completed session lessons into skill PRs | [`/reflect`](../reflect/SKILL.md) |
 | Push fixes up the 5-tier ladder + `/learn` | [`/correct`](../correct/SKILL.md) |
 | Build a button UI that triggers automations | [`/make-bot-ui`](../make-bot-ui/SKILL.md) |
+| Configure earned autonomy inside policy Ceilings | [`/beast-mode`](../beast-mode/SKILL.md) |
 | Navigate AStack skills & playbooks | `/astack-help` |
 
 ## Playbooks, principles & built-in commands

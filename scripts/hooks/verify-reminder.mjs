@@ -5,11 +5,18 @@
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { evaluateVerifyReminder, parseHookPayload, runHook } from "../trust/index.mjs";
+import {
+  evaluateStageHandoff,
+  evaluateVerifyReminder,
+  parseHookPayload,
+  runHook,
+} from "../trust/index.mjs";
 
 export function evaluateStop(payload, options = {}) {
   const event = parseHookPayload(payload, "stop");
-  return evaluateVerifyReminder(event, options);
+  const verify = evaluateVerifyReminder(event, options);
+  if (verify.decision !== "allow") return verify;
+  return evaluateStageHandoff(event, options);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -13,6 +13,11 @@ import {
   verdictFactory,
   type WatchClock,
 } from "./policy.ts";
+import {
+  isTrustCategory,
+  recordVerdictOutcomes,
+  type OutcomeRecordingOptions,
+} from "./outcomes.ts";
 import { renderJson, renderPretty } from "./render.ts";
 import type * as T from "./types.ts";
 import { nonEmpty, parsePrNumber } from "./types.ts";
@@ -26,6 +31,7 @@ export interface CliOptions {
   readonly statusOnly: boolean;
   readonly pretty: boolean;
   readonly polling: T.PollingOptions;
+  readonly outcomeRecording: OutcomeRecordingOptions;
 }
 
 class CliExitError extends Error {
@@ -56,6 +62,11 @@ Options:
   --status-only               print one status table and exit 0
   --allow-draft               do not treat a draft as a merge gate
   --pretty                    render human text instead of JSON
+  --record-outcome            record terminal MERGED/CLOSED verdicts to trust ledger
+  --cwd <dir>                 local repository path for trust lookup (default: cwd)
+  --data-dir <dir>            explicit plugin data directory override
+  --category <cat>            trust category override (docs|tests|ui|skills|tooling|core|governance)
+  --risk <0..1>               predicted risk score R override (default: evidence or 0)
   -h, --help                  display help for command
 `;
 
@@ -95,6 +106,14 @@ function prNumber(flag: string, value: string): T.PrNumber {
   }
 }
 
+function riskScore(flag: string, value: string): number {
+  const parsed = Number(value);
+  if (value.trim() === "" || !Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    invalidArg(flag, value, "must be a number between 0 and 1");
+  }
+  return parsed;
+}
+
 function stackPrList(value: string): T.NonEmpty<T.PrNumber> {
   const numbers = value.split(",").map((part) => prNumber("--stack-prs <n,...>", part.trim()));
   if (new Set(numbers).size !== numbers.length) {
@@ -131,6 +150,11 @@ export function parseArgs(
         "status-only": { type: "boolean", default: false },
         "allow-draft": { type: "boolean", default: false },
         pretty: { type: "boolean", default: false },
+        "record-outcome": { type: "boolean", default: false },
+        cwd: { type: "string" },
+        "data-dir": { type: "string" },
+        category: { type: "string" },
+        risk: { type: "string" },
         help: { type: "boolean", short: "h", default: false },
       },
     });
@@ -160,6 +184,23 @@ export function parseArgs(
       throw new CliExitError("error: --stack-prs requires --queued-stack\n", 64);
     }
 
+    const rawCategory = values.category as string | undefined;
+    let category: OutcomeRecordingOptions["category"] = null;
+    if (rawCategory !== undefined) {
+      const normalizedCategory = rawCategory.trim().toLowerCase();
+      if (!isTrustCategory(normalizedCategory)) {
+        invalidArg(
+          "--category <cat>",
+          rawCategory,
+          "must be one of docs, tests, ui, skills, tooling, core, governance"
+        );
+      }
+      category = normalizedCategory;
+    }
+
+    const rawRisk = values.risk as string | undefined;
+    const risk = rawRisk !== undefined ? riskScore("--risk <0..1>", rawRisk) : null;
+
     return {
       owner: (values.owner as string | undefined) ?? null,
       repo: (values.repo as string | undefined) ?? null,
@@ -174,6 +215,13 @@ export function parseArgs(
         timeout: nonNegativeNumber("--timeout <seconds>", String(values.timeout)),
         maxQueryErrors: positiveInteger("--max-query-errors <count>", String(values["max-query-errors"])),
         allowDraft: Boolean(values["allow-draft"]),
+      },
+      outcomeRecording: {
+        enabled: Boolean(values["record-outcome"]),
+        cwd: (values.cwd as string | undefined) ?? null,
+        dataDir: (values["data-dir"] as string | undefined) ?? null,
+        category,
+        risk,
       },
     };
   } catch (error) {
@@ -191,9 +239,9 @@ export interface CliRuntime {
   readonly stderr: (value: string) => void;
 }
 
-function realRuntime(): CliRuntime {
+function realRuntime(cwd?: string): CliRuntime {
   return {
-    reader: new GhGitHubReader(),
+    reader: new GhGitHubReader(cwd),
     clock: {
       now: () => performance.now() / 1_000,
       observedAt: () => new Date().toISOString(),
@@ -208,15 +256,20 @@ function realRuntime(): CliRuntime {
 
 export async function main(
   argv: readonly string[],
-  runtime: CliRuntime = realRuntime()
+  injectedRuntime?: CliRuntime
 ): Promise<number> {
+  const io: Pick<CliRuntime, "stdout" | "stderr"> = injectedRuntime ?? {
+    stdout: (value) => process.stdout.write(value),
+    stderr: (value) => process.stderr.write(value),
+  };
   let options: CliOptions;
   try {
-    options = parseArgs(argv, runtime);
+    options = parseArgs(argv, io);
   } catch (error) {
     if (!(error instanceof CliExitError)) throw error;
     return error.exitCode;
   }
+  const runtime = injectedRuntime ?? realRuntime(options.outcomeRecording.cwd ?? undefined);
   const render = options.pretty ? renderPretty : renderJson;
   const emit = (verdict: T.ProgressVerdict): void =>
     runtime.stdout(render(verdict));
@@ -255,5 +308,14 @@ export async function main(
           options: options.polling,
         });
   runtime.stdout(render(verdict));
+  if (options.outcomeRecording.enabled) {
+    await recordVerdictOutcomes({
+      verdict,
+      reader: runtime.reader,
+      clock: runtime.clock,
+      options: options.outcomeRecording,
+      stderr: runtime.stderr,
+    });
+  }
   return verdict.exitCode;
 }

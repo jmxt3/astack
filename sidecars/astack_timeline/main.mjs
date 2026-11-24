@@ -9,12 +9,22 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { COMMAND_DOCS, DELEGATE_GUIDE_DATA } from "./command-catalog.mjs";
 import { evaluateTimelineSnapshot, resolveSafeArtifactUri, resolveSafeTaskLogPath } from "./timeline-engine.mjs";
+import {
+  OUTCOME_SCORES,
+  TRUST_CATEGORIES,
+  applyTrustSettingsAction,
+  loadRiskPolicy,
+  readHeadShaFast,
+  recordOutcomeWithTrustSync,
+  resolveWorkspaceScope,
+} from "../../scripts/trust/index.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STRICT_ID_RE = /^[0-9a-f-]{8,}$/i;
 const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,79}$/;
 const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024;
 const MAX_TASK_LOG_BYTES = 256 * 1024;
+const MAX_SETTINGS_BODY_BYTES = 16 * 1024;
 const ARTIFACT_MIME_TYPES = new Map([
   [".md", "text/markdown; charset=utf-8"],
   [".txt", "text/plain; charset=utf-8"],
@@ -244,6 +254,7 @@ function createTimelineResponder({
   allowFixtureIds = false,
   workspaceResolver,
   prStatusResolver = null,
+  dataDir = null,
 }) {
   return async ({ conversationId = "", etag = "", workspaceUri = "" } = {}) => {
     const rawConv = String(conversationId || defaultConversationId || "").trim();
@@ -252,11 +263,11 @@ function createTimelineResponder({
     }
 
     const workspaceDir = await workspaceResolver(rawConv, workspaceUri);
-    let snap = evaluateTimelineSnapshot({ conversationId: rawConv, brainDir, workspaceDir });
+    let snap = evaluateTimelineSnapshot({ conversationId: rawConv, brainDir, workspaceDir, dataDir });
     if (prStatusResolver && workspaceDir && (snap.activity?.prs?.totalCount ?? 0) > 0) {
       const prMetaByNumber = await prStatusResolver(workspaceDir);
       if (prMetaByNumber && prMetaByNumber.size > 0) {
-        snap = evaluateTimelineSnapshot({ conversationId: rawConv, brainDir, workspaceDir, prMetaByNumber });
+        snap = evaluateTimelineSnapshot({ conversationId: rawConv, brainDir, workspaceDir, prMetaByNumber, dataDir });
       }
     }
     if (etag && etag === snap.etag) {
@@ -264,6 +275,132 @@ function createTimelineResponder({
     }
     return { status: 200, body: snap };
   };
+}
+
+function createTrustSettingsResponder({
+  defaultConversationId = "",
+  allowFixtureIds = false,
+  workspaceResolver,
+  dataDir = null,
+}) {
+  return async (payload = {}) => {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return { status: 400, body: { error: "Invalid JSON payload" } };
+    }
+    const rawConv = String(payload.conversationId || defaultConversationId || "").trim();
+    if (rawConv && !isValidConversationId(rawConv, allowFixtureIds)) {
+      return { status: 400, body: { error: "Invalid conversationId" } };
+    }
+    const workspaceDir = await workspaceResolver(rawConv, payload.workspaceUri ?? "");
+    const scope = workspaceDir ? resolveWorkspaceScope(workspaceDir) : { kind: "non_repo" };
+    if (scope.kind !== "enrolled_repo" || !scope.repoId) {
+      return { status: 400, body: { error: "Trust settings require an enrolled git repository" } };
+    }
+    const { policy } = loadRiskPolicy(scope.repoRoot, { baseRef: scope.baseRef });
+    try {
+      if (payload.recordOutcome && typeof payload.recordOutcome === "object") {
+        const ro = payload.recordOutcome;
+        const cat = String(ro.category ?? "").toLowerCase();
+        const outcome = String(ro.outcome ?? "").toLowerCase();
+        if (!TRUST_CATEGORIES.includes(cat)) {
+          return { status: 400, body: { error: "Invalid category" } };
+        }
+        if (!Object.hasOwn(OUTCOME_SCORES, outcome)) {
+          return { status: 400, body: { error: "Invalid outcome" } };
+        }
+        const sha = typeof ro.headSha === "string" && ro.headSha.trim()
+          ? ro.headSha.trim()
+          : readHeadShaFast(scope.repoRoot);
+        const res = recordOutcomeWithTrustSync({
+          workspaceDir: scope.repoRoot,
+          scope,
+          policy,
+          category: cat,
+          outcome,
+          headSha: sha,
+          predictedR: Number.isFinite(Number(ro.predictedR)) ? Number(ro.predictedR) : 0,
+          prNumber: Number.isInteger(ro.prNumber) ? ro.prNumber : null,
+          source: "timeline",
+          note: typeof ro.note === "string" ? ro.note : "",
+          dataDir,
+        });
+        return { status: 200, body: { ok: true, entry: res.entry, trust: res.trust } };
+      }
+
+      const action = {};
+      if (typeof payload.beastOn === "boolean") action.beastOn = payload.beastOn;
+      if (payload.promotionMode === "manual" || payload.promotionMode === "auto") {
+        action.promotionMode = payload.promotionMode;
+      } else if (payload.promotionMode !== undefined) {
+        return { status: 400, body: { error: "promotionMode must be manual or auto" } };
+      }
+      if (payload.setCeiling !== undefined) {
+        if (!payload.setCeiling || typeof payload.setCeiling !== "object") {
+          return { status: 400, body: { error: "Invalid setCeiling payload" } };
+        }
+        action.setCeiling = payload.setCeiling;
+      }
+      if (payload.promoteCategory !== undefined) {
+        action.promoteCategory = String(payload.promoteCategory);
+      }
+      if (payload.undoAutoPromo === true) {
+        action.undoAutoPromo = true;
+      }
+      if (Object.keys(action).length === 0) {
+        return { status: 400, body: { error: "No valid trust settings action supplied" } };
+      }
+
+      const res = applyTrustSettingsAction({
+        repoId: scope.repoId,
+        policy,
+        action,
+        dataDir,
+      });
+      return { status: 200, body: { ok: true, settings: res.settings, trust: res.trust } };
+    } catch (err) {
+      return { status: 400, body: { error: err.message } };
+    }
+  };
+}
+
+function readBoundedJsonBody(req, maxBytes = MAX_SETTINGS_BODY_BYTES) {
+  return new Promise((resolve, reject) => {
+    const contentLength = Number.parseInt(String(req.headers["content-length"] ?? ""), 10);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      req.resume();
+      reject(Object.assign(new Error("Payload too large"), { statusCode: 413 }));
+      return;
+    }
+    const chunks = [];
+    let total = 0;
+    let overflow = false;
+    req.on("data", (chunk) => {
+      total += chunk.length;
+      if (overflow) {
+        if (total > maxBytes * 8) req.destroy();
+        return;
+      }
+      if (total > maxBytes) {
+        overflow = true;
+        chunks.length = 0;
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (overflow) {
+        reject(Object.assign(new Error("Payload too large"), { statusCode: 413 }));
+        return;
+      }
+      try {
+        const text = Buffer.concat(chunks).toString("utf8");
+        resolve(text.trim() ? JSON.parse(text) : {});
+      } catch {
+        reject(Object.assign(new Error("Malformed JSON body"), { statusCode: 400 }));
+      }
+    });
+    req.on("error", (err) => reject(err));
+  });
 }
 
 function artifactJson(status, payload) {
@@ -405,6 +542,28 @@ function isLoopbackHostHeader(hostHeader, boundPort) {
   return Number(parsed.port) === boundPort;
 }
 
+function isLoopbackOriginHeader(originHeader, boundPort) {
+  if (originHeader === undefined || originHeader === "") return true;
+  if (typeof originHeader !== "string") return false;
+  const raw = originHeader.trim();
+  if (!raw || raw === "null" || /\s/.test(raw)) return false;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" || parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) {
+    return false;
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname !== "127.0.0.1" && hostname !== "localhost" && hostname !== "[::1]") {
+    return false;
+  }
+  if (!parsed.port) return boundPort === 80;
+  return Number(parsed.port) === boundPort;
+}
+
 function writeJsonResponse(res, status, payload, isHead = false) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
   res.end(isHead ? "" : JSON.stringify(payload));
@@ -427,12 +586,20 @@ export async function createTimelineServer(options = {}) {
       enabled: options.enableGhLookup ?? !allowFixtureIds,
       ...(options.prStatusFetcher ? { fetcher: options.prStatusFetcher } : {}),
     });
+  const dataDir = options.dataDir ? path.resolve(options.dataDir) : null;
   const respondTimeline = createTimelineResponder({
     brainDir,
     defaultConversationId: defaultConvId,
     allowFixtureIds,
     workspaceResolver,
     prStatusResolver,
+    dataDir,
+  });
+  const respondTrustSettings = createTrustSettingsResponder({
+    defaultConversationId: defaultConvId,
+    allowFixtureIds,
+    workspaceResolver,
+    dataDir,
   });
   const respondArtifact = createArtifactResponder({
     brainDir,
@@ -456,6 +623,37 @@ export async function createTimelineServer(options = {}) {
       reqUrl = new URL(req.url || "/", "http://127.0.0.1");
     } catch {
       writeJsonResponse(res, 400, { error: "Bad request" }, isHead);
+      return;
+    }
+
+    if (reqUrl.pathname === "/api/trust/settings") {
+      if (req.method !== "POST") {
+        writeJsonResponse(res, 405, { error: "Method not allowed" }, isHead);
+        return;
+      }
+      if (
+        String(req.headers["sec-fetch-site"] ?? "").trim().toLowerCase() === "cross-site" ||
+        !isLoopbackOriginHeader(req.headers.origin, activePort)
+      ) {
+        writeJsonResponse(res, 403, { error: "Forbidden origin" }, false);
+        return;
+      }
+      if (!token || !isTokenAuthorized(req, reqUrl, token)) {
+        writeJsonResponse(res, 401, { error: "Unauthorized" }, false);
+        return;
+      }
+      const contentType = String(req.headers["content-type"] ?? "").trim();
+      if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+        writeJsonResponse(res, 415, { error: "Content-Type must be application/json" }, false);
+        return;
+      }
+      try {
+        const body = await readBoundedJsonBody(req);
+        const result = await respondTrustSettings(body);
+        writeJsonResponse(res, result.status, result.body, false);
+      } catch (err) {
+        writeJsonResponse(res, err?.statusCode || 400, { error: err?.message || "Bad request" }, false);
+      }
       return;
     }
 
@@ -551,12 +749,20 @@ export async function startTimelineSidecar(options = {}) {
           enabled: options.enableGhLookup ?? !allowFixtureIds,
           ...(options.prStatusFetcher ? { fetcher: options.prStatusFetcher } : {}),
         });
+      const dataDir = options.dataDir ? path.resolve(options.dataDir) : null;
       const respondTimeline = createTimelineResponder({
         brainDir,
         defaultConversationId,
         allowFixtureIds,
         workspaceResolver,
         prStatusResolver,
+        dataDir,
+      });
+      const respondTrustSettings = createTrustSettingsResponder({
+        defaultConversationId,
+        allowFixtureIds,
+        workspaceResolver,
+        dataDir,
       });
       const respondArtifact = createArtifactResponder({
         brainDir,
@@ -597,6 +803,14 @@ export async function startTimelineSidecar(options = {}) {
           status: artRes.status,
           contentType: artRes.contentType,
           headers: artRes.headers,
+        });
+      }, "POST");
+
+      app.api("/api/trust/settings", async (data) => {
+        const res = await respondTrustSettings(data ?? {});
+        return new Response(JSON.stringify(res.body), {
+          status: res.status,
+          contentType: "application/json; charset=utf-8",
         });
       }, "POST");
 

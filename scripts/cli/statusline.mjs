@@ -5,10 +5,15 @@ import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
   computeFreshness,
+  evaluateRepoTrust,
+  loadRiskPolicy,
   readEvidenceSnapshot,
   readHeadShaFast,
   readMergedReceipts,
+  resolveBaseRef,
   resolveTrustDir,
+  resolveTrustStoreDir,
+  resolveWorkspaceScope,
 } from "../trust/index.mjs";
 
 const USAGE = `Usage: node scripts/cli/statusline.mjs [options]
@@ -104,6 +109,71 @@ export function readCliPipelineState(rawPayload) {
             : "Ready";
 
   const tier = typeof evidence?.riskTier === "number" ? evidence.riskTier : null;
+  let enrolledScope = null;
+  let enrolledPolicy = null;
+  if (headSha) {
+    const fastScope = resolveWorkspaceScope(workspaceDir, { checkEnrollment: false });
+    const storeDir = fastScope.repoId ? resolveTrustStoreDir(fastScope.repoId) : null;
+    if (
+      fastScope.kind !== "non_repo" &&
+      fastScope.repoRoot &&
+      (fs.existsSync(path.join(fastScope.repoRoot, ".agents", "risk-policy.json")) ||
+        Boolean(storeDir && fs.existsSync(storeDir)))
+    ) {
+      const baseRef = resolveBaseRef(fastScope.repoRoot);
+      if (baseRef) {
+        const loaded = loadRiskPolicy(fastScope.repoRoot, { baseRef });
+        if (loaded.present && !loaded.error && fastScope.repoId) {
+          enrolledScope = { ...fastScope, kind: "enrolled_repo", baseRef };
+          enrolledPolicy = loaded.policy;
+        }
+      }
+    }
+  }
+
+  const normHead = typeof headSha === "string" && headSha.trim() ? headSha.trim().toLowerCase() : null;
+  const topEvHead =
+    typeof evidence?.headSha === "string" && evidence.headSha.trim()
+      ? evidence.headSha.trim().toLowerCase()
+      : null;
+  const innerEvHead =
+    typeof evidence?.riskAssessment?.headSha === "string" && evidence.riskAssessment.headSha.trim()
+      ? evidence.riskAssessment.headSha.trim().toLowerCase()
+      : null;
+  const evidenceMatchesHead =
+    Boolean(evidence?.riskAssessment) &&
+    Boolean(normHead) &&
+    Boolean(topEvHead || innerEvHead) &&
+    (!topEvHead || topEvHead === normHead) &&
+    (!innerEvHead || innerEvHead === normHead);
+  const riskAssessment = enrolledScope && evidenceMatchesHead ? evidence.riskAssessment : null;
+  const riskScore =
+    typeof riskAssessment?.score === "number" &&
+    Number.isFinite(riskAssessment.score) &&
+    riskAssessment.score >= 0 &&
+    riskAssessment.score <= 1
+      ? riskAssessment.score
+      : null;
+  let activeCategory =
+    typeof riskAssessment?.category === "string" && riskAssessment.category.trim()
+      ? riskAssessment.category.trim()
+      : null;
+  let trustLevel = null;
+  let beastOn = false;
+  if (enrolledScope) {
+    const repoTrust = evaluateRepoTrust({ repoId: enrolledScope.repoId, policy: enrolledPolicy });
+    beastOn = repoTrust.beastOn;
+    if (!activeCategory || !Object.hasOwn(repoTrust.categories, activeCategory)) {
+      const best = [...repoTrust.categoryList].sort(
+        (a, b) => b.level - a.level || b.totalOutcomes - a.totalOutcomes,
+      )[0];
+      activeCategory = best?.totalOutcomes > 0 ? best.id : "core";
+    }
+    const cat = repoTrust.categories[activeCategory] ?? null;
+    if (cat) {
+      trustLevel = cat.level;
+    }
+  }
   const ctxPct =
     typeof payload?.context_window?.used_percentage === "number"
       ? Math.round(payload.context_window.used_percentage)
@@ -119,6 +189,10 @@ export function readCliPipelineState(rawPayload) {
     freshness,
     activeStage,
     tier,
+    riskScore,
+    activeCategory,
+    trustLevel,
+    beastOn,
     ctxPct,
     width,
     stages: { plan: planSym, build: buildSym, review: reviewSym, ship: shipSym },
@@ -148,6 +222,11 @@ function colorizeFreshness(freshness) {
 export function renderStatusLine(rawPayload, { ansi = true } = {}) {
   const s = readCliPipelineState(rawPayload);
   const tierPart = s.tier !== null ? `Tier ${s.tier}` : null;
+  const riskPart = s.riskScore !== null ? `R ${s.riskScore.toFixed(2)}` : null;
+  const trustPart =
+    s.trustLevel !== null
+      ? `${s.beastOn ? "Beast " : ""}${s.activeCategory ? `${s.activeCategory} ` : ""}L${s.trustLevel}`
+      : null;
   const ctxPart = s.ctxPct !== null ? `${s.ctxPct}% ctx` : null;
 
   if (s.width < 70) {
@@ -159,6 +238,8 @@ export function renderStatusLine(rawPayload, { ansi = true } = {}) {
     const parts = [
       `AStack [P${p} B${b} R${r} S${sh}]`,
       tierPart ? `T${s.tier}` : null,
+      s.trustLevel !== null ? `${s.beastOn ? "Beast " : ""}L${s.trustLevel}` : null,
+      riskPart,
       ansi ? colorizeFreshness(shortFresh) : shortFresh,
       s.ctxPct !== null ? `${s.ctxPct}%` : null,
     ].filter(Boolean);
@@ -175,6 +256,8 @@ export function renderStatusLine(rawPayload, { ansi = true } = {}) {
   const parts = [
     `${header} [${segs}]`,
     tierPart,
+    riskPart,
+    trustPart,
     ansi ? colorizeFreshness(s.freshness) : s.freshness,
     ctxPart,
   ].filter(Boolean);

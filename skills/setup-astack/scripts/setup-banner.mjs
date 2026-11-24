@@ -6,6 +6,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { parseWorktreeList } from "../../astack-mode/scripts/worktree-audit.mjs";
+import { readOutcomeLedger, resolveWorkspaceScope } from "../../../scripts/trust/index.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_PLUGIN_ROOT = path.resolve(__dirname, "..", "..", "..");
@@ -311,6 +312,35 @@ export function runWorkspaceDoctor({
       id: "worktrees",
       status: "info",
       detail: "Not a git repository; skipped worktree audit.",
+    });
+  }
+
+  try {
+    const scope = resolveWorkspaceScope(status.cwd);
+    if (scope.kind === "enrolled_repo" && scope.repoId) {
+      const ledger = readOutcomeLedger(scope.repoId);
+      checks.push({
+        id: "trust-ledger",
+        status: ledger.chainValid ? "pass" : "warn",
+        detail: ledger.chainValid
+          ? `Outcome ledger hash chain valid (${ledger.entries.length} outcome(s), repoId ${scope.repoId}).`
+          : `Outcome ledger hash chain broken at line ${ledger.brokenAtLine} (${ledger.reason}). Repo autonomy is frozen at L0 until repaired (${ledger.ledgerPath}).`,
+      });
+    } else {
+      checks.push({
+        id: "trust-ledger",
+        status: "info",
+        detail:
+          scope.kind === "non_repo"
+            ? "Non-git workspace (trust ledger inactive)."
+            : "Unenrolled git repo (commit .agents/risk-policy.json on base branch to enroll).",
+      });
+    }
+  } catch {
+    checks.push({
+      id: "trust-ledger",
+      status: "info",
+      detail: "Skipped trust ledger check.",
     });
   }
 
