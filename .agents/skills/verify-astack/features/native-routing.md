@@ -1,10 +1,10 @@
 # Native Antigravity Command Registry & Behavioral Routing
 
-AStack aligns 100% with Antigravity's 16 public slash commands through a single source of truth ([native-commands.json](../../../../skills/astack-mode/references/native-commands.json) and generated [native-commands.md](../../../../skills/astack-mode/references/native-commands.md)), enforcing `/plan`, `/grill-me`, and `/learn` gates plus automated post-approval finish gates via [plan-contract.md](../../../../skills/astack-mode/references/plan-contract.md) and deferring overlapping AStack skills to native flows.
+AStack aligns 100% with Antigravity's 18 public slash commands through a single source of truth ([native-commands.json](../../../../skills/astack-mode/references/native-commands.json) and generated [native-commands.md](../../../../skills/astack-mode/references/native-commands.md)), enforcing `/plan`, `/grill-me`, and `/learn` gates plus automated post-approval finish gates via [plan-contract.md](../../../../skills/astack-mode/references/plan-contract.md) and deferring overlapping AStack skills to native flows.
 
 ## Sub-features
 
-- Single-source 16-command registry (`run`, `load`, `contract`, `recommend` engagement modes, surfaces `app` / `cli`, plan tiers, triggers, and AStack companions)
+- Single-source 18-command registry (`run`, `load`, `contract`, `recommend` engagement modes, surfaces `app` / `cli`, plan tiers, triggers, and AStack companions)
 - Byte-identical generated Markdown table (`node scripts/validate-astack.mjs --write-native-commands`) checked automatically by `validate-astack.mjs`
 - Hard `/plan` approval gate (`implementation_plan.md` with `RequestFeedback: true` and `UserFacing: true`, zero workspace edits before approval), automated post-approval Step 6 finish gates (clicking **Proceed** or replying with short approval triggers `astack-mode`, live verification, `/deslop` + `/no-comments`, `walkthrough.md`, and local commit boundary before `git push`), and `/learn` `learning_proposal.md` gate
 - Model-decision intent routing (`trigger: model_decision`) via `rules/astack-orchestration.md` plus explicit `/` command priority and sticky active-playbook follow-ups reset by `"new task"`
@@ -22,7 +22,7 @@ Preconditions: `$ScratchDir` and `$EvidenceDir` exist from `Launch`; inspect gen
 ### Deterministic Registry Checks
 
 - Run `node scripts/validate-astack.mjs --write-native-commands` followed by `git diff --exit-code skills/astack-mode/references/native-commands.md`. Expect exit `0` and byte-identical table output.
-- Inspect `native-commands.json`: confirm 16 unique commands matching the Antigravity catalog (`/swarm`, `/run-workflow`, `/schedule`, `/browser`, `/automation`, `/plugin`, `/agy-customizations`, `/generative_ui`, `/antigravity-guide`, `/plan`, `/grill-me`, `/learn`, `/goal`, `/boost`, `/teamwork`, `/btw`) and confirm `validate-astack.mjs` rejects any fixture missing a command or drifting `native-commands.md`.
+- Inspect `native-commands.json`: confirm 18 unique commands matching the Antigravity catalog (`/swarm`, `/run-workflow`, `/schedule`, `/browser`, `/automation`, `/plugin`, `/agy-customizations`, `/generative_ui`, `/antigravity-guide`, `/plan`, `/grill-me`, `/learn`, `/goal`, `/boost`, `/teamwork`, `/btw`, `/mcp-app-development`, `/compact`) and confirm `validate-astack.mjs` rejects any fixture missing a command or drifting `native-commands.md`.
 
 ### Behavioral Routing Eval Suite (`R1` to `R12` + `R1-neg`)
 
