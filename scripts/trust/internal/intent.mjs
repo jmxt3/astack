@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sanitizeConversationId } from "./envelope.mjs";
 import { matchesAnyGlob } from "./policy.mjs";
-import { TRUST_CATEGORIES, classifyFileCategory } from "./risk.mjs";
+import { TRUST_CATEGORIES, classifyDominantCategory, classifyFileCategory } from "./risk.mjs";
 
 const VALID_CATEGORIES = new Set(TRUST_CATEGORIES);
 const VALID_RISK_LABELS = new Set(["low", "medium", "high", "critical"]);
@@ -152,7 +152,9 @@ export function recordIntentCard({
     edgeCases: Array.isArray(card.edgeCases) ? card.edgeCases.map((s) => s.trim()).filter(Boolean) : [],
     rollbackPlan: card.rollbackPlan.trim(),
     predictedRisk: card.predictedRisk ?? null,
-    category: card.category ?? classifyFileCategory(card.affectedGlobs[0].replace(/\*+/g, "file")),
+    category:
+      card.category ??
+      classifyDominantCategory(card.affectedGlobs.map((g) => g.replace(/\*+/g, "file"))),
     approved: card.approved === true,
     approvedAt: card.approved === true ? (card.approvedAt ?? now) : null,
   };

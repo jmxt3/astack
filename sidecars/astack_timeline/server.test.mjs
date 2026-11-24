@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -601,6 +601,145 @@ test("createTimelineServer serves selectable task logs safely and exposes vertic
     assert.match(sceneJs, /prOpenEdges/);
   } finally {
     await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/trust/settings enforces auth, method, size limits, enrollment, and updates Beast/Promotion/Ceiling/Promote/Undo in standalone and sidecar_sdk modes", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-trust-"));
+  const brainDir = path.join(root, "brain");
+  const dataDir = path.join(root, "plugin-data");
+  const enrolledRepo = path.join(root, "enrolled");
+  const nonRepo = path.join(root, "non-repo");
+  const convId = "55555555-6666-7777-8888-999999999999";
+
+  fs.mkdirSync(enrolledRepo, { recursive: true });
+  fs.mkdirSync(nonRepo, { recursive: true });
+  execFileSync("git", ["init", "-b", "main"], { cwd: enrolledRepo, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "t@e.com"], { cwd: enrolledRepo, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "T"], { cwd: enrolledRepo, stdio: "ignore" });
+  writeText(path.join(enrolledRepo, ".agents", "risk-policy.json"), JSON.stringify({
+    schemaVersion: 1,
+    autonomy: { defaultCeiling: 2, ceilings: { ui: 3, docs: 3, governance: 2 } },
+  }, null, 2));
+  execFileSync("git", ["add", "."], { cwd: enrolledRepo, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "enroll"], { cwd: enrolledRepo, stdio: "ignore" });
+  const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: enrolledRepo, encoding: "utf8" }).trim();
+  writeText(path.join(brainDir, convId, "implementation_plan.md"), "# Plan\n");
+
+  const srv = await createTimelineServer({
+    brainDir,
+    workspaceDir: enrolledRepo,
+    conversationId: convId,
+    token: "trust-tok",
+    dataDir,
+    port: 0,
+  });
+  const nonRepoSrv = await createTimelineServer({
+    brainDir,
+    workspaceDir: nonRepo,
+    conversationId: convId,
+    token: "trust-tok",
+    dataDir,
+    port: 0,
+  });
+
+  try {
+    const authHeaders = { "Content-Type": "application/json", "X-Sidecar-Token": "trust-tok" };
+    assert.equal((await fetch(`${srv.url}api/trust/settings`, { method: "POST", body: "{}" })).status, 401);
+    assert.equal((await fetch(`${srv.url}api/trust/settings`, { method: "GET", headers: authHeaders })).status, 405);
+    assert.equal(
+      (await fetch(`${srv.url}api/trust/settings`, { method: "POST", headers: authHeaders, body: "x".repeat(20_000) })).status,
+      413,
+    );
+    assert.equal(
+      (await fetch(`${nonRepoSrv.url}api/trust/settings`, { method: "POST", headers: authHeaders, body: JSON.stringify({ beastOn: true }) })).status,
+      400,
+    );
+
+    const nonRepoSnap = await (await fetch(`${nonRepoSrv.url}api/timeline?conversationId=${convId}`, { headers: authHeaders })).json();
+    assert.equal(nonRepoSnap.trust.scopeKind, "non_repo");
+    assert.equal(nonRepoSnap.trust.enrolled, false);
+
+    const beastRes = await fetch(`${srv.url}api/trust/settings`, {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({ beastOn: true, conversationId: convId }),
+    });
+    assert.equal(beastRes.status, 200);
+    assert.equal((await beastRes.json()).trust.beastOn, true);
+
+    for (let i = 0; i < 5; i++) {
+      const outRes = await fetch(`${srv.url}api/trust/settings`, {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          recordOutcome: { category: "ui", outcome: "clean", headSha, predictedR: 0.1 },
+          conversationId: convId,
+        }),
+      });
+      assert.equal(outRes.status, 200);
+    }
+
+    const beforePromoSnap = await (await fetch(`${srv.url}api/timeline?conversationId=${convId}`, { headers: authHeaders })).json();
+    assert.equal(beforePromoSnap.trust.enrolled, true);
+    assert.equal(beforePromoSnap.trust.promoBanner?.kind, "manual");
+    assert.equal(beforePromoSnap.trust.promoBanner?.toLvl, 1);
+
+    const autoRes = await fetch(`${srv.url}api/trust/settings`, {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({ promotionMode: "auto", conversationId: convId }),
+    });
+    assert.equal(autoRes.status, 200);
+    assert.equal((await autoRes.json()).trust.categories.ui.level, 1);
+
+    const undoRes = await fetch(`${srv.url}api/trust/settings`, {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({ undoAutoPromo: true, conversationId: convId }),
+    });
+    assert.equal(undoRes.status, 200);
+    const undoBody = await undoRes.json();
+    assert.equal(undoBody.trust.promotionMode, "manual");
+    assert.equal(undoBody.trust.categories.ui.level, 0);
+
+    const promoRes = await fetch(`${srv.url}api/trust/settings`, {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({ promoteCategory: "ui", conversationId: convId }),
+    });
+    assert.equal(promoRes.status, 200);
+    assert.equal((await promoRes.json()).trust.categories.ui.level, 1);
+
+    const routes = [];
+    class MockResponse {
+      constructor(body, opts = {}) {
+        this.body = body;
+        this.status = opts.status || 200;
+        this.contentType = opts.contentType || "text/plain";
+      }
+    }
+    class MockSidecarApp {
+      constructor() { this.config = { conversationId: convId }; }
+      page() {}
+      api(routePath, handler, method) { routes.push({ routePath, handler, method }); }
+      async run() {}
+    }
+    await startTimelineSidecar({
+      brainDir,
+      workspaceDir: enrolledRepo,
+      dataDir,
+      sdk: { SidecarApp: MockSidecarApp, Response: MockResponse },
+    });
+    const settingsRoute = routes.find((r) => r.routePath === "/api/trust/settings");
+    assert.equal(settingsRoute?.method, "POST");
+    const sdkResp = await settingsRoute.handler({ setCeiling: { category: "ui", ceiling: 3 } });
+    assert.equal(sdkResp.status, 200);
+    assert.equal(JSON.parse(sdkResp.body).trust.categories.ui.ceiling, 3);
+  } finally {
+    await srv.close();
+    await nonRepoSrv.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

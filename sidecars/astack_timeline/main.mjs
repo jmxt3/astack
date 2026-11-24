@@ -365,18 +365,33 @@ function createTrustSettingsResponder({
 
 function readBoundedJsonBody(req, maxBytes = MAX_SETTINGS_BODY_BYTES) {
   return new Promise((resolve, reject) => {
+    const contentLength = Number.parseInt(String(req.headers["content-length"] ?? ""), 10);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      req.resume();
+      reject(Object.assign(new Error("Payload too large"), { statusCode: 413 }));
+      return;
+    }
     const chunks = [];
     let total = 0;
+    let overflow = false;
     req.on("data", (chunk) => {
       total += chunk.length;
+      if (overflow) {
+        if (total > maxBytes * 8) req.destroy();
+        return;
+      }
       if (total > maxBytes) {
-        reject(Object.assign(new Error("Payload too large"), { statusCode: 413 }));
-        req.destroy();
+        overflow = true;
+        chunks.length = 0;
         return;
       }
       chunks.push(chunk);
     });
     req.on("end", () => {
+      if (overflow) {
+        reject(Object.assign(new Error("Payload too large"), { statusCode: 413 }));
+        return;
+      }
       try {
         const text = Buffer.concat(chunks).toString("utf8");
         resolve(text.trim() ? JSON.parse(text) : {});

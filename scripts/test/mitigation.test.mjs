@@ -244,3 +244,15 @@ test("evidence-gate hook denies unverified gh pr merge and MCP merge_pull_reques
     fs.rmSync(artifactDir, { recursive: true, force: true });
   }
 });
+
+test("classifyActionClass never classifies compound/redirected commands or remote write MCP tools as read", () => {
+  assert.equal(classifyActionClass({ kind: "tool-command", command: "ls && node evil.js" }), "local_exec");
+  assert.equal(classifyActionClass({ kind: "tool-command", command: "cat README.md > hacked.txt" }), "local_exec");
+  assert.equal(classifyActionClass({ kind: "tool-command", command: "git status; echo pwn > x" }), "local_exec");
+  assert.equal(classifyActionClass({ kind: "tool-command", command: "git -C repo merge feat" }), "merge");
+  assert.equal(classifyActionClass({ kind: "tool-command", command: "gh -R org/repo pr merge 12" }), "merge");
+  assert.equal(classifyActionClass({ kind: "tool-command", command: "git status && git diff --stat" }), "read");
+  assert.equal(classifyActionClass({ kind: "tool-mcp", toolName: "push_files" }), "push_branch");
+  assert.equal(classifyActionClass({ kind: "tool-mcp", toolName: "create_or_update_file" }), "push_branch");
+  assert.equal(classifyActionClass({ kind: "tool-mcp", toolName: "create_branch" }), "push_branch");
+});

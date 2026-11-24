@@ -28,7 +28,7 @@ import {
   resolveEnrolledWorkspaceScope,
   tokenizeSimpleWords,
 } from "./policy.mjs";
-import { assessChange, classifyFileCategory } from "./risk.mjs";
+import { assessChange, classifyDominantCategory } from "./risk.mjs";
 import { evaluateRepoTrust } from "./trust-level.mjs";
 
 const READ_ONLY_VERBS = new Set([
@@ -61,9 +61,19 @@ const MUTATING_TRUST_CLI_CMDS = new Set([
   "record-outcome",
 ]);
 
+const TRUST_CLI_VALUE_FLAGS = new Set([
+  "--cwd",
+  "--data-dir",
+  "--base",
+  "--sha",
+  "--risk",
+  "--pr",
+  "--note",
+]);
+
 const SHELL_WRITE_OPERATOR_RE = /(?:>>?|\|\s*tee\b|\bSet-Content\b|\bAdd-Content\b|\bOut-File\b)/i;
 const TRUST_STORE_HINT_RE =
-  /(?:plugin-data[\\/]+astack[\\/]+trust|\$\{?PLUGIN_DATA\}?[\\/]+trust|\$env:(?:ASTACK_PLUGIN_DATA|ANTIGRAVITY_PLUGIN_DATA|PLUGIN_DATA)[\\/]+trust)/i;
+  /(?:plugin-data[\\/]+astack[\\/]+trust|(?:\$\{?|%|\$env:)(?:ASTACK_PLUGIN_DATA|ANTIGRAVITY_PLUGIN_DATA|PLUGIN_DATA)[}%]?[\\/]+trust)/i;
 
 function normalizePosixLower(value) {
   return String(value ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
@@ -78,6 +88,19 @@ function getLeadingVerb(tokens) {
   return path.win32.basename(tokens[idx].replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
 }
 
+function hasMutatingTrustCliSubcommand(tokens, scriptIdx) {
+  for (let j = scriptIdx + 1; j < tokens.length; j++) {
+    const arg = tokens[j].toLowerCase();
+    if (TRUST_CLI_VALUE_FLAGS.has(arg)) {
+      j += 1;
+      continue;
+    }
+    if (arg.startsWith("-")) continue;
+    return MUTATING_TRUST_CLI_CMDS.has(arg);
+  }
+  return false;
+}
+
 /**
  * Returns true when a shell command attempts to modify `${PLUGIN_DATA}/trust/**` or run mutating `scripts/trust/cli.mjs` commands.
  */
@@ -88,21 +111,33 @@ export function isProtectedTrustShellCommand(command, options = {}) {
   const resolvedTrustRoot = normalizePosixLower(
     path.resolve(path.join(resolvePluginDataDir(options), "trust")),
   );
+  let cdIntoTrustDir = false;
 
   for (const segment of collectLeafSegments(raw)) {
     const tokens = tokenizeSimpleWords(segment);
     if (tokens.length === 0) continue;
 
+    const verb = getLeadingVerb(tokens);
+    if (verb === "cd" || verb === "set-location" || verb === "sl" || verb === "pushd") {
+      const targetArg = tokens.slice(1).find((t) => !t.startsWith("-"));
+      if (targetArg) {
+        const normTarget = normalizePosixLower(targetArg);
+        if (normTarget.endsWith("scripts/trust") || normTarget.endsWith("/trust") || normTarget === "trust") {
+          cdIntoTrustDir = true;
+        }
+      }
+    }
+
     for (let i = 0; i < tokens.length; i++) {
       const cleanTok = normalizePosixLower(tokens[i]);
-      if (cleanTok.endsWith("scripts/trust/cli.mjs") || cleanTok.endsWith("/trust/cli.mjs") || cleanTok === "trust/cli.mjs") {
-        for (let j = i + 1; j < tokens.length; j++) {
-          const arg = tokens[j].toLowerCase();
-          if (arg.startsWith("-")) continue;
-          if (MUTATING_TRUST_CLI_CMDS.has(arg)) {
-            return true;
-          }
-          break;
+      const isDirectTrustCli =
+        cleanTok.endsWith("scripts/trust/cli.mjs") ||
+        cleanTok.endsWith("/trust/cli.mjs") ||
+        cleanTok === "trust/cli.mjs";
+      const isCdTrustCli = cdIntoTrustDir && (cleanTok === "cli.mjs" || cleanTok === "./cli.mjs");
+      if (isDirectTrustCli || isCdTrustCli) {
+        if (hasMutatingTrustCliSubcommand(tokens, i)) {
+          return true;
         }
       }
     }
@@ -113,11 +148,13 @@ export function isProtectedTrustShellCommand(command, options = {}) {
     const touchesTokenPath = tokens.some(
       (tok) =>
         (tok.includes("/") || tok.includes("\\")) &&
-        isProtectedTrustStorePath(tok, { dataDir: options.dataDir }),
+        isProtectedTrustStorePath(tok, {
+          dataDir: options.dataDir,
+          workspaceDir: options.workspaceDir,
+        }),
     );
 
     if (touchesResolvedDir || touchesHint || touchesTokenPath) {
-      const verb = getLeadingVerb(tokens);
       const pureRead = READ_ONLY_VERBS.has(verb) && !SHELL_WRITE_OPERATOR_RE.test(segment);
       if (!pureRead) {
         return true;
@@ -157,51 +194,71 @@ function buildPendingWriteAssessment({ event, scope, policy, receipts, evidence,
   });
 }
 
+function synthesizeSessionAssessment({ action, policy, receipts, evidence, intent, headSha, changedFiles }) {
+  const statusText = changedFiles.map((f) => ` M ${f}`).join("\n");
+  const raw = assessChange({
+    diffText: "",
+    numstat: "",
+    statusText,
+    policy,
+    receipts,
+    intent,
+    action,
+    headSha,
+  });
+  if (changedFiles.length === 0) {
+    raw.category = intent?.category ?? "core";
+  }
+  return resolveResidual(raw, receipts, {
+    headSha,
+    priorEvidence: evidence,
+    intent,
+  });
+}
+
 function buildActionAssessment({ event, action, scope, policy, receipts, evidence, intent, headSha }) {
   if (event.kind === "tool-write" && event.filePath) {
     return buildPendingWriteAssessment({ event, scope, policy, receipts, evidence, intent, headSha });
   }
-  if (evidence?.riskAssessment) {
+  const changedFiles = collectReceiptPaths(receipts);
+  const evidenceMatchesHead =
+    Boolean(evidence?.riskAssessment) &&
+    (!headSha || !evidence.headSha || evidence.headSha === headSha);
+  if (evidenceMatchesHead) {
     const base = structuredClone(evidence.riskAssessment);
+    base.action = action;
     const reg = detectSessionTestRegression(receipts);
-    if (reg.regressed && !base.signals.some((s) => s.id === "test_regression")) {
-      base.signals.push({
-        id: "test_regression",
-        severity: 3,
-        evidence: `regressed test(s): ${reg.commands.slice(0, 2).join(", ")}`,
-      });
-      base.residual = "blocked";
+    if (reg.regressed && !(base.signals ?? []).some((s) => s.id === "test_regression")) {
+      base.signals = [
+        ...(base.signals ?? []),
+        {
+          id: "test_regression",
+          severity: 3,
+          weight: policy?.risk?.weights?.test_regression ?? 0.65,
+          evidence: `regressed test(s): ${reg.commands.slice(0, 2).join(", ")}`,
+        },
+      ];
     }
-    return base;
-  }
-  const reg = detectSessionTestRegression(receipts);
-  const category = intent?.category ?? "core";
-  const signals = [];
-  if (reg.regressed) {
-    signals.push({
-      id: "test_regression",
-      severity: 3,
-      evidence: `regressed test(s): ${reg.commands.slice(0, 2).join(", ")}`,
+    if (intent && changedFiles.length > 0 && !evaluateIntentScope(intent, changedFiles).inScope) {
+      if (!(base.signals ?? []).some((s) => s.id === "scope_drift")) {
+        base.signals = [
+          ...(base.signals ?? []),
+          {
+            id: "scope_drift",
+            severity: 3,
+            weight: policy?.risk?.weights?.scope_drift ?? 0.55,
+            evidence: `outside intent scope: ${evaluateIntentScope(intent, changedFiles).driftedFiles.slice(0, 4).join(", ")}`,
+          },
+        ];
+      }
+    }
+    return resolveResidual(base, receipts, {
+      headSha,
+      priorEvidence: evidence,
+      intent,
     });
   }
-  const hasTestReceipt = receipts.some(
-    (r) => r?.ok && r.kind === "command" && (r.category === "test" || r.category === "verify"),
-  );
-  const score = reg.regressed ? 0.85 : hasTestReceipt ? 0.05 : 0.1;
-  return {
-    action,
-    category,
-    tier: reg.regressed ? 3 : 1,
-    signals,
-    score,
-    inherent: reg.regressed ? "critical" : "low",
-    requiredMitigations: reg.regressed ? ["regression_green"] : [],
-    satisfied: [],
-    residual: reg.regressed ? "blocked" : "low",
-    rollback: { kind: "checkout", plan: intent?.rollbackPlan || "git checkout -- ." },
-    predictedAt: new Date().toISOString(),
-    headSha: headSha ?? null,
-  };
+  return synthesizeSessionAssessment({ action, policy, receipts, evidence, intent, headSha, changedFiles });
 }
 
 /**
@@ -214,7 +271,10 @@ export function evaluateTrustGate(event, options = {}) {
 
   if (
     event.kind === "tool-write" &&
-    isProtectedTrustStorePath(event.filePath, { dataDir: options.dataDir })
+    isProtectedTrustStorePath(event.filePath, {
+      dataDir: options.dataDir,
+      workspaceDir: event.workspaceDir,
+    })
   ) {
     return {
       decision: "deny",
@@ -223,7 +283,10 @@ export function evaluateTrustGate(event, options = {}) {
   }
   if (
     event.kind === "tool-command" &&
-    isProtectedTrustShellCommand(event.command, { dataDir: options.dataDir })
+    isProtectedTrustShellCommand(event.command, {
+      dataDir: options.dataDir,
+      workspaceDir: event.workspaceDir,
+    })
   ) {
     return {
       decision: "deny",
@@ -485,7 +548,22 @@ export function evaluateStageHandoff(event, options = {}) {
       return { decision: "allow" };
     }
 
-    const riskAssessment = evidence?.riskAssessment ?? null;
+    const evidenceMatchesHead =
+      Boolean(evidence?.riskAssessment) &&
+      (!headSha || !evidence.headSha || evidence.headSha === headSha);
+    const riskAssessment = evidenceMatchesHead
+      ? evidence.riskAssessment
+      : changedFiles.length > 0
+        ? synthesizeSessionAssessment({
+            action: "open_pr",
+            policy,
+            receipts,
+            evidence,
+            intent,
+            headSha,
+            changedFiles,
+          })
+        : null;
     if (riskAssessment?.residual === "blocked") {
       return { decision: "allow" };
     }
@@ -493,7 +571,7 @@ export function evaluateStageHandoff(event, options = {}) {
     const category =
       riskAssessment?.category ??
       intent?.category ??
-      (changedFiles.length > 0 ? classifyFileCategory(changedFiles[0]) : "core");
+      (changedFiles.length > 0 ? classifyDominantCategory(changedFiles) : "core");
     const catState = trust.categories?.[category] ?? { level: 0, score: 0 };
     const residual = riskAssessment?.residual ?? "low";
     const riskScore = riskAssessment?.score ?? 0;
@@ -652,11 +730,23 @@ export function evaluateStageContext(event, options = {}) {
           ? "2. Build & Verify"
           : "1. Plan & Intent";
 
-    const riskAssessment = evidence?.riskAssessment ?? null;
+    const riskAssessment =
+      evidence?.riskAssessment ??
+      (changedFiles.length > 0
+        ? synthesizeSessionAssessment({
+            action: "open_pr",
+            policy,
+            receipts,
+            evidence,
+            intent,
+            headSha,
+            changedFiles,
+          })
+        : null);
     const category =
       riskAssessment?.category ??
       intent?.category ??
-      (changedFiles.length > 0 ? classifyFileCategory(changedFiles[0]) : "core");
+      (changedFiles.length > 0 ? classifyDominantCategory(changedFiles) : "core");
     const catState = trust.categories?.[category] ?? { level: 0, score: 0, ceiling: 2 };
     const residual = riskAssessment?.residual ?? "low";
     const riskScore = Number(riskAssessment?.score ?? 0).toFixed(2);

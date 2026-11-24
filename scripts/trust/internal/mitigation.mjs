@@ -1,4 +1,4 @@
-import { evaluateIrreversible } from "./policy.mjs";
+import { collectLeafSegments, evaluateIrreversible } from "./policy.mjs";
 import {
   HARD_BLOCK_SIGNALS,
   bucketFromScore,
@@ -81,14 +81,23 @@ export const MITIGATION_TABLE = {
 };
 
 const READ_ONLY_CMD_RE =
-  /^\s*(?:git\s+(?:status|diff|log|show|rev-parse|branch\s+(?:-a|-r|--list|--show-current)?$)|rg\b|grep\b|cat\b|head\b|tail\b|ls\b|dir\b|pwd\b|Get-ChildItem\b|Get-Content\b|Select-String\b)/i;
+  /^\s*(?:git\s+(?:status|diff|log|show|rev-parse|branch(?:\s+(?:-a|-r|--list|--show-current))?)(?:\s|$)|rg\b|grep\b|cat\b|head\b|tail\b|ls\b|dir\b|pwd\b|Get-ChildItem\b|Get-Content\b|Select-String\b)/i;
+const SHELL_MUTATION_OPERATOR_RE = /(?:>>?|\$\(|`|\r|\n|\|\s*tee\b)/i;
 const DEPLOY_CMD_RE =
   /\b(?:kubectl\s+apply|terraform\s+apply|pulumi\s+up|vercel\s+--prod|flyctl?\s+deploy|wrangler\s+deploy|gcloud\s+(?:run|app|functions)\s+deploy|npm\s+publish|gh\s+release\s+create)\b/i;
 const EXTERNAL_MSG_CMD_RE =
   /\b(?:gh\s+(?:pr|issue)\s+comment|gh\s+pr\s+review|sendmail\b)\b/i;
-const MERGE_CMD_RE = /\b(?:gh\s+pr\s+merge|git\s+merge)\b/i;
-const OPEN_PR_CMD_RE = /\bgh\s+pr\s+(?:create|new|edit)\b/i;
-const PUSH_CMD_RE = /\bgit\s+(?:-[A-Za-z]\s+\S+\s+)*push\b/i;
+const MERGE_CMD_RE =
+  /\b(?:gh(?:\s+-[A-Za-z]\s+\S+|\s+--[a-z-]+(?:=\S+|\s+\S+))*\s+pr\s+merge|git(?:\s+-[A-Za-z]\s+\S+|\s+--[a-z-]+=\S+)*\s+merge)\b/i;
+const OPEN_PR_CMD_RE = /\bgh(?:\s+-[A-Za-z]\s+\S+|\s+--[a-z-]+(?:=\S+|\s+\S+))*\s+pr\s+(?:create|new|edit)\b/i;
+const PUSH_CMD_RE = /\bgit(?:\s+-[A-Za-z]\s+\S+|\s+--[a-z-]+=\S+)*\s+push\b/i;
+
+function isStrictlyReadOnlyCommand(cmd) {
+  if (SHELL_MUTATION_OPERATOR_RE.test(cmd)) return false;
+  const segments = collectLeafSegments(cmd);
+  if (segments.length === 0) return false;
+  return segments.every((seg) => !SHELL_MUTATION_OPERATOR_RE.test(seg) && READ_ONLY_CMD_RE.test(seg));
+}
 
 /**
  * Classifies a normalized hook event into one of the 9 canonical `ActionClass` levels.
@@ -100,6 +109,12 @@ export function classifyActionClass(event) {
     const tool = String(event.toolName ?? "").toLowerCase();
     if (tool === "merge_pull_request") return "merge";
     if (tool === "create_pull_request" || tool === "update_pull_request") return "open_pr";
+    if (tool === "push_files" || tool === "create_or_update_file" || tool === "create_branch") {
+      return "push_branch";
+    }
+    if (/^(?:write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content)$/.test(tool)) {
+      return "local_write";
+    }
     if (/^(?:create_issue_comment|add_pull_request_review|send_|post_)/.test(tool)) {
       return "external_message";
     }
@@ -119,7 +134,7 @@ export function classifyActionClass(event) {
     if (MERGE_CMD_RE.test(cmd)) return "merge";
     if (OPEN_PR_CMD_RE.test(cmd)) return "open_pr";
     if (PUSH_CMD_RE.test(cmd)) return "push_branch";
-    if (READ_ONLY_CMD_RE.test(cmd)) return "read";
+    if (isStrictlyReadOnlyCommand(cmd)) return "read";
     return "local_exec";
   }
   return "read";

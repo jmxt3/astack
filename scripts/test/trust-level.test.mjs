@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,8 +13,12 @@ import {
   evaluateRepoTrust,
   evaluateStageContext,
   evaluateStageHandoff,
+  evaluateTrustGate,
   isProtectedTrustShellCommand,
+  isProtectedTrustStorePath,
   mapLegacyPolicyFlags,
+  readOutcomeLedger,
+  readTrustSettings,
   recordIntentCard,
   recordOutcomeWithTrustSync,
   recordReceipt,
@@ -962,4 +966,229 @@ test("exhaustive BFS state-space check proves earned-trust and stage-handoff saf
 
   assert.ok(visited.size >= 100, `Expected rich reachable state space, checked ${visited.size} states`);
   assert.ok(transitionsChecked >= 500, `Expected thorough transition check, got ${transitionsChecked}`);
+});
+
+test("security regressions: trust-gate blocks flag-prefixed cli.mjs, cd+cli.mjs, env vars, symlinks, workspace-relative paths, unverified merges, and governance handoff", () => {
+  const { dir, headSha } = makeEnrolledRepo("astack-trust-sec-reg-");
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-trust-sec-pd-"));
+  try {
+    const scope = resolveWorkspaceScope(dir, { baseRef: "main" });
+    const policy = DEFAULT_RISK_POLICY;
+
+    assert.equal(isProtectedTrustShellCommand("node scripts/trust/cli.mjs --cwd . beast on", { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand("node scripts/trust/cli.mjs --data-dir /tmp/x promote core", { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand("cd scripts/trust && node cli.mjs beast on", { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand("echo {} > $ASTACK_PLUGIN_DATA/trust/abc/settings.json", { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand("echo {} > %ASTACK_PLUGIN_DATA%\\trust\\abc\\settings.json", { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand("node scripts/trust/cli.mjs --cwd . status --json", { dataDir }), false);
+
+    const storeDir = resolveTrustStoreDir(scope.repoId, { dataDir });
+    fs.mkdirSync(storeDir, { recursive: true });
+    const realSettings = path.join(storeDir, "settings.json");
+    fs.writeFileSync(realSettings, "{}\n", "utf8");
+    const relFromRepo = path.relative(dir, realSettings);
+    assert.equal(isProtectedTrustStorePath(relFromRepo, { dataDir, workspaceDir: dir }), true);
+
+    const symPath = path.join(dir, "innocent-link.json");
+    let symlinkCreated = false;
+    try {
+      fs.symlinkSync(realSettings, symPath);
+      symlinkCreated = true;
+    } catch {
+      symlinkCreated = false;
+    }
+    if (symlinkCreated) {
+      assert.equal(isProtectedTrustStorePath(symPath, { dataDir, workspaceDir: dir }), true);
+      const symDecision = evaluateTrustGate(
+        { kind: "tool-write", filePath: symPath, chunks: ["{}"], workspaceDir: dir },
+        { dataDir, baseRef: "main" },
+      );
+      assert.equal(symDecision.decision, "deny");
+    }
+
+    applyTrustSettingsAction({
+      repoId: scope.repoId,
+      policy,
+      dataDir,
+      action: { beastOn: true, promotionMode: "auto", setCeiling: { category: "docs", ceiling: 3 } },
+    });
+    for (let i = 0; i < 20; i++) {
+      recordOutcomeWithTrustSync({
+        workspaceDir: dir,
+        scope,
+        policy,
+        category: "docs",
+        outcome: "clean",
+        headSha,
+        predictedR: 0.05,
+        dataDir,
+      });
+    }
+
+    const trustDir = resolveTrustDir({ workspaceDir: dir });
+    recordIntentCard({
+      trustDir,
+      conversationId: "conv-unver",
+      headSha,
+      card: { goal: "update docs", affectedGlobs: ["README.md"], rollbackPlan: "git revert HEAD", category: "docs" },
+    });
+
+    const unverifiedMerge = evaluateTrustGate(
+      { kind: "tool-command", command: "gh pr merge 1", workspaceDir: dir, conversationId: "conv-unver" },
+      { dataDir, baseRef: "main", headless: false },
+    );
+    assert.notEqual(unverifiedMerge.decision, "auto_approve");
+    assert.equal(unverifiedMerge.decision, "force_ask");
+
+    const unverifiedMergeHeadless = evaluateTrustGate(
+      { kind: "tool-command", command: "gh pr merge 1", workspaceDir: dir, conversationId: "conv-unver" },
+      { dataDir, baseRef: "main", headless: true },
+    );
+    assert.equal(unverifiedMergeHeadless.decision, "deny");
+
+    const mixedReceipts = [
+      { kind: "file_write", ts: "2026-11-24T00:00:01Z", headSha, ok: true, paths: ["README.md", "hooks.json"] },
+      { kind: "command", category: "test", ts: "2026-11-24T00:00:02Z", headSha, ok: true, summary: "node --test" },
+    ];
+    const govStop = evaluateStageHandoff(
+      { kind: "stop", fullyIdle: true, terminationReason: "model_stop", workspaceDir: dir, conversationId: "conv-gov" },
+      { dataDir, baseRef: "main", receipts: mixedReceipts, evidence: null, intent: null, headSha },
+    );
+    assert.deepEqual(govStop, { decision: "allow" });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("policyReset and missedAudit recover cleanly on subsequent clean outcomes and completed audits", () => {
+  const { dir, headSha } = makeEnrolledRepo("astack-trust-rec-");
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-trust-rec-pd-"));
+  try {
+    const scope = resolveWorkspaceScope(dir, { baseRef: "main" });
+    const policy = structuredClone(DEFAULT_RISK_POLICY);
+    applyTrustSettingsAction({
+      repoId: scope.repoId,
+      policy,
+      dataDir,
+      action: { beastOn: true, promotionMode: "auto", setCeiling: { category: "docs", ceiling: 3 } },
+      now: "2026-01-01T00:00:00Z",
+    });
+    for (let i = 0; i < 20; i++) {
+      recordOutcomeWithTrustSync({
+        workspaceDir: dir,
+        scope,
+        policy,
+        category: "docs",
+        outcome: "clean",
+        headSha,
+        predictedR: 0.05,
+        dataDir,
+        now: `2026-01-${String(i + 2).padStart(2, "0")}T00:00:00Z`,
+      });
+    }
+
+    const updatedPolicy = structuredClone(policy);
+    updatedPolicy.autonomy.ceilings.docs = 2;
+    const rightAfterChange = evaluateRepoTrust({
+      repoId: scope.repoId,
+      policy: updatedPolicy,
+      dataDir,
+      nowMs: Date.parse("2026-01-25T00:00:00Z"),
+    });
+    assert.equal(rightAfterChange.categories.docs.policyReset, true);
+    assert.ok(rightAfterChange.categories.docs.score <= 0.4);
+    assert.ok(rightAfterChange.categories.docs.level <= 1);
+
+    for (let i = 0; i < 15; i++) {
+      recordOutcomeWithTrustSync({
+        workspaceDir: dir,
+        scope,
+        policy: updatedPolicy,
+        category: "docs",
+        outcome: "clean",
+        headSha,
+        predictedR: 0.05,
+        dataDir,
+        now: `2026-02-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
+      });
+    }
+    const afterRecovery = evaluateRepoTrust({
+      repoId: scope.repoId,
+      policy: updatedPolicy,
+      dataDir,
+      nowMs: Date.parse("2026-02-20T00:00:00Z"),
+    });
+    assert.equal(afterRecovery.categories.docs.policyReset, false);
+    assert.ok(afterRecovery.categories.docs.score > 0.8);
+    assert.equal(afterRecovery.categories.docs.level, 2);
+
+    const entries = [];
+    for (let i = 0; i < 20; i++) {
+      entries.push({ category: "tests", outcome: "clean", y: 1, predictedR: 0.05, ts: `2026-01-${String(i + 1).padStart(2, "0")}T00:00:00Z` });
+    }
+    entries.push({ category: "tests", outcome: "clean", y: 1, predictedR: 0.05, sampledAudit: true, auditCompleted: false, ts: "2026-02-01T00:00:00Z" });
+    const demoted = evaluateCategoryState({ category: "tests", entries, ceiling: 3, maxCeiling: 3, promotionMode: "auto", nowMs: Date.parse("2026-02-02T00:00:00Z") });
+    assert.equal(demoted.level, 2);
+    assert.equal(demoted.missedAudit, true);
+
+    entries.push({ category: "tests", outcome: "clean", y: 1, predictedR: 0.05, sampledAudit: true, auditCompleted: true, ts: "2026-02-05T00:00:00Z" });
+    const recovered = evaluateCategoryState({ category: "tests", entries, ceiling: 3, maxCeiling: 3, promotionMode: "auto", nowMs: Date.parse("2026-02-06T00:00:00Z") });
+    assert.equal(recovered.missedAudit, false);
+    assert.equal(recovered.level, 3);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("concurrent trust CLI outcome appends and settings writes remain serialized with valid hash chain and zero lost updates", async () => {
+  const { dir, headSha } = makeEnrolledRepo("astack-trust-race-");
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-trust-race-pd-"));
+  const cliPath = path.resolve(here, "../trust/cli.mjs");
+  const runCliAsync = (args) =>
+    new Promise((resolve) => {
+      const child = spawn(
+        process.execPath,
+        [cliPath, ...args, "--cwd", dir, "--data-dir", dataDir, "--base", "main", "--json"],
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
+      let out = "";
+      let err = "";
+      child.stdout.on("data", (d) => { out += d; });
+      child.stderr.on("data", (d) => { err += d; });
+      child.on("close", (code) => resolve({ code, out, err }));
+    });
+
+  try {
+    const scope = resolveWorkspaceScope(dir, { baseRef: "main" });
+    const outcomeRuns = await Promise.all([
+      runCliAsync(["record-outcome", "ui", "clean", "--sha", headSha]),
+      runCliAsync(["record-outcome", "ui", "clean", "--sha", headSha]),
+      runCliAsync(["record-outcome", "ui", "clean", "--sha", headSha]),
+      runCliAsync(["record-outcome", "ui", "clean", "--sha", headSha]),
+    ]);
+    for (const r of outcomeRuns) {
+      assert.equal(r.code, 0, `Concurrent record-outcome failed: ${r.err}`);
+    }
+    const ledger = readOutcomeLedger(scope.repoId, { dataDir });
+    assert.equal(ledger.chainValid, true, ledger.reason ?? "");
+    assert.equal(ledger.entries.length, 4);
+
+    const settingRuns = await Promise.all([
+      runCliAsync(["beast", "on"]),
+      runCliAsync(["ceiling", "ui", "3"]),
+      runCliAsync(["ceiling", "docs", "3"]),
+    ]);
+    for (const r of settingRuns) {
+      assert.equal(r.code, 0, `Concurrent settings write failed: ${r.err}`);
+    }
+    const { settings } = readTrustSettings(scope.repoId, { dataDir });
+    assert.equal(settings.beastOn, true);
+    assert.equal(settings.ceilings.ui, 3);
+    assert.equal(settings.ceilings.docs, 3);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
 });

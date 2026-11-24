@@ -655,10 +655,20 @@ export function compilePrDossier({
     const intentFiles = fs
       .readdirSync(trustDir, { withFileTypes: true })
       .filter((d) => d.isFile() && /^intent\..+\.json$/i.test(d.name))
-      .map((d) => d.name)
-      .sort();
+      .map((d) => {
+        const full = path.join(trustDir, d.name);
+        let mtimeMs = 0;
+        try {
+          mtimeMs = fs.statSync(full).mtimeMs;
+        } catch {
+          mtimeMs = 0;
+        }
+        return { name: d.name, mtimeMs };
+      })
+      .sort((a, b) => a.mtimeMs - b.mtimeMs || a.name.localeCompare(b.name));
     if (intentFiles.length > 0) {
-      const convId = intentFiles[intentFiles.length - 1].slice("intent.".length, -".json".length);
+      const latest = intentFiles[intentFiles.length - 1].name;
+      const convId = latest.slice("intent.".length, -".json".length);
       intentCard = readIntentCard(trustDir, convId);
     }
   }

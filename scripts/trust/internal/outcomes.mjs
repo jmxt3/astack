@@ -54,7 +54,108 @@ export const DEFAULT_TRUST_SETTINGS = {
   },
   lastAutoPromo: null,
   categoryPolicyHashes: {},
+  categoryPolicyResets: {},
 };
+
+const SLEEP_BUFFER = new Int32Array(new SharedArrayBuffer(4));
+
+function sleepSyncMs(ms) {
+  Atomics.wait(SLEEP_BUFFER, 0, 0, Math.max(1, ms));
+}
+
+function resolveRealPathBestEffort(rawPath) {
+  const abs = path.resolve(rawPath);
+  const realFn = fs.realpathSync.native ?? fs.realpathSync;
+  const tail = [];
+  let cur = abs;
+  while (true) {
+    if (fs.existsSync(cur)) {
+      try {
+        const realBase = realFn(cur);
+        return tail.length > 0 ? path.join(realBase, ...tail.reverse()) : realBase;
+      } catch {
+        return abs;
+      }
+    }
+    const parent = path.dirname(cur);
+    if (parent === cur) return abs;
+    tail.push(path.basename(cur));
+    cur = parent;
+  }
+}
+
+function normalizePathForCompare(p) {
+  return String(p ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+/**
+ * Serializes cross-process read-modify-write access inside `${PLUGIN_DATA}/trust/<repoId>` via an exclusive lockfile.
+ */
+export function withTrustStoreLock(storeDir, lockName, fn, { timeoutMs = 4000, staleMs = 15000 } = {}) {
+  fs.mkdirSync(storeDir, { recursive: true });
+  const lockPath = path.join(storeDir, lockName);
+  const deadline = Date.now() + timeoutMs;
+  let fd = null;
+
+  while (fd === null) {
+    try {
+      fd = fs.openSync(lockPath, "wx");
+      fs.writeSync(fd, `${process.pid}:${Date.now()}\n`);
+    } catch (err) {
+      if (err?.code !== "EEXIST") throw err;
+      try {
+        const stat = fs.statSync(lockPath);
+        if (Date.now() - stat.mtimeMs > staleMs) {
+          fs.unlinkSync(lockPath);
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out acquiring trust store lock ${lockName}`);
+      }
+      sleepSyncMs(12 + Math.floor(Math.random() * 16));
+    }
+  }
+
+  try {
+    return fn();
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {
+      void 0;
+    }
+    try {
+      fs.unlinkSync(lockPath);
+    } catch {
+      void 0;
+    }
+  }
+}
+
+function renameWithRetrySync(tmpPath, targetPath) {
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    try {
+      fs.renameSync(tmpPath, targetPath);
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (err?.code !== "EPERM" && err?.code !== "EBUSY" && err?.code !== "EACCES") {
+        break;
+      }
+      sleepSyncMs(12 * attempt);
+    }
+  }
+  try {
+    fs.unlinkSync(tmpPath);
+  } catch {
+    void 0;
+  }
+  throw lastErr;
+}
 
 /**
  * Resolves the local `${PLUGIN_DATA}` root directory without network dependencies.
@@ -84,17 +185,41 @@ export function resolveTrustStoreDir(repoId, options = {}) {
 }
 
 /**
- * Returns true if `targetPath` points inside `${PLUGIN_DATA}/trust` (ledger or human settings store).
+ * Returns true if `targetPath` points inside `${PLUGIN_DATA}/trust` (ledger or human settings store), resolving symlinks and relative workspace paths.
  */
 export function isProtectedTrustStorePath(targetPath, options = {}) {
   if (typeof targetPath !== "string" || !targetPath.trim()) return false;
+  const raw = targetPath.trim();
   const resolvedBase = path.join(resolvePluginDataDir(options), "trust");
-  const normBase = path.resolve(resolvedBase).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-  const normTarget = path.resolve(targetPath).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-  if (normTarget === normBase || normTarget.startsWith(`${normBase}/`)) {
-    return true;
+  const baseCandidates = new Set([
+    normalizePathForCompare(path.resolve(resolvedBase)),
+    normalizePathForCompare(resolveRealPathBestEffort(resolvedBase)),
+  ]);
+
+  const rawResolved =
+    !path.isAbsolute(raw) && typeof options.workspaceDir === "string" && options.workspaceDir.trim()
+      ? path.resolve(options.workspaceDir, raw)
+      : path.resolve(raw);
+  const targetCandidates = [
+    normalizePathForCompare(rawResolved),
+    normalizePathForCompare(resolveRealPathBestEffort(rawResolved)),
+  ];
+  if (!path.isAbsolute(raw) && options.workspaceDir) {
+    targetCandidates.push(normalizePathForCompare(path.resolve(raw)));
+    targetCandidates.push(normalizePathForCompare(resolveRealPathBestEffort(path.resolve(raw))));
   }
-  const rawPosix = targetPath.replace(/\\/g, "/").toLowerCase();
+
+  for (const target of targetCandidates) {
+    for (const base of baseCandidates) {
+      if (target === base || target.startsWith(`${base}/`)) {
+        return true;
+      }
+    }
+    if (/(?:^|\/)plugin-data\/astack\/trust(?:\/|$)/.test(target)) {
+      return true;
+    }
+  }
+  const rawPosix = raw.replace(/\\/g, "/").toLowerCase();
   return /(?:^|\/)plugin-data\/astack\/trust(?:\/|$)/.test(rawPosix);
 }
 
@@ -242,37 +367,38 @@ export function appendOutcome({
     throw new Error(`predictedR must be a finite number in [0, 1], got ${predictedR}`);
   }
 
-  const existing = readOutcomeLedger(resolvedScope.repoId, { dataDir });
-  if (!existing.chainValid) {
-    throw new Error(`Cannot append outcome: ${existing.reason}`);
-  }
-
-  const entry = {
-    schemaVersion: 1,
-    ts: now,
-    repoId: resolvedScope.repoId,
-    category,
-    headSha: String(headSha).toLowerCase(),
-    prNumber: Number.isInteger(prNumber) && prNumber > 0 ? prNumber : null,
-    outcome,
-    y: OUTCOME_SCORES[outcome],
-    predictedR: Number(rVal.toFixed(4)),
-    source: String(source || "manual").slice(0, 40),
-    note: String(note ?? "").slice(0, 200),
-    sampledAudit: Boolean(sampledAudit),
-    auditCompleted: auditCompleted === null ? null : Boolean(auditCompleted),
-    prevHash: existing.lastHash,
-  };
-
   const storeDir = resolveTrustStoreDir(resolvedScope.repoId, { dataDir });
-  fs.mkdirSync(storeDir, { recursive: true });
-  const serialized = JSON.stringify(entry);
-  fs.appendFileSync(existing.ledgerPath, `${serialized}\n`, "utf8");
-  return {
-    entry,
-    ledgerPath: existing.ledgerPath,
-    entryHash: sha256Hex(serialized),
-  };
+  return withTrustStoreLock(storeDir, "ledger.lock", () => {
+    const existing = readOutcomeLedger(resolvedScope.repoId, { dataDir });
+    if (!existing.chainValid) {
+      throw new Error(`Cannot append outcome: ${existing.reason}`);
+    }
+
+    const entry = {
+      schemaVersion: 1,
+      ts: now,
+      repoId: resolvedScope.repoId,
+      category,
+      headSha: String(headSha).toLowerCase(),
+      prNumber: Number.isInteger(prNumber) && prNumber > 0 ? prNumber : null,
+      outcome,
+      y: OUTCOME_SCORES[outcome],
+      predictedR: Number(rVal.toFixed(4)),
+      source: String(source || "manual").slice(0, 40),
+      note: String(note ?? "").slice(0, 200),
+      sampledAudit: Boolean(sampledAudit),
+      auditCompleted: auditCompleted === null ? null : Boolean(auditCompleted),
+      prevHash: existing.lastHash,
+    };
+
+    const serialized = JSON.stringify(entry);
+    fs.appendFileSync(existing.ledgerPath, `${serialized}\n`, "utf8");
+    return {
+      entry,
+      ledgerPath: existing.ledgerPath,
+      entryHash: sha256Hex(serialized),
+    };
+  });
 }
 
 /**
@@ -332,6 +458,10 @@ function normalizeSettings(raw) {
       src.categoryPolicyHashes && typeof src.categoryPolicyHashes === "object"
         ? { ...src.categoryPolicyHashes }
         : {},
+    categoryPolicyResets:
+      src.categoryPolicyResets && typeof src.categoryPolicyResets === "object"
+        ? { ...src.categoryPolicyResets }
+        : {},
   };
 }
 
@@ -368,39 +498,52 @@ export function writeTrustSettingsAtomic(repoId, patchOrSettings, options = {}) 
   if (!storeDir) {
     throw new Error("Invalid repoId for trust settings write");
   }
-  const current = readTrustSettings(repoId, options).settings;
-  const patch = patchOrSettings && typeof patchOrSettings === "object" ? patchOrSettings : {};
-  const merged = normalizeSettings({
-    ...current,
-    ...patch,
-    ceilings: {
-      ...current.ceilings,
-      ...(patch.ceilings && typeof patch.ceilings === "object" ? patch.ceilings : {}),
-    },
-    confirmedLevels: {
-      ...current.confirmedLevels,
-      ...(patch.confirmedLevels && typeof patch.confirmedLevels === "object"
-        ? patch.confirmedLevels
-        : {}),
-    },
-    categoryPolicyHashes: {
-      ...current.categoryPolicyHashes,
-      ...(patch.categoryPolicyHashes && typeof patch.categoryPolicyHashes === "object"
-        ? patch.categoryPolicyHashes
-        : {}),
-    },
-    updatedAt: options.now ?? new Date().toISOString(),
-  });
+  const doWrite = () => {
+    const current = readTrustSettings(repoId, options).settings;
+    const patch = patchOrSettings && typeof patchOrSettings === "object" ? patchOrSettings : {};
+    const merged = normalizeSettings({
+      ...current,
+      ...patch,
+      ceilings: {
+        ...current.ceilings,
+        ...(patch.ceilings && typeof patch.ceilings === "object" ? patch.ceilings : {}),
+      },
+      confirmedLevels: {
+        ...current.confirmedLevels,
+        ...(patch.confirmedLevels && typeof patch.confirmedLevels === "object"
+          ? patch.confirmedLevels
+          : {}),
+      },
+      categoryPolicyHashes: {
+        ...current.categoryPolicyHashes,
+        ...(patch.categoryPolicyHashes && typeof patch.categoryPolicyHashes === "object"
+          ? patch.categoryPolicyHashes
+          : {}),
+      },
+      categoryPolicyResets: {
+        ...current.categoryPolicyResets,
+        ...(patch.categoryPolicyResets && typeof patch.categoryPolicyResets === "object"
+          ? patch.categoryPolicyResets
+          : {}),
+      },
+      updatedAt: options.now ?? new Date().toISOString(),
+    });
 
-  fs.mkdirSync(storeDir, { recursive: true });
-  const target = path.join(storeDir, "settings.json");
-  const tmp = path.join(
-    storeDir,
-    `settings.json.tmp.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2, 8)}`,
-  );
-  fs.writeFileSync(tmp, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
-  fs.renameSync(tmp, target);
-  return { settings: merged, settingsPath: target };
+    fs.mkdirSync(storeDir, { recursive: true });
+    const target = path.join(storeDir, "settings.json");
+    const tmp = path.join(
+      storeDir,
+      `settings.json.tmp.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2, 8)}`,
+    );
+    fs.writeFileSync(tmp, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+    renameWithRetrySync(tmp, target);
+    return { settings: merged, settingsPath: target };
+  };
+
+  if (options.alreadyLocked === true) {
+    return doWrite();
+  }
+  return withTrustStoreLock(storeDir, "settings.lock", doWrite);
 }
 
 /**

@@ -113,6 +113,16 @@ test("MCP declare_intent tool persists Intent Card and rollback receipt in git r
     assert.equal(okRes.structuredContent.ok, true);
     assert.equal(fs.existsSync(okRes.structuredContent.targetPath), true);
     assert.equal(fs.existsSync(path.join(artDir, "astack-trust", "receipts.conv-intent-1.jsonl")), true);
+
+    const mixedRes = dispatchToolCall("declare_intent", {
+      cwd: repo,
+      artifactDir: artDir,
+      conversationId: "conv-intent-mixed",
+      goal: "Update docs and trust core",
+      affectedGlobs: ["README.md", "scripts/trust/index.mjs"],
+      rollbackPlan: "git revert HEAD",
+    });
+    assert.equal(mixedRes.structuredContent.intent.category, "core");
   } finally {
     fs.rmSync(nonGit, { recursive: true, force: true });
     fs.rmSync(repo, { recursive: true, force: true });

@@ -271,7 +271,7 @@ function deriveTierFromPolicy(files, policy) {
 export function computeNoisyOrScore(signals = [], mitigationFactors = null) {
   let complement = 1;
   for (const sig of signals) {
-    const w = Math.max(0, Math.min(1, Number(sig.weight ?? 0)));
+    const w = Math.max(0, Math.min(1, Number(sig.weight ?? DEFAULT_RISK_WEIGHTS[sig.id] ?? 0)));
     const m = mitigationFactors && Object.hasOwn(mitigationFactors, sig.id)
       ? Math.max(0, Math.min(1, Number(mitigationFactors[sig.id])))
       : 1;
@@ -400,7 +400,8 @@ export function assessChange({
     (r) =>
       r?.ok &&
       (r.kind === "verifier" || (r.kind === "command" && (r.category === "test" || r.category === "verify"))) &&
-      (!headSha || !r.headSha || r.headSha === headSha),
+      (!headSha || !r.headSha || r.headSha === headSha) &&
+      (!r.ts || !receipts.some((w) => w?.kind === "file_write" && String(w.ts ?? "") > String(r.ts))),
   );
   if (prodCodeFiles.length > 0 && touchedTestFiles.length === 0 && !hasPassingTestReceipt) {
     pushSignal(

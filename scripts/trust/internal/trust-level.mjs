@@ -5,6 +5,8 @@ import {
   computeBrierScore,
   readOutcomeLedger,
   readTrustSettings,
+  resolveTrustStoreDir,
+  withTrustStoreLock,
   writeTrustSettingsAtomic,
 } from "./outcomes.mjs";
 import { DEFAULT_RISK_POLICY } from "./policy.mjs";
@@ -124,6 +126,7 @@ export function evaluateCategoryState({
   confirmedLevel = 0,
   maxBrierScore = 0.12,
   policyReset = false,
+  policyResetAtTs = null,
   chainValid = true,
   nowMs = Date.now(),
 } = {}) {
@@ -145,10 +148,30 @@ export function evaluateCategoryState({
   let missedAudit = false;
   let lastBadTsMs = null;
   const revertCooldownMs = REVERT_COOLDOWN_DAYS * 86400 * 1000;
+  const resetAtMs =
+    typeof policyResetAtTs === "string" && policyResetAtTs.trim()
+      ? Date.parse(policyResetAtTs)
+      : Number.isFinite(policyResetAtTs)
+        ? Number(policyResetAtTs)
+        : NaN;
+  let appliedTimedReset = !Number.isFinite(resetAtMs);
+
+  const applyResetCap = () => {
+    score = Math.min(score, CATEGORY_RESET_MAX_SCORE);
+    earnedLevel = Math.min(earnedLevel, 1);
+  };
 
   for (let i = 0; i < catEntries.length; i++) {
     const e = catEntries[i];
     const tsMs = Date.parse(String(e.ts ?? "")) || nowMs;
+    if (!appliedTimedReset && tsMs > resetAtMs) {
+      if (lastTsMs !== null && resetAtMs > lastTsMs) {
+        score = applyIdleDecay(score, resetAtMs - lastTsMs);
+      }
+      applyResetCap();
+      lastTsMs = resetAtMs;
+      appliedTimedReset = true;
+    }
     if (lastTsMs !== null && tsMs > lastTsMs) {
       score = applyIdleDecay(score, tsMs - lastTsMs);
     }
@@ -171,6 +194,8 @@ export function evaluateCategoryState({
     if (e.sampledAudit === true && e.auditCompleted === false) {
       missedAudit = true;
       if (earnedLevel >= 3) earnedLevel = 2;
+    } else if (e.sampledAudit === true && e.auditCompleted === true) {
+      missedAudit = false;
     }
 
     const totalSoFar = clean + edited + reverted;
@@ -217,9 +242,13 @@ export function evaluateCategoryState({
     score = applyIdleDecay(score, nowMs - lastTsMs);
   }
 
+  if (!appliedTimedReset) {
+    applyResetCap();
+    appliedTimedReset = true;
+  }
+
   if (policyReset) {
-    score = Math.min(score, CATEGORY_RESET_MAX_SCORE);
-    earnedLevel = Math.min(earnedLevel, 1);
+    applyResetCap();
   }
 
   if (earnedLevel === 3 && (score < LEVEL_THRESHOLDS[3].demoteBelow || missedAudit)) {
@@ -300,6 +329,7 @@ export function evaluateRepoTrust({
     const curHash = computeCategoryPolicyHash(cat, policy);
     const savedHash = settings?.categoryPolicyHashes?.[cat] ?? null;
     const policyReset = Boolean(savedHash && savedHash !== curHash);
+    const policyResetAtTs = settings?.categoryPolicyResets?.[cat] ?? null;
     const catState = evaluateCategoryState({
       category: cat,
       entries: ledger.entries,
@@ -309,6 +339,7 @@ export function evaluateRepoTrust({
       confirmedLevel: settings?.confirmedLevels?.[cat] ?? 0,
       maxBrierScore: effective.maxBrierScore,
       policyReset,
+      policyResetAtTs,
       chainValid: ledger.chainValid,
       nowMs,
     });
@@ -336,6 +367,26 @@ export function evaluateRepoTrust({
   };
 }
 
+function syncCategoryPolicyHashes(next, policy, resetTs) {
+  let changed = false;
+  for (const cat of TRUST_CATEGORIES) {
+    const curHash = computeCategoryPolicyHash(cat, policy);
+    const savedHash = next.categoryPolicyHashes[cat];
+    if (!savedHash) {
+      next.categoryPolicyHashes[cat] = curHash;
+      changed = true;
+    } else if (savedHash !== curHash) {
+      next.categoryPolicyHashes[cat] = curHash;
+      next.categoryPolicyResets[cat] = resetTs;
+      if (next.confirmedLevels[cat] > 1) {
+        next.confirmedLevels[cat] = 1;
+      }
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 /**
  * Applies a validated human settings mutation (Beast toggle, Promotion mode, Ceiling, Manual Promote, or Auto Undo).
  */
@@ -348,99 +399,100 @@ export function applyTrustSettingsAction({
 } = {}) {
   if (!repoId) throw new Error("repoId is required");
   if (!action || typeof action !== "object") throw new Error("action object is required");
+  const storeDir = resolveTrustStoreDir(repoId, { dataDir });
+  if (!storeDir) throw new Error("Invalid repoId for trust settings action");
 
-  const nowMs = Date.parse(now) || Date.now();
-  const before = evaluateRepoTrust({ repoId, policy, dataDir, nowMs });
-  const current = readTrustSettings(repoId, { dataDir }).settings;
+  return withTrustStoreLock(storeDir, "settings.lock", () => {
+    const nowMs = Date.parse(now) || Date.now();
+    const before = evaluateRepoTrust({ repoId, policy, dataDir, nowMs });
+    const current = readTrustSettings(repoId, { dataDir }).settings;
 
-  const next = {
-    ...current,
-    ceilings: { ...current.ceilings },
-    confirmedLevels: { ...current.confirmedLevels },
-    categoryPolicyHashes: { ...current.categoryPolicyHashes },
-  };
-  for (const cat of TRUST_CATEGORIES) {
-    if (!next.categoryPolicyHashes[cat]) {
-      next.categoryPolicyHashes[cat] = computeCategoryPolicyHash(cat, policy);
+    const next = {
+      ...current,
+      ceilings: { ...current.ceilings },
+      confirmedLevels: { ...current.confirmedLevels },
+      categoryPolicyHashes: { ...current.categoryPolicyHashes },
+      categoryPolicyResets: { ...(current.categoryPolicyResets ?? {}) },
+    };
+    syncCategoryPolicyHashes(next, policy, now);
+
+    if (typeof action.beastOn === "boolean") {
+      next.beastOn = action.beastOn;
     }
-  }
 
-  if (typeof action.beastOn === "boolean") {
-    next.beastOn = action.beastOn;
-  }
-
-  if (action.promotionMode === "manual" || action.promotionMode === "auto") {
-    if (action.promotionMode === "auto" && before.promotionLockedByPolicy) {
-      throw new Error("Base-branch policy locks promotion mode to manual");
-    }
-    next.promotionMode = action.promotionMode;
-    if (action.promotionMode === "auto") {
-      for (const cat of before.categoryList) {
-        if (cat.id === "governance") continue;
-        if (cat.earnedLevel > cat.level && cat.earnedLevel <= cat.ceiling) {
-          next.confirmedLevels[cat.id] = cat.earnedLevel;
-          next.lastAutoPromo = {
-            catId: cat.id,
-            fromLvl: cat.level,
-            toLvl: cat.earnedLevel,
-            score: cat.score,
-            ceiling: cat.ceiling,
-            ts: now,
-          };
+    if (action.promotionMode === "manual" || action.promotionMode === "auto") {
+      if (action.promotionMode === "auto" && before.promotionLockedByPolicy) {
+        throw new Error("Base-branch policy locks promotion mode to manual");
+      }
+      next.promotionMode = action.promotionMode;
+      if (action.promotionMode === "auto") {
+        for (const cat of before.categoryList) {
+          if (cat.id === "governance") continue;
+          if (cat.earnedLevel > cat.level && cat.earnedLevel <= cat.ceiling) {
+            next.confirmedLevels[cat.id] = cat.earnedLevel;
+            next.lastAutoPromo = {
+              catId: cat.id,
+              fromLvl: cat.level,
+              toLvl: cat.earnedLevel,
+              score: cat.score,
+              ceiling: cat.ceiling,
+              ts: now,
+            };
+          }
         }
       }
     }
-  }
 
-  if (action.setCeiling && typeof action.setCeiling === "object") {
-    const { category, ceiling } = action.setCeiling;
-    if (!TRUST_CATEGORIES.includes(category)) {
-      throw new Error(`Unknown category: ${category}`);
+    if (action.setCeiling && typeof action.setCeiling === "object") {
+      const { category, ceiling } = action.setCeiling;
+      if (!TRUST_CATEGORIES.includes(category)) {
+        throw new Error(`Unknown category: ${category}`);
+      }
+      const maxCap = before.categories[category].maxCeiling;
+      const requested = Number.parseInt(String(ceiling), 10);
+      if (!Number.isFinite(requested) || requested < 1 || requested > 3) {
+        throw new Error("ceiling must be 1, 2, or 3");
+      }
+      if (requested > maxCap) {
+        throw new Error(`${category} ceiling cannot exceed policy limit L${maxCap}`);
+      }
+      next.ceilings[category] = requested;
+      if (next.confirmedLevels[category] > requested) {
+        next.confirmedLevels[category] = requested;
+      }
     }
-    const maxCap = before.categories[category].maxCeiling;
-    const requested = Number.parseInt(String(ceiling), 10);
-    if (!Number.isFinite(requested) || requested < 1 || requested > 3) {
-      throw new Error("ceiling must be 1, 2, or 3");
-    }
-    if (requested > maxCap) {
-      throw new Error(`${category} ceiling cannot exceed policy limit L${maxCap}`);
-    }
-    next.ceilings[category] = requested;
-    if (next.confirmedLevels[category] > requested) {
-      next.confirmedLevels[category] = requested;
-    }
-  }
 
-  if (typeof action.promoteCategory === "string" && action.promoteCategory) {
-    const catId = action.promoteCategory;
-    if (!TRUST_CATEGORIES.includes(catId)) {
-      throw new Error(`Unknown category: ${catId}`);
+    if (typeof action.promoteCategory === "string" && action.promoteCategory) {
+      const catId = action.promoteCategory;
+      if (!TRUST_CATEGORIES.includes(catId)) {
+        throw new Error(`Unknown category: ${catId}`);
+      }
+      const catState = before.categories[catId];
+      if (before.frozen) {
+        throw new Error("Cannot promote while ledger hash chain is broken");
+      }
+      if (!catState.promoReady || catState.eligibleNextLevel === null) {
+        throw new Error(`${catId} is not currently eligible for promotion`);
+      }
+      next.confirmedLevels[catId] = Math.min(catState.ceiling, catState.eligibleNextLevel);
+      if (next.lastAutoPromo?.catId === catId) {
+        next.lastAutoPromo = null;
+      }
     }
-    const catState = before.categories[catId];
-    if (before.frozen) {
-      throw new Error("Cannot promote while ledger hash chain is broken");
-    }
-    if (!catState.promoReady || catState.eligibleNextLevel === null) {
-      throw new Error(`${catId} is not currently eligible for promotion`);
-    }
-    next.confirmedLevels[catId] = Math.min(catState.ceiling, catState.eligibleNextLevel);
-    if (next.lastAutoPromo?.catId === catId) {
+
+    if (action.undoAutoPromo === true) {
+      const banner = current.lastAutoPromo;
+      next.promotionMode = "manual";
+      if (banner && TRUST_CATEGORIES.includes(banner.catId)) {
+        next.confirmedLevels[banner.catId] = Math.max(0, Number(banner.fromLvl) || 0);
+      }
       next.lastAutoPromo = null;
     }
-  }
 
-  if (action.undoAutoPromo === true) {
-    const banner = current.lastAutoPromo;
-    next.promotionMode = "manual";
-    if (banner && TRUST_CATEGORIES.includes(banner.catId)) {
-      next.confirmedLevels[banner.catId] = Math.max(0, Number(banner.fromLvl) || 0);
-    }
-    next.lastAutoPromo = null;
-  }
-
-  const saved = writeTrustSettingsAtomic(repoId, next, { dataDir, now });
-  const trust = evaluateRepoTrust({ repoId, policy, dataDir, nowMs });
-  return { ...saved, trust };
+    const saved = writeTrustSettingsAtomic(repoId, next, { dataDir, now, alreadyLocked: true });
+    const trust = evaluateRepoTrust({ repoId, policy, dataDir, nowMs });
+    return { ...saved, trust };
+  });
 }
 
 /**
@@ -483,47 +535,66 @@ export function recordOutcomeWithTrustSync({
     baseRef,
   });
   const effectiveRepoId = appended.entry.repoId;
-  const after = evaluateRepoTrust({ repoId: effectiveRepoId, policy, dataDir, nowMs });
-  const prevCat = before?.categories?.[category];
-  const nextCat = after.categories[category];
-  if (prevCat && nextCat) {
-    if (nextCat.level > prevCat.level && after.promotionMode === "auto" && category !== "governance") {
-      writeTrustSettingsAtomic(
-        effectiveRepoId,
-        {
-          confirmedLevels: { [category]: nextCat.level },
-          lastAutoPromo: {
-            catId: category,
-            fromLvl: prevCat.level,
-            toLvl: nextCat.level,
-            score: nextCat.score,
-            ceiling: nextCat.ceiling,
-            ts: now,
-          },
-        },
-        { dataDir, now },
-      );
-    } else if (appended.entry.y === 0 && prevCat.level > 0) {
-      const demotedLevel = Math.min(nextCat.earnedLevel, Math.max(0, prevCat.level - 1));
-      writeTrustSettingsAtomic(
-        effectiveRepoId,
-        {
-          confirmedLevels: { [category]: demotedLevel },
-          lastAutoPromo: null,
-        },
-        { dataDir, now },
-      );
-    } else if (nextCat.level < prevCat.level) {
-      writeTrustSettingsAtomic(
-        effectiveRepoId,
-        {
-          confirmedLevels: { [category]: nextCat.level },
-          lastAutoPromo: null,
-        },
-        { dataDir, now },
-      );
-    }
+  const storeDir = resolveTrustStoreDir(effectiveRepoId, { dataDir });
+
+  if (storeDir) {
+    withTrustStoreLock(storeDir, "settings.lock", () => {
+      const current = readTrustSettings(effectiveRepoId, { dataDir }).settings;
+      const hashPatch = {
+        confirmedLevels: { ...current.confirmedLevels },
+        categoryPolicyHashes: { ...current.categoryPolicyHashes },
+        categoryPolicyResets: { ...(current.categoryPolicyResets ?? {}) },
+      };
+      const resetTs = new Date(Math.max(0, nowMs - 1)).toISOString();
+      const hashesChanged = syncCategoryPolicyHashes(hashPatch, policy, resetTs);
+      if (hashesChanged) {
+        writeTrustSettingsAtomic(effectiveRepoId, hashPatch, { dataDir, now, alreadyLocked: true });
+      }
+
+      const after = evaluateRepoTrust({ repoId: effectiveRepoId, policy, dataDir, nowMs });
+      const prevCat = before?.categories?.[category];
+      const nextCat = after.categories[category];
+      if (prevCat && nextCat) {
+        if (nextCat.level > prevCat.level && after.promotionMode === "auto" && category !== "governance") {
+          writeTrustSettingsAtomic(
+            effectiveRepoId,
+            {
+              confirmedLevels: { [category]: nextCat.level },
+              lastAutoPromo: {
+                catId: category,
+                fromLvl: prevCat.level,
+                toLvl: nextCat.level,
+                score: nextCat.score,
+                ceiling: nextCat.ceiling,
+                ts: now,
+              },
+            },
+            { dataDir, now, alreadyLocked: true },
+          );
+        } else if (appended.entry.y === 0 && prevCat.level > 0) {
+          const demotedLevel = Math.min(nextCat.earnedLevel, Math.max(0, prevCat.level - 1));
+          writeTrustSettingsAtomic(
+            effectiveRepoId,
+            {
+              confirmedLevels: { [category]: demotedLevel },
+              lastAutoPromo: null,
+            },
+            { dataDir, now, alreadyLocked: true },
+          );
+        } else if (nextCat.level < prevCat.level) {
+          writeTrustSettingsAtomic(
+            effectiveRepoId,
+            {
+              confirmedLevels: { [category]: nextCat.level },
+              lastAutoPromo: null,
+            },
+            { dataDir, now, alreadyLocked: true },
+          );
+        }
+      }
+    });
   }
+
   const finalTrust = evaluateRepoTrust({ repoId: effectiveRepoId, policy, dataDir, nowMs });
   return { ...appended, trust: finalTrust };
 }

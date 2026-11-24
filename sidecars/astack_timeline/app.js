@@ -6,6 +6,7 @@
 
   const state = {
     etag: "",
+    pollSeq: 0,
     snap: null,
     workspaceUri: params.get("workspaceUri") || "",
     view:
@@ -313,7 +314,54 @@
     });
   }
 
+  function applyTrustPatchToSnapshot(nextTrust) {
+    if (!state.snap?.trust || !nextTrust) return;
+    const prev = state.snap.trust;
+    const categories = Array.isArray(nextTrust.categoryList) ? nextTrust.categoryList : prev.categories;
+    const activeCatState =
+      nextTrust.categories?.[prev.activeCategory] ??
+      categories.find((c) => c.id === prev.activeCategory) ??
+      prev.activeCatState;
+    let promoBanner = null;
+    if (!nextTrust.frozen) {
+      if (nextTrust.lastAutoPromo) {
+        promoBanner = { kind: "auto", ...nextTrust.lastAutoPromo };
+      } else {
+        const readyCat =
+          (activeCatState?.promoReady ? activeCatState : null) ??
+          categories.find((c) => c.promoReady);
+        if (readyCat) {
+          promoBanner = {
+            kind: "manual",
+            catId: readyCat.id,
+            toLvl: readyCat.eligibleNextLevel,
+            count: readyCat.clean + readyCat.edited,
+            score: readyCat.score,
+            brier: readyCat.brier,
+          };
+        }
+      }
+    }
+    state.snap = {
+      ...state.snap,
+      trust: {
+        ...prev,
+        beastOn: Boolean(nextTrust.beastOn),
+        promotionMode: nextTrust.promotionMode || prev.promotionMode,
+        promotionLockedByPolicy: Boolean(nextTrust.promotionLockedByPolicy),
+        chainValid: nextTrust.chainValid !== false,
+        frozen: Boolean(nextTrust.frozen),
+        totalOutcomes: Number(nextTrust.totalOutcomes ?? prev.totalOutcomes ?? 0),
+        activeCatState,
+        categories,
+        promoBanner,
+      },
+    };
+    render(state.snap);
+  }
+
   async function updateTrustSettings(actionPayload, successMsg) {
+    state.pollSeq += 1;
     try {
       const res = await apiPost("/api/trust/settings", {
         ...actionPayload,
@@ -324,6 +372,9 @@
       if (!res.ok) {
         showToast(data?.error || `Settings update failed (${res.status})`);
         return;
+      }
+      if (data?.trust) {
+        applyTrustPatchToSnapshot(data.trust);
       }
       if (successMsg) showToast(successMsg);
       state.etag = "";
@@ -1299,7 +1350,6 @@
         rc.appendChild(el("p", `risk-card-why ${whyTone}`, whyText));
       }
       const sigRow = el("div", "subcmd-list");
-      const satById = new Set((ra.satisfied || []).map((s) => s.id));
       for (const sig of ra.signals || []) {
         const isHard = sig.id === "touches_governance" || sig.id === "bundled_sidecar_permissions" || sig.id === "scope_drift" || sig.id === "test_regression";
         const sp = el("span", isHard ? "subcmd-pill is-warn-action" : "subcmd-pill");
@@ -1345,7 +1395,7 @@
         outWrap.appendChild(outRow);
         rc.appendChild(outWrap);
       }
-      if (satById.size >= 0) detail.appendChild(rc);
+      detail.appendChild(rc);
     }
 
     if (stage.id === "review" && act.workflow?.suggestedReview) {
@@ -2252,21 +2302,27 @@
     }
     if (snap.riskTier !== null && snap.riskTier !== undefined) {
       const riskWord = RISK_TITLES[snap.riskTier] || `Tier ${snap.riskTier}`;
+      const raScore = typeof snap.trust?.riskAssessment?.score === "number" ? snap.trust.riskAssessment.score : null;
+      const riskLabel = raScore !== null ? `${riskWord} · R ${raScore.toFixed(2)}` : riskWord;
       const descParts = [];
-      if (snap.riskDescription) {
-        const cleanDesc = snap.riskDescription.trim().replace(/\.+$/, "");
-        descParts.push(`${cleanDesc}.`);
+      if (snap.trust?.riskAssessment?.summary) {
+        descParts.push(snap.trust.riskAssessment.summary);
+      } else {
+        if (snap.riskDescription) {
+          const cleanDesc = snap.riskDescription.trim().replace(/\.+$/, "");
+          descParts.push(`${cleanDesc}.`);
+        }
+        if (Array.isArray(snap.riskMatchedGlobs) && snap.riskMatchedGlobs.length > 0) {
+          descParts.push(`Matched: ${snap.riskMatchedGlobs.join(", ")}.`);
+        }
+        if (snap.riskTier >= 1) descParts.push("Requires human PR review.");
       }
-      if (Array.isArray(snap.riskMatchedGlobs) && snap.riskMatchedGlobs.length > 0) {
-        descParts.push(`Matched: ${snap.riskMatchedGlobs.join(", ")}.`);
-      }
-      if (snap.riskTier >= 1) descParts.push("Requires human PR review.");
       metaParts.push({
-        text: riskWord,
+        text: riskLabel,
         cls: `meta-pill meta-risk tier-${snap.riskTier}`,
         testId: "timeline-risk-badge",
-        popTitle: `Blast-Radius Risk · Tier ${snap.riskTier}`,
-        popStatus: riskWord,
+        popTitle: raScore !== null ? `Risk Score · ${riskWord}` : `Blast-Radius Risk · Tier ${snap.riskTier}`,
+        popStatus: raScore !== null ? `R ${raScore.toFixed(2)}` : riskWord,
         popMode: snap.riskTier >= 3 ? "stale" : snap.riskTier === 0 ? "done" : "",
         popDesc: descParts.join(" "),
       });
@@ -2288,9 +2344,10 @@
       });
     }
     const setupReady = snap.setup?.status === "ready";
+    const isNonRepo = snap.trust?.scopeKind === "non_repo" && Boolean(snap.workspace) && !setupReady;
     const metaRow = document.getElementById("meta-row");
     metaRow.replaceChildren();
-    if (metaParts.length > 0 || setupReady) {
+    if (!isNonRepo && (metaParts.length > 0 || setupReady)) {
       metaRow.classList.remove("hidden");
       metaParts.forEach((part, idx) => {
         if (idx > 0) metaRow.appendChild(el("span", "meta-sep", "·"));
@@ -2335,7 +2392,10 @@
       } else if (snap.trust?.scopeKind === "git_unregistered") {
         const offPill = el("span", "meta-pill", "Trust: Off");
         offPill.dataset.testid = "timeline-trust-off";
-        offPill.title = "Add .agents/risk-policy.json on the base branch to enroll this repository.";
+        offPill.tabIndex = 0;
+        const offDesc = "Add .agents/risk-policy.json on the base branch to enroll this repository.";
+        offPill.title = offDesc;
+        attachStatusPopover(offPill, "Earned Trust", "Off", "", offDesc);
         metaRow.appendChild(offPill);
       }
     } else {
@@ -2433,7 +2493,7 @@
           promoCard.append(copy, undoBtn);
         } else {
           copy.appendChild(el("div", "setup-card-kicker", `Ready for L${banner.toLvl} · ${banner.catId}`));
-          copy.appendChild(el("p", "setup-card-hint", `${banner.count} clean outcomes · T ${Number(banner.score ?? 0).toFixed(2)} · Brier ${Number(banner.brier ?? 0).toFixed(2)}.`));
+          copy.appendChild(el("p", "setup-card-hint", `${banner.count} graded outcomes · T ${Number(banner.score ?? 0).toFixed(2)} · Brier ${Number(banner.brier ?? 0).toFixed(2)}.`));
           const promoteBtn = el("button", "chip next", `Promote L${banner.toLvl}`);
           promoteBtn.type = "button";
           promoteBtn.dataset.testid = "timeline-promo-confirm";
@@ -2449,7 +2509,7 @@
     const setupWrap = document.getElementById("setup-wrap");
     const setupCard = document.getElementById("setup-card");
     setupCard.replaceChildren();
-    if (snap.trust?.scopeKind === "non_repo" && snap.workspace && !setupReady && !snap.hasConversation) {
+    if (isNonRepo) {
       setupWrap.classList.remove("hidden");
       setupCard.className = "setup-card is-muted";
       const copyWrap = el("div", "setup-card-copy");
@@ -2487,6 +2547,7 @@
 
     const list = document.getElementById("timeline");
     list.replaceChildren();
+    list.classList.toggle("is-dimmed", isNonRepo);
 
     snap.stages.forEach((stage, idx) => {
       const isLast = idx === snap.stages.length - 1;
@@ -2576,6 +2637,7 @@
 
   async function poll() {
     if (document.hidden) return;
+    const reqSeq = ++state.pollSeq;
     const convId = getConversationId(false);
     try {
       const res = await apiFetch("/api/timeline", {
@@ -2583,8 +2645,9 @@
         workspaceUri: state.workspaceUri,
         etag: state.etag,
       });
-      if (!res.ok) return;
+      if (!res.ok || reqSeq !== state.pollSeq) return;
       const data = await res.json();
+      if (reqSeq !== state.pollSeq) return;
       if (data.unchanged) {
         if (state.snap) applyLiveStatus(state.snap);
         return;
@@ -2593,6 +2656,7 @@
       state.snap = data;
       render(data);
     } catch {
+      if (reqSeq !== state.pollSeq) return;
       document.getElementById("live").className = "live idle";
       document.getElementById("live-label").textContent = "Offline";
     }

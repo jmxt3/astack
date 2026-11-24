@@ -125,3 +125,35 @@ test("risk-backtest.mjs replays origin/main history and flags PR #13 with follow
   const direct = runRiskBacktest({ cwd: rootDir, baseRef: "origin/main", limit: 15 });
   assert.equal(direct.count, parsed.count);
 });
+
+test("assessChange still fires untested_change when a newer file_write invalidates an earlier passing test receipt", () => {
+  const headSha = "1111111111111111111111111111111111111111";
+  const diffText = [
+    "diff --git a/scripts/app.mjs b/scripts/app.mjs",
+    "--- a/scripts/app.mjs",
+    "+++ b/scripts/app.mjs",
+    "@@ -1 +1,2 @@",
+    " export const a = 1;",
+    "+export const b = 2;",
+    "",
+  ].join("\n");
+  const stale = assessChange({
+    diffText,
+    headSha,
+    receipts: [
+      { kind: "command", category: "test", ok: true, headSha, ts: "2026-11-24T10:00:00Z", summary: "node --test" },
+      { kind: "file_write", ok: true, headSha, ts: "2026-11-24T10:05:00Z", paths: ["scripts/app.mjs"] },
+    ],
+  });
+  assert.ok(stale.signals.some((s) => s.id === "untested_change"));
+
+  const fresh = assessChange({
+    diffText,
+    headSha,
+    receipts: [
+      { kind: "file_write", ok: true, headSha, ts: "2026-11-24T10:00:00Z", paths: ["scripts/app.mjs"] },
+      { kind: "command", category: "test", ok: true, headSha, ts: "2026-11-24T10:05:00Z", summary: "node --test" },
+    ],
+  });
+  assert.equal(fresh.signals.some((s) => s.id === "untested_change"), false);
+});
