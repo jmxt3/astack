@@ -28,6 +28,7 @@ import {
   writeEvidenceSnapshotAtomic,
 } from "./internal/ledger.mjs";
 import {
+  DEFAULT_ENGINEERING_MCP_SERVERS,
   DEFAULT_RISK_POLICY,
   computeAssertionDelta,
   evaluateBoundaryViolation,
@@ -42,8 +43,14 @@ import {
   matchesAnyGlob,
   readBaseReviewContext,
   resolveBaseRef,
+  resolveEnrolledWorkspaceScope as resolveWorkspaceScope,
   resolveRelativeImportPath,
 } from "./internal/policy.mjs";
+import {
+  deriveRepoId,
+  findGitEntry,
+  resolveGitDirs,
+} from "./internal/workspace-scope.mjs";
 import {
   classifyRiskTier,
   clusterChangedFiles,
@@ -69,6 +76,7 @@ export const TOOL_MATCHERS = {
 };
 
 export {
+  DEFAULT_ENGINEERING_MCP_SERVERS,
   DEFAULT_RISK_POLICY,
   PIPELINE_STAGES,
   classifyCommandCategory,
@@ -77,6 +85,7 @@ export {
   compilePrDossier,
   computeAssertionDelta,
   computeFreshness,
+  deriveRepoId,
   evaluateBoundaryViolation,
   evaluateBoundaryWrite,
   evaluateEvidenceGate,
@@ -88,6 +97,7 @@ export {
   evaluateSessionContext,
   evaluateVerifyReminder,
   extractImportSpecifiers,
+  findGitEntry,
   formatPipelineRail,
   globToRegex,
   isHeadless,
@@ -105,9 +115,11 @@ export {
   renderDossierMarkdown,
   renderGitHubPrProof,
   resolveBaseRef,
+  resolveGitDirs,
   resolvePrStatechart,
   resolveRelativeImportPath,
   resolveTrustDir,
+  resolveWorkspaceScope,
   runArchitectureAudit,
   runHookShell,
   validateFindingsDocument,

@@ -654,3 +654,154 @@ test("evidence-gate validates gh CLI and MCP PR bodies against base-branch polic
     fs.rmSync(artifactDir, { recursive: true, force: true });
   }
 });
+
+test("non-git workspaces keep all 7 workflow hooks silent with zero disk writes while workstation safety guards stay active", () => {
+  const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), "astack-non-swe-ws-"));
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-non-swe-art-"));
+  const repo = makeTempGitRepo("astack-mcp-filter-repo-");
+  const repoArtDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-mcp-filter-art-"));
+  try {
+    assert.deepEqual(
+      runHook(
+        receiptScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+          toolCall: { name: "run_command", args: { CommandLine: "node --test" } },
+          error: "",
+        }),
+      ),
+      {},
+    );
+    assert.deepEqual(
+      runHook(
+        sessionScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+        }),
+      ),
+      {},
+    );
+    assert.deepEqual(
+      runHook(
+        prIntentScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          hookEventName: "PreInvocation",
+          invocationNum: 1,
+          lastUserInput: "prepare a PR for my video slides",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+        }),
+      ),
+      {},
+    );
+    assert.deepEqual(
+      runHook(
+        stopScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+          terminationReason: "model_stop",
+          fullyIdle: true,
+        }),
+      ),
+      { decision: "allow" },
+    );
+    assert.deepEqual(
+      runHook(
+        evidenceScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+          toolCall: { name: "run_command", args: { CommandLine: "git push origin main" } },
+        }),
+        { CI: "true" },
+      ),
+      { decision: "allow" },
+    );
+    assert.deepEqual(
+      runHook(
+        boundaryScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+          toolCall: { name: "write_file", args: { Path: "notes.js", Content: "export const x = 1;\n" } },
+        }),
+        { CI: "true" },
+      ),
+      { decision: "allow" },
+    );
+    assert.deepEqual(
+      runHook(
+        roundScript,
+        JSON.stringify({
+          conversationId: "non-swe-1",
+          workspacePaths: [nonGit],
+          artifactDirectoryPath: artifactDir,
+          toolCall: { name: "edit_file", args: { Path: "notes.js", Replacement: "x" } },
+        }),
+        { CI: "true" },
+      ),
+      { decision: "allow" },
+    );
+
+    assert.equal(fs.existsSync(path.join(nonGit, ".tmp", "astack-trust")), false);
+    assert.equal(fs.existsSync(path.join(artifactDir, "astack-trust")), false);
+
+    const secretBlocked = runHook(
+      secretScript,
+      JSON.stringify({
+        workspacePaths: [nonGit],
+        toolCall: { name: "write_file", args: { Path: ".env", Content: "API_KEY=secret\n" } },
+      }),
+      { CI: "true" },
+    );
+    assert.equal(secretBlocked.decision, "deny");
+
+    const irrevBlocked = runHook(
+      guardScript,
+      JSON.stringify({
+        workspacePaths: [nonGit],
+        toolCall: { name: "run_command", args: { CommandLine: "rm -rf /" } },
+      }),
+      { CI: "true" },
+    );
+    assert.equal(irrevBlocked.decision, "deny");
+
+    for (const serverName of ["tella", "gslides"]) {
+      assert.deepEqual(
+        runHook(
+          receiptScript,
+          JSON.stringify({
+            conversationId: "mixed-session",
+            workspacePaths: [repo],
+            artifactDirectoryPath: repoArtDir,
+            toolCall: {
+              name: "call_mcp_tool",
+              args: { ServerName: serverName, ToolName: "update_deck", Arguments: {} },
+            },
+            error: "",
+          }),
+        ),
+        {},
+      );
+    }
+    assert.equal(
+      fs.existsSync(path.join(repoArtDir, "astack-trust", "receipts.mixed-session.jsonl")),
+      false,
+      "Non-SWE MCP tools inside a git repo must not write receipts",
+    );
+  } finally {
+    fs.rmSync(nonGit, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(repoArtDir, { recursive: true, force: true });
+  }
+});

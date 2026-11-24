@@ -3,12 +3,16 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  DEFAULT_ENGINEERING_MCP_SERVERS,
   collectLeafSegments,
   loadRiskPolicy,
   resolveBaseRef,
   tokenizeSimpleWords,
 } from "./policy.mjs";
 import { validatePrBodyContract } from "./pr-proof.mjs";
+import { resolveGitDirs, resolveWorkspaceScope } from "./workspace-scope.mjs";
+
+export { resolveGitDirs, resolveWorkspaceScope };
 
 export const PIPELINE_STAGES = [
   {
@@ -78,48 +82,6 @@ export function formatPipelineRail({
   return lines.join("\n");
 }
 
-function findGitEntry(startDir) {
-  if (!startDir) return null;
-  let current = path.resolve(startDir);
-  while (true) {
-    const candidate = path.join(current, ".git");
-    if (fs.existsSync(candidate)) {
-      return { repoRoot: current, dotGitPath: candidate };
-    }
-    const parent = path.dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
-}
-
-/**
- * Resolves `{ repoRoot, gitDir, commonDir }` via pure filesystem reads without spawning `git`.
- */
-export function resolveGitDirs(workspaceDir) {
-  const found = findGitEntry(workspaceDir);
-  if (!found) return null;
-  const stat = fs.statSync(found.dotGitPath);
-  if (stat.isDirectory()) {
-    return {
-      repoRoot: found.repoRoot,
-      gitDir: found.dotGitPath,
-      commonDir: found.dotGitPath,
-    };
-  }
-  if (!stat.isFile()) return null;
-  const raw = fs.readFileSync(found.dotGitPath, "utf8");
-  const match = raw.match(/^gitdir:\s*(.+)$/im);
-  if (!match) return null;
-  const gitDir = path.resolve(found.repoRoot, match[1].trim());
-  const commonFile = path.join(gitDir, "commondir");
-  let commonDir = gitDir;
-  if (fs.existsSync(commonFile)) {
-    const relCommon = fs.readFileSync(commonFile, "utf8").trim();
-    if (relCommon) commonDir = path.resolve(gitDir, relCommon);
-  }
-  return { repoRoot: found.repoRoot, gitDir, commonDir };
-}
-
 /**
  * Reads current HEAD SHA directly from `.git/HEAD` without spawning a child process.
  */
@@ -169,7 +131,6 @@ export function resolveTrustDir({ workspaceDir = "", artifactDir = null } = {}) 
     if (dirs?.commonDir) {
       return path.join(dirs.commonDir, "astack-trust");
     }
-    return path.join(path.resolve(workspaceDir), ".tmp", "astack-trust");
   }
   return null;
 }
@@ -321,11 +282,49 @@ function buildReceiptShape(event) {
   };
 }
 
+function matchesAllowedMcpServer(serverName, allowlist) {
+  const norm = String(serverName ?? "").trim().toLowerCase();
+  if (!norm) return false;
+  for (const rawEntry of allowlist ?? []) {
+    const entry = String(rawEntry ?? "").trim().toLowerCase();
+    if (!entry) continue;
+    if (norm === entry) return true;
+    if (entry === "astack_trust" && (norm === "astack-trust" || norm === "astack/trust")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isEngineeringMcpServer(serverName, workspaceDir, options = {}) {
+  if (Array.isArray(options.engineeringMcpServers)) {
+    return matchesAllowedMcpServer(serverName, options.engineeringMcpServers);
+  }
+  if (matchesAllowedMcpServer(serverName, DEFAULT_ENGINEERING_MCP_SERVERS)) {
+    return true;
+  }
+  if (!workspaceDir) return false;
+  const baseRef = resolveBaseRef(workspaceDir);
+  if (!baseRef) return false;
+  const { policy } = loadRiskPolicy(workspaceDir, { baseRef });
+  return matchesAllowedMcpServer(serverName, policy.engineeringMcpServers);
+}
+
 /**
  * Appends a single-actor PostToolUse execution receipt to `<trustDir>/receipts.<conversationId>.jsonl`.
  */
 export function recordReceipt(event, options = {}) {
   if (!event || !RECORDABLE_RECEIPT_KINDS.has(event.kind)) {
+    return null;
+  }
+  const hasExplicitOverride = Boolean(options.trustDir && options.headSha);
+  if (!hasExplicitOverride) {
+    const scope = resolveWorkspaceScope(event.workspaceDir, { checkEnrollment: false });
+    if (scope.kind === "non_repo") {
+      return null;
+    }
+  }
+  if (event.kind === "tool-mcp" && !isEngineeringMcpServer(event.serverName, event.workspaceDir, options)) {
     return null;
   }
   if (event.kind === "tool-write" && isNonWorkspaceWritePath(event.filePath, event)) {
@@ -532,6 +531,13 @@ export function evaluateVerifyReminder(event, options = {}) {
   }
 
   const workspaceDir = event.workspaceDir || "";
+  const hasExplicitOverride = options.gitStatus !== undefined || Boolean(options.trustDir && options.headSha);
+  if (!hasExplicitOverride) {
+    const scope = resolveWorkspaceScope(workspaceDir, { checkEnrollment: false });
+    if (scope.kind === "non_repo") {
+      return { decision: "allow" };
+    }
+  }
   let dirtyCode = [];
   if (options.gitStatus !== undefined || (workspaceDir && fs.existsSync(workspaceDir))) {
     let status = options.gitStatus;
@@ -770,6 +776,13 @@ export function evaluatePrIntent(event, options = {}) {
   }
 
   const workspaceDir = event.workspaceDir || "";
+  const hasExplicitOverride = Boolean(options.trustDir || options.headSha);
+  if (!hasExplicitOverride) {
+    const scope = resolveWorkspaceScope(workspaceDir, { checkEnrollment: false });
+    if (scope.kind === "non_repo") {
+      return {};
+    }
+  }
   const headSha = options.headSha ?? (workspaceDir ? readHeadShaFast(workspaceDir) : null);
   const trustDir = options.trustDir ?? resolveTrustDir(event);
   const promptHash = crypto
@@ -856,6 +869,14 @@ export function evaluateEvidenceGate(event, options = {}) {
   }
   if (actions.length === 0) {
     return { decision: "allow" };
+  }
+
+  const hasExplicitOverride = Boolean(options.trustDir && options.headSha);
+  if (!hasExplicitOverride) {
+    const scope = resolveWorkspaceScope(event.workspaceDir, { checkEnrollment: false });
+    if (scope.kind === "non_repo") {
+      return { decision: "allow" };
+    }
   }
 
   const hasExplicitTrust = Boolean(options.trustDir);
@@ -955,6 +976,12 @@ export function evaluateRoundLimit(event, options = {}) {
   }
   if (event.kind !== "tool-write") {
     return { decision: "allow" };
+  }
+  if (!options.trustDir) {
+    const scope = resolveWorkspaceScope(event.workspaceDir, { checkEnrollment: false });
+    if (scope.kind === "non_repo") {
+      return { decision: "allow" };
+    }
   }
   const trustDir = options.trustDir ?? resolveTrustDir(event);
   const evidence = readEvidenceSnapshot(trustDir);

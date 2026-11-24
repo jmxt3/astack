@@ -10,6 +10,7 @@ import {
   classifyCommandCategory,
   computeAssertionDelta,
   computeFreshness,
+  deriveRepoId,
   evaluateBoundaryViolation,
   evaluateEvidenceGate,
   evaluateRoundLimit,
@@ -24,6 +25,9 @@ import {
   readMergedReceipts,
   recordReceipt,
   recordVerifierReceipt,
+  resolveGitDirs,
+  resolveTrustDir,
+  resolveWorkspaceScope,
   runArchitectureAudit,
   writeEvidenceSnapshotAtomic,
 } from "../trust/index.mjs";
@@ -412,14 +416,15 @@ test("boundary parser handles multiline imports, extensionless publicEntry, gi b
   assert.equal(delta.flagged, true);
 });
 
-test("evaluateSessionContext emits once-per-session AStack Timeline pill instruction only when enabled in Antigravity App", () => {
+test("evaluateSessionContext emits once-per-session AStack Timeline pill instruction only inside git repos when enabled in Antigravity App", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "astack-session-pill-"));
+  const repo = makeTempGitRepo();
   const cfgPath = path.join(tmp, "config.json");
   const appArtifactDir = path.join(tmp, ".gemini", "antigravity", "brain", "conv-1");
   const cliArtifactDir = path.join(tmp, ".gemini", "antigravity-cli", "brain", "conv-1");
   try {
     assert.deepEqual(
-      evaluateSessionContext({ workspaceDir: "", artifactDir: appArtifactDir }, { configPath: cfgPath }),
+      evaluateSessionContext({ workspaceDir: repo, artifactDir: appArtifactDir }, { configPath: cfgPath }),
       {},
     );
 
@@ -429,7 +434,7 @@ test("evaluateSessionContext emits once-per-session AStack Timeline pill instruc
       "utf8",
     );
     assert.deepEqual(
-      evaluateSessionContext({ workspaceDir: "", artifactDir: appArtifactDir }, { configPath: cfgPath }),
+      evaluateSessionContext({ workspaceDir: repo, artifactDir: appArtifactDir }, { configPath: cfgPath }),
       {},
     );
 
@@ -439,7 +444,7 @@ test("evaluateSessionContext emits once-per-session AStack Timeline pill instruc
       "utf8",
     );
     assert.deepEqual(
-      evaluateSessionContext({ workspaceDir: "", artifactDir: appArtifactDir }, { configPath: cfgPath }),
+      evaluateSessionContext({ workspaceDir: repo, artifactDir: appArtifactDir }, { configPath: cfgPath }),
       {},
     );
 
@@ -448,8 +453,19 @@ test("evaluateSessionContext emits once-per-session AStack Timeline pill instruc
       JSON.stringify({ sidecars: { "astack/astack_timeline": { resolvedPermissions: {} } } }),
       "utf8",
     );
+    assert.deepEqual(
+      evaluateSessionContext({ workspaceDir: "", artifactDir: appArtifactDir }, { configPath: cfgPath }),
+      {},
+      "Empty workspace must stay silent even when Timeline is enabled",
+    );
+    assert.deepEqual(
+      evaluateSessionContext({ workspaceDir: tmp, artifactDir: appArtifactDir }, { configPath: cfgPath }),
+      {},
+      "Non-git workspace must stay silent even when Timeline is enabled",
+    );
+
     const appRes = evaluateSessionContext(
-      { workspaceDir: "", artifactDir: appArtifactDir },
+      { workspaceDir: repo, artifactDir: appArtifactDir },
       { configPath: cfgPath },
     );
     assert.ok(Array.isArray(appRes.injectSteps));
@@ -459,7 +475,7 @@ test("evaluateSessionContext emits once-per-session AStack Timeline pill instruc
     );
 
     assert.deepEqual(
-      evaluateSessionContext({ workspaceDir: "", artifactDir: cliArtifactDir }, { configPath: cfgPath }),
+      evaluateSessionContext({ workspaceDir: repo, artifactDir: cliArtifactDir }, { configPath: cfgPath }),
       {},
     );
 
@@ -469,7 +485,7 @@ test("evaluateSessionContext emits once-per-session AStack Timeline pill instruc
       "utf8",
     );
     const enabledRes = evaluateSessionContext(
-      { workspaceDir: "", artifactDir: appArtifactDir },
+      { workspaceDir: repo, artifactDir: appArtifactDir },
       { configPath: cfgPath },
     );
     assert.match(
@@ -478,6 +494,7 @@ test("evaluateSessionContext emits once-per-session AStack Timeline pill instruc
     );
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(repo, { recursive: true, force: true });
   }
 });
 
@@ -639,6 +656,102 @@ test("recordReceipt and computeFreshness ignore brain artifact and out-of-worksp
     );
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
+  }
+});
+
+test("resolveWorkspaceScope isolates non-git workspaces, derives worktree-stable repoIds, and requires base-branch enrollment", () => {
+  const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), "astack-non-git-"));
+  const repoA = makeTempGitRepo();
+  const repoB = makeTempGitRepo();
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-scope-art-"));
+  try {
+    const t0 = performance.now();
+    const nonGitScope = resolveWorkspaceScope(nonGit);
+    const elapsedMs = performance.now() - t0;
+    assert.equal(nonGitScope.kind, "non_repo");
+    assert.equal(nonGitScope.repoRoot, null);
+    assert.equal(nonGitScope.repoId, null);
+    assert.ok(elapsedMs < 25, `Expected fast non_repo check, got ${elapsedMs}ms`);
+
+    assert.equal(resolveWorkspaceScope("").kind, "non_repo");
+    assert.equal(resolveTrustDir({ workspaceDir: nonGit }), null);
+    assert.equal(
+      resolveTrustDir({ workspaceDir: nonGit, artifactDir }),
+      path.join(path.resolve(artifactDir), "astack-trust"),
+    );
+
+    assert.equal(
+      recordReceipt({
+        kind: "tool-command",
+        conversationId: "non-git-conv",
+        command: "node --test",
+        error: "",
+        workspaceDir: nonGit,
+        artifactDir,
+      }),
+      null,
+    );
+    assert.equal(fs.existsSync(path.join(nonGit, ".tmp", "astack-trust")), false);
+    assert.equal(fs.existsSync(path.join(artifactDir, "astack-trust")), false);
+
+    execFileSync("git", ["remote", "add", "origin", "git@github.com:Acme/Demo-Repo.git"], { cwd: repoA, stdio: "ignore" });
+    execFileSync("git", ["remote", "add", "origin", "https://user@GITHUB.COM/acme/demo-repo/"], { cwd: repoB, stdio: "ignore" });
+    const idA = deriveRepoId(resolveGitDirs(repoA).commonDir);
+    const idB = deriveRepoId(resolveGitDirs(repoB).commonDir);
+    assert.equal(idA, idB, "SSH and HTTPS origin URLs must normalize to identical repoId");
+
+    const wtDir = path.join(artifactDir, "wt-a");
+    execFileSync("git", ["worktree", "add", "-b", "feat/wt-scope", wtDir], { cwd: repoA, stdio: "ignore" });
+    const mainScope = resolveWorkspaceScope(repoA);
+    const wtScope = resolveWorkspaceScope(wtDir);
+    assert.equal(mainScope.kind, "git_unregistered");
+    assert.equal(wtScope.kind, "git_unregistered");
+    assert.equal(wtScope.repoId, mainScope.repoId, "Worktree must share repoId with main checkout");
+
+    fs.mkdirSync(path.join(wtDir, ".agents"), { recursive: true });
+    fs.writeFileSync(path.join(wtDir, ".agents", "risk-policy.json"), '{"schemaVersion":1}\n', "utf8");
+    execFileSync("git", ["add", ".agents/risk-policy.json"], { cwd: wtDir, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "branch-only self enroll attempt"], { cwd: wtDir, stdio: "ignore" });
+    const baseBranchName = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: repoA, encoding: "utf8" }).trim();
+    assert.equal(
+      resolveWorkspaceScope(wtDir, { baseRef: baseBranchName }).kind,
+      "git_unregistered",
+      "Feature-branch-only .agents/risk-policy.json must not enroll the repository",
+    );
+
+    fs.mkdirSync(path.join(repoA, ".agents"), { recursive: true });
+    fs.writeFileSync(path.join(repoA, ".agents", "risk-policy.json"), '{"schemaVersion":1}\n', "utf8");
+    execFileSync("git", ["add", ".agents/risk-policy.json"], { cwd: repoA, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "enroll base"], { cwd: repoA, stdio: "ignore" });
+    const enrolled = resolveWorkspaceScope(repoA, { baseRef: baseBranchName });
+    assert.equal(enrolled.kind, "enrolled_repo");
+    assert.equal(enrolled.baseRef, baseBranchName);
+
+    const tellaRec = recordReceipt({
+      kind: "tool-mcp",
+      conversationId: "mcp-filter",
+      serverName: "tella",
+      toolName: "export_video",
+      workspaceDir: repoA,
+      artifactDir,
+    });
+    assert.equal(tellaRec, null, "Non-SWE MCP servers inside a git repo must write zero receipts");
+
+    const ghRec = recordReceipt({
+      kind: "tool-mcp",
+      conversationId: "mcp-filter",
+      serverName: "github-mcp-server",
+      toolName: "get_pull_request",
+      workspaceDir: repoA,
+      artifactDir,
+    });
+    assert.ok(ghRec, "Allowlisted engineering MCP server must record receipts");
+    assert.equal(ghRec.kind, "mcp");
+  } finally {
+    fs.rmSync(nonGit, { recursive: true, force: true });
+    fs.rmSync(repoA, { recursive: true, force: true });
+    fs.rmSync(repoB, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });
   }
 });

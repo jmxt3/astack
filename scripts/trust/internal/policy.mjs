@@ -3,6 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { isHeadless, parseHookPayload } from "./envelope.mjs";
+import { resolveWorkspaceScope as resolveWorkspaceScopeBase } from "./workspace-scope.mjs";
+
+export const DEFAULT_ENGINEERING_MCP_SERVERS = [
+  "github-mcp-server",
+  "astack_trust",
+  "chrome-devtools-mcp",
+];
 
 export const DEFAULT_RISK_POLICY = {
   schemaVersion: 1,
@@ -10,6 +17,7 @@ export const DEFAULT_RISK_POLICY = {
   allowTier0AutoMerge: false,
   maxReviewRounds: 3,
   maxAssertionWeakeningRatio: 0.25,
+  engineeringMcpServers: [...DEFAULT_ENGINEERING_MCP_SERVERS],
   humanGates: {
     planApproval: "nontrivial",
     prReview: "always",
@@ -189,9 +197,13 @@ function mergeRiskPolicy(custom) {
       }
     }
   }
+  const engineeringMcpServers = Array.isArray(custom.engineeringMcpServers)
+    ? [...new Set(custom.engineeringMcpServers.filter((s) => typeof s === "string" && s.trim()).map((s) => s.trim()))]
+    : [...DEFAULT_RISK_POLICY.engineeringMcpServers];
   return {
     ...DEFAULT_RISK_POLICY,
     ...custom,
+    engineeringMcpServers,
     humanGates: {
       ...DEFAULT_RISK_POLICY.humanGates,
       ...(custom.humanGates ?? {}),
@@ -401,22 +413,38 @@ function detectEnabledTimelineSidecar({ artifactDir = "", configPath = null } = 
 }
 
 /**
+ * Resolves `WorkspaceScope` with tamper-resistant base-branch enrollment detection unless `checkEnrollment: false`.
+ */
+export function resolveEnrolledWorkspaceScope(workspaceDir, options = {}) {
+  if (options.checkEnrollment === false) {
+    return resolveWorkspaceScopeBase(workspaceDir, { checkEnrollment: false });
+  }
+  return resolveWorkspaceScopeBase(workspaceDir, {
+    ...options,
+    checkEnrollment: true,
+    policyLoader:
+      options.policyLoader ??
+      ((repoRoot, explicitBase) => {
+        const baseRef = resolveBaseRef(repoRoot, explicitBase);
+        if (!baseRef) return { present: false, baseRef: null, error: null };
+        const loaded = loadRiskPolicy(repoRoot, { baseRef });
+        return { present: loaded.present, baseRef, error: loaded.error ?? null };
+      }),
+  });
+}
+
+/**
  * Formats Antigravity SessionStart `injectSteps` carrying base-branch governance context and optional AStack Timeline pill guidance.
  */
 export function evaluateSessionContext(event, options = {}) {
   if (!event) return {};
+  const scope = resolveWorkspaceScopeBase(event.workspaceDir, { checkEnrollment: false });
+  if (scope.kind === "non_repo") return {};
   const timelineEnabled = detectEnabledTimelineSidecar({
     artifactDir: event.artifactDir,
     configPath: options.configPath,
   });
-  const ctx = event.workspaceDir
-    ? readBaseReviewContext(event.workspaceDir)
-    : {
-        baseRef: null,
-        reviewMd: { present: false, content: "", modifiedInPr: false },
-        glossaryMd: { present: false, content: "", modifiedInPr: false },
-        riskPolicy: { present: false, content: "", modifiedInPr: false },
-      };
+  const ctx = readBaseReviewContext(event.workspaceDir);
   const hasGovernance = ctx.reviewMd.present || ctx.glossaryMd.present || ctx.riskPolicy?.modifiedInPr;
   if (!hasGovernance && !timelineEnabled) {
     return {};
@@ -928,6 +956,10 @@ export function evaluateBoundaryViolation({ relPath, content, boundaries }) {
 export function evaluateBoundaryWrite(event, options = {}) {
   if (!event || event.kind !== "tool-write" || !event.filePath) {
     return { decision: "allow" };
+  }
+  if (!options.boundaries) {
+    const scope = resolveWorkspaceScopeBase(event.workspaceDir, { checkEnrollment: false });
+    if (scope.kind === "non_repo") return { decision: "allow" };
   }
   const boundaries = options.boundaries ?? loadBoundaries(event.workspaceDir).boundaries;
   if (!boundaries) return { decision: "allow" };
