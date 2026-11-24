@@ -18,7 +18,7 @@ The earned-trust policy, EMA scoring, level state machine, and decision table ar
   - [`scripts/trust/internal/policy.mjs`](../../../scripts/trust/internal/policy.mjs) (`evaluateDecisionTable`, `DEFAULT_RISK_POLICY`)
   - [`scripts/trust/internal/handoff.mjs`](../../../scripts/trust/internal/handoff.mjs) (stage-handoff action mapping and max-hop alignment)
   - [`scripts/trust/index.mjs`](../../../scripts/trust/index.mjs) and [`scripts/trust/index.d.mts`](../../../scripts/trust/index.d.mts)
-- **Sync commit:** `f7814851905903db53d8ad5eaeb2353701880181`
+- **Sync commit:** `235fab1fa99a8bf9a9532d6b8e839899408f9a17`
 
 When a change modifies any covered file after the sync commit, run the check below before accepting the change. Move the sync commit forward only after confirming every property and scope assumption still matches the code.
 
@@ -47,6 +47,6 @@ Pass `--emit-mermaid <path>` to write the `%% provenance: formal-ts` `stateDiagr
 - **Exit `0` (`ok: true`):** All 4 properties and all 9 invariants hold across every explored state.
 - **Exit `1` (`ok: false`):** Prints JSON `findings` with the property name, plain-English summary, and exact `counterexample` input or step trace. Never weaken an invariant in `verify-trust.ts` to make a failing check pass; either fix the bug in `scripts/trust/` or confirm an intentional contract change and update this skill together.
 
-## Verified baseline at sync commit `f781485`
+## Verified baseline at sync commit `235fab1`
 
-At `f7814851905903db53d8ad5eaeb2353701880181`, all 4 properties pass with `0` findings (`EffectiveAutonomyPolicyPrecedence` 378 states, `DecisionTableSafetyMatrix` 3,072 states, `CategoryStateAndDemotionInvariants` 2,323 evaluations, `EarnedTrustLifecycleBFS` 876 visited states / 3,984 transitions).
+At `235fab1fa99a8bf9a9532d6b8e839899408f9a17`, all 4 properties pass with `0` findings (`EffectiveAutonomyPolicyPrecedence` 378 states, `DecisionTableSafetyMatrix` 3,072 states, `CategoryStateAndDemotionInvariants` 2,323 evaluations, `EarnedTrustLifecycleBFS` 876 visited states / 3,984 transitions).
