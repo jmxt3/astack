@@ -34,7 +34,7 @@ Open your project workspace and run:
 Select the **`(Recommended)`** option when prompted so [`/setup-astack`](../skills/setup-astack/SKILL.md) teaches agents how to launch and verify your app automatically.
 
 > [!TIP]
-> AStack works out of the box with **any model on any Antigravity plan**, with zero model config or chat restart needed. `34` manual-only/principle skills set `disable-model-invocation: true` so only `29` workflow skills sit in your model index, broad sweeps use `flash`, `/arena` checks live models via `swarm{action: "models"}`, and **Orchestrator (Carbon)** (Google AI Ultra) or **Orchestrator (Argon)** (Google AI Pro and Ultra) runs dynamic bidirectional routing with [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/) automatically.
+> AStack works out of the box with **any model on any Antigravity plan**, with zero model config or chat restart needed. `36` manual-only/principle skills set `disable-model-invocation: true` so only `29` workflow skills sit in your model index, broad sweeps use `flash`, `/arena` checks live models via `swarm{action: "models"}`, and **Orchestrator (Carbon)** (Google AI Ultra) or **Orchestrator (Argon)** (Google AI Pro and Ultra) runs dynamic bidirectional routing with [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/) automatically.
 
 ### Step 3: Run Tasks With `/astack-mode`
 
@@ -227,21 +227,21 @@ AStack separates code cleanup, comment removal, and prose cleanup into three spe
 
 ## Part 4: Multi-agent modes and power moves
 
-### 1. Pair `/astack-mode` With Antigravity's 16 Native Slash Commands
+### 1. Pair `/astack-mode` With Antigravity's 18 Native Slash Commands
 
-AStack routes matching intent to all 16 public Antigravity slash commands ([`native-commands.md`](../skills/astack-mode/references/native-commands.md)) across four engagement modes (`run`, `load`, `contract`, `recommend`):
+AStack routes matching intent to all 18 public Antigravity slash commands ([`native-commands.md`](../skills/astack-mode/references/native-commands.md)) across four engagement modes (`run`, `load`, `contract`, `recommend`):
 
 | Category / Command | Mode | Use When | AStack Pairing |
 |---|---|---|---|
 | **Planning:** `/plan`, `/grill-me` | `contract` | Need a reviewable `implementation_plan.md` gate or one-question-at-a-time interview | [`plan-contract.md`](../skills/astack-mode/references/plan-contract.md), `/architect` |
-| **Learning & Customization:** `/learn`, `/agy-customizations`, `/plugin` | `contract` / `load` | Persist rules/skills (`learning_proposal.md` gate), author rules/hooks, or manage plugins | `/reflect`, `/correct`, `/automate-me` |
+| **Learning & Customization:** `/learn`, `/agy-customizations`, `/plugin`, `/mcp-app-development` | `contract` / `load` | Persist rules/skills (`learning_proposal.md` gate), author rules/hooks, manage plugins, or package `ui://` MCP Apps | `/reflect`, `/correct`, `/automate-me` |
 | **Subagents & `/fanout` / `/browser`:** `invoke_subagent`, `/browser` | `run` | 2-5 independent sweeps, research, or live UI verification (`browser` subagent) | `/how`, `/why`, `/fanout`, `/arena`, `/control-ui` |
 | **Workflows:** `/run-workflow` | `run` | Same check across many files or staged multi-phase Python `pipeline()` (Pro & Ultra) | `/fanout`, [`swarm-coordination.md`](../skills/astack-mode/references/swarm-coordination.md) |
 | **Deep Reasoning:** `/boost` | `recommend` | Hard, tightly coupled bug, race condition, or perf bottleneck | `bug-fix`, `perf-issue`, `hillclimb`, `/tdd`, `/statechart` |
 | **Swarm Board:** `/swarm` | `run` | Broad, divisible work across modules, test suites, or PRs with `@verifier` + `@monitor` | `autopilot-full`, `autopilot-stack`, [`swarm-coordination.md`](../skills/astack-mode/references/swarm-coordination.md) |
 | **Campaigns:** `/teamwork` | `recommend` | Multi-milestone, multi-hour or multi-day migration needing Sentinel audit gates | `orchestrate`, `/architect`, `/show-me-your-work` |
 | **Autonomy & Schedulers:** `/goal`, `/schedule`, `/automation` | `recommend` / `run` / `load` | `/goal` for uninterrupted completion; `/schedule` for in-session timers/crons; `/automation` (App only, `CRON_TZ=`) for persistent background triggers | `autonomous-run`, `/figure-it-out`, `decisions.tsv` |
-| **Interactive & Docs:** `/btw`, `/generative_ui`, `/antigravity-guide` | `recommend` / `load` | Side queries, rich HTML widgets (App only), or official Antigravity CLI/App docs | `/ketchup`, `/astack-help` |
+| **Interactive & Docs:** `/btw`, `/generative_ui`, `/antigravity-guide`, `/compact` | `recommend` / `load` | Side queries, rich HTML widgets (App only), official Antigravity docs, or compacting long threads | `/ketchup`, `/astack-help` |
 
 When returning from a long `/swarm`, `/teamwork`, or `/goal` run, catch up in seconds using [`/ketchup`](../skills/ketchup/SKILL.md) (which uses `/generative_ui` in the App and markdown in the CLI) or [`/ketchup-video`](../skills/ketchup-video/SKILL.md).
 
@@ -249,7 +249,7 @@ When returning from a long `/swarm`, `/teamwork`, or `/goal` run, catch up in se
 
 AStack bundles a compact read-only Antigravity sidecar UI at [`sidecars/astack_timeline/`](../sidecars/astack_timeline/sidecar.json). In the Antigravity App, open the Overview panel's **Extensions** menu and enable **AStack Timeline**. When enabled, AStack also prints `[AStack Timeline](sidecar://astack/astack_timeline/)` once at the start of an App workflow session so you can open or toggle the panel straight from chat.
 
-The panel tracks the 4 per-conversation engineering stages (`/plan` with optional `/grill-me`, `/astack-mode` with optional `/interrogate`, `/review-pr`, and `open the pr`). One-time repository setup (`/setup-astack`) stays out of the daily numbered rail: unconfigured repos display a top onboarding card once per repository, while configured repos tuck setup details and `/maintain-verification-skill` behind a compact **Setup ready** badge in the header. Clicking any command chip copies it cleanly (`Cmd+V` / `Ctrl+V` into chat, with no trailing space so slash-command autocomplete opens immediately on paste), green check marks confirm finished stages, amber indicators highlight waiting human gates or edits made after verification, and expandable rows show cleanup/verification sub-checks plus clickable links to `implementation_plan.md`, `walkthrough.md`, and `pr-review.md`.
+The panel tracks the 4 per-conversation engineering stages (`/plan` with optional `/grill-me`, `/astack-mode` with optional `/interrogate`, `/review-pr`, and `/astack-mode open the pr` with optional `/astack-mode babysit`). One-time repository setup (`/setup-astack`) stays out of the daily numbered rail: unconfigured repos display a top onboarding card once per repository, while configured repos tuck setup details and `/maintain-verification-skill` behind a compact **Setup ready** badge in the header. Clicking any slash command chip copies it cleanly (`Cmd+V` / `Ctrl+V` into chat, with no trailing space so slash-command autocomplete opens immediately on paste), while internal scripts (`watch-pr.mjs`, `pr-dossier.mjs`) and subagents (`pr-verifier`) appear as read-only automatic step indicators rather than copyable commands. Green check marks confirm finished stages, amber indicators highlight waiting human gates or edits made after verification, and expandable rows show cleanup/verification sub-checks plus clickable links to `implementation_plan.md`, `walkthrough.md`, and `pr-review.md`.
 
 ### 3. Build the Compounding Repository Flywheel
 

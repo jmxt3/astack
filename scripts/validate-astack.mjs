@@ -40,6 +40,18 @@ const BOOLEAN_AGENT_KEYS = ["mainAgent", "subagent", "inheritMcp", "inheritCusto
 const ALLOWED_RULE_TRIGGERS = new Set(["always_on", "model_decision", "glob", "manual"]);
 
 const VALID_COMMAND_MODES = new Set(["run", "load", "contract", "recommend"]);
+const VALID_TIMELINE_KINDS = new Set(["skill", "native", "playbook", "script", "agent", "concept"]);
+const DOC_COUNT_TARGETS = [
+  "README.md",
+  "docs/agent-timeline.md",
+  "docs/user-guide.md",
+  "docs/architecture-and-swarm.md",
+  "docs/guide/README.md",
+  "docs/guide/01-setup.md",
+  "docs/guide/09-make-it-yours.md",
+  "skills/astack-help/SKILL.md",
+  "rules/astack-orchestration.md",
+];
 
 const CURSOR_LEAK_PATTERNS = [
   { id: "cursor-dir", regex: /~?\.cursor\//g },
@@ -227,7 +239,7 @@ function validateNativeCommandsRegistry(rootDir, errors) {
     if (hasAstackMode) {
       errors.push({ file: registryRel, message: `Missing native command registry: ${registryRel}` });
     }
-    return;
+    return new Set();
   }
 
   let registry;
@@ -235,12 +247,12 @@ function validateNativeCommandsRegistry(rootDir, errors) {
     registry = JSON.parse(fs.readFileSync(registryPath, "utf8"));
   } catch (err) {
     errors.push({ file: registryRel, message: `Invalid JSON: ${err.message}` });
-    return;
+    return new Set();
   }
 
   if (!Array.isArray(registry?.commands)) {
     errors.push({ file: registryRel, message: "Registry must contain a commands array" });
-    return;
+    return new Set();
   }
 
   const seen = new Set();
@@ -321,6 +333,280 @@ function validateNativeCommandsRegistry(rootDir, errors) {
       });
     }
   }
+  return seen;
+}
+
+function checkTimelineCatalog(rootDir, { validSkillNames, nativeCommandSet }, errors) {
+  const catalogRel = "sidecars/astack_timeline/command-catalog.json";
+  const catalogPath = path.join(rootDir, ...catalogRel.split("/"));
+  if (!fs.existsSync(catalogPath)) return;
+
+  let catalog;
+  try {
+    catalog = JSON.parse(fs.readFileSync(catalogPath, "utf8"));
+  } catch (err) {
+    errors.push({ file: catalogRel, message: `Invalid JSON: ${err.message}` });
+    return;
+  }
+
+  const commands = catalog?.commands;
+  if (!commands || typeof commands !== "object" || Array.isArray(commands)) {
+    errors.push({ file: catalogRel, message: "command-catalog.json must declare a commands object" });
+    return;
+  }
+
+  for (const [cmd, entry] of Object.entries(commands)) {
+    if (!entry || typeof entry !== "object") {
+      errors.push({ file: catalogRel, message: `Catalog entry ${cmd} must be an object` });
+      continue;
+    }
+    if (!VALID_TIMELINE_KINDS.has(entry.kind)) {
+      errors.push({ file: catalogRel, message: `Invalid kind "${entry.kind}" for ${cmd}` });
+    }
+    if (typeof entry.description !== "string" || !entry.description.trim()) {
+      errors.push({ file: catalogRel, message: `Catalog entry ${cmd} missing description` });
+    }
+    if (typeof entry.docsPath !== "string" || !entry.docsPath.trim()) {
+      errors.push({ file: catalogRel, message: `Catalog entry ${cmd} missing docsPath` });
+    } else {
+      const relDoc = entry.docsPath.split("#")[0];
+      if (!fs.existsSync(path.join(rootDir, ...relDoc.split("/")))) {
+        errors.push({ file: catalogRel, message: `Catalog entry ${cmd} docsPath missing on disk: ${relDoc}` });
+      }
+    }
+
+    if (entry.kind === "skill") {
+      const slug = cmd.startsWith("/") ? cmd.slice(1) : "";
+      if (!slug || !validSkillNames.has(slug)) {
+        errors.push({ file: catalogRel, message: `Skill entry ${cmd} does not exist under skills/` });
+      }
+      if (entry.invocable === false) {
+        errors.push({ file: catalogRel, message: `Skill entry ${cmd} must stay invocable` });
+      }
+    } else if (entry.kind === "native") {
+      if (nativeCommandSet.size > 0 && !nativeCommandSet.has(cmd)) {
+        errors.push({ file: catalogRel, message: `Native entry ${cmd} missing from native-commands.json` });
+      }
+      if (entry.invocable === false) {
+        errors.push({ file: catalogRel, message: `Native entry ${cmd} must stay invocable` });
+      }
+    } else if (entry.kind === "playbook") {
+      if (!cmd.startsWith("/astack-mode ")) {
+        errors.push({ file: catalogRel, message: `Playbook entry ${cmd} must use /astack-mode <trigger> syntax` });
+      }
+      if (entry.invocable === false) {
+        errors.push({ file: catalogRel, message: `Playbook entry ${cmd} must stay invocable` });
+      }
+      if (typeof entry.backingPath !== "string" || !fs.existsSync(path.join(rootDir, ...entry.backingPath.split("/")))) {
+        errors.push({ file: catalogRel, message: `Playbook entry ${cmd} missing backingPath: ${entry.backingPath}` });
+      }
+    } else if (entry.kind === "script" || entry.kind === "agent") {
+      if (entry.invocable !== false) {
+        errors.push({ file: catalogRel, message: `Internal ${entry.kind} ${cmd} must set invocable: false` });
+      }
+      if (typeof entry.backingPath !== "string" || !fs.existsSync(path.join(rootDir, ...entry.backingPath.split("/")))) {
+        errors.push({ file: catalogRel, message: `Internal ${entry.kind} ${cmd} missing backingPath: ${entry.backingPath}` });
+      }
+      const invoker = entry.invokedBy;
+      if (!invoker || !commands[invoker] || commands[invoker].invocable === false) {
+        errors.push({ file: catalogRel, message: `Internal ${entry.kind} ${cmd} must declare invocable invokedBy` });
+      }
+    } else if (entry.kind === "concept" && entry.invocable !== false) {
+      errors.push({ file: catalogRel, message: `Concept entry ${cmd} must set invocable: false` });
+    }
+  }
+
+  for (const [stageId, stageEntry] of Object.entries(catalog.stageCatalog ?? {})) {
+    for (const cmd of stageEntry?.autoSubCommands ?? []) {
+      if (!commands[cmd]) {
+        errors.push({ file: catalogRel, message: `stageCatalog.${stageId}.autoSubCommands references unknown ${cmd}` });
+      }
+    }
+    for (const cmd of stageEntry?.moreCommands ?? []) {
+      if (!commands[cmd]) {
+        errors.push({ file: catalogRel, message: `stageCatalog.${stageId}.moreCommands references unknown ${cmd}` });
+      } else if (commands[cmd].invocable === false) {
+        errors.push({
+          file: catalogRel,
+          message: `stageCatalog.${stageId}.moreCommands cannot include non-invocable ${cmd}`,
+        });
+      }
+    }
+  }
+
+  if (validSkillNames.size > 0 && nativeCommandSet.size > 0) {
+    for (const skill of validSkillNames) {
+      if (!skill.startsWith("principle-") && !commands[`/${skill}`]) {
+        errors.push({ file: catalogRel, message: `Non-principle skill /${skill} missing from command-catalog.json` });
+      }
+    }
+    for (const nativeCmd of nativeCommandSet) {
+      if (!commands[nativeCmd]) {
+        errors.push({ file: catalogRel, message: `Native command ${nativeCmd} missing from command-catalog.json` });
+      }
+    }
+  }
+
+  const slashTokenRe = /(?:^|[\s(])(\/[a-z][a-z0-9_-]*)/gi;
+  const checkSlashText = (label, text) => {
+    if (typeof text !== "string") return;
+    slashTokenRe.lastIndex = 0;
+    let m;
+    while ((m = slashTokenRe.exec(text)) !== null) {
+      const cmd = m[1];
+      if (
+        !validSkillNames.has(cmd.slice(1)) &&
+        !(nativeCommandSet.size > 0 ? nativeCommandSet.has(cmd) : EXPECTED_NATIVE_COMMANDS.includes(cmd))
+      ) {
+        errors.push({ file: catalogRel, message: `delegateGuide ${label} references unknown command ${cmd}` });
+      }
+    }
+  };
+  for (const pick of catalog.delegateGuide?.picks ?? []) {
+    checkSlashText(`picks.${pick.id}`, pick.prompt);
+  }
+  for (const sec of catalog.delegateGuide?.sections ?? []) {
+    for (const item of sec.items ?? []) {
+      checkSlashText(`sections.${sec.id}.${item.command}`, item.command);
+      checkSlashText(`sections.${sec.id}.${item.command}.copyText`, item.copyText);
+      const itemCmd = item.copyText || item.command;
+      const isRegisteredNative = nativeCommandSet.size > 0
+        ? nativeCommandSet.has(itemCmd)
+        : EXPECTED_NATIVE_COMMANDS.includes(itemCmd);
+      if (isRegisteredNative && (/not wired/i.test(item.ownership || "") || /not wired/i.test(item.statusPill || ""))) {
+        errors.push({
+          file: catalogRel,
+          message: `Registered native command ${itemCmd} cannot be marked "${item.statusPill || item.ownership}"`,
+        });
+      }
+    }
+  }
+  for (const stage of catalog.delegateGuide?.stages ?? []) {
+    for (const ex of stage.examples ?? []) {
+      checkSlashText(`stages.${stage.id}.${ex.id}`, ex.prompt);
+      for (const cmd of ex.commands ?? []) {
+        if (!commands[cmd]) {
+          errors.push({ file: catalogRel, message: `delegateGuide stages.${stage.id}.${ex.id} references unknown ${cmd}` });
+        }
+        const isRegisteredNative = nativeCommandSet.size > 0
+          ? nativeCommandSet.has(cmd)
+          : EXPECTED_NATIVE_COMMANDS.includes(cmd);
+        if (isRegisteredNative && /not wired/i.test(ex.ownership || "")) {
+          errors.push({
+            file: catalogRel,
+            message: `Registered native command ${cmd} cannot be marked "${ex.ownership}"`,
+          });
+        }
+      }
+    }
+    for (const cmd of stage.commands ?? []) {
+      if (!commands[cmd]) {
+        errors.push({ file: catalogRel, message: `delegateGuide stages.${stage.id}.commands references unknown ${cmd}` });
+      }
+    }
+  }
+  for (const item of catalog.delegateGuide?.delegateMenu ?? []) {
+    checkSlashText(`delegateMenu.${item.id}`, item.command);
+    checkSlashText(`delegateMenu.${item.id}.prompt`, item.prompt);
+  }
+}
+
+function checkDocCountClaims(rootDir, counts, errors) {
+  const countSpecs = [
+    {
+      label: "native command count",
+      regex: /`?(\d+)`?\s+(?:native(?:\s+Antigravity)?\s+(?:slash\s+)?commands|public(?:\s+Antigravity)?\s+slash\s+commands|Native\s+Antigravity\s+Commands|Native\s+Slash\s+Commands)\b/gi,
+      expected: counts.nativeCount,
+    },
+    {
+      label: "manual-only skill count",
+      regex: /`?(\d+)`?\s+manual-only/gi,
+      expected: counts.manualOnlyCount,
+    },
+    {
+      label: "total skill count",
+      regex: /(?:\bships|\bhas)\s+(?:\*\*|`)?(\d+)(?:\*\*|`)?\s+skills\b/gi,
+      expected: counts.skillCount,
+    },
+    {
+      label: "custom agent count",
+      regex: /`?(\d+)`?\s+custom\s+agents?\b/gi,
+      expected: counts.agentCount,
+    },
+    {
+      label: "passive hook count",
+      regex: /`?(\d+)`?\s+passive\s+observe-only(?:\s+hooks?)?\b/gi,
+      expected: counts.enabledPassiveHooks,
+    },
+  ];
+
+  for (const rel of DOC_COUNT_TARGETS) {
+    const abs = path.join(rootDir, ...rel.split("/"));
+    if (!fs.existsSync(abs)) continue;
+    const content = fs.readFileSync(abs, "utf8");
+    for (const spec of countSpecs) {
+      if (spec.expected <= 0) continue;
+      spec.regex.lastIndex = 0;
+      let m;
+      while ((m = spec.regex.exec(content)) !== null) {
+        const actual = Number.parseInt(m[1], 10);
+        if (actual !== spec.expected) {
+          errors.push({
+            file: rel,
+            message: `Stale ${spec.label} (${actual}); expected ${spec.expected}`,
+          });
+        }
+      }
+    }
+  }
+}
+
+function validateCommandSurfaces(
+  rootDir,
+  { validSkillNames, nativeCommandSet, manualOnlySkillCount, agentCount, enabledPassiveHooks },
+  errors,
+) {
+  checkTimelineCatalog(rootDir, { validSkillNames, nativeCommandSet }, errors);
+
+  if (nativeCommandSet.size === 0 || validSkillNames.size === 0) return;
+
+  const nonPrincipleSkills = [...validSkillNames].filter((s) => !s.startsWith("principle-")).sort();
+  const checkCoverageFile = (rel, { requireNative = true } = {}) => {
+    const abs = path.join(rootDir, ...rel.split("/"));
+    if (!fs.existsSync(abs)) return;
+    const text = fs.readFileSync(abs, "utf8");
+    for (const skill of nonPrincipleSkills) {
+      if (!text.includes(`/${skill}`) && !text.includes(`skills/${skill}/`)) {
+        errors.push({ file: rel, message: `Documentation missing skill /${skill}` });
+      }
+    }
+    if (requireNative) {
+      for (const cmd of nativeCommandSet) {
+        if (!text.includes(cmd)) {
+          errors.push({ file: rel, message: `Documentation missing native command ${cmd}` });
+        }
+      }
+    }
+  };
+
+  checkCoverageFile("skills/astack-help/SKILL.md", { requireNative: true });
+  checkCoverageFile("docs/agent-timeline.md", { requireNative: true });
+  const readmePath = path.join(rootDir, "README.md");
+  if (fs.existsSync(readmePath) && fs.readFileSync(readmePath, "utf8").includes("## Skill catalog")) {
+    checkCoverageFile("README.md", { requireNative: false });
+  }
+
+  checkDocCountClaims(
+    rootDir,
+    {
+      nativeCount: nativeCommandSet.size,
+      manualOnlyCount: manualOnlySkillCount.length,
+      skillCount: validSkillNames.size,
+      agentCount,
+      enabledPassiveHooks,
+    },
+    errors,
+  );
 }
 
 /**
@@ -372,7 +658,7 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
     }
   }
 
-  validateNativeCommandsRegistry(rootDir, errors);
+  const nativeCommandSet = validateNativeCommandsRegistry(rootDir, errors);
 
   const validSkillNames = new Set();
   const autoInvokeSkills = [];
@@ -528,6 +814,7 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
   }
 
   const hooksFile = path.join(rootDir, "hooks.json");
+  let enabledPassiveHooks = 0;
   if (fs.existsSync(hooksFile)) {
     try {
       const hooksCfg = JSON.parse(fs.readFileSync(hooksFile, "utf8"));
@@ -540,6 +827,7 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
       };
       for (const [hookName, def] of Object.entries(hooksCfg)) {
         if (!def || typeof def !== "object") continue;
+        if (def.enabled === true) enabledPassiveHooks++;
         const spec = expectedMatchers[hookName];
         if (spec) {
           const entry = Array.isArray(def[spec.event]) ? def[spec.event][0] : null;
@@ -725,6 +1013,12 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
       }
     }
   }
+
+  validateCommandSurfaces(
+    rootDir,
+    { validSkillNames, nativeCommandSet, manualOnlySkillCount, agentCount, enabledPassiveHooks },
+    errors,
+  );
 
   let agyReport = null;
   if (withAgy) {

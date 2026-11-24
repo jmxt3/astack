@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { applyFrontmatterPolicy, parseFrontmatter } from "../catalog.mjs";
-import { DEFAULT_ROOT_DIR, validateAStack } from "../validate-astack.mjs";
+import { DEFAULT_ROOT_DIR, renderNativeCommandsMarkdown, validateAStack } from "../validate-astack.mjs";
 import { ASTACK_ASCII_LOGO } from "../../skills/setup-astack/scripts/setup-banner.mjs";
 
 function makeTempDir(prefix) {
@@ -521,6 +521,180 @@ test("validateAStack rejects inspiration leaks outside README.md and CREDITS.md 
     assert.match((byFile.get("docs/bad-doc.md") ?? []).join("\n"), /inspiration-gstack/);
     assert.match((byFile.get("docs/bad-doc.md") ?? []).join("\n"), /inspiration-pstack/);
     assert.match((byFile.get("scripts/mcp/tools.mjs") ?? []).join("\n"), /inspiration-pstack/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("validateAStack rejects drifted timeline command-catalog, missing doc coverage, and stale counts", () => {
+  const tmp = makeTempDir("astack-surface-validate-");
+  try {
+    writeFile(path.join(tmp, "plugin.json"), JSON.stringify({ name: "astack", author: { name: "João Machete" } }));
+    writeFile(path.join(tmp, "LICENSE"), "Lauren Tan\nJoão Machete\n");
+    writeFile(path.join(tmp, "skills", "astack-mode", "SKILL.md"), "---\nname: astack-mode\ndescription: mode\n---\n\nBody.\n");
+    writeFile(path.join(tmp, "skills", "astack-mode", "references", "plan-contract.md"), "# Plan\n");
+    writeFile(path.join(tmp, "skills", "astack-help", "SKILL.md"), "---\nname: astack-help\ndescription: help\n---\n\n/astack-mode\n");
+    writeFile(path.join(tmp, "skills", "new-skill", "SKILL.md"), "---\nname: new-skill\ndescription: newly added\n---\n\nNew.\n");
+    writeFile(path.join(tmp, "docs", "agent-timeline.md"), "# Timeline\n\n/astack-mode\n");
+    writeFile(path.join(tmp, "docs", "user-guide.md"), "# User Guide\n\nPair with 16 native slash commands.\n");
+
+    const realReg = JSON.parse(
+      fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "skills", "astack-mode", "references", "native-commands.json"), "utf8"),
+    );
+    const patchedReg = {
+      ...realReg,
+      commands: realReg.commands.map((c) => ({
+        ...c,
+        astackCompanion: ["skills/astack-mode/SKILL.md"],
+        backing:
+          c.mode === "contract"
+            ? { ...c.backing, contract: "skills/astack-mode/references/plan-contract.md" }
+            : c.backing,
+      })),
+    };
+    writeFile(
+      path.join(tmp, "skills", "astack-mode", "references", "native-commands.json"),
+      JSON.stringify(patchedReg, null, 2),
+    );
+    writeFile(
+      path.join(tmp, "skills", "astack-mode", "references", "native-commands.md"),
+      renderNativeCommandsMarkdown(patchedReg),
+    );
+
+    writeFile(
+      path.join(tmp, "sidecars", "astack_timeline", "command-catalog.json"),
+      JSON.stringify(
+        {
+          githubDocsBase: "https://github.com/jmxt3/astack/blob/main",
+          commands: {
+            "/astack-mode": {
+              kind: "skill",
+              invocable: true,
+              description: "Mode router.",
+              docsPath: "skills/astack-mode/SKILL.md",
+            },
+            "/removed-skill": {
+              kind: "skill",
+              invocable: true,
+              description: "Removed skill.",
+              docsPath: "skills/astack-mode/SKILL.md",
+            },
+            "watch-pr": {
+              kind: "script",
+              invocable: true,
+              backingPath: "skills/astack-mode/SKILL.md",
+              invokedBy: "/astack-mode",
+              description: "Invalid invocable script.",
+              docsPath: "skills/astack-mode/SKILL.md",
+            },
+            "internal-helper": {
+              kind: "script",
+              invocable: false,
+              backingPath: "skills/astack-mode/SKILL.md",
+              invokedBy: "/astack-mode",
+              description: "Valid non-invocable script placed in moreCommands.",
+              docsPath: "skills/astack-mode/SKILL.md",
+            },
+            babysit: {
+              kind: "playbook",
+              invocable: true,
+              backingPath: "skills/astack-mode/SKILL.md",
+              description: "Bare playbook name.",
+              docsPath: "skills/astack-mode/SKILL.md",
+            },
+          },
+          stageCatalog: {
+            ship: {
+              autoSubCommands: ["watch-pr"],
+              moreCommands: ["internal-helper"],
+            },
+          },
+          delegateGuide: {
+            picks: [{ id: "bad", chipLabel: "Bad", kicker: "Bad", prompt: "/ghost-cmd", how: "Test" }],
+            sections: [
+              {
+                id: "alongside",
+                title: "Alongside",
+                subtitle: "Sub",
+                icon: "fork",
+                items: [
+                  {
+                    pickId: null,
+                    command: "/compact",
+                    copyText: "/compact",
+                    ownership: "Not wired yet",
+                    statusPill: "not wired",
+                  },
+                ],
+              },
+            ],
+            delegateMenu: [],
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const res = validateAStack(tmp, { withAgy: false });
+    assert.equal(res.ok, false);
+    const msgs = res.errors.map((e) => `${e.file}: ${e.message}`).join("\n");
+    assert.match(msgs, /Skill entry \/removed-skill does not exist under skills\//);
+    assert.match(msgs, /Internal script watch-pr must set invocable: false/);
+    assert.match(msgs, /Playbook entry babysit must use \/astack-mode <trigger> syntax/);
+    assert.match(msgs, /stageCatalog\.ship\.moreCommands cannot include non-invocable internal-helper/);
+    assert.match(msgs, /delegateGuide picks\.bad references unknown command \/ghost-cmd/);
+    assert.match(msgs, /Registered native command \/compact cannot be marked "not wired"/);
+    assert.match(msgs, /Non-principle skill \/new-skill missing from command-catalog\.json/);
+    assert.match(msgs, /skills\/astack-help\/SKILL\.md: Documentation missing skill \/new-skill/);
+    assert.match(msgs, /docs\/agent-timeline\.md: Documentation missing skill \/new-skill/);
+    assert.match(msgs, /docs\/user-guide\.md: Stale native command count \(16\); expected 18/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("audit-surfaces.mjs --help/-h and --json pass on live repo and fail on drifted command surfaces", () => {
+  const auditCli = path.join(
+    DEFAULT_ROOT_DIR,
+    ".agents",
+    "skills",
+    "sync-astack-surfaces",
+    "scripts",
+    "audit-surfaces.mjs",
+  );
+  assert.equal(fs.existsSync(auditCli), true, "Missing audit-surfaces.mjs");
+  for (const flag of ["--help", "-h"]) {
+    const helpRes = spawnSync(process.execPath, [auditCli, flag], { encoding: "utf8" });
+    assert.equal(helpRes.status, 0, `${flag} failed: ${helpRes.stderr}`);
+    assert.match(helpRes.stdout, /usage:/i);
+  }
+
+  const liveRes = spawnSync(process.execPath, [auditCli, "--json"], {
+    cwd: DEFAULT_ROOT_DIR,
+    encoding: "utf8",
+  });
+  assert.equal(liveRes.status, 0, `Live audit-surfaces failed: ${liveRes.stderr}\n${liveRes.stdout}`);
+  const liveJson = JSON.parse(liveRes.stdout);
+  assert.equal(liveJson.ok, true);
+  assert.deepEqual(liveJson.validationErrors, []);
+  assert.deepEqual(liveJson.unknownSlashCommands, []);
+
+  const tmp = makeTempDir("astack-audit-surfaces-fail-");
+  try {
+    writeFile(path.join(tmp, "plugin.json"), JSON.stringify({ name: "astack", author: { name: "João Machete" } }));
+    writeFile(path.join(tmp, "LICENSE"), "Lauren Tan\nJoão Machete\n");
+    writeFile(path.join(tmp, "docs", "bad-commands.md"), "# Guide\n\nRun `/nonexistent-slash-cmd` now.\n");
+    const failRes = spawnSync(process.execPath, [auditCli, "--cwd", tmp, "--json"], {
+      encoding: "utf8",
+    });
+    assert.equal(failRes.status, 1, "audit-surfaces.mjs must fail on unrecognized slash commands");
+    const failJson = JSON.parse(failRes.stdout);
+    assert.equal(failJson.ok, false);
+    assert.ok(
+      failJson.unknownSlashCommands.some((u) => u.command === "/nonexistent-slash-cmd"),
+      "Expected unrecognized /nonexistent-slash-cmd report",
+    );
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

@@ -693,7 +693,9 @@
       }
     }
     const doc = window.ASTACK_CATALOG?.commandDocs?.[command];
-    return doc ? { command, copyText: command, ...doc } : null;
+    if (!doc) return null;
+    const invocable = doc.invocable !== false;
+    return { command, invocable, copyText: invocable ? command : null, ...doc };
   }
 
   function positionCommandPopover(pop, anchorEl) {
@@ -723,6 +725,10 @@
 
     const head = el("div", "cmd-popover-head");
     head.appendChild(el("span", "cmd-popover-name", item.command));
+    if (item.invocable === false) {
+      const kindLabel = item.kind === "agent" ? "internal agent" : item.kind === "script" ? "internal script" : "internal";
+      head.appendChild(el("span", "cmd-popover-kind", kindLabel));
+    }
     if (typeof item.docsUrl === "string" && item.docsUrl.startsWith(DOCS_URL_PREFIX)) {
       const link = el("a", "cmd-popover-doc");
       link.href = item.docsUrl;
@@ -733,10 +739,14 @@
       head.appendChild(link);
     }
 
+    const footText = item.invocable === false
+      ? (item.invokedBy ? `Runs automatically via ${item.invokedBy} (not a slash command)` : "Internal step (not a slash command)")
+      : `Click to copy and focus chat (${PASTE_SHORTCUT})`;
+
     pop.replaceChildren(
       head,
       el("p", "cmd-popover-desc", item.description),
-      el("div", "cmd-popover-foot", `Click to copy and focus chat (${PASTE_SHORTCUT})`),
+      el("div", "cmd-popover-foot", footText),
     );
     pop.classList.remove("hidden");
     positionCommandPopover(pop, anchorEl);
@@ -835,18 +845,36 @@
       subWrap.appendChild(el("div", "subcmd-label", "Triggered automatically"));
       const subList = el("div", "subcmd-list");
       for (const sub of autoSubCommands) {
-        const pill = el("button", sub.ran ? "subcmd-pill ran" : "subcmd-pill");
-        pill.type = "button";
-        wireCommandAction(pill, sub);
-        if (sub.ran) {
-          const ic = svgIcon("check-sm", 11);
-          ic.classList.add("chip-icon");
-          pill.appendChild(ic);
+        if (sub.invocable === false) {
+          const pill = el("span", sub.ran ? "subcmd-pill is-internal ran" : "subcmd-pill is-internal");
+          pill.tabIndex = 0;
+          pill.setAttribute("role", "status");
+          pill.dataset.kind = sub.kind || "script";
+          attachCommandPopover(pill, sub);
+          if (sub.ran) {
+            const ic = svgIcon("check-sm", 11);
+            ic.classList.add("chip-icon");
+            pill.appendChild(ic);
+          } else {
+            pill.appendChild(el("span", "subcmd-dot", "·"));
+          }
+          pill.appendChild(el("span", "", sub.command));
+          pill.appendChild(el("span", "subcmd-tag", sub.kind === "agent" ? "agent" : "script"));
+          subList.appendChild(pill);
         } else {
-          pill.appendChild(el("span", "subcmd-dot", "·"));
+          const pill = el("button", sub.ran ? "subcmd-pill ran" : "subcmd-pill");
+          pill.type = "button";
+          wireCommandAction(pill, sub);
+          if (sub.ran) {
+            const ic = svgIcon("check-sm", 11);
+            ic.classList.add("chip-icon");
+            pill.appendChild(ic);
+          } else {
+            pill.appendChild(el("span", "subcmd-dot", "·"));
+          }
+          pill.appendChild(el("span", "", sub.command));
+          subList.appendChild(pill);
         }
-        pill.appendChild(el("span", "", sub.command));
-        subList.appendChild(pill);
       }
       subWrap.appendChild(subList);
       container.appendChild(subWrap);
@@ -982,7 +1010,6 @@
       const statusText = mode === "done" ? "Done" : mode === "stale" ? "Stale" : mode === "run" ? "Next up" : "Pending";
       if (sub.detail) {
         seg.tabIndex = 0;
-        seg.title = sub.detail;
         attachStatusPopover(seg, title, statusText, mode, sub.detail);
       }
       seg.appendChild(bar);
@@ -1810,6 +1837,25 @@
     return { text: "Ready", cls: "" };
   }
 
+  function buildGuideCommandChip(cmd, snap, liveText = "") {
+    const meta = lookupCommandMeta(snap, cmd);
+    const isInternal = meta?.invocable === false;
+    const chip = el(isInternal ? "span" : "button", isInternal ? "guide-cmd-chip is-internal" : "guide-cmd-chip");
+    if (isInternal) {
+      chip.tabIndex = 0;
+      chip.setAttribute("role", "status");
+      attachCommandPopover(chip, meta);
+    } else {
+      chip.type = "button";
+      wireCommandAction(chip, meta || cmd);
+    }
+    chip.appendChild(el("span", "", cmd));
+    if (liveText) {
+      chip.appendChild(el("span", "guide-cmd-live", liveText));
+    }
+    return chip;
+  }
+
   function buildGuidePromptCard(selected, snap) {
     const card = el("div", "prompt-card");
     card.dataset.testid = "guide-prompt-card";
@@ -1834,11 +1880,7 @@
     const foot = el("div", "prompt-card-foot");
     const tags = el("div", "prompt-cmd-tags");
     for (const cmd of selected.commands || []) {
-      const meta = lookupCommandMeta(snap, cmd);
-      const chip = el("button", "guide-cmd-chip", cmd);
-      chip.type = "button";
-      wireCommandAction(chip, meta || cmd);
-      tags.appendChild(chip);
+      tags.appendChild(buildGuideCommandChip(cmd, snap));
     }
     foot.appendChild(tags);
     if (selected.ownership) {
@@ -1969,16 +2011,7 @@
         if (state.guideCmdDrawerOpen) {
           const drawerChips = el("div", "guide-cmd-drawer-chips");
           for (const cmd of stage.commands) {
-            const meta = lookupCommandMeta(snap, cmd);
-            const chip = el("button", "guide-cmd-chip");
-            chip.type = "button";
-            chip.appendChild(el("span", "", cmd));
-            const liveText = resolveCommandGuideBadge(cmd, snap);
-            if (liveText) {
-              chip.appendChild(el("span", "guide-cmd-live", liveText));
-            }
-            wireCommandAction(chip, meta || cmd);
-            drawerChips.appendChild(chip);
+            drawerChips.appendChild(buildGuideCommandChip(cmd, snap, resolveCommandGuideBadge(cmd, snap)));
           }
           drawer.appendChild(drawerChips);
         }
@@ -2100,7 +2133,6 @@
         };
       }
       progressEl.tabIndex = 0;
-      progressEl.title = state.progressPopover.desc;
     }
     applyLiveStatus(snap);
 
@@ -2167,7 +2199,6 @@
         if (part.testId) node.dataset.testid = part.testId;
         if (part.popDesc) {
           node.tabIndex = 0;
-          node.title = part.popDesc;
           attachStatusPopover(node, part.popTitle, part.popStatus, part.popMode, part.popDesc);
         }
         metaRow.appendChild(node);
