@@ -13,7 +13,6 @@ import {
   evaluateRepoTrust,
   evaluateStageContext,
   evaluateStageHandoff,
-  evaluateTrustGate,
   isProtectedTrustShellCommand,
   mapLegacyPolicyFlags,
   recordIntentCard,
@@ -95,7 +94,6 @@ function makeCleanEntries(category, count, startMs = Date.UTC(2026, 0, 1)) {
 test("trust math properties: EMA gain, instant demotion on y=0, idle decay, category reset, Brier gate, and governance cap", () => {
   const baseStart = Date.UTC(2026, 0, 1);
 
-  // No single outcome raises level above L0
   const one = evaluateCategoryState({
     category: "ui",
     entries: makeCleanEntries("ui", 1, baseStart),
@@ -106,7 +104,6 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   assert.equal(one.level, 0);
   assert.equal(one.earnedLevel, 0);
 
-  // 4 clean stays L0; 5 clean reaches L1 (T = 1 - 0.9^5 = 0.4095)
   const four = evaluateCategoryState({
     category: "ui",
     entries: makeCleanEntries("ui", 4, baseStart),
@@ -125,7 +122,6 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   assert.equal(five.earnedLevel, 1);
   assert.ok(Math.abs(five.score - 0.4095) < 0.001);
 
-  // 10 clean reaches L2; one y=0 halves T_c and demotes immediately
   const tenEntries = makeCleanEntries("ui", 10, baseStart);
   const ten = evaluateCategoryState({
     category: "ui",
@@ -157,7 +153,6 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   assert.ok(afterRevert.score < ten.score / 2 + 0.002);
   assert.equal(afterRevert.level, 1);
 
-  // 20 clean merges reach L3 only when Brier <= 0.12 and ceiling === 3
   const twentyEntries = makeCleanEntries("ui", 20, baseStart);
   const twentyOk = evaluateCategoryState({
     category: "ui",
@@ -169,7 +164,6 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   assert.equal(twentyOk.level, 3);
   assert.ok(twentyOk.score >= 0.85);
 
-  // Bad Brier calibration blocks L3 promotion
   const badBrierEntries = twentyEntries.map((e) => ({ ...e, predictedR: 0.9 }));
   const badBrier = evaluateCategoryState({
     category: "ui",
@@ -181,7 +175,6 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   assert.ok(badBrier.brier > 0.12);
   assert.equal(badBrier.level, 2);
 
-  // Missed sampled audit demotes L3 to L2 immediately
   const missedAudit = evaluateCategoryState({
     category: "ui",
     entries: [
@@ -204,7 +197,6 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   assert.equal(missedAudit.missedAudit, true);
   assert.equal(missedAudit.level, 2);
 
-  // Idle decay: 10% every 30 days drops score below L3 demotion floor (0.75) after 60 days
   const decayed = evaluateCategoryState({
     category: "ui",
     entries: twentyEntries,
@@ -215,7 +207,6 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   assert.ok(decayed.score < 0.75);
   assert.equal(decayed.level, 2);
 
-  // Category reset caps score <= 0.40 and earnedLevel <= 1
   const reset = evaluateCategoryState({
     category: "ui",
     entries: twentyEntries,
@@ -227,7 +218,6 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   assert.ok(reset.score <= 0.4);
   assert.equal(reset.earnedLevel, 1);
 
-  // Governance capped at L2 forever and never auto-promotes
   const gov = evaluateCategoryState({
     category: "governance",
     entries: makeCleanEntries("governance", 25, baseStart),
@@ -244,7 +234,6 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   assert.equal(gov.promoReady, true);
   assert.equal(gov.eligibleNextLevel, 1);
 
-  // Stricter-wins base policy overrides local Auto and higher ceilings
   const stricter = resolveEffectiveAutonomy(
     {
       ...DEFAULT_RISK_POLICY,
@@ -265,7 +254,6 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   assert.equal(stricter.ceilings.docs, 2);
   assert.equal(stricter.ceilings.governance, 2);
 
-  // Regression: 20 clean capped at ceiling L2 still immediately drops 2 -> 1 on a single revert
   const cappedRevert = evaluateCategoryState({
     category: "ui",
     entries: [
@@ -285,7 +273,6 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   });
   assert.equal(cappedRevert.level, 1);
 
-  // Regression: Manual mode at confirmed L1 while earned L2 still demotes 1 -> 0 on a single revert
   const manualRepo = makeEnrolledRepo("astack-manual-rev-");
   const manualData = fs.mkdtempSync(path.join(os.tmpdir(), "astack-manual-rev-data-"));
   try {
@@ -327,10 +314,8 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
 });
 
 test("decision table matrix, exact pause reason, pure revert at L2+, and legacy allowTier0AutoMerge read shim", () => {
-  // Read always allows
   assert.equal(evaluateDecisionTable({ action: "read", residual: "blocked", beastOn: true }).decision, "allow");
 
-  // Local write / local exec
   assert.equal(evaluateDecisionTable({ action: "local_write", residual: "low", trustLevel: 1, beastOn: true }).decision, "auto_approve");
   assert.equal(evaluateDecisionTable({ action: "local_exec", residual: "medium", trustLevel: 1, beastOn: true }).decision, "auto_approve");
   assert.equal(evaluateDecisionTable({ action: "local_write", residual: "low", trustLevel: 0, beastOn: true }).decision, "force_ask");
@@ -338,14 +323,12 @@ test("decision table matrix, exact pause reason, pure revert at L2+, and legacy 
   assert.equal(evaluateDecisionTable({ action: "local_write", residual: "blocked", trustLevel: 3, beastOn: true }).decision, "deny");
   assert.equal(evaluateDecisionTable({ action: "local_write", residual: "low", trustLevel: 2, beastOn: false }).decision, "allow");
 
-  // Push / open_pr
   assert.equal(evaluateDecisionTable({ action: "push_branch", residual: "low", trustLevel: 2, beastOn: true }).decision, "auto_approve");
   assert.equal(evaluateDecisionTable({ action: "open_pr", residual: "medium", trustLevel: 2, beastOn: true }).decision, "auto_approve");
   assert.equal(evaluateDecisionTable({ action: "open_pr", residual: "low", trustLevel: 1, beastOn: true }).decision, "force_ask");
   assert.equal(evaluateDecisionTable({ action: "push_branch", residual: "high", trustLevel: 3, beastOn: true }).decision, "force_ask");
   assert.equal(evaluateDecisionTable({ action: "open_pr", residual: "blocked", trustLevel: 3, beastOn: true }).decision, "deny");
 
-  // Merge + exact 1-line reason
   const mergePaused = evaluateDecisionTable({
     action: "merge",
     residual: "medium",
@@ -374,7 +357,6 @@ test("decision table matrix, exact pause reason, pure revert at L2+, and legacy 
     "auto_approve",
   );
 
-  // Deploy / external_message / destructive
   for (const act of ["deploy", "external_message", "destructive"]) {
     assert.equal(evaluateDecisionTable({ action: act, residual: "low", trustLevel: 3, beastOn: true }).decision, "force_ask");
     assert.equal(evaluateDecisionTable({ action: act, residual: "medium", trustLevel: 3, beastOn: true }).decision, "force_ask");
@@ -382,13 +364,11 @@ test("decision table matrix, exact pause reason, pure revert at L2+, and legacy 
     assert.equal(evaluateDecisionTable({ action: act, residual: "blocked", trustLevel: 3, beastOn: true }).decision, "deny");
   }
 
-  // Headless converts ask -> deny
   assert.equal(
     evaluateDecisionTable({ action: "merge", residual: "low", trustLevel: 2, beastOn: true, headless: true }).decision,
     "deny",
   );
 
-  // Legacy read shim maps allowTier0AutoMerge + humanGates.prReview: "tier0-auto"
   const legacyPolicy = {
     ...DEFAULT_RISK_POLICY,
     allowTier0AutoMerge: true,
@@ -424,7 +404,6 @@ test("trust-gate CLI hook denies protected trust store edits, fails safe on corr
   try {
     const storeDir = resolveTrustStoreDir(scope.repoId, { dataDir });
 
-    // 1. Agent write and shell mutations targeting ${PLUGIN_DATA}/trust/** are ALWAYS denied (even from non-git dir)
     const writeProtected = runHookCli(
       trustGateScript,
       {
@@ -466,7 +445,6 @@ test("trust-gate CLI hook denies protected trust store edits, fails safe on corr
     assert.equal(shellEditLedger.decision, "deny");
     assert.equal(isProtectedTrustShellCommand("node scripts/trust/cli.mjs status", { dataDir }), false);
 
-    // 2. Non-repo returns plain allow silently
     const nonGitRes = runHookCli(
       trustGateScript,
       {
@@ -477,7 +455,6 @@ test("trust-gate CLI hook denies protected trust store edits, fails safe on corr
     );
     assert.deepEqual(nonGitRes, { decision: "allow" });
 
-    // 3. Seed 10 clean outcomes on ui, enable Beast + Auto -> L2
     for (let i = 0; i < 10; i++) {
       recordOutcomeWithTrustSync({
         workspaceDir: dir,
@@ -498,7 +475,6 @@ test("trust-gate CLI hook denies protected trust store edits, fails safe on corr
     });
     const trustDir = resolveTrustDir({ workspaceDir: dir });
 
-    // 4. Write within declared Intent Card scope at L2 -> auto_approve
     recordIntentCard({
       trustDir,
       conversationId: "conv-gate",
@@ -536,7 +512,6 @@ test("trust-gate CLI hook denies protected trust store edits, fails safe on corr
     );
     assert.equal(inScopeWrite.decision, "auto_approve");
 
-    // 5. Write outside declared Intent Card scope -> deny with scope_drift + hypotheses prompt
     const driftWrite = runHookCli(
       trustGateScript,
       {
@@ -556,7 +531,6 @@ test("trust-gate CLI hook denies protected trust store edits, fails safe on corr
     assert.match(driftWrite.reason, /scope_drift/);
     assert.match(driftWrite.reason, /hypotheses/i);
 
-    // 6. Push at L2 with clean residual -> auto_approve; merge at L2 -> force_ask
     const pushRes = runHookCli(
       trustGateScript,
       {
@@ -580,7 +554,6 @@ test("trust-gate CLI hook denies protected trust store edits, fails safe on corr
     assert.equal(mergeRes.decision, "force_ask");
     assert.match(mergeRes.reason, /Merge needs L3 for ui, current L2/);
 
-    // 7. Fail-safe: corrupt settings.json returns plain allow (never auto_approve)
     fs.writeFileSync(path.join(storeDir, "settings.json"), "{corrupt json", "utf8");
     const corruptSettingsRes = runHookCli(
       trustGateScript,
@@ -593,7 +566,6 @@ test("trust-gate CLI hook denies protected trust store edits, fails safe on corr
     );
     assert.deepEqual(corruptSettingsRes, { decision: "allow" });
 
-    // Restore settings, tamper ledger -> hash chain broken freezes repo at L0, trust-gate returns allow, doctor warns
     applyTrustSettingsAction({
       repoId: scope.repoId,
       policy,
@@ -642,7 +614,6 @@ test("Stop stage-handoff and PreInvocation stage context via control-cli respect
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-handoff-data-"));
   const env = { ASTACK_PLUGIN_DATA: dataDir };
   try {
-    // Seed 10 clean ui outcomes -> L2 with Beast On
     for (let i = 0; i < 10; i++) {
       recordOutcomeWithTrustSync({
         workspaceDir: dir,
@@ -693,7 +664,6 @@ test("Stop stage-handoff and PreInvocation stage context via control-cli respect
       workspaceDir: dir,
     });
 
-    // PreInvocation injects compact ephemeralMessage naming stage, category, L2, R
     const preRes = runHookCli(
       prIntentScript,
       {
@@ -707,7 +677,6 @@ test("Stop stage-handoff and PreInvocation stage context via control-cli respect
     assert.match(preRes.injectSteps[0].ephemeralMessage, /AStack Beast Mode active/);
     assert.match(preRes.injectSteps[0].ephemeralMessage, /category=ui, L2/);
 
-    // Stop hook returns continue for Stage 2 -> Stage 3 on fresh verified HEAD
     const stop1 = runHookCli(
       stopScript,
       {
@@ -723,7 +692,6 @@ test("Stop stage-handoff and PreInvocation stage context via control-cli respect
     assert.equal(stop1.decision, "continue");
     assert.match(stop1.reason, /Stage 2 -> Stage 3/);
 
-    // Second continuation still within cap (max 2)
     const stop2 = runHookCli(
       stopScript,
       {
@@ -738,7 +706,6 @@ test("Stop stage-handoff and PreInvocation stage context via control-cli respect
     );
     assert.equal(stop2.decision, "continue");
 
-    // Third continuation hits per-stage transition cap -> stops cleanly
     const stop3 = runHookCli(
       stopScript,
       {
@@ -753,7 +720,6 @@ test("Stop stage-handoff and PreInvocation stage context via control-cli respect
     );
     assert.deepEqual(stop3, { decision: "allow" });
 
-    // Non-idle or non-model_stop or executionNum > 2 always returns allow
     assert.deepEqual(
       evaluateStageHandoff(
         {
@@ -770,7 +736,6 @@ test("Stop stage-handoff and PreInvocation stage context via control-cli respect
       { decision: "allow" },
     );
 
-    // Stage 3 verified PASS at L2 hits human merge gate -> stops cleanly
     recordVerifierReceipt({
       trustDir,
       headSha,
@@ -804,7 +769,6 @@ test("Stop stage-handoff and PreInvocation stage context via control-cli respect
     );
     assert.deepEqual(l2MergeStop, { decision: "allow" });
 
-    // Reach L3 (10 more clean outcomes + raise ceiling to L3) -> Stage 3 -> Stage 4 continues!
     for (let i = 0; i < 10; i++) {
       recordOutcomeWithTrustSync({
         workspaceDir: dir,
@@ -838,7 +802,6 @@ test("Stop stage-handoff and PreInvocation stage context via control-cli respect
     assert.equal(l3MergeStop.decision, "continue");
     assert.match(l3MergeStop.reason, /Stage 3 -> Stage 4/);
 
-    // Open test_regression circuit breaker stops handoff cleanly
     recordReceipt({
       kind: "tool-command",
       phase: "post",
@@ -861,7 +824,6 @@ test("Stop stage-handoff and PreInvocation stage context via control-cli respect
     );
     assert.deepEqual(regStop, { decision: "allow" });
 
-    // Non-repo stays completely silent on PreInvocation stage context
     assert.deepEqual(
       evaluateStageContext({ kind: "pre-invocation", workspaceDir: os.tmpdir(), lastUserInput: "hi" }, { dataDir }),
       {},
@@ -910,7 +872,6 @@ test("exhaustive BFS state-space check proves earned-trust and stage-handoff saf
   while (queue.length > 0) {
     const cur = queue.shift();
 
-    // Global invariants on every reachable state
     assert.ok(cur.level <= cur.ceiling, `Level ${cur.level} exceeded ceiling ${cur.ceiling}`);
     if (cur.cat === "governance") {
       assert.ok(cur.level <= 2, "Governance level exceeded L2");
@@ -921,7 +882,6 @@ test("exhaustive BFS state-space check proves earned-trust and stage-handoff saf
 
     const nextStates = [];
 
-    // 1. Clean outcome raises earned by at most 1 (capped by category max)
     const maxCat = cur.cat === "governance" ? 2 : 3;
     const nextEarnedClean = Math.min(maxCat, cur.earned + 1);
     const nextLevelClean = effectiveLevel(cur.cat, cur.mode, cur.ceiling, nextEarnedClean, cur.confirmed);
@@ -934,7 +894,6 @@ test("exhaustive BFS state-space check proves earned-trust and stage-handoff saf
       autoPromoted: cur.autoPromoted || didAuto,
     });
 
-    // 2. Revert outcome drops active level immediately (mirrors evaluateCategoryState + recordOutcomeWithTrustSync)
     const cap = cur.cat === "governance" ? Math.min(2, cur.ceiling) : cur.ceiling;
     const nextEarnedRev = Math.max(0, Math.min(cur.earned, cap) - 1);
     const nextConfirmedRev = cur.level > 0 ? Math.min(nextEarnedRev, Math.max(0, cur.level - 1)) : 0;
@@ -949,7 +908,6 @@ test("exhaustive BFS state-space check proves earned-trust and stage-handoff saf
       level: nextLevelRev,
     });
 
-    // 3. Human Manual confirm promotion (one step up to min(earned, ceiling))
     if (cur.level < Math.min(cur.earned, cap)) {
       const nextConf = cur.level + 1;
       nextStates.push({
@@ -959,7 +917,6 @@ test("exhaustive BFS state-space check proves earned-trust and stage-handoff saf
       });
     }
 
-    // 4. Human toggles promotion mode
     const toggledMode = cur.mode === "manual" ? "auto" : "manual";
     const lvlAfterToggle = effectiveLevel(cur.cat, toggledMode, cur.ceiling, cur.earned, cur.confirmed);
     const toggleAuto = toggledMode === "auto" && cur.cat !== "governance" && lvlAfterToggle > cur.level;
@@ -971,7 +928,6 @@ test("exhaustive BFS state-space check proves earned-trust and stage-handoff saf
       autoPromoted: cur.autoPromoted || toggleAuto,
     });
 
-    // 5. Human changes ceiling (governance capped at 2)
     for (const c of [1, 2, 3]) {
       const clampedC = cur.cat === "governance" ? Math.min(2, c) : c;
       const nextConf = Math.min(cur.confirmed, clampedC);
@@ -983,7 +939,6 @@ test("exhaustive BFS state-space check proves earned-trust and stage-handoff saf
       });
     }
 
-    // 6. Stage handoff transition (bounded by stageHops < 2 and level requirement)
     if (cur.stage < 4 && cur.stageHops < 2) {
       const reqLvl = cur.stage === 1 ? 1 : cur.stage === 2 ? 2 : 3;
       if (cur.level >= reqLvl) {

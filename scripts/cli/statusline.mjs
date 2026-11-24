@@ -108,7 +108,7 @@ export function readCliPipelineState(rawPayload) {
   const tier = typeof evidence?.riskTier === "number" ? evidence.riskTier : null;
   const riskAssessment = evidence?.riskAssessment ?? null;
   const riskScore = typeof riskAssessment?.score === "number" ? riskAssessment.score : null;
-  const activeCategory = riskAssessment?.category ?? null;
+  let activeCategory = riskAssessment?.category ?? null;
   let trustLevel = null;
   let beastOn = false;
   if (headSha) {
@@ -116,9 +116,17 @@ export function readCliPipelineState(rawPayload) {
     if (fastScope.kind !== "non_repo" && fastScope.repoId) {
       const repoTrust = evaluateRepoTrust({ repoId: fastScope.repoId });
       beastOn = repoTrust.beastOn;
-      const cat = activeCategory ? repoTrust.categories[activeCategory] : null;
-      if (cat && (repoTrust.totalOutcomes > 0 || repoTrust.beastOn)) {
-        trustLevel = cat.level;
+      if (repoTrust.totalOutcomes > 0 || repoTrust.beastOn) {
+        if (!activeCategory) {
+          const best = [...repoTrust.categoryList].sort(
+            (a, b) => b.level - a.level || b.totalOutcomes - a.totalOutcomes,
+          )[0];
+          activeCategory = best?.totalOutcomes > 0 ? best.id : "core";
+        }
+        const cat = repoTrust.categories[activeCategory] ?? null;
+        if (cat) {
+          trustLevel = cat.level;
+        }
       }
     }
   }

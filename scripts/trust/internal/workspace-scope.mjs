@@ -114,7 +114,7 @@ function normalizeRemoteUrl(rawUrl) {
       return repoPath ? `${host}/${repoPath}` : host;
     }
   } catch {
-    // Fall back to path-style normalization for local filesystem remotes.
+    void 0;
   }
 
   return trimmed
