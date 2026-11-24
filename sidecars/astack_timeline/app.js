@@ -15,7 +15,10 @@
         : params.get("view") === "trust" || location.hash === "#trust"
           ? "trust"
           : "timeline",
-    guideSel: "swarm",
+    guideExpandedStage: null,
+    guideUserToggled: false,
+    guideCmdDrawerOpen: false,
+    guideSelectedExampleByStage: {},
     setupDrawerOpen: false,
     beastDrawerOpen: false,
     expanded: new Set(),
@@ -28,6 +31,7 @@
     toastTimer: null,
     popoverHideTimer: null,
     popoverAnchor: null,
+    suppressedPopoverEl: null,
     progressPopover: null,
     pulsedTimers: new Set(),
   };
@@ -784,7 +788,9 @@
       }
     }
     const doc = window.ASTACK_CATALOG?.commandDocs?.[command];
-    return doc ? { command, copyText: command, ...doc } : null;
+    if (!doc) return null;
+    const invocable = doc.invocable !== false;
+    return { command, invocable, copyText: invocable ? command : null, ...doc };
   }
 
   function positionCommandPopover(pop, anchorEl) {
@@ -814,6 +820,10 @@
 
     const head = el("div", "cmd-popover-head");
     head.appendChild(el("span", "cmd-popover-name", item.command));
+    if (item.invocable === false) {
+      const kindLabel = item.kind === "agent" ? "internal agent" : item.kind === "script" ? "internal script" : "internal";
+      head.appendChild(el("span", "cmd-popover-kind", kindLabel));
+    }
     if (typeof item.docsUrl === "string" && item.docsUrl.startsWith(DOCS_URL_PREFIX)) {
       const link = el("a", "cmd-popover-doc");
       link.href = item.docsUrl;
@@ -824,10 +834,14 @@
       head.appendChild(link);
     }
 
+    const footText = item.invocable === false
+      ? (item.invokedBy ? `Runs automatically via ${item.invokedBy} (not a slash command)` : "Internal step (not a slash command)")
+      : `Click to copy and focus chat (${PASTE_SHORTCUT})`;
+
     pop.replaceChildren(
       head,
       el("p", "cmd-popover-desc", item.description),
-      el("div", "cmd-popover-foot", `Click to copy and focus chat (${PASTE_SHORTCUT})`),
+      el("div", "cmd-popover-foot", footText),
     );
     pop.classList.remove("hidden");
     positionCommandPopover(pop, anchorEl);
@@ -866,9 +880,21 @@
   function attachCommandPopover(elNode, item) {
     if (!item?.description) return;
     elNode.addEventListener("mouseenter", () => showCommandPopover(elNode, item));
-    elNode.addEventListener("mouseleave", scheduleHidePopover);
-    elNode.addEventListener("focus", () => showCommandPopover(elNode, item));
-    elNode.addEventListener("blur", scheduleHidePopover);
+    elNode.addEventListener("mouseleave", () => {
+      if (state.suppressedPopoverEl === elNode) state.suppressedPopoverEl = null;
+      scheduleHidePopover();
+    });
+    elNode.addEventListener("focus", () => {
+      if (state.suppressedPopoverEl === elNode) {
+        state.suppressedPopoverEl = null;
+        return;
+      }
+      showCommandPopover(elNode, item);
+    });
+    elNode.addEventListener("blur", () => {
+      if (state.suppressedPopoverEl === elNode) state.suppressedPopoverEl = null;
+      scheduleHidePopover();
+    });
   }
 
   function wireCommandAction(node, itemOrText, stopPropagation = true) {
@@ -914,18 +940,36 @@
       subWrap.appendChild(el("div", "subcmd-label", "Triggered automatically"));
       const subList = el("div", "subcmd-list");
       for (const sub of autoSubCommands) {
-        const pill = el("button", sub.ran ? "subcmd-pill ran" : "subcmd-pill");
-        pill.type = "button";
-        wireCommandAction(pill, sub);
-        if (sub.ran) {
-          const ic = svgIcon("check-sm", 11);
-          ic.classList.add("chip-icon");
-          pill.appendChild(ic);
+        if (sub.invocable === false) {
+          const pill = el("span", sub.ran ? "subcmd-pill is-internal ran" : "subcmd-pill is-internal");
+          pill.tabIndex = 0;
+          pill.setAttribute("role", "status");
+          pill.dataset.kind = sub.kind || "script";
+          attachCommandPopover(pill, sub);
+          if (sub.ran) {
+            const ic = svgIcon("check-sm", 11);
+            ic.classList.add("chip-icon");
+            pill.appendChild(ic);
+          } else {
+            pill.appendChild(el("span", "subcmd-dot", "·"));
+          }
+          pill.appendChild(el("span", "", sub.command));
+          pill.appendChild(el("span", "subcmd-tag", sub.kind === "agent" ? "agent" : "script"));
+          subList.appendChild(pill);
         } else {
-          pill.appendChild(el("span", "subcmd-dot", "·"));
+          const pill = el("button", sub.ran ? "subcmd-pill ran" : "subcmd-pill");
+          pill.type = "button";
+          wireCommandAction(pill, sub);
+          if (sub.ran) {
+            const ic = svgIcon("check-sm", 11);
+            ic.classList.add("chip-icon");
+            pill.appendChild(ic);
+          } else {
+            pill.appendChild(el("span", "subcmd-dot", "·"));
+          }
+          pill.appendChild(el("span", "", sub.command));
+          subList.appendChild(pill);
         }
-        pill.appendChild(el("span", "", sub.command));
-        subList.appendChild(pill);
       }
       subWrap.appendChild(subList);
       container.appendChild(subWrap);
@@ -1061,7 +1105,6 @@
       const statusText = mode === "done" ? "Done" : mode === "stale" ? "Stale" : mode === "run" ? "Next up" : "Pending";
       if (sub.detail) {
         seg.tabIndex = 0;
-        seg.title = sub.detail;
         attachStatusPopover(seg, title, statusText, mode, sub.detail);
       }
       seg.appendChild(bar);
@@ -1877,191 +1920,283 @@
     footer.replaceChildren(helpChip, refLink);
   }
 
-  function resolveGuideBadge(item, snap) {
-    const act = snap?.activity || {};
-    const stages = snap?.stages || [];
-    const planDone = stages.find((s) => s.id === "plan")?.status === "done";
-    const shipDone = stages.find((s) => s.id === "ship")?.status === "done";
-    if (item.pickId === "subagents") {
-      const c = act.runningSubagentsCount || 0;
-      return { text: `${c} live`, cls: c > 0 ? "active" : "" };
+  function resolveDefaultGuideStage(snap, stages) {
+    if (snap?.setup?.status === "needs_setup") return "setup";
+    const activeId = snap?.activity?.activeStageId;
+    if (activeId && Array.isArray(stages) && stages.some((s) => s.id === activeId)) {
+      return activeId;
     }
-    if (item.pickId === "browser") {
-      const on = (act.subagents || []).some((a) => a.type === "browser" && a.status === "running");
-      return { text: on ? "in use" : "idle", cls: on ? "active" : "" };
+    return "plan";
+  }
+
+  function resolveStageGuideBadge(stageId, snap) {
+    if (!snap) return null;
+    if (stageId === "setup") {
+      return snap.setup?.status === "needs_setup" ? { text: "needed", cls: "warn" } : null;
     }
-    if (item.pickId === "swarm") {
+    const stage = snap.stages?.find((s) => s.id === stageId);
+    const act = snap.activity || {};
+    if (stage?.status === "error") return { text: "escalated", cls: "warn" };
+    if (stage?.status === "stale") return { text: "re-verify", cls: "warn" };
+    if (stage?.status === "waiting_gate") return { text: "review", cls: "warn" };
+    if (
+      stageId === "build" &&
+      (act.agentsWorkingCount > 0 || act.boost?.active || act.goal?.active || act.teamwork?.active)
+    ) {
+      return {
+        text: act.agentsWorkingCount > 0 ? `${act.agentsWorkingCount} live` : "active",
+        cls: "active",
+      };
+    }
+    if (stageId === "ship") {
+      const count = (act.schedules || []).filter((s) => s.active).length;
+      if (count > 0) {
+        return { text: `${count} timer${count === 1 ? "" : "s"}`, cls: "active" };
+      }
+    }
+    if (stage?.status === "active") return { text: "running", cls: "active" };
+    if (stage?.status === "next") return { text: "next", cls: "active" };
+    return null;
+  }
+
+  const COMMAND_GUIDE_BADGES = {
+    "/swarm": (act) => {
       const sw = act.swarm || {};
-      return sw.active
-        ? { text: `${sw.workingCount || 0}/${sw.totalCount || 0} live`, cls: "active" }
-        : { text: "idle", cls: "" };
+      if (!sw.active) return "";
+      return sw.totalCount > 0 ? `${sw.workingCount || 0}/${sw.totalCount} live` : "active";
+    },
+    "/browser": (act) =>
+      (act.subagents || []).some((a) => a.type === "browser" && a.status === "running") ? "in use" : "",
+    "/run-workflow": (act) =>
+      act.workflow?.active ? "running" : act.workflow?.suggestedReview ? "for PR Review" : "",
+    "/boost": (act) => (act.boost?.active ? "active" : ""),
+    "/goal": (act) => (act.goal?.active ? "active" : ""),
+    "/teamwork": (act) => (act.teamwork?.active ? "active" : ""),
+    "/schedule": (act) => {
+      const count = (act.schedules || []).filter((s) => s.active).length;
+      return count > 0 ? `${count} timer${count === 1 ? "" : "s"}` : "";
+    },
+    "/automation": (act) => {
+      const count = (act.automations || []).filter((a) => a.active).length;
+      return count > 0 ? `${count} on` : "";
+    },
+    subagents: (act) => {
+      const count = act.runningSubagentsCount || 0;
+      return count > 0 ? `${count} live` : "";
+    },
+  };
+
+  function resolveCommandGuideBadge(cmd, snap) {
+    const resolver = COMMAND_GUIDE_BADGES[cmd];
+    return resolver ? resolver(snap?.activity || {}) : "";
+  }
+
+  const GUIDE_STAGE_STATUS = {
+    active: { word: "running", cls: "" },
+    waiting_gate: { word: "review", cls: "warn" },
+    error: { word: "escalated", cls: "warn" },
+    stale: { word: "re-verify", cls: "warn" },
+    done: { word: "done", cls: "done" },
+  };
+
+  function resolveGuideHeaderStatus(snap) {
+    if (snap?.setup?.status === "needs_setup") {
+      return { text: "Setup needed", cls: "warn" };
     }
-    if (item.pickId === "rw") {
-      if (act.workflow?.active) return { text: "running", cls: "active" };
-      if (act.workflow?.suggestedReview) return { text: "for PR Review", cls: "active" };
-      return { text: "idle", cls: "" };
+    const focalStage = snap?.stages?.find((s) => s.id === snap?.activity?.activeStageId);
+    if (focalStage) {
+      const mapped = GUIDE_STAGE_STATUS[focalStage.status];
+      return {
+        text: `${focalStage.label} ${mapped ? mapped.word : focalStage.status}`,
+        cls: mapped ? mapped.cls : "",
+      };
     }
-    if (item.pickId === "boost") {
-      return act.boost?.active ? { text: "active", cls: "active" } : { text: "idle", cls: "" };
+    return { text: "Ready", cls: "" };
+  }
+
+  function buildGuideCommandChip(cmd, snap, liveText = "") {
+    const meta = lookupCommandMeta(snap, cmd);
+    const isInternal = meta?.invocable === false;
+    const chip = el(isInternal ? "span" : "button", isInternal ? "guide-cmd-chip is-internal" : "guide-cmd-chip");
+    if (isInternal) {
+      chip.tabIndex = 0;
+      chip.setAttribute("role", "status");
+      attachCommandPopover(chip, meta);
+    } else {
+      chip.type = "button";
+      wireCommandAction(chip, meta || cmd);
     }
-    if (item.pickId === "goal") {
-      return act.goal?.active ? { text: "active", cls: "active" } : { text: "idle", cls: "" };
+    chip.appendChild(el("span", "", cmd));
+    if (liveText) {
+      chip.appendChild(el("span", "guide-cmd-live", liveText));
     }
-    if (item.pickId === "teamwork") {
-      return act.teamwork?.active ? { text: "active", cls: "active" } : { text: "idle", cls: "" };
+    return chip;
+  }
+
+  function buildGuidePromptCard(selected, snap) {
+    const card = el("div", "prompt-card");
+    card.dataset.testid = "guide-prompt-card";
+
+    const cardHead = el("div", "prompt-card-head");
+    cardHead.appendChild(el("span", "prompt-card-kicker", selected.kicker));
+    const copyBtn = el("button", "copy-inline-btn");
+    copyBtn.type = "button";
+    copyBtn.setAttribute("aria-label", `Copy ${selected.label} prompt`);
+    copyBtn.appendChild(svgIcon("copy", 12));
+    copyBtn.appendChild(el("span", "", "Copy"));
+    copyBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      copyCommand({ command: selected.commands[0] || selected.label, copyText: selected.prompt }, copyBtn, true);
+    });
+    cardHead.appendChild(copyBtn);
+    card.appendChild(cardHead);
+
+    card.appendChild(el("p", "prompt-card-code", selected.prompt));
+    card.appendChild(el("p", "prompt-card-how", selected.how));
+
+    const foot = el("div", "prompt-card-foot");
+    const tags = el("div", "prompt-cmd-tags");
+    for (const cmd of selected.commands || []) {
+      tags.appendChild(buildGuideCommandChip(cmd, snap));
     }
-    if (item.pickId === "schedule") {
-      const c = (act.schedules || []).filter((s) => s.active).length;
-      return { text: `${c} timer${c === 1 ? "" : "s"}`, cls: c > 0 ? "active" : "" };
+    foot.appendChild(tags);
+    if (selected.ownership) {
+      foot.appendChild(el("span", "guide-owner-note", selected.ownership));
     }
-    if (item.pickId === "automation") {
-      const c = (act.automations || []).filter((a) => a.active).length;
-      return { text: `${c} on`, cls: c > 0 ? "active" : "" };
-    }
-    if (item.statusKind === "plan") {
-      return { text: "in Plan", cls: planDone ? "done" : "" };
-    }
-    if (item.statusKind === "learn") {
-      return { text: "in Ship", cls: shipDone ? "done" : "" };
-    }
-    return { text: item.statusPill || "", cls: "" };
+    card.appendChild(foot);
+    return card;
   }
 
   function renderDelegateGuide(snap) {
     const container = document.getElementById("delegate-view");
     const guide = window.ASTACK_CATALOG?.delegateGuide;
-    if (!container || !guide) return;
+    const stages = guide?.stages || [];
+    if (!container || stages.length === 0) return;
 
-    const act = snap?.activity || {};
-    const focalStage = snap?.stages?.find((s) => s.id === act.activeStageId);
-    const pillText = focalStage
-      ? `${focalStage.label} ${focalStage.status === "active" ? "running" : focalStage.status === "waiting_gate" ? "review" : focalStage.status}`
-      : "Ready";
+    const activeEl = container.contains(document.activeElement) ? document.activeElement : null;
+    const activeTestId = activeEl?.dataset?.testid || null;
+    const restoreFocusVisible = Boolean(activeTestId && activeEl?.matches?.(":focus-visible"));
+
+    const contextStageId = resolveDefaultGuideStage(snap, stages);
+    if (!state.guideUserToggled) {
+      state.guideExpandedStage = contextStageId;
+    }
 
     const header = el("header", "delegate-header");
     const backBtn = el("button", "back-btn");
     backBtn.type = "button";
     backBtn.id = "back-to-timeline";
     backBtn.dataset.testid = "back-to-timeline";
-    backBtn.appendChild(svgIcon("back", 10));
+    backBtn.appendChild(svgIcon("back", 12));
     backBtn.appendChild(el("span", "", "Timeline"));
     backBtn.addEventListener("click", () => switchView("timeline", true));
     header.appendChild(backBtn);
 
+    const pillInfo = resolveGuideHeaderStatus(snap);
     const titleRow = el("div", "delegate-title-row");
-    titleRow.appendChild(el("h1", "title", "Delegate"));
-    const statusPill = el("span", "delegate-status-pill");
+    titleRow.appendChild(el("h1", "title", "Command Guide"));
+    const statusPill = el("span", pillInfo.cls ? `delegate-status-pill ${pillInfo.cls}` : "delegate-status-pill");
     const pDot = el("span", "live-dot");
     pDot.style.background = "currentColor";
     statusPill.appendChild(pDot);
-    statusPill.appendChild(el("span", "", pillText));
+    statusPill.appendChild(el("span", "", pillInfo.text));
     titleRow.appendChild(statusPill);
     header.appendChild(titleRow);
     header.appendChild(
-      el("p", "delegate-lead", "Match the command to the shape of the work. AStack runs some of these for you and suggests the rest as copy-ready prompts."),
+      el("p", "delegate-lead", "Pick a stage to see combined prompts and commands you can copy straight into chat."),
     );
 
-    const picker = el("section", "delegate-picker");
-    picker.setAttribute("aria-label", "Pick the shape of the work");
-    picker.appendChild(el("span", "delegate-picker-label", "What kind of work is it?"));
-    const pickChips = el("div", "delegate-pick-chips");
-    for (const p of guide.picks) {
-      const chip = el("button", "pick-chip", p.chipLabel);
-      chip.type = "button";
-      chip.setAttribute("aria-pressed", String(state.guideSel === p.id));
-      chip.addEventListener("click", () => {
-        state.guideSel = p.id;
+    const groupsWrap = el("div", "guide-stage-groups");
+    groupsWrap.dataset.testid = "guide-stage-groups";
+
+    for (const stage of stages) {
+      const isOpen = state.guideExpandedStage === stage.id;
+      const isContext = stage.id === contextStageId;
+      const sec = el("section", isContext ? "guide-stage-group is-context" : "guide-stage-group");
+      sec.setAttribute("aria-label", stage.title);
+
+      const heading = el("h2", "guide-acc-heading");
+      const accBtn = el("button", "guide-acc-btn");
+      accBtn.type = "button";
+      accBtn.dataset.testid = `guide-stage-${stage.id}`;
+      accBtn.setAttribute("aria-expanded", String(isOpen));
+      accBtn.addEventListener("click", () => {
+        state.guideUserToggled = true;
+        state.guideExpandedStage = state.guideExpandedStage === stage.id ? null : stage.id;
+        state.guideCmdDrawerOpen = false;
         renderDelegateGuide(state.snap);
       });
-      pickChips.appendChild(chip);
-    }
-    picker.appendChild(pickChips);
 
-    const chosen = guide.picks.find((p) => p.id === state.guideSel) || guide.picks[0];
-    const card = el("div", "prompt-card");
-    const cardHead = el("div", "prompt-card-head");
-    cardHead.appendChild(el("span", "prompt-card-kicker", chosen.kicker));
-    const copyChosenBtn = el("button", "copy-inline-btn");
-    copyChosenBtn.type = "button";
-    copyChosenBtn.setAttribute("aria-label", "Copy the prompt");
-    copyChosenBtn.appendChild(svgIcon("copy", 12));
-    copyChosenBtn.appendChild(el("span", "", "Copy"));
-    copyChosenBtn.addEventListener("click", () => copyCommand({ command: chosen.prompt.split(" ")[0], copyText: chosen.prompt }, copyChosenBtn, true));
-    cardHead.appendChild(copyChosenBtn);
-    card.appendChild(cardHead);
-    card.appendChild(el("p", "prompt-card-code", chosen.prompt));
-    card.appendChild(el("p", "prompt-card-how", chosen.how));
+      const iconWrap = el("span", "guide-acc-icon");
+      iconWrap.appendChild(svgIcon(stage.icon, 14));
+      accBtn.appendChild(iconWrap);
 
-    const sectionsWrap = el("div", "guide-sections");
-    for (const sec of guide.sections) {
-      const secEl = el("section", "guide-section");
-      secEl.setAttribute("aria-label", sec.title);
-      const secHead = el("div", "guide-section-head");
-      const secIcon = el("span", sec.id === "deeper" || sec.id === "alongside" ? "guide-section-icon muted" : "guide-section-icon");
-      secIcon.appendChild(svgIcon(sec.icon, 14));
-      secHead.appendChild(secIcon);
-      secHead.appendChild(el("span", "guide-section-title", sec.title));
-      secHead.appendChild(el("span", "guide-section-sub", sec.subtitle));
-      let statText = "";
-      let statActive = false;
-      if (sec.id === "wider") {
-        const n = act.agentsWorkingCount || 0;
-        statText = `${n} live`;
-        statActive = n > 0;
-      } else if (sec.id === "deeper") {
-        statText = act.boost?.active ? "active" : "idle";
-        statActive = Boolean(act.boost?.active);
-      } else if (sec.id === "longer") {
-        const n = (act.goal?.active ? 1 : 0) + (act.teamwork?.active ? 1 : 0);
-        statText = n > 0 ? `${n} active` : "idle";
-        statActive = n > 0;
-      } else if (sec.id === "later") {
-        const n = act.scheduledCount || 0;
-        statText = `${n} scheduled`;
-        statActive = n > 0;
+      const copyWrap = el("span", "guide-acc-copy");
+      copyWrap.appendChild(el("span", "guide-acc-title", stage.title));
+      copyWrap.appendChild(el("span", "guide-acc-sub", stage.subtitle));
+      accBtn.appendChild(copyWrap);
+
+      const badge = resolveStageGuideBadge(stage.id, snap);
+      if (badge) {
+        accBtn.appendChild(el("span", `guide-live-badge ${badge.cls}`.trim(), badge.text));
       }
-      if (statText) {
-        secHead.appendChild(el("span", statActive ? "guide-section-stat active" : "guide-section-stat", statText));
-      }
-      secEl.appendChild(secHead);
 
-      for (const item of sec.items) {
-        const row = el("button", "guide-row");
-        row.type = "button";
-        if (item.pickId) {
-          row.setAttribute("aria-pressed", String(state.guideSel === item.pickId));
-        }
-        const badgeInfo = resolveGuideBadge(item, snap);
-        const iconSpan = el("span", badgeInfo.cls === "active" ? "guide-row-icon active" : "guide-row-icon");
-        iconSpan.appendChild(svgIcon(item.icon, 15));
-        row.appendChild(iconSpan);
+      const chev = svgIcon("chevron", 13);
+      chev.classList.add("chev");
+      accBtn.appendChild(chev);
+      heading.appendChild(accBtn);
+      sec.appendChild(heading);
 
-        const body = el("span", "guide-row-body");
-        const cmdLine = el("span", "guide-row-cmd-line");
-        cmdLine.appendChild(el("span", "guide-row-cmd", item.command));
-        if (item.badge) cmdLine.appendChild(el("span", "guide-badge", item.badge));
-        body.appendChild(cmdLine);
-        body.appendChild(el("span", "guide-row-desc", item.summary));
-        row.appendChild(body);
+      if (isOpen) {
+        const panel = el("div", "guide-stage-panel");
+        panel.dataset.testid = `guide-panel-${stage.id}`;
+        const selectedId = state.guideSelectedExampleByStage[stage.id] || stage.examples[0].id;
+        const selected = stage.examples.find((e) => e.id === selectedId) || stage.examples[0];
 
-        const right = el("span", "guide-row-right");
-        right.appendChild(el("span", "guide-owner", item.ownership));
-        if (badgeInfo.text) {
-          right.appendChild(el("span", `guide-status-pill ${badgeInfo.cls}`, badgeInfo.text));
-        }
-        row.appendChild(right);
-
-        row.addEventListener("click", () => {
-          if (item.pickId) {
-            state.guideSel = item.pickId;
+        const chipsRow = el("div", "guide-example-chips");
+        chipsRow.setAttribute("role", "group");
+        chipsRow.setAttribute("aria-label", `${stage.title} examples`);
+        for (const ex of stage.examples) {
+          const chip = el("button", "pick-chip", ex.label);
+          chip.type = "button";
+          chip.dataset.testid = `guide-example-${ex.id}`;
+          chip.setAttribute("aria-pressed", String(ex.id === selected.id));
+          chip.addEventListener("click", () => {
+            state.guideSelectedExampleByStage[stage.id] = ex.id;
             renderDelegateGuide(state.snap);
-          } else {
-            copyCommand({ command: item.command, copyText: item.copyText || item.command }, row);
-          }
+          });
+          chipsRow.appendChild(chip);
+        }
+        panel.appendChild(chipsRow);
+        panel.appendChild(buildGuidePromptCard(selected, snap));
+
+        const drawer = el("div", "guide-cmd-drawer");
+        const toggle = el("button", "guide-cmd-drawer-btn");
+        toggle.type = "button";
+        toggle.dataset.testid = `guide-cmds-toggle-${stage.id}`;
+        toggle.setAttribute("aria-expanded", String(state.guideCmdDrawerOpen));
+        const dChev = svgIcon("chevron", 11);
+        dChev.classList.add("chev");
+        toggle.appendChild(dChev);
+        toggle.appendChild(el("span", "", `Commands (${stage.commands.length})`));
+        toggle.addEventListener("click", () => {
+          state.guideCmdDrawerOpen = !state.guideCmdDrawerOpen;
+          renderDelegateGuide(state.snap);
         });
-        secEl.appendChild(row);
+        drawer.appendChild(toggle);
+
+        if (state.guideCmdDrawerOpen) {
+          const drawerChips = el("div", "guide-cmd-drawer-chips");
+          for (const cmd of stage.commands) {
+            drawerChips.appendChild(buildGuideCommandChip(cmd, snap, resolveCommandGuideBadge(cmd, snap)));
+          }
+          drawer.appendChild(drawerChips);
+        }
+        panel.appendChild(drawer);
+        sec.appendChild(panel);
       }
-      sectionsWrap.appendChild(secEl);
+
+      groupsWrap.appendChild(sec);
     }
 
     const footerClone = el("footer", "panel-footer");
@@ -2070,17 +2205,24 @@
     fLeft.href = "https://antigravity.google/docs/commands/";
     fLeft.target = "_blank";
     fLeft.rel = "noopener noreferrer";
-    fLeft.appendChild(el("span", "", "Antigravity slash commands"));
+    fLeft.appendChild(el("span", "", "Antigravity commands"));
     fLeft.appendChild(svgIcon("external", 10));
     const fRight = el("a", "footer-link");
-    fRight.href = `${DOCS_URL_PREFIX}blob/main/skills/astack-mode/references/native-commands.md`;
+    fRight.href = `${DOCS_URL_PREFIX}blob/main/docs/agent-timeline.md`;
     fRight.target = "_blank";
     fRight.rel = "noopener noreferrer";
-    fRight.appendChild(el("span", "", "native-commands.md"));
+    fRight.appendChild(el("span", "", "agent-timeline.md"));
     fRight.appendChild(svgIcon("external", 10));
     footerClone.replaceChildren(fLeft, fRight);
 
-    container.replaceChildren(header, picker, card, sectionsWrap, footerClone);
+    container.replaceChildren(header, groupsWrap, footerClone);
+    if (state.popoverAnchor && !document.contains(state.popoverAnchor)) {
+      hideCommandPopover();
+    }
+    if (restoreFocusVisible && activeTestId) {
+      const replacement = container.querySelector(`[data-testid="${CSS.escape(activeTestId)}"]`);
+      replacement?.focus({ preventScroll: true });
+    }
   }
 
   function renderTrustView(snap) {
@@ -2195,6 +2337,7 @@
   function switchView(nextView, restoreFocus = false) {
     const prevView = state.view;
     state.view = nextView;
+    state.suppressedPopoverEl = null;
     hideCommandPopover();
     const tlView = document.getElementById("timeline-view");
     const trView = document.getElementById("trust-view");
@@ -2223,6 +2366,8 @@
       renderTrustView(state.snap);
       document.getElementById("back-from-trust")?.focus();
     } else if (nextView === "delegate") {
+      state.guideUserToggled = false;
+      state.guideCmdDrawerOpen = false;
       renderDelegateGuide(state.snap);
       document.getElementById("back-to-timeline")?.focus();
     } else if (nextView === "artifact") {
@@ -2281,7 +2426,6 @@
         };
       }
       progressEl.tabIndex = 0;
-      progressEl.title = state.progressPopover.desc;
     }
     applyLiveStatus(snap);
 
@@ -2355,7 +2499,6 @@
         if (part.testId) node.dataset.testid = part.testId;
         if (part.popDesc) {
           node.tabIndex = 0;
-          node.title = part.popDesc;
           attachStatusPopover(node, part.popTitle, part.popStatus, part.popMode, part.popDesc);
         }
         metaRow.appendChild(node);
@@ -2394,7 +2537,6 @@
         offPill.dataset.testid = "timeline-trust-off";
         offPill.tabIndex = 0;
         const offDesc = "Add .agents/risk-policy.json on the base branch to enroll this repository.";
-        offPill.title = offDesc;
         attachStatusPopover(offPill, "Earned Trust", "Off", "", offDesc);
         metaRow.appendChild(offPill);
       }
@@ -2753,7 +2895,13 @@
   document.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape") {
       if (popEl && !popEl.classList.contains("hidden")) {
+        const returnTarget = state.popoverAnchor;
+        const focusWasInside = Boolean(returnTarget && popEl.contains(document.activeElement));
         hideCommandPopover();
+        if (focusWasInside) {
+          state.suppressedPopoverEl = returnTarget;
+          returnTarget.focus();
+        }
         return;
       }
       if (state.view === "delegate" || state.view === "artifact" || state.view === "trust") {

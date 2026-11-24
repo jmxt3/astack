@@ -4,14 +4,14 @@ This guide shows an AI agent how to operate **AStack** (`astack`, sometimes call
 
 ## How AStack works for an AI agent
 
-AStack is a local Google Antigravity plugin (`plugin.json` v0.2.0) backed by markdown skills, playbooks, custom agents, and Node 22+ scripts. It ships `63` skills (`29` auto-invocable workflow skills, `24` `principle-*` skills, and `10` manual-only explicit entrypoints listed in [`scripts/catalog.json`](../scripts/catalog.json)), `26` playbooks under `skills/astack-mode/playbooks/`, `2` custom agents ([`astack-agent`](../agents/astack-agent.md) and [`comment-sicko`](../agents/comment-sicko.md)), `1` conditional rule ([`rules/astack-orchestration.md`](../rules/astack-orchestration.md)), `3` opt-in lifecycle hooks ([`hooks.json`](../hooks.json)), and `11` bundled CLI scripts.
+AStack is a local Google Antigravity plugin (`plugin.json` v0.4.0) backed by markdown skills, playbooks, custom agents, and Node 22+ scripts. It ships `66` skills (`29` auto-invocable workflow skills plus `37` manual-only skills made up of `24` `principle-*` skills and `13` explicit entrypoints listed in [`scripts/catalog.json`](../scripts/catalog.json)), `26` playbooks under `skills/astack-mode/playbooks/`, `4` custom agents ([`astack-engineer`](../agents/astack-engineer.md), [`astack-agent`](../agents/astack-agent.md), [`pr-verifier`](../agents/pr-verifier.md), and [`comment-sicko`](../agents/comment-sicko.md)), `1` conditional rule ([`rules/astack-orchestration.md`](../rules/astack-orchestration.md)), `10` lifecycle hooks (`3` passive observe-only enabled by default plus `7` opt-in blocking gates in [`hooks.json`](../hooks.json)), `1` local MCP server (`astack_trust`), `1` optional Timeline sidecar (`sidecars/astack_timeline/`), and `20` bundled CLI scripts.
 
 Follow five core rules on every run:
 
 1. **Let `/astack-mode` route the workflow.** Give `/astack-mode` a concrete goal and a pass-or-fail done check instead of chaining skill names manually.
 2. **Prove behavior on the running surface.** Never treat passing compilation, lint, or mocked unit tests as proof (`principle-prove-it-works`). Exercise the live UI, CLI, API, or repo verification skill and capture observed output.
 3. **Preserve model inheritance.** Leave `Model` unset (`inherit`) on `invoke_subagent` and `swarm{action: "add"}` so workers follow the active Antigravity UI selector and **Orchestrator** dynamic bidirectional routing (**Carbon** on Google AI Ultra or **Argon** on Pro and Ultra paired with **Gemini 4 Hydrogen**). Use evergreen `flash` only for high-volume `research` or `browser` sweeps, and discover live models via `swarm{action: "models", all: true}` only for cross-family bakeoffs or independent `@verifier` checks.
-4. **Never shadow Antigravity's 16 native slash commands.** Engage `/plan`, `/grill-me`, `/learn`, `/swarm`, `/run-workflow`, `/schedule`, `/browser`, `/automation`, `/plugin`, `/agy-customizations`, `/generative_ui`, `/antigravity-guide`, `/goal`, `/boost`, `/teamwork`, and `/btw` through their documented modes in [`native-commands.md`](../skills/astack-mode/references/native-commands.md).
+4. **Never shadow Antigravity's 18 native slash commands.** Engage `/plan`, `/grill-me`, `/learn`, `/swarm`, `/run-workflow`, `/schedule`, `/browser`, `/automation`, `/plugin`, `/agy-customizations`, `/generative_ui`, `/antigravity-guide`, `/goal`, `/boost`, `/teamwork`, `/btw`, `/mcp-app-development`, and `/compact` through their documented modes in [`native-commands.md`](../skills/astack-mode/references/native-commands.md).
 5. **Isolate parallel writers and pause before external mutations.** Use `Workspace: "share"` or `"branch"` whenever concurrent workers write code, and stop at verified local commits before `git push` or `gh pr create` unless the user requested push, PR creation, `autopilot-*`, or `shipping`.
 
 ```mermaid
@@ -29,11 +29,11 @@ build playbooks · /tdd · /typescript-best-practices · /run-workflow · /boost
     S5["Stage 5. Run autonomously
 /goal · /schedule · /automation · /make-bot-ui · /show-me-your-work · /ketchup · /bro · /btw"]
     S6["Stage 6. Clean and audit
-/deslop · /no-comments · /unslop · /technical-writing · /interrogate · /blast-radius · /security-audit"]
+/deslop · /no-comments · /unslop · /technical-writing · /interrogate · /blast-radius · /security-audit · /audit-architecture"]
     S7["Stage 7. Verify live
-/browser · /control-ui · /design-audit · /control-cli · /benchmark-checklist"]
+/browser · /control-ui · /design-audit · /control-cli · /benchmark-checklist · /review-pr"]
     S8["Stage 8. Ship and compound
-opening-a-pr · babysit (watch-pr.mjs) · shipping · release-and-postmortem · /maintain-verification-skill · /correct · /reflect · /automate-me"]
+opening-a-pr · babysit (watch-pr.mjs) · shipping · release-and-postmortem · /maintain-verification-skill · /correct · /reflect · /automate-me · /compact"]
 
     S0 --> S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7 --> S8
     S4 --> S6
@@ -76,7 +76,7 @@ Scan this chronological table to see every main AStack command, native Antigravi
 | 29 | Stage 5 | `/goal` (`autonomous-run.md`) | Drive unattended iterations until a pass or fail predicate holds | [Goal](#goal-autonomous-runmd) |
 | 30 | Stage 5 | `/schedule` | Set in-session one-shot timers or recurring cron triggers | [Schedule](#schedule) |
 | 31 | Stage 5 | `/automation` and `docs/automations/beacon/` | Configure App persistent background triggers (`sidecar.json`) | [Automation](#automation-and-docsautomationsbeacon) |
-| 32 | Stage 5 | `/make-bot-ui` | Build a local Tailscale button UI waking automation webhooks | [Make Bot UI](#make-bot-ui) |
+| 32 | Stage 5 | `/make-bot-ui` and `/beast-mode` | Build a local Tailscale button UI waking automation webhooks and configure earned autonomy inside Ceilings | [Make Bot UI](#make-bot-ui) |
 | 33 | Stage 5 | `/show-me-your-work` and `log.mjs` | Log append-only TSV decisions and audit against transcripts | [Show Me Your Work](#show-me-your-work-logmjs) |
 | 34 | Stage 5 | `/ketchup` and `/ketchup-video` | Summarize changes and open human decisions in plain text or MP4 | [Ketchup and Ketchup Video](#ketchup-and-ketchup-video) |
 | 35 | Stage 5 | `/bro`, `/btw`, and `pause-safely.md` | Restate replies plainly, ask side questions, or checkpoint WIP | [Bro, Btw, and Pause safely](#bro-and-btw) |
@@ -85,20 +85,21 @@ Scan this chronological table to see every main AStack command, native Antigravi
 | 38 | Stage 6 | `/unslop` and `/technical-writing` | Remove AI tells and enforce 4-layer technical writing rules | [Unslop and Technical Writing](#unslop-and-technical-writing) |
 | 39 | Stage 6 | `/interrogate` | Run adversarial branch review keeping only live-reproduced bugs | [Interrogate](#interrogate) |
 | 40 | Stage 6 | `/blast-radius` | Prove downstream caller, wire, and DB safety with live code | [Blast Radius](#blast-radius) |
-| 41 | Stage 6 | `/security-audit` (`security-audit.md`) | Run PR-diff security guidance or 6-phase coverage-led audits | [Security Audit](#security-audit-security-auditmd) |
+| 41 | Stage 6 | `/security-audit` (`security-audit.md`) and `/audit-architecture` (`arch-audit.mjs`) | Run PR-diff security guidance, 6-phase audits, and module boundary scans | [Security & Architecture Audit](#security-audit-security-auditmd) |
 | 42 | Stage 7 | `/browser` and `/control-ui` | Boot isolated UI servers, drive user flows, and verify state | [Browser and Control UI](#browser-and-control-ui) |
 | 43 | Stage 7 | `/design-audit` | Audit desktop and mobile layout, ARIA, focus, and UI states | [Design Audit](#design-audit) |
 | 44 | Stage 7 | `/control-cli` | Drive CLIs, TUIs, daemons, and APIs in isolated temp state | [Control CLI](#control-cli) |
 | 45 | Stage 7 | `/benchmark-checklist` | Vet performance speedups across 7 empirical questions | [Benchmark Checklist](#benchmark-checklist) |
-| 46 | Stage 8 | `/astack-mode open the pr` (`opening-a-pr.md`) | Rebase ordered commits, clean prose, and open ready PRs | [Opening a PR](#astack-mode-open-the-pr-opening-a-prmd) |
-| 47 | Stage 8 | `/astack-mode babysit` (`babysit.md` and `watch-pr.mjs`) | Drive open PRs to merge-ready, triage Bugbot, and watch queues | [Babysit PRs](#astack-mode-babysit-babysitmd-and-watch-prmjs) |
-| 48 | Stage 8 | `/astack-mode land the stack` (`shipping.md`) | Verify each PR via `@verifier` and merge contiguous stack bottom-up | [Shipping stacks](#astack-mode-land-the-stack-shippingmd) |
-| 49 | Stage 8 | `release-and-postmortem.md` | Write evidence-backed release notes, smoke-check deploys, and close incidents | [Release and postmortem](#release-and-postmortemmd) |
-| 50 | Stage 8 | `/maintain-verification-skill` | Audit and repair `.agents/skills/verify-<app>/` against live app | [Maintain verification skill](#maintain-verification-skill) |
-| 51 | Stage 8 | `/maintain-formal-verification-skill` | Re-sync TLA+ or bounded TS models with code changes | [Maintain formal verification skill](#maintain-formal-verification-skill) |
-| 52 | Stage 8 | `/astack-mode prune worktrees` (`worktree-cleanup.md` and `worktree-audit.mjs`) | Audit git worktrees and clones safely before pruning | [Worktree cleanup](#astack-mode-prune-worktrees-worktree-cleanupmd-and-worktree-auditmjs) |
-| 53 | Stage 8 | `/correct`, `/reflect`, and `/automate-me` | Encode repeat mistakes into code or rules, extract session lessons, and build personal `-mode` skills | [Correct](#correct) |
-| 54 | Stage 8 | `/learn`, `/agy-customizations`, `/plugin`, `/generative_ui`, `/antigravity-guide`, `upstream-watch.mjs` | Propose durable rules, manage Antigravity extensions, render widgets, and watch upstream repos | [Native utilities](#native-antigravity-customization-ui-and-watch-utilities) |
+| 46 | Stage 7 | `/review-pr` (`pr-dossier.mjs` and `pr-verifier`) | Compile Risk Tier PR dossier and run isolated verification | [Review PR](#review-pr-pr-dossiermjs-and-pr-verifier) |
+| 47 | Stage 8 | `/astack-mode open the pr` (`opening-a-pr.md`) | Rebase ordered commits, clean prose, and open ready PRs | [Opening a PR](#astack-mode-open-the-pr-opening-a-prmd) |
+| 48 | Stage 8 | `/astack-mode babysit` (`babysit.md` and `watch-pr.mjs`) | Drive open PRs to merge-ready, triage Bugbot, and watch queues | [Babysit PRs](#astack-mode-babysit-babysitmd-and-watch-prmjs) |
+| 49 | Stage 8 | `/astack-mode land the stack` (`shipping.md`) | Verify each PR via `@verifier` and merge contiguous stack bottom-up | [Shipping stacks](#astack-mode-land-the-stack-shippingmd) |
+| 50 | Stage 8 | `/astack-mode release-and-postmortem` (`release-and-postmortem.md`) | Write evidence-backed release notes, smoke-check deploys, and close incidents | [Release and postmortem](#release-and-postmortemmd) |
+| 51 | Stage 8 | `/maintain-verification-skill` | Audit and repair `.agents/skills/verify-<app>/` against live app | [Maintain verification skill](#maintain-verification-skill) |
+| 52 | Stage 8 | `/maintain-formal-verification-skill` | Re-sync TLA+ or bounded TS models with code changes | [Maintain formal verification skill](#maintain-formal-verification-skill) |
+| 53 | Stage 8 | `/astack-mode prune worktrees` (`worktree-cleanup.md` and `worktree-audit.mjs`) | Audit git worktrees and clones safely before pruning | [Worktree cleanup](#astack-mode-prune-worktrees-worktree-cleanupmd-and-worktree-auditmjs) |
+| 54 | Stage 8 | `/correct`, `/reflect`, and `/automate-me` | Encode repeat mistakes into code or rules, extract session lessons, and build personal `-mode` skills | [Correct](#correct) |
+| 55 | Stage 8 | `/learn`, `/agy-customizations`, `/plugin`, `/generative_ui`, `/antigravity-guide`, `/mcp-app-development`, `/compact`, `upstream-watch.mjs` | Propose durable rules, manage Antigravity extensions, build MCP Apps, compact context, and watch upstream repos | [Native utilities](#native-antigravity-customization-ui-and-watch-utilities) |
 
 ## Read the existing tutorials by workflow
 
@@ -140,7 +141,7 @@ agy plugin list --json
 
 ### `node scripts/validate-astack.mjs` and `node --run test`
 
-- **Function.** Validates plugin integrity (`plugin.json`, `LICENSE`, frontmatter schema, `24,000`-byte `SKILL.md` limits, `34` manual-only vs `29` auto-invocable split in [`scripts/catalog.json`](../scripts/catalog.json), `RESERVED_SKILL_NAMES` non-collision, relative markdown links, `principle-*` references, and `agy plugin validate --strict --json`). Supports `--no-agy`, `--json`, `--write-native-commands` to regenerate [`native-commands.md`](../skills/astack-mode/references/native-commands.md), and `--apply-frontmatter-policy`. Running `node --run test` inside the AStack repository executes `validate` plus `test:plugin`, `test:helpers`, `test:watch-pr`, `test:statechart`, `test:security-audit`, and `test:eval`.
+- **Function.** Validates plugin integrity (`plugin.json`, `LICENSE`, frontmatter schema, `24,000`-byte `SKILL.md` limits, `37` manual-only vs `29` auto-invocable split in [`scripts/catalog.json`](../scripts/catalog.json), `RESERVED_SKILL_NAMES` non-collision, command-surface sync across `command-catalog.json` and docs, relative markdown links, `principle-*` references, and `agy plugin validate --strict --json`). Supports `--no-agy`, `--json`, `--write-native-commands` to regenerate [`native-commands.md`](../skills/astack-mode/references/native-commands.md), and `--apply-frontmatter-policy`. Running `node --run test` inside the AStack repository executes `validate` plus `test:plugin`, `test:sidecar`, `test:trust`, `test:helpers`, `test:watch-pr`, `test:statechart`, `test:security-audit`, `test:eval`, `test:mcp`, and `test:cli`.
 - **Practical example.** Run validation after editing any skill, rule, or doc inside AStack:
 
 ```bash
@@ -171,12 +172,9 @@ node skills/setup-astack/scripts/setup-banner.mjs --doctor --json
 /create-formal-verification-skill the job lease and retry logic. a job must never run twice at once.
 ```
 
-### Opt-in lifecycle hooks (`hooks.json`) and always-on rules
+### Opt-in and passive lifecycle hooks (`hooks.json`) and always-on rules
 
-- **Function.** [`hooks.json`](../hooks.json) defines three Node 22+ hooks disabled by default (`"enabled": false`):
-  - `astack-irreversible-guard` ([`irreversible-guard.mjs`](../scripts/hooks/irreversible-guard.mjs)) inspects `run_command` strings, including nested `sh -c`, `bash -c`, `pwsh -Command`, `cmd /c`, `eval`, SQL commands, and trunk refspec pushes (`+main`, `:main`, `--delete main`), returning `force_ask` interactively or `deny` in CI.
-  - `astack-verify-reminder` ([`verify-reminder.mjs`](../scripts/hooks/verify-reminder.mjs)) nudges once on `Stop` when `ASTACK_REQUIRE_VERIFY=1` and non-markdown edits remain uncommitted.
-  - `astack-secret-guard` ([`secret-guard.mjs`](../scripts/hooks/secret-guard.mjs)) checks `write_file`, `edit_file`, and `run_command` for hardcoded keys, tokens, or `.env` writes.
+- **Function.** [`hooks.json`](../hooks.json) defines `9` Node 22+ hooks: `3` passive observe-only hooks enabled by default (`astack-receipt-ledger`, `astack-session-context`, `astack-pr-intent`) plus `6` opt-in blocking gates disabled by default (`"enabled": false`): `astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, and `astack-round-limiter`.
 - **Rule pinning.** Copy [`rules/astack-orchestration.md`](../rules/astack-orchestration.md) into `.agents/rules/` if you want AStack routing active without typing `/astack-mode` every turn. See [Guide 01: Setup](./guide/01-setup.md) and [Guide 09: Make it yours](./guide/09-make-it-yours.md#optional-override-subagent-tiers-with-astack-modelsmd) for optional `astack-models.md` overrides.
 
 ---
@@ -564,6 +562,14 @@ Before committing or opening a PR, run code cleanup, comment pruning, prose tigh
 /security-audit check the JWT cookie validation changes on this branch in Guidance mode.
 ```
 
+### `/audit-architecture` (`arch-audit.mjs`)
+
+- **Function.** [`/audit-architecture`](../skills/audit-architecture/SKILL.md) runs [`arch-audit.mjs`](../skills/audit-architecture/scripts/arch-audit.mjs) to enforce `.agents/boundaries.json` module boundary rules, scan for banned patterns, flag shallow wrappers (`maxExportsPerShallowFile`, `minImplLinesPerExport`), and detect stale workaround references before code enters review.
+
+```bash
+node skills/audit-architecture/scripts/arch-audit.mjs --cwd . --strict --json
+```
+
 ---
 
 ## Stage 7. Verify live on the running surface and vet benchmarks
@@ -604,6 +610,14 @@ Never call code done without running the real user surface and verifying side ef
 
 ```text
 /benchmark-checklist vet this export speedup on the 60k-row fixture before it goes into the PR description.
+```
+
+### `/review-pr` (`pr-dossier.mjs` and `pr-verifier`)
+
+- **Function.** [`/review-pr`](../skills/review-pr/SKILL.md) runs [`pr-dossier.mjs`](../skills/review-pr/scripts/pr-dossier.mjs) to classify Risk Tier (`0..3`), verify `evidence.json` SHA freshness, write `<artifact-dir>/pr-review.md` (`UserFacing: true`), and spawn the isolated [`pr-verifier`](../agents/pr-verifier.md) subagent against base-branch `REVIEW.md` before opening or updating a PR.
+
+```bash
+node skills/review-pr/scripts/pr-dossier.mjs --out pr-review.md
 ```
 
 ---
@@ -707,6 +721,8 @@ node skills/astack-mode/scripts/worktree-audit.mjs -b origin/main --json
 - **`/agy-customizations` (`load` mode).** Loads Antigravity's built-in customization guide for rule triggers, skill discovery precedence, hooks schema, and MCP setup.
 - **`/plugin` (`load` mode).** Loads Antigravity's built-in plugin management workflow to inspect, install, or package plugins.
 - **`/generative_ui` (`load` mode, App only).** Renders interactive HTML widgets inside App chat for `/arena` scorecards, `/show-me-your-work` timelines, `/ketchup` charts, or `/security-audit` posture summaries (falling back cleanly to Markdown or Mermaid in CLI sessions).
+- **`/mcp-app-development` (`load` mode, App only).** Builds, themes, and packages single-file `ui://` MCP Apps for inline chat cards, side panes, global views, and custom file viewers.
+- **`/compact` (`recommend` mode).** Compacts long conversation history to free up context window capacity without losing active task state during `/goal` or multi-phase runs.
 - **`/antigravity-guide` (`load` mode).** Loads Antigravity's official reference for CLI flags, headless `agy -p` CI runners, Remote Agents, and App configuration.
 - **`node scripts/upstream-watch.mjs`.** Read-only upstream monitor diffing watched upstream repository commits configured in [`scripts/upstream-watch.json`](../scripts/upstream-watch.json), refusing to write inside the repository (`exit 2` on internal `--out`) and emitting JSON reports to external paths (`--out <external-path>`).
 
@@ -755,18 +771,25 @@ When `/astack-mode` applies a principle, read its leaf `SKILL.md` first and cite
 - Autonomy & orchestration: [`autonomous-run.md`](../skills/astack-mode/playbooks/autonomous-run.md), [`orchestrate.md`](../skills/astack-mode/playbooks/orchestrate.md), [`autopilot-full.md`](../skills/astack-mode/playbooks/autopilot-full.md), [`autopilot-stack.md`](../skills/astack-mode/playbooks/autopilot-stack.md), [`pause-safely.md`](../skills/astack-mode/playbooks/pause-safely.md)
 - Security, PR delivery & maintenance: [`security-audit.md`](../skills/astack-mode/playbooks/security-audit.md), [`opening-a-pr.md`](../skills/astack-mode/playbooks/opening-a-pr.md), [`babysit.md`](../skills/astack-mode/playbooks/babysit.md), [`shipping.md`](../skills/astack-mode/playbooks/shipping.md), [`release-and-postmortem.md`](../skills/astack-mode/playbooks/release-and-postmortem.md), [`worktree-cleanup.md`](../skills/astack-mode/playbooks/worktree-cleanup.md)
 
-### All 11 bundled Node 22+ CLI entrypoints
+### All 18 bundled Node 22+ CLI entrypoints
 
 Every bundled CLI below supports `-h` / `--help` with exit code `0` and zero module-type warnings:
 
-1. [`scripts/validate-astack.mjs`](../scripts/validate-astack.mjs) validates the plugin manifest, frontmatter, links, leaks, and native-commands sync.
+1. [`scripts/validate-astack.mjs`](../scripts/validate-astack.mjs) validates the plugin manifest, frontmatter, links, leaks, command-surface sync, and native-commands sync.
 2. [`scripts/upstream-watch.mjs`](../scripts/upstream-watch.mjs) checks watched upstream repository diffs read-only against [`scripts/upstream-watch.json`](../scripts/upstream-watch.json).
 3. [`scripts/eval/run-eval.mjs`](../scripts/eval/run-eval.mjs) runs offline routing-intent and schema-validation fixture checks.
-4. [`skills/setup-astack/scripts/setup-banner.mjs`](../skills/setup-astack/scripts/setup-banner.mjs) renders the onboarding banner and runs `--doctor --json` workspace diagnostics.
-5. [`skills/astack-mode/scripts/check-plan.mjs`](../skills/astack-mode/scripts/check-plan.mjs) checks multi-PR plan files against required `multi-phase-plan.md` sections and gates.
-6. [`skills/astack-mode/scripts/worktree-audit.mjs`](../skills/astack-mode/scripts/worktree-audit.mjs) classifies git worktrees and Antigravity clones by age, merge state, PR state, and WIP edits.
-7. [`skills/show-me-your-work/scripts/log.mjs`](../skills/show-me-your-work/scripts/log.mjs) appends escaped, timestamped decision rows to TSV audit logs.
-8. [`skills/astack-mode/scripts/watch-pr/watch-pr.mjs`](../skills/astack-mode/scripts/watch-pr/watch-pr.mjs) polls GitHub single PRs, connected stacks, or frozen queued stacks (`--status-only`, `--pretty`, `--json`).
-9. [`skills/statechart/scripts/statechart.mjs`](../skills/statechart/scripts/statechart.mjs) runs TLC on TLA+ specs and generates Mermaid statecharts plus shortest bug paths.
-10. [`skills/security-audit/scripts/validate-findings.cjs`](../skills/security-audit/scripts/validate-findings.cjs) validates `findings.json` against the security-audit schema.
-11. [`skills/security-audit/scripts/validate-coverage-ledger.cjs`](../skills/security-audit/scripts/validate-coverage-ledger.cjs) validates `coverage-ledger.json` canonical RFC-3986 entries.
+4. [`scripts/mcp/server.mjs`](../scripts/mcp/server.mjs) runs the local `astack_trust` stdio MCP server and MCP Apps resource endpoints.
+5. [`scripts/cli/statusline.mjs`](../scripts/cli/statusline.mjs) renders compact trust, freshness, and risk telemetry for CLI status lines.
+6. [`scripts/cli/title.mjs`](../scripts/cli/title.mjs) generates plain terminal window titles reflecting branch and trust state.
+7. [`skills/setup-astack/scripts/setup-banner.mjs`](../skills/setup-astack/scripts/setup-banner.mjs) renders the onboarding banner and runs `--doctor --json` workspace diagnostics.
+8. [`skills/setup-astack/scripts/init-repo-policy.mjs`](../skills/setup-astack/scripts/init-repo-policy.mjs) scaffolds `.agents/risk-policy.json` and `.agents/boundaries.json`.
+9. [`skills/astack-mode/scripts/check-plan.mjs`](../skills/astack-mode/scripts/check-plan.mjs) checks multi-PR plan files against required `multi-phase-plan.md` sections and gates.
+10. [`skills/astack-mode/scripts/worktree-audit.mjs`](../skills/astack-mode/scripts/worktree-audit.mjs) classifies git worktrees and Antigravity clones by age, merge state, PR state, and WIP edits.
+11. [`skills/show-me-your-work/scripts/log.mjs`](../skills/show-me-your-work/scripts/log.mjs) appends escaped, timestamped decision rows to TSV audit logs.
+12. [`skills/astack-mode/scripts/watch-pr/watch-pr.mjs`](../skills/astack-mode/scripts/watch-pr/watch-pr.mjs) polls GitHub single PRs, connected stacks, or frozen queued stacks (`--status-only`, `--pretty`, `--json`).
+13. [`skills/statechart/scripts/statechart.mjs`](../skills/statechart/scripts/statechart.mjs) runs TLC on TLA+ specs and generates Mermaid statecharts plus shortest bug paths.
+14. [`skills/security-audit/scripts/validate-findings.cjs`](../skills/security-audit/scripts/validate-findings.cjs) validates `findings.json` against the security-audit schema.
+15. [`skills/security-audit/scripts/validate-coverage-ledger.cjs`](../skills/security-audit/scripts/validate-coverage-ledger.cjs) validates `coverage-ledger.json` canonical RFC-3986 entries.
+16. [`skills/review-pr/scripts/pr-dossier.mjs`](../skills/review-pr/scripts/pr-dossier.mjs) compiles Risk Tier 0-3 blast radius, receipts, and PR proof blocks for `pr-review.md` and GitHub PR bodies.
+17. [`skills/audit-architecture/scripts/arch-audit.mjs`](../skills/audit-architecture/scripts/arch-audit.mjs) enforces `.agents/boundaries.json`, banned patterns, and shallow-module checks.
+18. [`sidecars/astack_timeline/main.mjs`](../sidecars/astack_timeline/main.mjs) serves the read-only AStack Timeline sidecar UI (`sidecar_sdk` or standalone HTTP).

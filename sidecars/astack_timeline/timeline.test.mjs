@@ -64,8 +64,18 @@ test("every stage and setup command exposes description, trimmed copyText, and e
     for (const cmd of allCommands) {
       assert.ok(COMMAND_DOCS[cmd.command], `Missing COMMAND_DOCS entry for ${cmd.command}`);
       assert.ok(typeof cmd.description === "string" && cmd.description.trim().length > 0);
-      assert.equal(cmd.copyText, cmd.command.trim(), `copyText must not add trailing space for ${cmd.command}`);
-      assert.equal(cmd.copyText.endsWith(" "), false);
+      if (cmd.invocable !== false) {
+        assert.equal(cmd.copyText, cmd.command.trim(), `copyText must not add trailing space for ${cmd.command}`);
+        assert.equal(cmd.copyText.endsWith(" "), false);
+        assert.equal(cmd.command.startsWith("/"), true, `Invocable timeline command must start with /: ${cmd.command}`);
+      } else {
+        assert.equal(cmd.copyText, null, `Non-invocable internal step must have copyText === null: ${cmd.command}`);
+        assert.ok(cmd.invokedBy && COMMAND_DOCS[cmd.invokedBy], `Internal step ${cmd.command} must reference valid invokedBy`);
+        assert.ok(
+          cmd.backingPath && fs.existsSync(path.join(REPO_ROOT, ...cmd.backingPath.split("/"))),
+          `Missing backingPath for ${cmd.command}: ${cmd.backingPath}`,
+        );
+      }
       assert.match(cmd.docsUrl ?? "", /^https:\/\/github\.com\/jmxt3\/astack\/blob\/main\//);
       const rel = cmd.docsUrl.replace("https://github.com/jmxt3/astack/blob/main/", "").split("#")[0];
       assert.equal(fs.existsSync(path.join(REPO_ROOT, ...rel.split("/"))), true, `Missing docs target: ${rel}`);
@@ -415,9 +425,14 @@ test("detects autoSubCommands and opt-in moreCommands from transcript while igno
     assert.equal(build.autoSubCommands.find((c) => c.command === "/deslop")?.ran, true);
     assert.equal(build.moreCommands.find((c) => c.command === "/tdd")?.state, "pending");
     assert.equal(review.autoSubCommands.find((c) => c.command === "pr-verifier")?.ran, true);
+    assert.equal(review.autoSubCommands.find((c) => c.command === "pr-verifier")?.invocable, false);
     assert.equal(review.moreCommands.find((c) => c.command === "/security-audit")?.state, "done");
     assert.equal(review.moreCommands.find((c) => c.command === "/blast-radius")?.state, "pending");
-    assert.equal(ship.autoSubCommands.find((c) => c.command === "watch-pr")?.ran, true);
+    const watchPrItem = ship.autoSubCommands.find((c) => c.command === "watch-pr.mjs");
+    assert.equal(watchPrItem?.ran, true);
+    assert.equal(watchPrItem?.invocable, false);
+    assert.equal(watchPrItem?.copyText, null);
+    assert.equal(watchPrItem?.invokedBy, "/astack-mode babysit");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -564,22 +579,76 @@ test("COMMAND_DOCS and DELEGATE_GUIDE_DATA cover all native delegate commands wi
     assert.ok(doc, `Missing COMMAND_DOCS entry for ${key}`);
     assert.ok(typeof doc.description === "string" && doc.description.trim().length > 0, `Missing description for ${key}`);
     assert.ok(doc.docsUrl?.startsWith(`${GITHUB_DOCS_BASE}/`), `Expected repo docsUrl for ${key}: ${doc.docsUrl}`);
-    const relPath = doc.docsUrl.slice(`${GITHUB_DOCS_BASE}/`.length);
+    const relPath = doc.docsUrl.slice(`${GITHUB_DOCS_BASE}/`.length).split("#")[0];
     assert.ok(fs.existsSync(path.join(REPO_ROOT, ...relPath.split("/"))), `Missing docs target ${relPath} for ${key}`);
   }
 
-  assert.equal(DELEGATE_GUIDE_DATA.picks.length, 10);
-  assert.equal(DELEGATE_GUIDE_DATA.sections.length, 5);
-  assert.equal(DELEGATE_GUIDE_DATA.delegateMenu.length, 6);
-  const pickIds = new Set(DELEGATE_GUIDE_DATA.picks.map((p) => p.id));
-  for (const p of DELEGATE_GUIDE_DATA.picks) {
-    assert.ok(p.chipLabel && p.kicker && p.prompt && p.how);
+  const nativeJson = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, "skills", "astack-mode", "references", "native-commands.json"), "utf8"),
+  );
+  for (const nativeCmd of nativeJson.commands) {
+    assert.ok(COMMAND_DOCS[nativeCmd.command], `COMMAND_DOCS missing native command ${nativeCmd.command}`);
   }
-  for (const section of DELEGATE_GUIDE_DATA.sections) {
-    assert.ok(section.id && section.title && section.subtitle && Array.isArray(section.items) && section.items.length > 0);
-    for (const item of section.items) {
-      if (item.pickId) assert.ok(pickIds.has(item.pickId), `Unknown pickId ${item.pickId}`);
+  const skillDirs = fs
+    .readdirSync(path.join(REPO_ROOT, "skills"), { withFileTypes: true })
+    .filter((d) => d.isDirectory() && !d.name.startsWith("principle-"))
+    .map((d) => `/${d.name}`);
+  for (const sCmd of skillDirs) {
+    assert.ok(COMMAND_DOCS[sCmd], `COMMAND_DOCS missing skill ${sCmd}`);
+  }
+
+  assert.deepEqual(
+    DELEGATE_GUIDE_DATA.stages.map((s) => s.id),
+    ["setup", "plan", "build", "review", "ship", "anytime"],
+  );
+  const anytimeStage = DELEGATE_GUIDE_DATA.stages.find((s) => s.id === "anytime");
+  const compactExample = anytimeStage?.examples.find((ex) => ex.id === "compact");
+  assert.ok(compactExample);
+  assert.notEqual(compactExample.ownership, "Not wired yet");
+  assert.equal(DELEGATE_GUIDE_DATA.delegateMenu.length, 6);
+  assert.doesNotMatch(JSON.stringify(DELEGATE_GUIDE_DATA), /[\u2013\u2014]/);
+
+  const exampleIds = new Set();
+  for (const stage of DELEGATE_GUIDE_DATA.stages) {
+    assert.ok(stage.id && stage.title && stage.subtitle && stage.icon, `Missing stage metadata for ${stage?.id}`);
+    assert.ok(Array.isArray(stage.examples) && stage.examples.length > 0, `Missing examples for stage ${stage.id}`);
+    assert.ok(Array.isArray(stage.commands) && stage.commands.length > 0, `Missing commands for stage ${stage.id}`);
+
+    for (const ex of stage.examples) {
+      assert.ok(ex.id && ex.label && ex.kicker && ex.prompt && ex.how && ex.ownership, `Incomplete example ${ex?.id}`);
+      assert.ok(Array.isArray(ex.commands) && ex.commands.length > 0, `Missing commands for example ${ex.id}`);
+      exampleIds.add(ex.id);
+      for (const cmd of ex.commands) {
+        const doc = COMMAND_DOCS[cmd];
+        assert.ok(doc, `Missing COMMAND_DOCS entry for example command ${cmd} (${ex.id})`);
+        assert.ok(doc.docsUrl?.startsWith(`${GITHUB_DOCS_BASE}/`), `Expected repo docsUrl for ${cmd}: ${doc.docsUrl}`);
+        const relPath = doc.docsUrl.slice(`${GITHUB_DOCS_BASE}/`.length).split("#")[0];
+        assert.ok(fs.existsSync(path.join(REPO_ROOT, ...relPath.split("/"))), `Missing docs target ${relPath} for ${cmd}`);
+      }
     }
+
+    for (const cmd of stage.commands) {
+      const doc = COMMAND_DOCS[cmd];
+      assert.ok(doc, `Missing COMMAND_DOCS entry for stage command ${cmd} (${stage.id})`);
+      assert.ok(doc.docsUrl?.startsWith(`${GITHUB_DOCS_BASE}/`), `Expected repo docsUrl for ${cmd}: ${doc.docsUrl}`);
+      const relPath = doc.docsUrl.slice(`${GITHUB_DOCS_BASE}/`.length).split("#")[0];
+      assert.ok(fs.existsSync(path.join(REPO_ROOT, ...relPath.split("/"))), `Missing docs target ${relPath} for ${cmd}`);
+    }
+  }
+
+  for (const expectedPickId of [
+    "subagents",
+    "browser",
+    "swarm",
+    "rw",
+    "boost",
+    "goal",
+    "teamwork",
+    "schedule",
+    "automation",
+    "btw",
+  ]) {
+    assert.ok(exampleIds.has(expectedPickId), `Missing expected delegation pick ID ${expectedPickId} in stages examples`);
   }
 });
 
@@ -1180,7 +1249,7 @@ test("ignores workspace repository skill/playbook source reads in parent and chi
     assert.equal(snap.stages[1].moreCommands.find((c) => c.command === "/arena")?.state, "pending");
     assert.equal(snap.stages[2].status, "pending");
     assert.equal(snap.stages[3].status, "pending");
-    assert.equal(snap.stages[3].commands.find((c) => c.command === "babysit")?.state, "pending");
+    assert.equal(snap.stages[3].commands.find((c) => c.command === "/astack-mode babysit")?.state, "pending");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -1767,6 +1836,43 @@ test("keeps a brand-new /plan written after earlier shipped work in waiting_gate
     const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(snap.stages[0].status, "waiting_gate", "New plan written after prior shipping must pause at review checkpoint");
     assert.equal(snap.liveLabel, "Review");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("detects /astack-mode babysit, /astack-mode release-and-postmortem, and compile_pr_dossier MCP tool", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-shipcmds-");
+  const convId = "conv-ship-cmds";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-24T10:00:00Z",
+        content: "<USER_REQUEST>/astack-mode babysit pr 24 to green</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-24T10:00:10Z",
+        tool_calls: [
+          { name: "call_mcp_tool", args: { ServerName: "astack_trust", ToolName: "compile_pr_dossier" } },
+          { name: "read_file", args: { Path: "/external-plugin/skills/astack-mode/playbooks/release-and-postmortem.md" } },
+          { name: "run_command", args: { CommandLine: "node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --pr 24 --status-only" } },
+        ],
+      },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    const review = snap.stages[2];
+    const ship = snap.stages[3];
+    assert.equal(review.autoSubCommands.find((c) => c.command === "pr-dossier.mjs")?.ran, true);
+    assert.equal(ship.commands.find((c) => c.command === "/astack-mode babysit")?.state, "done");
+    assert.equal(ship.autoSubCommands.find((c) => c.command === "watch-pr.mjs")?.ran, true);
+    assert.equal(ship.moreCommands.find((c) => c.command === "/astack-mode release-and-postmortem")?.state, "done");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

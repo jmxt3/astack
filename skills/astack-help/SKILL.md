@@ -68,9 +68,11 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 | Prove what a diff can break externally | [`/blast-radius`](../blast-radius/SKILL.md) |
 | Security audit, threat modeling & PR-diff boundary checks | [`/security-audit`](../security-audit/SKILL.md) |
 | Explore parallel designs across boundaries | [`/architect`](../architect/SKILL.md) |
+| Audit module boundaries and shallow modules | [`/audit-architecture`](../audit-architecture/SKILL.md) |
 | Race K candidates & graft best design | [`/arena`](../arena/SKILL.md) |
 | Lightweight N-way subagent fan-out | [`/fanout`](../fanout/SKILL.md) |
 | Multi-model adversarial diff review | [`/interrogate`](../interrogate/SKILL.md) |
+| Compile visual PR dossier and run isolated verifier | [`/review-pr`](../review-pr/SKILL.md) |
 | Bug fix test-first on cheap local tests | [`/tdd`](../tdd/SKILL.md) |
 | Strict TypeScript patterns & types | [`/typescript-best-practices`](../typescript-best-practices/SKILL.md) |
 | Drive web/Electron UI via Chrome DevTools & `browser` | [`/control-ui`](../control-ui/SKILL.md) |
@@ -94,13 +96,14 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 | Turn completed session lessons into skill PRs | [`/reflect`](../reflect/SKILL.md) |
 | Push fixes up the 5-tier ladder + `/learn` | [`/correct`](../correct/SKILL.md) |
 | Build a button UI that triggers automations | [`/make-bot-ui`](../make-bot-ui/SKILL.md) |
+| Configure earned autonomy inside policy Ceilings | [`/beast-mode`](../beast-mode/SKILL.md) |
 | Navigate AStack skills & playbooks | `/astack-help` |
 
 ## Playbooks, principles & built-in commands
 
 - **Playbooks** are step checklists inside `skills/astack-mode/playbooks/` ("babysit this PR", "land the stack", "take over this branch", "pause safely", "full autopilot").
 - **24 Principles** (`principle-*`) encode AStack's core engineering bar (`principle-prove-it-works`, `principle-laziness-protocol`, `principle-fix-root-causes`, etc.). See [Guide 08: Principles](../../docs/guide/08-principles.md).
-- **All 16 Native Antigravity Commands:** Complete mapping across `run`, `load`, `contract`, and `recommend` modes lives in [`native-commands.md`](../astack-mode/references/native-commands.md) and [`plan-contract.md`](../astack-mode/references/plan-contract.md). None of `/swarm`, `/run-workflow`, `/boost`, `/teamwork`, `/goal`, `/plan`, `/grill-me`, `/learn`, `/agy-customizations`, `/plugin`, `/automation`, `/schedule`, `/browser`, `/btw`, `/generative_ui`, or `/antigravity-guide` are shadowed.
+- **All 18 Native Antigravity Commands:** Complete mapping across `run`, `load`, `contract`, and `recommend` modes lives in [`native-commands.md`](../astack-mode/references/native-commands.md) and [`plan-contract.md`](../astack-mode/references/plan-contract.md). None of `/swarm`, `/run-workflow`, `/boost`, `/teamwork`, `/goal`, `/plan`, `/grill-me`, `/learn`, `/agy-customizations`, `/plugin`, `/automation`, `/schedule`, `/browser`, `/btw`, `/generative_ui`, `/antigravity-guide`, `/mcp-app-development`, or `/compact` are shadowed.
 
 ## Fix a run that went wrong
 

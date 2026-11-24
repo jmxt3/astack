@@ -19,7 +19,7 @@ AStack is a Google Antigravity plugin that makes the agent prove its work. You g
 
 AStack takes inspiration from Lauren Tan's [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) for empirical verification playbooks and Garry Tan's [`gstack`](https://github.com/garrytan/gstack) for structured review gates, and builds those ideas natively for Google Antigravity.
 
-AStack has 65 skills, 26 playbooks, 24 engineering principles, 4 custom agents, 1 routing rule, 9 lifecycle hooks (3 passive observe-only enabled by default plus 6 opt-in blocking gates), 1 local MCP server (`trust`), and 1 optional read-only timeline sidecar UI ([`sidecars/astack_timeline/`](./sidecars/astack_timeline/sidecar.json)), plus opt-in scheduled automation templates under [`docs/automations/`](./docs/automations/beacon/README.md). It runs locally as markdown skills and zero-dependency Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
+AStack has 66 skills, 26 playbooks, 24 engineering principles, 4 custom agents, 1 routing rule, 10 lifecycle hooks (3 passive observe-only enabled by default plus 7 opt-in blocking gates), 1 local MCP server (`trust`), and 1 optional read-only timeline sidecar UI ([`sidecars/astack_timeline/`](./sidecars/astack_timeline/sidecar.json)), plus opt-in scheduled automation templates under [`docs/automations/`](./docs/automations/beacon/README.md). It runs locally as markdown skills and zero-dependency Node.js scripts. It has no hosted backend, sends no telemetry, and pins no model, so it uses whatever model you pick in Antigravity.
 
 fork it. improve it. make it yours. PRs are welcome!
 
@@ -29,7 +29,7 @@ fork it. improve it. make it yours. PRs are welcome!
   <a href="#quick-start">Quick start</a> ·
   <a href="#interactive-plan-review--execute-workflow">Plan &amp; review</a> ·
   <a href="#how-it-fits-together">How it fits</a> ·
-  <a href="#skill-catalog">65 skills</a> ·
+  <a href="#skill-catalog">66 skills</a> ·
   <a href="./docs/user-guide.md">User guide</a> ·
   <a href="./docs/tutorials/README.md">Tutorials</a> ·
   <a href="./CREDITS.md">Credits</a> ·
@@ -151,7 +151,7 @@ To follow that path visually inside Google Antigravity, enable the optional [`AS
 
 ## Skill catalog
 
-AStack ships **65 skills** (`skills/`), **4 agents** (`agents/`), **1 routing rule** (`rules/`), and **9 lifecycle hooks** (`hooks.json`):
+AStack ships **66 skills** (`skills/`), **4 agents** (`agents/`), **1 routing rule** (`rules/`), and **10 lifecycle hooks** (`hooks.json`):
 
 ### Orchestration & setup (3)
 
@@ -247,7 +247,7 @@ AStack ships **65 skills** (`skills/`), **4 agents** (`agents/`), **1 routing ru
 | [`/typescript-best-practices`](./skills/typescript-best-practices/SKILL.md) | TypeScript patterns for discriminated unions, boundary parsing, and exhaustive matching |
 | [`/correct`](./skills/correct/SKILL.md) | Pushes recurring mistakes up the stack into architecture, types, lints, or tests |
 
-### Session catch-up, reflection & automation (6)
+### Session catch-up, reflection & automation (7)
 
 | Skill | Purpose |
 |---|---|
@@ -256,6 +256,7 @@ AStack ships **65 skills** (`skills/`), **4 agents** (`agents/`), **1 routing ru
 | [`/reflect`](./skills/reflect/SKILL.md) | Reviews the active transcript with three parallel reviewers and turns lessons into skill edits |
 | [`/automate-me`](./skills/automate-me/SKILL.md) | Turns your recurring working conventions into a personal `-mode` skill |
 | [`/make-bot-ui`](./skills/make-bot-ui/SKILL.md) | Builds safe webhook-backed UI triggers and Tailscale setups for Antigravity automations |
+| [`/beast-mode`](./skills/beast-mode/SKILL.md) | Configures earned autonomy (`Auto` or `Manual` promotion) inside human-set policy Ceilings |
 | [`/bro`](./skills/bro/SKILL.md) | Restates the last agent response in plain human language with no jargon |
 
 <details>
@@ -294,7 +295,7 @@ AStack ships **65 skills** (`skills/`), **4 agents** (`agents/`), **1 routing ru
 - **Routing rule (`rules/`)**: [`astack-orchestration.md`](./rules/astack-orchestration.md).
 - **Local MCP server & MCP Apps ([`mcp_config.json`](./mcp_config.json))**: zero-dependency local `stdio` server (`astack_trust`) exposing `compile_pr_dossier`, `audit_architecture`, `doctor_workspace`, `get_trust_status`, `record_proof_manifest`, inline chat cards, and a `.tla` formal spec viewer (`ui://astack/tla-viewer.html`).
 - **Dynamic Workflows & CLI helpers**: reusable `/run-workflow` Python scripts under `skills/{review-pr,fanout,reflect}/scripts/workflows/` plus zero-spawn CLI `statusLine` and `title` scripts under `scripts/cli/`.
-- **Lifecycle hooks (`hooks.json`)**: 3 passive observe-only hooks enabled by default (`astack-receipt-ledger` on `PostToolUse`, `astack-session-context` on `SessionStart`, and `astack-pr-intent` on `PreInvocation`) plus 6 opt-in blocking gates (`astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, `astack-round-limiter`).
+- **Lifecycle hooks (`hooks.json`)**: 3 passive observe-only hooks enabled by default (`astack-receipt-ledger` on `PostToolUse`, `astack-session-context` on `SessionStart`, and `astack-pr-intent` on `PreInvocation`) plus 7 opt-in blocking gates (`astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, `astack-round-limiter`, `astack-trust-gate`).
 
 ## Documentation
 
@@ -309,7 +310,7 @@ AStack ships **65 skills** (`skills/`), **4 agents** (`agents/`), **1 routing ru
 | 5-layer enforcement model, dynamic bidirectional model routing, Control Glass, and Antigravity mode matrix | [Architecture & Swarm](./docs/architecture-and-swarm.md) · [Swarm Coordination Reference](./skills/astack-mode/references/swarm-coordination.md) |
 | Prompting patterns, copy-paste recipes, and review checklists | [Prompting Guide](./skills/astack-help/references/prompting.md) · [Prompt Recipes](./skills/astack-help/references/recipes.md) · [Bugbot & Review Triage](./skills/astack-mode/references/bugbot-triage.md) · [DevTools Evidence Checklist](./skills/control-ui/references/devtools-evidence-checklist.md) · [Design Red Flags](./skills/architect/references/design-red-flags.md) · [TypeScript Patterns](./skills/typescript-best-practices/references/patterns.md) |
 | Outer-loop Slack issue triage and reproduction automation | [Beacon Automation Overview](./docs/automations/beacon/README.md) · [Beacon Agent Setup Runbook](./docs/automations/beacon/FOR_AGENTS.md) |
-| Verify AStack's own CLIs, hooks, and read-only watch tooling | [Verify AStack (`verify-astack`)](./.agents/skills/verify-astack/SKILL.md) · [Verification Feature Map](./.agents/skills/verify-astack/features/README.md) · [Upstream Watch Feature](./.agents/skills/verify-astack/features/upstream-watch.md) |
+| Verify AStack's own CLIs, hooks, command surfaces, and read-only watch tooling | [Verify AStack (`verify-astack`)](./.agents/skills/verify-astack/SKILL.md) · [Verification Feature Map](./.agents/skills/verify-astack/features/README.md) · [Sync AStack Surfaces](./.agents/skills/sync-astack-surfaces/SKILL.md) · [Upstream Watch Feature](./.agents/skills/verify-astack/features/upstream-watch.md) |
 | Lineage, open-source credits, community standards, security policy, and license | [Credits & Lineage](./CREDITS.md) · [Contributing Guide](./CONTRIBUTING.md) · [Code of Conduct](./CODE_OF_CONDUCT.md) · [Security Policy](./SECURITY.md) · [MIT License](./LICENSE) |
 
 ### 10-chapter tutorial (`docs/guide/`)

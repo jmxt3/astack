@@ -94,6 +94,8 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     const jsText = await jsRes.text();
     assert.match(jsText, /chip-active-dot/);
     assert.match(jsText, /showStatusPopover/);
+    assert.match(jsText, /is-internal/);
+    assert.match(jsText, /not a slash command/);
     assert.doesNotMatch(jsText, /getElementById\("next-bar"\)/);
 
     const threeRes = await fetch(`${srv.url}vendor/three.min.js`);
@@ -109,6 +111,11 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     assert.match(catalogRes.headers.get("content-type") ?? "", /javascript/);
     const catalogText = await catalogRes.text();
     assert.match(catalogText, /window\.ASTACK_CATALOG\s*=/);
+    assert.match(catalogText, /watch-pr\.mjs/);
+    assert.match(catalogText, /pr-dossier\.mjs/);
+    assert.match(catalogText, /\/astack-mode babysit/);
+    assert.match(catalogText, /\/astack-mode release-and-postmortem/);
+    assert.doesNotMatch(catalogText, /Not wired yet/);
 
     const preloadRes = await fetch(`${srv.url}preload.js`);
     assert.equal(preloadRes.status, 200);
@@ -596,6 +603,8 @@ test("createTimelineServer serves selectable task logs safely and exposes vertic
     assert.match(cssText, /\.focus-drawer-list[\s\S]*overflow-y:\s*auto/);
     assert.match(cssText, /\.progress\.is-mode\b/);
     assert.match(cssText, /\.scene-stage-dot\.skipped\s*\{\s*background:\s*#6f757a/);
+    assert.match(cssText, /\.subcmd-pill\.is-internal\b/);
+    assert.match(cssText, /\.subcmd-tag\b/);
     assert.match(sceneJs, /merged:\s*new T\.Color\("#a855f7"\)/);
     assert.match(sceneJs, /prMergedEdges/);
     assert.match(sceneJs, /prOpenEdges/);
@@ -772,6 +781,31 @@ test("POST /api/trust/settings enforces auth, method, size limits, enrollment, a
   } finally {
     await srv.close();
     await nonRepoSrv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("createTimelineServer serves app.js without duplicate native title tooltips on popover-backed labels", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-tooltip-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const appRes = await fetch(`${srv.url}app.js`);
+    assert.equal(appRes.status, 200);
+    const appJs = await appRes.text();
+
+    assert.match(appJs, /attachStatusPopover\(seg,/);
+    assert.match(appJs, /showStatusPopover\(progressElInit,/);
+    assert.match(appJs, /attachStatusPopover\(node,\s*part\.popTitle,/);
+
+    assert.doesNotMatch(appJs, /\bseg\.title\s*=/);
+    assert.doesNotMatch(appJs, /\bprogressEl\.title\s*=/);
+    assert.doesNotMatch(appJs, /\bnode\.title\s*=\s*part\.popDesc\b/);
+    assert.doesNotMatch(appJs, /\.title\s*=[^\n;]*;?\s*\n\s*attach(?:Status|Command)Popover\(/);
+  } finally {
+    await srv.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
