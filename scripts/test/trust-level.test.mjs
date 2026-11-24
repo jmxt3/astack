@@ -25,6 +25,7 @@ import {
   recordRollbackReceipt,
   recordVerifierReceipt,
   resolveEffectiveAutonomy,
+  resolvePrStatechart,
   resolveTrustDir,
   resolveTrustStoreDir,
   resolveWorkspaceScope,
@@ -1005,208 +1006,54 @@ test("Stop stage-handoff and PreInvocation stage context via control-cli respect
   }
 });
 
-test("exhaustive BFS state-space check matches docs/specs/EarnedTrust.tla and proves all 9 safety invariants", () => {
-  const tlaPath = path.resolve(here, "../../docs/specs/EarnedTrust.tla");
-  const cfgPath = path.resolve(here, "../../docs/specs/EarnedTrust.cfg");
-  assert.equal(fs.existsSync(tlaPath), true, "Missing docs/specs/EarnedTrust.tla");
-  assert.equal(fs.existsSync(cfgPath), true, "Missing docs/specs/EarnedTrust.cfg");
-  const tlaText = fs.readFileSync(tlaPath, "utf8");
-  const cfgText = fs.readFileSync(cfgPath, "utf8");
-  assert.match(tlaText, /MODULE EarnedTrust/);
-  assert.match(cfgText, /SPECIFICATION Spec/);
-  for (const inv of [
-    "TypeOK",
-    "LevelRespectsCeiling",
-    "GovernanceNeverExceedsL2",
-    "GovernanceNeverAutoPromotes",
-    "GovernanceNeverAutoMerges",
-    "ManualNeverExceedsConfirmed",
-    "FrozenForcesL0",
-    "BadOutcomeDemotes",
-    "StageHandoffsBounded",
-  ]) {
-    assert.match(tlaText, new RegExp(`^${inv}\\s*==`, "m"), `Missing TLA+ definition for ${inv}`);
-    assert.match(cfgText, new RegExp(`\\b${inv}\\b`), `Missing cfg INVARIANT ${inv}`);
+test("zero-Java formal verifier verifies real scripts/trust/index.mjs exports and emits formal-ts statechart", () => {
+  const verifierScript = path.resolve(
+    here,
+    "../../.agents/skills/verify-earned-trust-formal/scripts/verify-trust.ts",
+  );
+  assert.equal(fs.existsSync(verifierScript), true, "Missing verify-trust.ts");
+
+  const helpOut = execFileSync(
+    process.execPath,
+    ["--experimental-strip-types", "--disable-warning=ExperimentalWarning", verifierScript, "--help"],
+    { encoding: "utf8" },
+  );
+  assert.match(helpOut, /Usage:/);
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-trust-formal-"));
+  const mmdPath = path.join(tmpDir, "earned-trust.mmd");
+  try {
+    const stdout = execFileSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        "--disable-warning=ExperimentalWarning",
+        verifierScript,
+        "--emit-mermaid",
+        mmdPath,
+        "--json",
+      ],
+      { encoding: "utf8" },
+    );
+    const report = JSON.parse(stdout);
+    assert.equal(report.ok, true, JSON.stringify(report.findings));
+    assert.deepEqual(report.findings, []);
+    assert.equal(report.properties.EffectiveAutonomyPolicyPrecedence.status, "pass");
+    assert.ok(report.properties.EffectiveAutonomyPolicyPrecedence.statesChecked >= 378);
+    assert.equal(report.properties.DecisionTableSafetyMatrix.status, "pass");
+    assert.ok(report.properties.DecisionTableSafetyMatrix.statesChecked >= 3072);
+    assert.equal(report.properties.CategoryStateAndDemotionInvariants.status, "pass");
+    assert.ok(report.properties.CategoryStateAndDemotionInvariants.statesChecked >= 2300);
+    assert.equal(report.properties.EarnedTrustLifecycleBFS.status, "pass");
+    assert.ok(report.properties.EarnedTrustLifecycleBFS.visitedStates >= 400);
+    assert.ok(report.properties.EarnedTrustLifecycleBFS.transitions >= 2000);
+
+    const chart = resolvePrStatechart({ statechartPath: mmdPath });
+    assert.equal(chart.source, "formal-ts");
+    assert.match(chart.mermaid, /stateDiagram-v2/);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
-
-  const MAX_STAGE_HOPS = 2;
-  const initialStates = [];
-  for (const cat of ["ui", "governance"]) {
-    initialStates.push({
-      cat,
-      mode: "manual",
-      ceiling: 2,
-      earned: 0,
-      confirmed: 0,
-      level: 0,
-      autoPromoted: false,
-      hasUndo: false,
-      undoFrom: 0,
-      chainValid: true,
-      demotionOk: true,
-      stage: 1,
-      stageHops: 0,
-    });
-  }
-
-  const keyOf = (s) =>
-    `${s.cat}|${s.mode}|${s.ceiling}|${s.earned}|${s.confirmed}|${s.level}|${s.autoPromoted}|${s.hasUndo}|${s.undoFrom}|${s.chainValid}|${s.demotionOk}|${s.stage}|${s.stageHops}`;
-
-  const visited = new Set();
-  const queue = [];
-  for (const s of initialStates) {
-    visited.add(keyOf(s));
-    queue.push(s);
-  }
-
-  const catCap = (cat, ceiling) => (cat === "governance" ? Math.min(2, ceiling) : ceiling);
-  const effectiveLevel = (cat, mode, ceiling, earned, confirmed, chainValid) => {
-    if (!chainValid) return 0;
-    const cap = catCap(cat, ceiling);
-    const cappedEarned = Math.min(earned, cap);
-    if (mode === "auto" && cat !== "governance") return cappedEarned;
-    return Math.min(cappedEarned, confirmed);
-  };
-
-  let transitionsChecked = 0;
-
-  while (queue.length > 0) {
-    const cur = queue.shift();
-
-    assert.ok(cur.level >= 0 && cur.level <= 3, `TypeOK violated for level ${cur.level}`);
-    assert.ok(cur.level <= cur.ceiling, `LevelRespectsCeiling: ${cur.level} > ${cur.ceiling}`);
-    if (cur.cat === "governance") {
-      assert.ok(cur.level <= 2 && cur.ceiling <= 2 && cur.earned <= 2, "GovernanceNeverExceedsL2");
-      assert.equal(cur.autoPromoted, false, "GovernanceNeverAutoPromotes");
-      assert.ok(cur.stage < 4, "GovernanceNeverAutoMerges");
-    }
-    if (cur.chainValid && (cur.mode === "manual" || cur.cat === "governance")) {
-      assert.ok(cur.level <= cur.confirmed, "ManualNeverExceedsConfirmed");
-    }
-    if (!cur.chainValid) {
-      assert.equal(cur.level, 0, "FrozenForcesL0");
-    }
-    assert.equal(cur.demotionOk, true, "BadOutcomeDemotes");
-    assert.ok(cur.stageHops <= MAX_STAGE_HOPS, "StageHandoffsBounded (hops)");
-    assert.ok(cur.stage >= 1 && cur.stage <= 4, "StageHandoffsBounded (stage)");
-
-    const nextStates = [];
-
-    if (cur.chainValid) {
-      const cap = catCap(cur.cat, cur.ceiling);
-      const maxCat = cur.cat === "governance" ? 2 : 3;
-
-      const nextEarnedClean = Math.min(maxCat, cur.earned + 1);
-      const nextLevelClean = effectiveLevel(cur.cat, cur.mode, cur.ceiling, nextEarnedClean, cur.confirmed, true);
-      const didAutoClean = cur.mode === "auto" && cur.cat !== "governance" && nextLevelClean > cur.level;
-      nextStates.push({
-        ...cur,
-        earned: nextEarnedClean,
-        confirmed: didAutoClean ? nextLevelClean : cur.confirmed,
-        level: nextLevelClean,
-        autoPromoted: cur.autoPromoted || didAutoClean,
-        hasUndo: didAutoClean ? true : cur.hasUndo,
-        undoFrom: didAutoClean ? cur.level : cur.undoFrom,
-      });
-
-      const nextEarnedRev = Math.max(0, Math.min(cur.earned, cap) - 1);
-      const nextConfirmedRev = cur.level > 0 ? Math.min(nextEarnedRev, Math.max(0, cur.level - 1)) : 0;
-      const nextLevelRev = effectiveLevel(cur.cat, cur.mode, cur.ceiling, nextEarnedRev, nextConfirmedRev, true);
-      nextStates.push({
-        ...cur,
-        earned: nextEarnedRev,
-        confirmed: nextConfirmedRev,
-        level: nextLevelRev,
-        hasUndo: false,
-        undoFrom: 0,
-        demotionOk: cur.demotionOk && (cur.level === 0 || nextLevelRev < cur.level),
-      });
-
-      if (cur.level < Math.min(cur.earned, cap)) {
-        const nextConf = cur.level + 1;
-        nextStates.push({
-          ...cur,
-          confirmed: nextConf,
-          level: effectiveLevel(cur.cat, cur.mode, cur.ceiling, cur.earned, nextConf, true),
-          hasUndo: false,
-          undoFrom: 0,
-        });
-      }
-
-      const toggledMode = cur.mode === "manual" ? "auto" : "manual";
-      const lvlAfterToggle = effectiveLevel(cur.cat, toggledMode, cur.ceiling, cur.earned, cur.confirmed, true);
-      const toggleAuto = toggledMode === "auto" && cur.cat !== "governance" && lvlAfterToggle > cur.level;
-      nextStates.push({
-        ...cur,
-        mode: toggledMode,
-        confirmed: toggleAuto ? lvlAfterToggle : cur.confirmed,
-        level: lvlAfterToggle,
-        autoPromoted: cur.autoPromoted || toggleAuto,
-        hasUndo: toggleAuto ? true : cur.hasUndo,
-        undoFrom: toggleAuto ? cur.level : cur.undoFrom,
-      });
-
-      if (cur.hasUndo) {
-        const undoConf = Math.min(cur.undoFrom, cap);
-        nextStates.push({
-          ...cur,
-          mode: "manual",
-          confirmed: undoConf,
-          level: effectiveLevel(cur.cat, "manual", cur.ceiling, cur.earned, undoConf, true),
-          hasUndo: false,
-          undoFrom: 0,
-        });
-      }
-
-      for (const c of [1, 2, 3]) {
-        const clampedC = catCap(cur.cat, c);
-        const baseConf = Math.min(cur.confirmed, clampedC);
-        const nextLvlC = effectiveLevel(cur.cat, cur.mode, clampedC, cur.earned, baseConf, true);
-        const didAutoC = cur.mode === "auto" && cur.cat !== "governance" && nextLvlC > cur.level;
-        const clampedDown = clampedC < cur.level;
-        nextStates.push({
-          ...cur,
-          ceiling: clampedC,
-          confirmed: didAutoC ? nextLvlC : baseConf,
-          level: nextLvlC,
-          autoPromoted: cur.autoPromoted || didAutoC,
-          hasUndo: didAutoC ? true : clampedDown ? false : cur.hasUndo,
-          undoFrom: didAutoC ? cur.level : clampedDown ? 0 : cur.undoFrom,
-        });
-      }
-
-      nextStates.push({
-        ...cur,
-        chainValid: false,
-        level: 0,
-        hasUndo: false,
-        undoFrom: 0,
-      });
-
-      if (cur.stage < 4 && cur.stageHops < MAX_STAGE_HOPS) {
-        const reqLvl = cur.stage === 1 ? 1 : cur.stage === 2 ? 2 : 3;
-        if (cur.level >= reqLvl) {
-          nextStates.push({
-            ...cur,
-            stage: cur.stage + 1,
-            stageHops: cur.stageHops + 1,
-          });
-        }
-      }
-    }
-
-    for (const ns of nextStates) {
-      transitionsChecked++;
-      const k = keyOf(ns);
-      if (!visited.has(k)) {
-        visited.add(k);
-        queue.push(ns);
-      }
-    }
-  }
-
-  assert.ok(visited.size >= 500, `Expected rich reachable state space, checked ${visited.size} states`);
-  assert.ok(transitionsChecked >= 2000, `Expected thorough transition check, got ${transitionsChecked}`);
 });
 
 test("security regressions: trust-gate blocks flag-prefixed cli.mjs, cd+cli.mjs, env vars, symlinks, workspace-relative paths, unverified merges, and governance handoff", () => {

@@ -17,7 +17,25 @@ export type TrustOutcome =
   | "reverted"
   | "trunk_broken";
 
+export type RiskResidual = "low" | "medium" | "high" | "blocked";
+
+export type PromotionMode = "manual" | "auto";
+
+export type AutonomyActionClass =
+  | "local_write"
+  | "local_exec"
+  | "push_branch"
+  | "open_pr"
+  | "merge"
+  | "deploy"
+  | "external_message"
+  | "destructive";
+
 export const TRUST_CATEGORIES: readonly TrustCategory[];
+
+export const DEFAULT_RISK_POLICY: Record<string, unknown>;
+
+export const LEVEL_THRESHOLDS: Readonly<Record<1 | 2 | 3, Record<string, number>>>;
 
 export type WorkspaceScope =
   | {
@@ -203,6 +221,76 @@ export function recordReceipt(
     readonly now?: string;
   }
 ): Record<string, unknown> | null;
+
+export interface CategoryTrustState {
+  readonly id: TrustCategory;
+  readonly label: string;
+  readonly level: number;
+  readonly earnedLevel: number;
+  readonly ceiling: number;
+  readonly maxCeiling: number;
+  readonly score: number;
+  readonly brier: number;
+  readonly clean: number;
+  readonly edited: number;
+  readonly reverted: number;
+  readonly merges: number;
+  readonly totalOutcomes: number;
+  readonly idleDays: number;
+  readonly missedAudit: boolean;
+  readonly policyReset: boolean;
+  readonly promoReady: boolean;
+  readonly eligibleNextLevel: number | null;
+  readonly frozen: boolean;
+}
+
+export function resolveEffectiveAutonomy(
+  policy?: Record<string, unknown>,
+  settings?: Record<string, unknown> | null
+): {
+  readonly promotionMode: PromotionMode;
+  readonly promotionLockedByPolicy: boolean;
+  readonly ceilings: Readonly<Record<TrustCategory, number>>;
+  readonly maxCeilings: Readonly<Record<TrustCategory, number>>;
+  readonly maxBrierScore: number;
+  readonly auditSampleRate: number;
+};
+
+export function evaluateCategoryState(args?: {
+  readonly category: TrustCategory;
+  readonly entries?: readonly (Partial<LedgerEntry> & {
+    readonly sampledAudit?: boolean;
+    readonly auditCompleted?: boolean | null;
+  })[];
+  readonly ceiling?: number;
+  readonly maxCeiling?: number;
+  readonly promotionMode?: PromotionMode;
+  readonly confirmedLevel?: number;
+  readonly maxBrierScore?: number;
+  readonly policyReset?: boolean;
+  readonly policyResetAtTs?: string | number | null;
+  readonly chainValid?: boolean;
+  readonly nowMs?: number;
+}): CategoryTrustState;
+
+export function evaluateDecisionTable(args?: {
+  readonly action: AutonomyActionClass | string;
+  readonly residual: RiskResidual;
+  readonly trustLevel: number;
+  readonly category: TrustCategory;
+  readonly trustScore?: number;
+  readonly riskScore?: number;
+  readonly signals?: readonly unknown[];
+  readonly beastOn?: boolean;
+  readonly policy?: Record<string, unknown>;
+  readonly headless?: boolean;
+  readonly isOwnRevert?: boolean;
+}): {
+  readonly decision: "auto_approve" | "allow" | "ask" | "force_ask" | "deny";
+  readonly requiredLevel: number | null;
+  readonly reason: string | null;
+  readonly viaLegacyShim: boolean;
+};
 
 export function writeEvidenceSnapshotAtomic(
   trustDir: string,
