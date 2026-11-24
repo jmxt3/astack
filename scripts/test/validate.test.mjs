@@ -431,3 +431,97 @@ test("all 18 bundled CLI entrypoints exit 0 on --help and -h with zero module-ty
     }
   }
 });
+
+test("validateAStack rejects inspiration leaks outside README.md and CREDITS.md without false positives", () => {
+  const tmp = makeTempDir("astack-inspiration-test-");
+  try {
+    writeFile(
+      path.join(tmp, "plugin.json"),
+      JSON.stringify({
+        name: "astack",
+        author: { name: "João Machete" },
+        keywords: ["astack", "verification"],
+      }),
+    );
+    writeFile(
+      path.join(tmp, "LICENSE"),
+      "Copyright (c) 2026 Lauren Tan\nCopyright (c) 2026 João Machete\n",
+    );
+    writeFile(
+      path.join(tmp, "README.md"),
+      "# AStack\n\nInspired by Lauren Tan (@poteto) pstack, Garry Tan (@garrytan) gstack, and cloudflare/security-audit-skill.\n",
+    );
+    writeFile(
+      path.join(tmp, "CREDITS.md"),
+      "# Credits\n\nCredits pstack, gstack, Lauren Tan, Garry Tan, and cloudflare/security-audit-skill.\n",
+    );
+    writeFile(
+      path.join(tmp, "skills", "clean", "SKILL.md"),
+      "---\nname: clean\ndescription: Check upstack PRs and tan styling.\n---\n\n# Clean\n\nHandle upstack state and tan color.\n",
+    );
+    writeFile(
+      path.join(tmp, "agents", "clean.md"),
+      "---\nname: clean\ndescription: Clean delegate for upstack PR checks\nmainAgent: false\nsubagent: true\nmodel: inherit\n---\n\n# Clean\n",
+    );
+    writeFile(
+      path.join(tmp, "rules", "clean.md"),
+      "---\ntrigger: model_decision\ndescription: Handle upstack branches and tan badges.\n---\n\n# Rule\n",
+    );
+
+    const clean = validateAStack(tmp, { withAgy: false });
+    assert.equal(clean.ok, true, JSON.stringify(clean.errors));
+
+    writeFile(
+      path.join(tmp, "plugin.json"),
+      JSON.stringify({
+        name: "astack",
+        author: { name: "João Machete" },
+        keywords: ["astack", "pstack"],
+      }),
+    );
+    writeFile(
+      path.join(tmp, "agents", "bad-agent.md"),
+      "---\nname: bad-agent\ndescription: Inspired by Garry Tan (@garrytan)\nmainAgent: false\nsubagent: true\nmodel: inherit\n---\n\n# Bad Agent\n",
+    );
+    writeFile(
+      path.join(tmp, "skills", "bad-skill", "SKILL.md"),
+      "---\nname: bad-skill\ndescription: Built on Lauren Tan (@poteto) gstack and cloudflare/security-audit-skill.\n---\n\n# Bad Skill\n",
+    );
+    writeFile(
+      path.join(tmp, "rules", "bad-rule.md"),
+      "---\ntrigger: model_decision\ndescription: Laura Tan and Gary Tan note.\n---\n\n# Bad Rule\n",
+    );
+    writeFile(
+      path.join(tmp, "docs", "bad-doc.md"),
+      "# Bad Doc\n\nSee https://github.com/garrytan/gstack and pstack.\n",
+    );
+    writeFile(
+      path.join(tmp, "scripts", "mcp", "tools.mjs"),
+      'export const TOOL_DEFINITIONS = [{ description: "pstack helper" }];\n',
+    );
+
+    const broken = validateAStack(tmp, { withAgy: false });
+    assert.equal(broken.ok, false);
+    const byFile = new Map();
+    for (const err of broken.errors) {
+      const list = byFile.get(err.file) ?? [];
+      list.push(err.message);
+      byFile.set(err.file, list);
+    }
+    assert.match((byFile.get("plugin.json") ?? []).join("\n"), /inspiration-pstack/);
+    assert.match((byFile.get("agents/bad-agent.md") ?? []).join("\n"), /inspiration-garry-tan/);
+    assert.match((byFile.get("agents/bad-agent.md") ?? []).join("\n"), /inspiration-garrytan/);
+    assert.match((byFile.get("skills/bad-skill/SKILL.md") ?? []).join("\n"), /inspiration-lauren-tan/);
+    assert.match((byFile.get("skills/bad-skill/SKILL.md") ?? []).join("\n"), /inspiration-poteto/);
+    assert.match((byFile.get("skills/bad-skill/SKILL.md") ?? []).join("\n"), /inspiration-gstack/);
+    assert.match((byFile.get("skills/bad-skill/SKILL.md") ?? []).join("\n"), /inspiration-security-audit-skill/);
+    assert.match((byFile.get("rules/bad-rule.md") ?? []).join("\n"), /inspiration-lauren-tan/);
+    assert.match((byFile.get("rules/bad-rule.md") ?? []).join("\n"), /inspiration-garry-tan/);
+    assert.match((byFile.get("docs/bad-doc.md") ?? []).join("\n"), /inspiration-garrytan/);
+    assert.match((byFile.get("docs/bad-doc.md") ?? []).join("\n"), /inspiration-gstack/);
+    assert.match((byFile.get("docs/bad-doc.md") ?? []).join("\n"), /inspiration-pstack/);
+    assert.match((byFile.get("scripts/mcp/tools.mjs") ?? []).join("\n"), /inspiration-pstack/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

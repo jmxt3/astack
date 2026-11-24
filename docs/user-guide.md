@@ -1,9 +1,6 @@
 # AStack User Guide: Quickstart, Daily Workflow & Mastery
 
-**AStack** (`astack`) is **João Machete**'s verification-first engineering stack for **Google Antigravity**, built on **Lauren Tan**'s (`@poteto`) [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) and inspired by **Garry Tan**'s (`@garrytan`) [`gstack`](https://github.com/garrytan/gstack). Instead of trusting unverified diffs by eye, you state **what outcome you want and how to prove it works**, while AStack matches a rigorous playbook, coordinates Antigravity's subagents and multi-agent modes, cleans the diff, and proves behavior on the running app before reporting done.
-
-> **Credits & Attribution**  
-> Built on **`pstack`** by **Lauren Tan** (`@poteto`, [`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack), MIT License) and inspired by **`gstack`** by **Garry Tan** (`@garrytan`, [`garrytan/gstack`](https://github.com/garrytan/gstack), MIT License, no code copied). Engineered for Google Antigravity by **João Machete** ([`jmxt3/astack`](https://github.com/jmxt3/astack)). See [CREDITS.md](../CREDITS.md).
+**AStack** (`astack`) is a verification-first engineering stack for **Google Antigravity**. Instead of trusting unverified diffs by eye, you state **what outcome you want and how to prove it works**, while AStack matches a rigorous playbook, coordinates Antigravity's subagents and multi-agent modes, cleans the diff, and proves behavior on the running app before reporting done.
 
 **Contents:**
 - [Part 1: Start using AStack in 1 minute](#part-1-start-using-astack-in-1-minute)

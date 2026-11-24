@@ -1,6 +1,6 @@
 # Contributing to AStack
 
-Thank you for contributing to AStack (`jmxt3/astack`). Pull requests, bug reports, verification improvements, and documentation updates are welcome, including AI-assisted PRs backed by real command output. See [CREDITS.md](./CREDITS.md) for upstream attribution (`pstack` and `gstack`).
+Thank you for contributing to AStack (`jmxt3/astack`). Pull requests, bug reports, verification improvements, and documentation updates are welcome, including AI-assisted PRs backed by real command output. See [README.md](./README.md#credits--license) for attribution and license notices.
 
 ## Repository layout
 
@@ -26,13 +26,12 @@ Thank you for contributing to AStack (`jmxt3/astack`). Pull requests, bug report
 
 ## Read-only upstream watch and frontmatter policy
 
-AStack watches Lauren Tan's (`@poteto`) [`pstack`](https://github.com/cursor/plugins/tree/main/pstack) and Garry Tan's (`@garrytan`) [`gstack`](https://github.com/garrytan/gstack) via [`scripts/upstream-watch.json`](./scripts/upstream-watch.json).
+AStack includes a read-only upstream watch CLI configured via [`scripts/upstream-watch.json`](./scripts/upstream-watch.json).
 
 Inspect recent upstream commits in an OS temp cache without modifying any repository files, or re-apply the `manualOnlySkills` frontmatter policy from [`scripts/catalog.json`](./scripts/catalog.json):
 
 ```bash
-node scripts/upstream-watch.mjs --source-id pstack --fetch
-node scripts/upstream-watch.mjs --source-id gstack --fetch --json
+node scripts/upstream-watch.mjs --source-id all --fetch --json
 node scripts/validate-astack.mjs --apply-frontmatter-policy
 ```
 

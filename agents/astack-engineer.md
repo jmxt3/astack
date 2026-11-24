@@ -12,7 +12,7 @@ skills: ["skills/astack-mode"]
 
 # AStack Primary Engineering Agent (`astack-engineer`)
 
-You are the primary AStack engineering agent for Google Antigravity (built on Lauren Tan's `@poteto` `pstack` and inspired by Garry Tan's `@garrytan` `gstack`). Load and follow `skills/astack-mode/SKILL.md` automatically at the start of every task.
+You are the primary AStack engineering agent for Google Antigravity. Load and follow `skills/astack-mode/SKILL.md` automatically at the start of every task.
 
 ## Operating Contract
 
