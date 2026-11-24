@@ -596,24 +596,59 @@ test("COMMAND_DOCS and DELEGATE_GUIDE_DATA cover all native delegate commands wi
   for (const sCmd of skillDirs) {
     assert.ok(COMMAND_DOCS[sCmd], `COMMAND_DOCS missing skill ${sCmd}`);
   }
-  const alongsideSec = DELEGATE_GUIDE_DATA.sections.find((s) => s.id === "alongside");
-  const compactItem = alongsideSec?.items.find((i) => i.command === "/compact");
-  assert.ok(compactItem);
-  assert.notEqual(compactItem.ownership, "Not wired yet");
-  assert.notEqual(compactItem.statusPill, "not wired");
 
-  assert.equal(DELEGATE_GUIDE_DATA.picks.length, 10);
-  assert.equal(DELEGATE_GUIDE_DATA.sections.length, 5);
+  assert.deepEqual(
+    DELEGATE_GUIDE_DATA.stages.map((s) => s.id),
+    ["setup", "plan", "build", "review", "ship", "anytime"],
+  );
+  const anytimeStage = DELEGATE_GUIDE_DATA.stages.find((s) => s.id === "anytime");
+  const compactExample = anytimeStage?.examples.find((ex) => ex.id === "compact");
+  assert.ok(compactExample);
+  assert.notEqual(compactExample.ownership, "Not wired yet");
   assert.equal(DELEGATE_GUIDE_DATA.delegateMenu.length, 6);
-  const pickIds = new Set(DELEGATE_GUIDE_DATA.picks.map((p) => p.id));
-  for (const p of DELEGATE_GUIDE_DATA.picks) {
-    assert.ok(p.chipLabel && p.kicker && p.prompt && p.how);
-  }
-  for (const section of DELEGATE_GUIDE_DATA.sections) {
-    assert.ok(section.id && section.title && section.subtitle && Array.isArray(section.items) && section.items.length > 0);
-    for (const item of section.items) {
-      if (item.pickId) assert.ok(pickIds.has(item.pickId), `Unknown pickId ${item.pickId}`);
+  assert.doesNotMatch(JSON.stringify(DELEGATE_GUIDE_DATA), /[\u2013\u2014]/);
+
+  const exampleIds = new Set();
+  for (const stage of DELEGATE_GUIDE_DATA.stages) {
+    assert.ok(stage.id && stage.title && stage.subtitle && stage.icon, `Missing stage metadata for ${stage?.id}`);
+    assert.ok(Array.isArray(stage.examples) && stage.examples.length > 0, `Missing examples for stage ${stage.id}`);
+    assert.ok(Array.isArray(stage.commands) && stage.commands.length > 0, `Missing commands for stage ${stage.id}`);
+
+    for (const ex of stage.examples) {
+      assert.ok(ex.id && ex.label && ex.kicker && ex.prompt && ex.how && ex.ownership, `Incomplete example ${ex?.id}`);
+      assert.ok(Array.isArray(ex.commands) && ex.commands.length > 0, `Missing commands for example ${ex.id}`);
+      exampleIds.add(ex.id);
+      for (const cmd of ex.commands) {
+        const doc = COMMAND_DOCS[cmd];
+        assert.ok(doc, `Missing COMMAND_DOCS entry for example command ${cmd} (${ex.id})`);
+        assert.ok(doc.docsUrl?.startsWith(`${GITHUB_DOCS_BASE}/`), `Expected repo docsUrl for ${cmd}: ${doc.docsUrl}`);
+        const relPath = doc.docsUrl.slice(`${GITHUB_DOCS_BASE}/`.length).split("#")[0];
+        assert.ok(fs.existsSync(path.join(REPO_ROOT, ...relPath.split("/"))), `Missing docs target ${relPath} for ${cmd}`);
+      }
     }
+
+    for (const cmd of stage.commands) {
+      const doc = COMMAND_DOCS[cmd];
+      assert.ok(doc, `Missing COMMAND_DOCS entry for stage command ${cmd} (${stage.id})`);
+      assert.ok(doc.docsUrl?.startsWith(`${GITHUB_DOCS_BASE}/`), `Expected repo docsUrl for ${cmd}: ${doc.docsUrl}`);
+      const relPath = doc.docsUrl.slice(`${GITHUB_DOCS_BASE}/`.length).split("#")[0];
+      assert.ok(fs.existsSync(path.join(REPO_ROOT, ...relPath.split("/"))), `Missing docs target ${relPath} for ${cmd}`);
+    }
+  }
+
+  for (const expectedPickId of [
+    "subagents",
+    "browser",
+    "swarm",
+    "rw",
+    "boost",
+    "goal",
+    "teamwork",
+    "schedule",
+    "automation",
+    "btw",
+  ]) {
+    assert.ok(exampleIds.has(expectedPickId), `Missing expected delegation pick ID ${expectedPickId} in stages examples`);
   }
 });
 

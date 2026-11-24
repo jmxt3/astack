@@ -41,7 +41,7 @@ export function loadCommandCatalog(catalogPath = DEFAULT_CATALOG_PATH) {
     githubDocsBase,
     commandDocs,
     stageCatalog,
-    delegateGuide: raw.delegateGuide ?? { picks: [], sections: [], delegateMenu: [] },
+    delegateGuide: raw.delegateGuide ?? { stages: [], delegateMenu: [] },
   };
 }
 

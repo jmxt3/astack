@@ -481,6 +481,30 @@ function checkTimelineCatalog(rootDir, { validSkillNames, nativeCommandSet }, er
       }
     }
   }
+  for (const stage of catalog.delegateGuide?.stages ?? []) {
+    for (const ex of stage.examples ?? []) {
+      checkSlashText(`stages.${stage.id}.${ex.id}`, ex.prompt);
+      for (const cmd of ex.commands ?? []) {
+        if (!commands[cmd]) {
+          errors.push({ file: catalogRel, message: `delegateGuide stages.${stage.id}.${ex.id} references unknown ${cmd}` });
+        }
+        const isRegisteredNative = nativeCommandSet.size > 0
+          ? nativeCommandSet.has(cmd)
+          : EXPECTED_NATIVE_COMMANDS.includes(cmd);
+        if (isRegisteredNative && /not wired/i.test(ex.ownership || "")) {
+          errors.push({
+            file: catalogRel,
+            message: `Registered native command ${cmd} cannot be marked "${ex.ownership}"`,
+          });
+        }
+      }
+    }
+    for (const cmd of stage.commands ?? []) {
+      if (!commands[cmd]) {
+        errors.push({ file: catalogRel, message: `delegateGuide stages.${stage.id}.commands references unknown ${cmd}` });
+      }
+    }
+  }
   for (const item of catalog.delegateGuide?.delegateMenu ?? []) {
     checkSlashText(`delegateMenu.${item.id}`, item.command);
     checkSlashText(`delegateMenu.${item.id}.prompt`, item.prompt);
