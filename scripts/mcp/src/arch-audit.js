@@ -1,4 +1,4 @@
-import { bootMcpApp, domEl, openFileInSidePane, renderStatus } from "./theme.js";
+import { bootMcpApp, domEl, openFileInSidePane, renderErrorCard, renderStatus } from "./theme.js";
 
 let latestReport = null;
 let hostCaps = {};
@@ -67,8 +67,14 @@ function renderAudit(report, app) {
     return row;
   });
 
+  const hasIssues =
+    !report.ok ||
+    s.boundaryViolations > 0 ||
+    s.bannedHits > 0 ||
+    s.shallowModules > 0 ||
+    s.gardeningHits > 0;
   const actions = domEl("div", "actions");
-  if (hostCaps?.message) {
+  if (hostCaps?.message && hasIssues) {
     const correctBtn = domEl("button", "btn primary", "Run /correct");
     correctBtn.type = "button";
     correctBtn.addEventListener("click", async () => {
@@ -114,7 +120,12 @@ const { connect } = bootMcpApp("AStack Architecture Audit", {
     }
   },
   onResult: (result, app) => {
-    if (result?.structuredContent) renderAudit(result.structuredContent, app);
+    if (result?.isError || !result?.structuredContent) {
+      const msg = result?.content?.find((c) => c?.type === "text")?.text || "Architecture audit failed.";
+      renderErrorCard("AStack Architecture Audit", msg);
+      return;
+    }
+    renderAudit(result.structuredContent, app);
   },
   onHostChange: (_ctx, app) => {
     hostCaps = app.getHostCapabilities() || {};

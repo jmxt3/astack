@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
-import { auditWorktrees } from "../../astack-mode/scripts/worktree-audit.mjs";
+import { parseWorktreeList } from "../../astack-mode/scripts/worktree-audit.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_PLUGIN_ROOT = path.resolve(__dirname, "..", "..", "..");
@@ -292,8 +292,12 @@ export function runWorkspaceDoctor({
 
   let staleWorktrees = 0;
   try {
-    const wt = auditWorktrees({ repoPath: status.cwd, skipPrLookup: true });
-    staleWorktrees = wt.rows.length;
+    const out = execFileSync("git", ["worktree", "list", "--porcelain"], {
+      cwd: status.cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    staleWorktrees = Math.max(0, parseWorktreeList(out).length - 1);
     checks.push({
       id: "worktrees",
       status: staleWorktrees > 0 ? "info" : "pass",

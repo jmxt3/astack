@@ -1,4 +1,4 @@
-import { bootMcpApp, domEl, openFileInSidePane, renderStatus } from "./theme.js";
+import { bootMcpApp, domEl, openFileInSidePane, renderErrorCard, renderStatus } from "./theme.js";
 
 let latestData = null;
 let activeSeverity = "all";
@@ -173,7 +173,12 @@ const { connect } = bootMcpApp("AStack PR Dossier", {
     }
   },
   onResult: (result, app) => {
-    if (result?.structuredContent) renderDossier(result.structuredContent, app);
+    if (result?.isError || !result?.structuredContent) {
+      const msg = result?.content?.find((c) => c?.type === "text")?.text || "Could not compile PR dossier.";
+      renderErrorCard("AStack PR Dossier", msg);
+      return;
+    }
+    renderDossier(result.structuredContent, app);
   },
   onHostChange: (_ctx, app) => {
     hostCaps = app.getHostCapabilities() || {};

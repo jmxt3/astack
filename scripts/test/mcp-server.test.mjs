@@ -126,6 +126,14 @@ test("MCP stdio server handles initialize, tools, resources, dossier/audit/docto
     }
     const tlaTool = listTools.result.tools.find((t) => t.name === "open_tla_viewer");
     assert.deepEqual(tlaTool._meta["com.google.antigravity/ui"].entrypoints[0].extensions, [".tla"]);
+    const dossierTool = listTools.result.tools.find((t) => t.name === "compile_pr_dossier");
+    assert.deepEqual(dossierTool._meta["com.google.antigravity/ui"].entrypoints, [
+      { type: "aux_pane", title: "AStack PR Dossier" },
+    ]);
+    const auditTool = listTools.result.tools.find((t) => t.name === "audit_architecture");
+    assert.deepEqual(auditTool._meta["com.google.antigravity/ui"].entrypoints, [
+      { type: "aux_pane", title: "AStack Architecture Audit" },
+    ]);
 
     const listResources = await client.request("resources/list");
     const uris = listResources.result.resources.map((r) => r.uri);
@@ -143,6 +151,13 @@ test("MCP stdio server handles initialize, tools, resources, dossier/audit/docto
       assert.match(content.text, /ui\/initialize/);
       assert.doesNotMatch(content.text, /<script[^>]+src=["']https?:/i);
       assert.doesNotMatch(content.text, /<link[^>]+href=["']https?:/i);
+      if (uri === "ui://astack/arch-audit.html") {
+        assert.match(content.text, /Architecture audit failed\./);
+        assert.match(content.text, /gardeningHits/);
+      }
+      if (uri === "ui://astack/pr-dossier.html") {
+        assert.match(content.text, /Could not compile PR dossier\./);
+      }
     }
 
     const dossier = await client.request("tools/call", {
