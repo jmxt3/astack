@@ -179,6 +179,53 @@ test("runWorkspaceDoctor and setup-banner --doctor report workspace diagnostics"
   }
 });
 
+test("runWorkspaceDoctor counts git worktrees without scanning transcripts", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "astack-doctor-wt-"));
+  const prevTranscriptsDir = process.env.ASTACK_TRANSCRIPTS_DIR;
+  try {
+    const repoDir = path.join(tmp, "repo");
+    const extraWt = path.join(tmp, "wt-feature");
+    const homeDir = path.join(tmp, "home");
+    const pluginRoot = path.join(tmp, "plugin");
+    const sentinelTranscripts = path.join(tmp, "unreadable-transcripts");
+    fs.mkdirSync(repoDir, { recursive: true });
+    fs.mkdirSync(homeDir, { recursive: true });
+    fs.writeFileSync(sentinelTranscripts, "not-a-directory", "utf8");
+    process.env.ASTACK_TRANSCRIPTS_DIR = sentinelTranscripts;
+    writeFile(path.join(pluginRoot, "hooks.json"), JSON.stringify({}));
+
+    execFileSync("git", ["init", "-b", "main"], { cwd: repoDir, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "t@t.com"], { cwd: repoDir, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "t"], { cwd: repoDir, stdio: "ignore" });
+    writeFile(path.join(repoDir, "README.md"), "# demo\n");
+    execFileSync("git", ["add", "README.md"], { cwd: repoDir, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: repoDir, stdio: "ignore" });
+
+    const cleanReport = runWorkspaceDoctor({ cwd: repoDir, homeDir, pluginRoot });
+    assert.equal(cleanReport.staleWorktrees, 0);
+    assert.deepEqual(
+      cleanReport.checks.find((c) => c.id === "worktrees"),
+      { id: "worktrees", status: "pass", detail: "No extra git worktrees." },
+    );
+
+    execFileSync("git", ["worktree", "add", "-b", "feat", extraWt], { cwd: repoDir, stdio: "ignore" });
+    const extraReport = runWorkspaceDoctor({ cwd: repoDir, homeDir, pluginRoot });
+    assert.equal(extraReport.staleWorktrees, 1);
+    assert.deepEqual(
+      extraReport.checks.find((c) => c.id === "worktrees"),
+      {
+        id: "worktrees",
+        status: "info",
+        detail: "1 extra git worktree(s) detected; run worktree-audit.mjs to review.",
+      },
+    );
+  } finally {
+    if (prevTranscriptsDir === undefined) delete process.env.ASTACK_TRANSCRIPTS_DIR;
+    else process.env.ASTACK_TRANSCRIPTS_DIR = prevTranscriptsDir;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("scaffoldRepoPolicies creates defaults idempotently and supports --dry-run and --force", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "astack-init-policy-"));
   try {

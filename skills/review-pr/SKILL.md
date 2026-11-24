@@ -10,7 +10,7 @@ Compile a deterministic visual review dossier in Markdown, Mermaid, and screensh
 
 ## 1. Compile Evidence and Visual Dossier
 
-When the bundled `astack_trust` MCP server is connected, call `compile_pr_dossier` directly (renders an interactive inline card in Antigravity App and concise Markdown in CLI). Otherwise, or when producing GitHub PR bodies, run [`scripts/pr-dossier.mjs`](./scripts/pr-dossier.mjs) against the target branch and base ref (pass `--screenshots` for any UI images captured during `control-ui` or `design-audit`):
+When the bundled `astack_trust` MCP server is connected, the **parent** conversation (never `pr-verifier`) calls `compile_pr_dossier` directly, which auto-opens and updates the `AStack PR Dossier` side-pane tab (`aux_pane`) in Antigravity App while returning plain Markdown in CLI. Otherwise, or when producing GitHub PR bodies, run [`scripts/pr-dossier.mjs`](./scripts/pr-dossier.mjs) against the target branch and base ref (pass `--screenshots` for any UI images captured during `control-ui` or `design-audit`):
 
 ```bash
 node "<skill-dir>/scripts/pr-dossier.mjs" \
@@ -27,9 +27,9 @@ If UI screenshots were captured outside `<artifact-dir>`, copy them into `<artif
 ## 2. Run Fresh-Context `pr-verifier`
 
 1. Read `REVIEW.md` and `GLOSSARY.md` strictly from the base ref (`git show <base>:REVIEW.md`).
-2. Spawn `pr-verifier` (`agents/pr-verifier.md`) with `Workspace: "branch"` (or via cross-family `/swarm` when distinct model families have quota). Pass the base ref, `evidence.json` path, and `skills/review-pr/scripts/findings-schema.json`.
+2. Spawn `pr-verifier` (`agents/pr-verifier.md`) with `Workspace: "branch"` (or via cross-family `/swarm` when distinct model families have quota). Pass the base ref, `evidence.json` path, and `skills/review-pr/scripts/findings-schema.json`. Keep `pr-verifier` strictly headless (it must not call `compile_pr_dossier`, `audit_architecture`, `doctor_workspace`, or `ask_question`).
 3. Validate the emitted JSON against `findings-schema.json` and save it to `<artifact-dir>/astack-trust/findings.json`. Confirm `git status --short` in the parent workspace remains clean of verifier edits.
-4. Re-run `pr-dossier.mjs` with `--findings "<artifact-dir>/astack-trust/findings.json"` so `<artifact-dir>/pr-review.md` embeds the `Important`, `Nit`, `Pre-existing`, and `Dropped` sections alongside the Mermaid blast-radius graph, ````carousel```` strip, and clickable `file:///` links into Antigravity's Review pane.
+4. Re-run `compile_pr_dossier` in the parent conversation (when `astack_trust` is connected, updating the open `aux_pane` tab in place) and `pr-dossier.mjs` with `--findings "<artifact-dir>/astack-trust/findings.json"` so `<artifact-dir>/pr-review.md` embeds the `Important`, `Nit`, `Pre-existing`, and `Dropped` sections alongside the Mermaid blast-radius graph, ````carousel```` strip, and clickable `file:///` links into Antigravity's Review pane.
 
 ## 3. Remediation Loop (3-Round Cap)
 
@@ -38,4 +38,9 @@ If UI screenshots were captured outside `<artifact-dir>`, copy them into `<artif
 
 ## 4. Human Review Gate
 
-Present the Risk Tier (`Tier 0..3`), `Freshness`, `Auto-Merge Eligible` flag, and a direct link to `<artifact-dir>/pr-review.md` (`UserFacing: true`, `RequestFeedback: false`). Tier 1 through Tier 3 PRs always wait for human review; Tier 0 skips manual merge review only when `.agents/risk-policy.json` explicitly sets `allowTier0AutoMerge: true` and `humanGates.prReview: "tier0-auto"` with all proof checks green. When the AStack Timeline sidecar is enabled in an Antigravity App session and the pill has not yet appeared in this conversation, close with `[AStack Timeline](sidecar://astack/astack_timeline/)` on its own line.
+Present the Risk Tier (`Tier 0..3`), `Freshness`, `Auto-Merge Eligible` flag, and a direct link to `<artifact-dir>/pr-review.md`. Handle interactive and autonomous runs explicitly:
+
+- **Interactive mode (default, Tier 1–3 PRs or Tier 0 without opt-in auto-merge):** Write `<artifact-dir>/pr-review.md` with `UserFacing: true, RequestFeedback: true`, then call native `ask_question` (`questions.length === 1`, unnumbered choices with `(Recommended)` first, e.g. proceed to open/merge PR, fix remaining findings first, or inspect a specific cluster) in the main conversation so Antigravity natively pauses, displays its pending-input indicator, and fires desktop/Remote Control notifications.
+- **Full-autonomy / Beast Mode (`/goal`, `autopilot-full`, `autopilot-stack`, Beast Mode full automation, or Tier 0 when `.agents/risk-policy.json` sets `allowTier0AutoMerge: true` and `humanGates.prReview: "tier0-auto"` with all proof checks green):** Never block. Update `compile_pr_dossier` (`aux_pane` refreshes non-blockingly), write `<artifact-dir>/pr-review.md` with `UserFacing: true, RequestFeedback: false`, skip `ask_question`, and proceed automatically when `verdict` is `PASS` or `PASS_WITH_NOTES` (pausing only on `roundState: "escalated"` or an unauthorized irreversible action).
+
+When the AStack Timeline sidecar is enabled in an Antigravity App session and the pill has not yet appeared in this conversation, close with `[AStack Timeline](sidecar://astack/astack_timeline/)` on its own line.
