@@ -36,7 +36,8 @@ export function sanitizeConversationId(raw) {
   const cleaned = String(raw ?? "default")
     .trim()
     .replace(/[^A-Za-z0-9._-]+/g, "_")
-    .replace(/^_+|_+$/g, "");
+    .replace(/\.{2,}/g, "_")
+    .replace(/^[._]+|[._]+$/g, "");
   return cleaned.slice(0, 80) || "default";
 }
 

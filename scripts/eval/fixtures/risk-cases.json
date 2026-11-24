@@ -40,10 +40,19 @@
     },
     {
       "id": "public-surface-facade-edit",
-      "description": "Edits scripts/trust/index.mjs public exports without accompanying test changes.",
+      "description": "Edits scripts/mcp/tools.mjs public exports without accompanying test changes.",
       "expectedCategory": "core",
       "expectedResidual": "high",
       "expectedSignals": ["public_surface_changed", "untested_change"],
+      "expectedOutcome": "approved_with_edits",
+      "diff": "diff --git a/scripts/mcp/tools.mjs b/scripts/mcp/tools.mjs\n--- a/scripts/mcp/tools.mjs\n+++ b/scripts/mcp/tools.mjs\n@@ -60,2 +60,3 @@ export {\n   dispatchToolCall,\n+  newExportedSymbol,\n };\n"
+    },
+    {
+      "id": "trust-core-governance-edit",
+      "description": "Edits scripts/trust/index.mjs without tests; REVIEW.md#2 keeps scripts/trust/** in governance (blocked).",
+      "expectedCategory": "governance",
+      "expectedResidual": "blocked",
+      "expectedSignals": ["touches_governance", "public_surface_changed", "untested_change"],
       "expectedOutcome": "approved_with_edits",
       "diff": "diff --git a/scripts/trust/index.mjs b/scripts/trust/index.mjs\n--- a/scripts/trust/index.mjs\n+++ b/scripts/trust/index.mjs\n@@ -60,2 +60,3 @@ export {\n   compilePrDossier,\n+  newExportedSymbol,\n };\n"
     },

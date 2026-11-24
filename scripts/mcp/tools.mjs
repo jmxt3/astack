@@ -495,7 +495,11 @@ function handleDeclareIntent(args = {}) {
   if (!trustDir) {
     throw new Error("Could not resolve active trust directory");
   }
-  const conversationId = args.conversationId || "default";
+  const rawConv = args.conversationId === undefined || args.conversationId === null ? "" : String(args.conversationId).trim();
+  if (rawConv && (/[\\/\0]/.test(rawConv) || rawConv.includes("..") || rawConv === ".")) {
+    throw new Error("Invalid conversationId: path separators and traversal segments are forbidden");
+  }
+  const conversationId = rawConv || "default";
   const headSha = readHeadShaFast(workspaceDir);
   const { intent, targetPath } = recordIntentCard({
     trustDir,

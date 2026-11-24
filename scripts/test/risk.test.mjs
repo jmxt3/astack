@@ -33,7 +33,8 @@ test("assessChange computes noisy-OR score, category precedence, and all change 
   assert.equal(classifyFileCategory("sidecars/astack_timeline/sidecar.json"), "governance");
   assert.equal(classifyFileCategory("skills/review-pr/SKILL.md"), "skills");
   assert.equal(classifyFileCategory("scripts/cli/statusline.mjs"), "tooling");
-  assert.equal(classifyFileCategory("scripts/trust/index.mjs"), "core");
+  assert.equal(classifyFileCategory("scripts/trust/index.mjs"), "governance");
+  assert.equal(classifyFileCategory("scripts/mcp/tools.mjs"), "core");
   assert.equal(classifyFileCategory(".agents/risk-policy.json"), "governance");
   assert.equal(classifyDominantCategory(["README.md", "scripts/test/a.test.mjs", "sidecars/astack_timeline/app.js"]), "ui");
   assert.equal(classifyDominantCategory(["README.md", "hooks.json"]), "governance");

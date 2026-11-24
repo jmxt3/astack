@@ -323,13 +323,22 @@ function tryGit(cwd, args) {
 /**
  * Resolves the authoritative base ref for PR/base-branch reads without failing on detached or single-branch repos.
  */
-export function resolveBaseRef(workspaceDir, explicitBase) {
+export function resolveBaseRef(workspaceDir, explicitBase, { allowHeadFallback = false } = {}) {
   if (!workspaceDir || !fs.existsSync(workspaceDir)) return null;
   if (explicitBase) {
     const ok = tryGit(workspaceDir, ["rev-parse", "--verify", explicitBase]);
-    if (ok !== null) return explicitBase;
+    return ok !== null ? explicitBase : null;
   }
-  for (const candidate of ["origin/main", "main", "origin/master", "master", "HEAD~1", "HEAD"]) {
+  const symOriginHead = tryGit(workspaceDir, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])?.trim();
+  const candidates = [
+    ...(symOriginHead ? [symOriginHead] : []),
+    "origin/main",
+    "main",
+    "origin/master",
+    "master",
+    ...(allowHeadFallback ? ["HEAD~1", "HEAD"] : []),
+  ];
+  for (const candidate of candidates) {
     const ok = tryGit(workspaceDir, ["rev-parse", "--verify", candidate]);
     if (ok !== null) return candidate;
   }
@@ -627,11 +636,12 @@ function splitShellSegments(command) {
 }
 
 function unwrapShellInvocation(segment) {
-  const envPrefix = String.raw`(?:(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]+)\s+)*)(?:&\s+)?`;
+  const envPrefix = String.raw`(?:(?:(?:[^\s;|&]*[\\/])?env(?:\s+-[A-Za-z0-9]+)*\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]+)\s+)*)(?:&\s+)?`;
+  const binPrefix = String.raw`(?:[^\s;|&]*[\\/])?`;
   const patterns = [
-    new RegExp(String.raw`^${envPrefix}(?:sh|bash|zsh|dash)\b[^|;\n]*?\s-[a-zA-Z]*c\s+(?:"((?:\\.|[^"\\])*)"|'([^']*)')(?:\s+.*)?$`, "i"),
-    new RegExp(String.raw`^${envPrefix}(?:pwsh|powershell)(?:\.exe)?\b[^|;\n]*?\s-(?:c|Command)\s+(?:"((?:\\.|[^"\\])*)"|'([^']*)')(?:\s+.*)?$`, "i"),
-    new RegExp(String.raw`^${envPrefix}cmd(?:\.exe)?\b[^|;\n]*?\s\/c\s+(?:"([^"]*)"|'([^']*)'|([^\r\n|&;]+))$`, "i"),
+    new RegExp(String.raw`^${envPrefix}${binPrefix}(?:sh|bash|zsh|dash)\b[^|;\n]*?\s-[a-zA-Z]*c\s+(?:"((?:\\.|[^"\\])*)"|'([^']*)')(?:\s+.*)?$`, "i"),
+    new RegExp(String.raw`^${envPrefix}${binPrefix}(?:pwsh|powershell)(?:\.exe)?\b[^|;\n]*?\s-(?:c|Command)\s+(?:"((?:\\.|[^"\\])*)"|'([^']*)')(?:\s+.*)?$`, "i"),
+    new RegExp(String.raw`^${envPrefix}${binPrefix}cmd(?:\.exe)?\b[^|;\n]*?\s\/c\s+(?:"([^"]*)"|'([^']*)'|([^\r\n|&;]+))$`, "i"),
     new RegExp(String.raw`^${envPrefix}eval\s+(?:"((?:\\.|[^"\\])*)"|'([^']*)')(?:\s+.*)?$`, "i"),
   ];
   for (const regex of patterns) {

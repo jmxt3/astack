@@ -15,6 +15,8 @@ def quote_shell_arg(value: str) -> str:
     if any(ch in value for ch in ("\0", "\r", "\n")):
         raise ValueError("Shell argument contains unsupported control character")
     if os.name == "nt":
+        if any(ch in value for ch in ("%", "&", "|", "<", ">", "^")):
+            raise ValueError("Windows shell argument contains unsupported metacharacter")
         return "'" + value.replace("'", "''") + "'"
     return shlex.quote(value)
 

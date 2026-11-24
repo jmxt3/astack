@@ -1069,6 +1069,22 @@ test("security regressions: trust-gate blocks flag-prefixed cli.mjs, cd+cli.mjs,
     assert.equal(isProtectedTrustShellCommand("echo {} > $ASTACK_PLUGIN_DATA/trust/abc/settings.json", { dataDir }), true);
     assert.equal(isProtectedTrustShellCommand("echo {} > %ASTACK_PLUGIN_DATA%\\trust\\abc\\settings.json", { dataDir }), true);
     assert.equal(isProtectedTrustShellCommand("node scripts/trust/cli.mjs --cwd . status --json", { dataDir }), false);
+    assert.equal(isProtectedTrustShellCommand('node -e "console.log(1 + 1)"', { dataDir }), false);
+    assert.equal(isProtectedTrustShellCommand('/bin/bash -c "node scripts/trust/cli.mjs beast on"', { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand('env -i /bin/bash -c "node scripts/trust/cli.mjs promote ui"', { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand("node scripts/trust/./cli.mjs beast on", { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand("cd scripts/trust/internal && node ../cli.mjs beast on", { dataDir }), true);
+    assert.equal(
+      isProtectedTrustShellCommand('node -e "import(\'./scripts/trust/index.mjs\').then(m => m.applyTrustSettingsAction({}))"', { dataDir }),
+      true,
+    );
+    assert.equal(
+      isProtectedTrustShellCommand("python -c \"open('plugin-data/astack/trust/a/settings.json','w').write('{}')\"", { dataDir }),
+      true,
+    );
+    assert.equal(isProtectedTrustShellCommand("pwsh -EncodedCommand SQBFAFgA", { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand("T=trust; echo {} > /tmp/plugin-data/astack/$T/a/settings.json", { dataDir }), true);
+    assert.equal(isProtectedTrustShellCommand('echo {} > /tmp/plugin-data/astack/t"r"ust/a/settings.json', { dataDir }), true);
 
     const storeDir = resolveTrustStoreDir(scope.repoId, { dataDir });
     fs.mkdirSync(storeDir, { recursive: true });

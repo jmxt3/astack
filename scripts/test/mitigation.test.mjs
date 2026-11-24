@@ -75,9 +75,9 @@ test("classifyActionClass maps write, exec, push, PR, merge, deploy, external, a
 test("resolveResidual reduces score only with fresh HEAD mitigation receipts and keeps governance blocked", () => {
   const head = "a".repeat(40);
   const diff = [
-    "diff --git a/scripts/trust/index.mjs b/scripts/trust/index.mjs",
-    "--- a/scripts/trust/index.mjs",
-    "+++ b/scripts/trust/index.mjs",
+    "diff --git a/scripts/mcp/tools.mjs b/scripts/mcp/tools.mjs",
+    "--- a/scripts/mcp/tools.mjs",
+    "+++ b/scripts/mcp/tools.mjs",
     "@@ -1,2 +1,3 @@",
     " export const a = 1;",
     "+export const b = 2;",
@@ -110,6 +110,12 @@ test("resolveResidual reduces score only with fresh HEAD mitigation receipts and
   const govRaw = assessChange({ diffText: govDiff, headSha: head, action: "merge" });
   const govMit = resolveResidual(govRaw, freshReceipts, { headSha: head });
   assert.equal(govMit.residual, "blocked", "Governance changes must stay blocked regardless of receipts");
+
+  const trustGovDiff = "diff --git a/scripts/trust/index.mjs b/scripts/trust/index.mjs\n--- a/scripts/trust/index.mjs\n+++ b/scripts/trust/index.mjs\n@@ -1 +1 @@\n-export const a = 1;\n+export const a = 2;\n";
+  const trustGovRaw = assessChange({ diffText: trustGovDiff, headSha: head, action: "merge" });
+  const trustGovMit = resolveResidual(trustGovRaw, freshReceipts, { headSha: head });
+  assert.equal(trustGovRaw.category, "governance");
+  assert.equal(trustGovMit.residual, "blocked", "scripts/trust/** edits must stay blocked in governance regardless of receipts");
 });
 
 test("evidence-gate hook denies unverified gh pr merge and MCP merge_pull_request and allows once verified with rollback receipt", () => {

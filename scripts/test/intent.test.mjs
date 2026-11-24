@@ -118,11 +118,34 @@ test("MCP declare_intent tool persists Intent Card and rollback receipt in git r
       cwd: repo,
       artifactDir: artDir,
       conversationId: "conv-intent-mixed",
-      goal: "Update docs and trust core",
-      affectedGlobs: ["README.md", "scripts/trust/index.mjs"],
+      goal: "Update docs and MCP tools",
+      affectedGlobs: ["README.md", "scripts/mcp/tools.mjs"],
       rollbackPlan: "git revert HEAD",
     });
     assert.equal(mixedRes.structuredContent.intent.category, "core");
+
+    const govRes = dispatchToolCall("declare_intent", {
+      cwd: repo,
+      artifactDir: artDir,
+      conversationId: "conv-intent-gov",
+      goal: "Update docs and trust engine",
+      affectedGlobs: ["README.md", "scripts/trust/index.mjs"],
+      rollbackPlan: "git revert HEAD",
+    });
+    assert.equal(govRes.structuredContent.intent.category, "governance");
+
+    for (const badId of ["../escape", "/../../ledger", "..\\..\\evil"]) {
+      const badRes = dispatchToolCall("declare_intent", {
+        cwd: repo,
+        artifactDir: artDir,
+        conversationId: badId,
+        goal: "Attempt traversal",
+        affectedGlobs: ["index.js"],
+        rollbackPlan: "git revert HEAD",
+      });
+      assert.equal(badRes.isError, true, `Expected traversal rejection for ${badId}`);
+      assert.match(badRes.content[0].text, /Invalid conversationId/i);
+    }
   } finally {
     fs.rmSync(nonGit, { recursive: true, force: true });
     fs.rmSync(repo, { recursive: true, force: true });

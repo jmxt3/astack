@@ -43,12 +43,12 @@ const GOVERNANCE_GLOBS = [
   "REVIEW.md",
   "hooks.json",
   "scripts/hooks/**",
+  "scripts/trust/**",
   ".github/workflows/**",
   "sidecars/*/sidecar.json",
 ];
 
 const CORE_GLOBS = [
-  "scripts/trust/**",
   "scripts/mcp/server.mjs",
   "scripts/mcp/tools.mjs",
   "plugin.json",

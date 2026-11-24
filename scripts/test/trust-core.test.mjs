@@ -24,7 +24,9 @@ import {
   readHeadShaFast,
   readMergedReceipts,
   recordReceipt,
+  recordRollbackReceipt,
   recordVerifierReceipt,
+  resolveBaseRef,
   resolveGitDirs,
   resolveTrustDir,
   resolveWorkspaceScope,
@@ -197,6 +199,22 @@ test("evaluateRoundState, evaluateEvidenceGate, evaluateRoundLimit, and formatPi
     assert.match(rail, /2\. \[HUMAN GATE\] Implementation Plan/);
     assert.match(rail, /6\. \[HUMAN GATE\] Visual PR Review & Merge/);
     assert.equal(classifyCommandCategory("npm run test:trust"), "test");
+    assert.equal(classifyCommandCategory("node --run test:trust"), "test");
+    assert.equal(classifyCommandCategory("node --test scripts/test/risk.test.mjs"), "test");
+    assert.equal(
+      classifyCommandCategory(
+        "node --experimental-strip-types .agents/skills/verify-earned-trust-formal/scripts/verify-trust.ts --json",
+      ),
+      "verify",
+    );
+    assert.equal(classifyCommandCategory("node skills/review-pr/scripts/pr-dossier.mjs --json"), "verify");
+    assert.equal(classifyCommandCategory("node skills/audit-architecture/scripts/arch-audit.mjs --cwd . --strict"), "lint");
+    assert.equal(classifyCommandCategory("agy plugin validate --strict --json ."), "lint");
+    assert.equal(classifyCommandCategory("Get-ChildItem .agents/skills/verify-astack/features | Select-Object Name"), "other");
+    assert.equal(classifyCommandCategory("Select-String -Path x.log -Pattern validate-astack"), "other");
+    assert.equal(classifyCommandCategory("git grep arch-audit"), "other");
+    assert.equal(classifyCommandCategory("git show origin/main:REVIEW.md"), "other");
+    assert.equal(classifyCommandCategory('echo "node --test"'), "other");
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -225,6 +243,16 @@ test("parseHookPayload classifies read_file as tool-other and readMergedReceipts
     const merged = readMergedReceipts(tmp);
     assert.equal(merged.length, 1);
     assert.equal(merged[0].conversationId, "worker.1");
+
+    const trustSubDir = path.join(tmp, "sub", "astack-trust");
+    fs.mkdirSync(trustSubDir, { recursive: true });
+    for (const evilId of ["/../../escaped", "..\\..\\escaped", "../.."]) {
+      recordReceipt({ kind: "tool-command", conversationId: evilId, command: "node --test", error: "", workspaceDir: tmp }, { trustDir: trustSubDir, headSha: "b".repeat(40) });
+      recordVerifierReceipt({ trustDir: trustSubDir, conversationId: evilId, headSha: "b".repeat(40), verdict: "PASS" });
+      recordRollbackReceipt({ trustDir: trustSubDir, conversationId: evilId, headSha: "b".repeat(40), plan: "git revert HEAD" });
+    }
+    assert.equal(fs.existsSync(path.join(tmp, "escaped.jsonl")), false);
+    assert.equal(fs.existsSync(path.join(tmp, "sub", "escaped.jsonl")), false);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -748,6 +776,22 @@ test("resolveWorkspaceScope isolates non-git workspaces, derives worktree-stable
     });
     assert.ok(ghRec, "Allowlisted engineering MCP server must record receipts");
     assert.equal(ghRec.kind, "mcp");
+
+    assert.equal(resolveBaseRef(repoA, "nonexistent-ref"), null);
+    const branchOnly = fs.mkdtempSync(path.join(os.tmpdir(), "astack-branch-only-"));
+    try {
+      execFileSync("git", ["init", "-b", "feat/only"], { cwd: branchOnly, stdio: "ignore" });
+      execFileSync("git", ["config", "user.email", "t@t.com"], { cwd: branchOnly, stdio: "ignore" });
+      execFileSync("git", ["config", "user.name", "t"], { cwd: branchOnly, stdio: "ignore" });
+      fs.mkdirSync(path.join(branchOnly, ".agents"), { recursive: true });
+      fs.writeFileSync(path.join(branchOnly, ".agents", "risk-policy.json"), '{"schemaVersion":1}\n', "utf8");
+      execFileSync("git", ["add", ".agents/risk-policy.json"], { cwd: branchOnly, stdio: "ignore" });
+      execFileSync("git", ["commit", "-m", "feat only"], { cwd: branchOnly, stdio: "ignore" });
+      assert.equal(resolveBaseRef(branchOnly), null);
+      assert.equal(resolveWorkspaceScope(branchOnly).kind, "git_unregistered");
+    } finally {
+      fs.rmSync(branchOnly, { recursive: true, force: true });
+    }
   } finally {
     fs.rmSync(nonGit, { recursive: true, force: true });
     fs.rmSync(repoA, { recursive: true, force: true });

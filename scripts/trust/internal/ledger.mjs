@@ -9,6 +9,7 @@ import {
   resolveBaseRef,
   tokenizeSimpleWords,
 } from "./policy.mjs";
+import { sanitizeConversationId } from "./envelope.mjs";
 import { validatePrBodyContract } from "./pr-proof.mjs";
 import { readIntentCard } from "./intent.mjs";
 import { resolveGitDirs, resolveWorkspaceScope } from "./workspace-scope.mjs";
@@ -136,25 +137,196 @@ export function resolveTrustDir({ workspaceDir = "", artifactDir = null } = {}) 
   return null;
 }
 
-const TEST_CMD_REGEX =
-  /\b(?:node\s+--test|node\s+--run\s+test(?::[\w-]+)?|npm\s+(?:run\s+)?test(?::[\w-]+)?|pnpm\s+test|yarn\s+test|bun\s+test|vitest|jest|pytest|cargo\s+test|go\s+test|playwright\s+test)\b/i;
-const LINT_CMD_REGEX =
-  /\b(?:eslint|oxlint|biome|ruff|tsc\b|mypy|pyright|validate-astack|agy\s+plugin\s+validate|arch-audit)\b/i;
-const BUILD_CMD_REGEX =
-  /\b(?:tsc\s+-b|vite\s+build|next\s+build|cargo\s+build|go\s+build|npm\s+run\s+build)\b/i;
-const VERIFY_CMD_REGEX =
-  /\b(?:pr-dossier|statechart|control-ui|control-cli|verify-[\w-]+)\b/i;
+const CATEGORY_PRECEDENCE = { test: 4, verify: 3, lint: 2, build: 1, other: 0 };
+const READ_ONLY_SKIP_VERBS = new Set([
+  "cat",
+  "type",
+  "get-content",
+  "gc",
+  "head",
+  "tail",
+  "ls",
+  "dir",
+  "pwd",
+  "get-childitem",
+  "gci",
+  "select-object",
+  "select",
+  "select-string",
+  "sls",
+  "rg",
+  "ripgrep",
+  "grep",
+  "egrep",
+  "fgrep",
+  "findstr",
+  "stat",
+  "wc",
+  "test-path",
+  "echo",
+  "write-output",
+  "write-host",
+  "printf",
+  "measure-object",
+  "sort-object",
+  "where-object",
+  "out-null",
+  "out-host",
+  "format-table",
+  "remove-item",
+  "rm",
+  "del",
+  "mkdir",
+  "new-item",
+  "cd",
+  "set-location",
+  "sl",
+  "pushd",
+  "popd",
+  "true",
+  "false",
+  "which",
+  "where",
+  "command",
+]);
+const DIRECT_TEST_RUNNERS = new Set(["vitest", "jest", "pytest", "mocha", "ava", "tap", "rspec", "phpunit", "ctest"]);
+const DIRECT_VERIFY_RUNNERS = new Set(["pr-dossier", "statechart", "control-ui", "control-cli"]);
+const DIRECT_LINT_RUNNERS = new Set(["eslint", "oxlint", "biome", "ruff", "mypy", "pyright", "flake8", "shellcheck", "hadolint"]);
+const SCRIPT_RUNNERS = new Set(["node", "tsx", "ts-node", "deno", "bun", "python", "python3", "py", "bash", "sh", "pwsh", "powershell"]);
+const PKG_TEST_RUNNERS = new Set(["npm", "pnpm", "yarn", "bun"]);
+const EXEC_WRAPPERS = new Set(["npx", "pnpx", "bunx", "uv", "uvx"]);
+const NODE_VALUE_FLAGS = new Set(["-r", "--require", "--import", "--loader", "--env-file", "-C", "--conditions", "--title"]);
+const VERIFY_SCRIPT_RE = /^(?:pr-dossier|statechart|verify-[\w-]+|pr-verify-loop|run-eval|risk-backtest)\.(?:[cm]?[jt]sx?|py|sh)$/i;
+const LINT_SCRIPT_RE = /^(?:validate-astack|arch-audit)\.(?:[cm]?[jt]s)$/i;
+const TEST_FILE_RE = /\.(?:test|spec)\.[cm]?[jt]sx?$/i;
+
+function basenameNoExt(tok) {
+  return path.win32
+    .basename(String(tok ?? "").replace(/\//g, "\\"))
+    .toLowerCase()
+    .replace(/\.(?:exe|cmd|bat)$/, "");
+}
+
+function findNodeScriptArg(args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "-e" || arg === "--eval" || arg === "-p" || arg === "--print") {
+      return null;
+    }
+    if (NODE_VALUE_FLAGS.has(arg)) {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("-")) continue;
+    return arg;
+  }
+  return null;
+}
+
+function classifySingleSegment(segment) {
+  const rawTokens = tokenizeSimpleWords(segment)
+    .map((t) => t.replace(/[;}]+$/g, ""))
+    .filter(Boolean);
+  let idx = 0;
+  while (idx < rawTokens.length && (rawTokens[idx] === "&" || rawTokens[idx] === "{" || /^[A-Za-z_][A-Za-z0-9_]*=/.test(rawTokens[idx]))) {
+    idx++;
+  }
+  while (idx < rawTokens.length && rawTokens[idx].startsWith("-")) idx++;
+  if (idx >= rawTokens.length) return "other";
+
+  let verb = basenameNoExt(rawTokens[idx]);
+  let args = rawTokens.slice(idx + 1);
+  if (verb === "measure-command") {
+    let nextIdx = idx + 1;
+    while (nextIdx < rawTokens.length && (rawTokens[nextIdx] === "{" || rawTokens[nextIdx] === "&")) nextIdx++;
+    if (nextIdx >= rawTokens.length) return "other";
+    verb = basenameNoExt(rawTokens[nextIdx]);
+    args = rawTokens.slice(nextIdx + 1);
+  }
+
+  if (!verb || READ_ONLY_SKIP_VERBS.has(verb) || verb === "git") {
+    return "other";
+  }
+
+  if (DIRECT_TEST_RUNNERS.has(verb)) return "test";
+  if (DIRECT_VERIFY_RUNNERS.has(verb) || /^verify-[\w-]+$/.test(verb)) return "verify";
+  if (DIRECT_LINT_RUNNERS.has(verb)) return "lint";
+  if (verb === "playwright" && args.find((a) => !a.startsWith("-"))?.toLowerCase() === "test") return "test";
+
+  if (verb === "tsc") {
+    return args.some((a) => a === "-b" || a === "--build") ? "build" : "lint";
+  }
+  if (verb === "esbuild") return "build";
+  if ((verb === "vite" || verb === "next") && args.find((a) => !a.startsWith("-"))?.toLowerCase() === "build") {
+    return "build";
+  }
+  if (verb === "cargo" || verb === "go" || verb === "dotnet") {
+    const sub = args.find((a) => !a.startsWith("-"))?.toLowerCase();
+    if (sub === "test") return "test";
+    if (sub === "build") return "build";
+  }
+  if (verb === "agy") {
+    const pos = args.filter((a) => !a.startsWith("-")).map((a) => a.toLowerCase());
+    if (pos[0] === "plugin" && pos[1] === "validate") return "lint";
+  }
+
+  if (PKG_TEST_RUNNERS.has(verb)) {
+    const pos = args.filter((a) => !a.startsWith("-")).map((a) => a.toLowerCase());
+    if (pos[0] === "test" || pos[0] === "t") return "test";
+    if (pos[0] === "run" && pos[1]) {
+      if (/^test(?::[\w-]+)?$/.test(pos[1])) return "test";
+      if (/^(?:lint|typecheck|validate|arch-audit)$/.test(pos[1])) return "lint";
+      if (/^build(?::[\w-]+)?$/.test(pos[1])) return "build";
+    }
+  }
+
+  if (EXEC_WRAPPERS.has(verb)) {
+    const pos = args.filter((a) => !a.startsWith("-")).map((a) => a.toLowerCase());
+    const target = pos[0] === "run" ? pos[1] : pos[0];
+    const targetVerb = basenameNoExt(target);
+    if (DIRECT_TEST_RUNNERS.has(targetVerb) || (targetVerb === "playwright" && pos.includes("test"))) return "test";
+    if (DIRECT_VERIFY_RUNNERS.has(targetVerb) || /^verify-[\w-]+$/.test(targetVerb)) return "verify";
+    if (DIRECT_LINT_RUNNERS.has(targetVerb) || targetVerb === "validate-astack" || targetVerb === "arch-audit") {
+      return "lint";
+    }
+  }
+
+  if (SCRIPT_RUNNERS.has(verb)) {
+    if (verb === "node") {
+      if (args.includes("--test")) return "test";
+      const runIdx = args.indexOf("--run");
+      if (runIdx !== -1 && args[runIdx + 1]) {
+        const scriptName = args[runIdx + 1].toLowerCase();
+        if (/^test(?::[\w-]+)?$/.test(scriptName)) return "test";
+        if (/^(?:lint|typecheck|validate)$/.test(scriptName)) return "lint";
+        if (/^build(?::[\w-]+)?$/.test(scriptName)) return "build";
+      }
+    }
+    const scriptArg = verb === "node" ? findNodeScriptArg(args) : args.find((a) => !a.startsWith("-"));
+    if (scriptArg) {
+      const scriptBase = path.win32.basename(scriptArg.replace(/\//g, "\\"));
+      if (TEST_FILE_RE.test(scriptBase)) return "test";
+      if (VERIFY_SCRIPT_RE.test(scriptBase)) return "verify";
+      if (LINT_SCRIPT_RE.test(scriptBase)) return "lint";
+    }
+  }
+
+  return "other";
+}
 
 /**
- * Classifies a shell command string into a verification receipt category.
+ * Classifies a shell command string in command position into a verification receipt category without trusting read-only arguments.
  */
 export function classifyCommandCategory(command) {
   if (typeof command !== "string" || !command.trim()) return "other";
-  if (TEST_CMD_REGEX.test(command)) return "test";
-  if (VERIFY_CMD_REGEX.test(command)) return "verify";
-  if (LINT_CMD_REGEX.test(command)) return "lint";
-  if (BUILD_CMD_REGEX.test(command)) return "build";
-  return "other";
+  let best = "other";
+  for (const segment of collectLeafSegments(command)) {
+    const cat = classifySingleSegment(segment);
+    if ((CATEGORY_PRECEDENCE[cat] ?? 0) > (CATEGORY_PRECEDENCE[best] ?? 0)) {
+      best = cat;
+    }
+  }
+  return best;
 }
 
 function redactSummary(text) {
@@ -336,10 +508,11 @@ export function recordReceipt(event, options = {}) {
 
   const headSha = options.headSha ?? readHeadShaFast(event.workspaceDir);
   const shape = buildReceiptShape(event);
+  const { safeId, targetFile } = resolveSafeReceiptPath(trustDir, event.conversationId || "default");
   const entry = {
     schemaVersion: 1,
     ts: options.now ?? new Date().toISOString(),
-    conversationId: event.conversationId || "default",
+    conversationId: safeId,
     kind: shape.kind,
     category: shape.category,
     headSha,
@@ -351,9 +524,18 @@ export function recordReceipt(event, options = {}) {
   };
 
   fs.mkdirSync(trustDir, { recursive: true });
-  const targetFile = path.join(trustDir, `receipts.${entry.conversationId}.jsonl`);
   fs.appendFileSync(targetFile, `${JSON.stringify(entry)}\n`, "utf8");
   return entry;
+}
+
+function resolveSafeReceiptPath(trustDir, conversationId) {
+  const safeId = sanitizeConversationId(conversationId || "default");
+  const resolvedRoot = path.resolve(trustDir);
+  const targetFile = path.resolve(resolvedRoot, `receipts.${safeId}.jsonl`);
+  if (path.dirname(targetFile) !== resolvedRoot) {
+    throw new Error(`Invalid conversationId escaped trustDir: ${safeId}`);
+  }
+  return { safeId, targetFile };
 }
 
 /**
@@ -368,11 +550,12 @@ export function recordVerifierReceipt({
   now = new Date().toISOString(),
 }) {
   if (!trustDir) return null;
+  const { safeId, targetFile } = resolveSafeReceiptPath(trustDir, conversationId || "verifier");
   fs.mkdirSync(trustDir, { recursive: true });
   const entry = {
     schemaVersion: 1,
     ts: now,
-    conversationId,
+    conversationId: safeId,
     kind: "verifier",
     category: "verify",
     headSha,
@@ -382,7 +565,6 @@ export function recordVerifierReceipt({
     paths: findingsPath ? [findingsPath] : [],
     verdict,
   };
-  const targetFile = path.join(trustDir, `receipts.${conversationId}.jsonl`);
   fs.appendFileSync(targetFile, `${JSON.stringify(entry)}\n`, "utf8");
   return entry;
 }
@@ -399,11 +581,12 @@ export function recordRollbackReceipt({
   now = new Date().toISOString(),
 }) {
   if (!trustDir || typeof plan !== "string" || !plan.trim()) return null;
+  const { safeId, targetFile } = resolveSafeReceiptPath(trustDir, conversationId || "default");
   fs.mkdirSync(trustDir, { recursive: true });
   const entry = {
     schemaVersion: 1,
     ts: now,
-    conversationId,
+    conversationId: safeId,
     kind: "rollback",
     category: "verify",
     headSha,
@@ -414,7 +597,6 @@ export function recordRollbackReceipt({
     rollbackKind: kind,
     plan: plan.trim(),
   };
-  const targetFile = path.join(trustDir, `receipts.${conversationId}.jsonl`);
   fs.appendFileSync(targetFile, `${JSON.stringify(entry)}\n`, "utf8");
   return entry;
 }

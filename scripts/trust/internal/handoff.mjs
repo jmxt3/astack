@@ -75,8 +75,30 @@ const SHELL_WRITE_OPERATOR_RE = /(?:>>?|\|\s*tee\b|\bSet-Content\b|\bAdd-Content
 const TRUST_STORE_HINT_RE =
   /(?:plugin-data[\\/]+astack[\\/]+trust|(?:\$\{?|%|\$env:)(?:ASTACK_PLUGIN_DATA|ANTIGRAVITY_PLUGIN_DATA|PLUGIN_DATA)[}%]?[\\/]+trust)/i;
 
+const INTERPRETER_VERBS = new Set([
+  "node",
+  "deno",
+  "bun",
+  "python",
+  "python3",
+  "py",
+  "perl",
+  "ruby",
+]);
+const PWSH_ENCODED_FLAG_RE =
+  /^-(?:e|en|enc|enco|encod|encode|encoded|encodedc|encodedco|encodedcom|encodedcomm|encodedcomma|encodedcomman|encodedcommand)$/i;
+const PROTECTED_INLINE_CODE_RE =
+  /(?:plugin-data[\\/]astack[\\/]trust|scripts[\\/]trust|\bsettings\.json\b|\bledger\.jsonl\b|\bcli\.mjs\b|\bapplyTrustSettingsAction\b|\bappendOutcome\b|\bwriteTrustSettingsAtomic\b)/i;
+const TAINTED_VAR_VALUE_RE = /(?:trust|plugin-data|settings\.json|ledger\.jsonl|cli\.mjs)/i;
+
 function normalizePosixLower(value) {
   return String(value ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function normalizeShellTokenPath(tok) {
+  const unquoted = String(tok ?? "").replace(/["']/g, "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!unquoted) return "";
+  return path.posix.normalize(unquoted).toLowerCase();
 }
 
 function getLeadingVerb(tokens) {
@@ -85,7 +107,7 @@ function getLeadingVerb(tokens) {
   while (idx < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[idx])) idx++;
   while (idx < tokens.length && tokens[idx].startsWith("-")) idx++;
   if (idx >= tokens.length) return "";
-  return path.win32.basename(tokens[idx].replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
+  return path.win32.basename(tokens[idx].replace(/["']/g, "").replace(/\//g, "\\")).toLowerCase().replace(/\.exe$/, "");
 }
 
 function hasMutatingTrustCliSubcommand(tokens, scriptIdx) {
@@ -111,51 +133,90 @@ export function isProtectedTrustShellCommand(command, options = {}) {
   const resolvedTrustRoot = normalizePosixLower(
     path.resolve(path.join(resolvePluginDataDir(options), "trust")),
   );
-  let cdIntoTrustDir = false;
+  let cdDir = "";
+  const taintedVars = new Set();
 
   for (const segment of collectLeafSegments(raw)) {
     const tokens = tokenizeSimpleWords(segment);
     if (tokens.length === 0) continue;
 
     const verb = getLeadingVerb(tokens);
-    if (verb === "cd" || verb === "set-location" || verb === "sl" || verb === "pushd") {
-      const targetArg = tokens.slice(1).find((t) => !t.startsWith("-"));
-      if (targetArg) {
-        const normTarget = normalizePosixLower(targetArg);
-        if (normTarget.endsWith("scripts/trust") || normTarget.endsWith("/trust") || normTarget === "trust") {
-          cdIntoTrustDir = true;
+    const pureRead = READ_ONLY_VERBS.has(verb) && !SHELL_WRITE_OPERATOR_RE.test(segment);
+
+    for (const tok of tokens) {
+      const assign = tok.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.+)$/);
+      if (assign) {
+        const valNorm = assign[2].replace(/["']/g, "").replace(/\\/g, "/").toLowerCase();
+        if (TAINTED_VAR_VALUE_RE.test(valNorm) || (resolvedTrustRoot && valNorm.includes(resolvedTrustRoot))) {
+          taintedVars.add(assign[1]);
         }
       }
     }
 
-    for (let i = 0; i < tokens.length; i++) {
-      const cleanTok = normalizePosixLower(tokens[i]);
-      const isDirectTrustCli =
-        cleanTok.endsWith("scripts/trust/cli.mjs") ||
-        cleanTok.endsWith("/trust/cli.mjs") ||
-        cleanTok === "trust/cli.mjs";
-      const isCdTrustCli = cdIntoTrustDir && (cleanTok === "cli.mjs" || cleanTok === "./cli.mjs");
-      if (isDirectTrustCli || isCdTrustCli) {
-        if (hasMutatingTrustCliSubcommand(tokens, i)) {
+    if ((verb === "pwsh" || verb === "powershell") && tokens.some((t) => PWSH_ENCODED_FLAG_RE.test(t))) {
+      return true;
+    }
+
+    if (
+      INTERPRETER_VERBS.has(verb) &&
+      tokens.some((t) => /^-(?:e|p|c|-eval|-print)$/i.test(t) || /^--(?:eval|print)=/i.test(t))
+    ) {
+      const unquotedSeg = segment.replace(/["']/g, "");
+      if (
+        PROTECTED_INLINE_CODE_RE.test(unquotedSeg) ||
+        (resolvedTrustRoot && normalizePosixLower(unquotedSeg).includes(resolvedTrustRoot))
+      ) {
+        return true;
+      }
+    }
+
+    if (!pureRead && taintedVars.size > 0) {
+      const unquotedSeg = segment.replace(/["']/g, "");
+      for (const v of taintedVars) {
+        const varRefRe = new RegExp(`(?:\\$\\{?${v}\\}?|\\$env:${v}\\b|%${v}%)`, "i");
+        if (varRefRe.test(unquotedSeg)) {
           return true;
         }
       }
     }
 
-    const normSeg = normalizePosixLower(segment);
-    const touchesResolvedDir = Boolean(resolvedTrustRoot && normSeg.includes(resolvedTrustRoot));
-    const touchesHint = TRUST_STORE_HINT_RE.test(segment);
-    const touchesTokenPath = tokens.some(
-      (tok) =>
-        (tok.includes("/") || tok.includes("\\")) &&
-        isProtectedTrustStorePath(tok, {
+    if (verb === "cd" || verb === "set-location" || verb === "sl" || verb === "pushd") {
+      const targetArg = tokens.slice(1).find((t) => !t.startsWith("-"));
+      if (targetArg) {
+        const normTarget = normalizeShellTokenPath(targetArg);
+        cdDir = normTarget.startsWith("/") || !cdDir ? normTarget : path.posix.normalize(`${cdDir}/${normTarget}`);
+      }
+    }
+
+    for (let i = 0; i < tokens.length; i++) {
+      const cleanTok = normalizeShellTokenPath(tokens[i]);
+      const joinedTok = cdDir && !cleanTok.startsWith("/") ? path.posix.normalize(`${cdDir}/${cleanTok}`) : cleanTok;
+      const isTrustCli =
+        cleanTok.endsWith("scripts/trust/cli.mjs") ||
+        cleanTok.endsWith("/trust/cli.mjs") ||
+        cleanTok === "trust/cli.mjs" ||
+        joinedTok.endsWith("scripts/trust/cli.mjs") ||
+        joinedTok.endsWith("/trust/cli.mjs");
+      if (isTrustCli && hasMutatingTrustCliSubcommand(tokens, i)) {
+        return true;
+      }
+    }
+
+    const unquotedNormSeg = normalizePosixLower(segment.replace(/["']/g, ""));
+    const touchesResolvedDir = Boolean(resolvedTrustRoot && unquotedNormSeg.includes(resolvedTrustRoot));
+    const touchesHint = TRUST_STORE_HINT_RE.test(segment) || TRUST_STORE_HINT_RE.test(segment.replace(/["']/g, ""));
+    const touchesTokenPath = tokens.some((tok) => {
+      const clean = normalizeShellTokenPath(tok);
+      return (
+        (clean.includes("/") || tok.includes("\\")) &&
+        isProtectedTrustStorePath(tok.replace(/["']/g, ""), {
           dataDir: options.dataDir,
           workspaceDir: options.workspaceDir,
-        }),
-    );
+        })
+      );
+    });
 
     if (touchesResolvedDir || touchesHint || touchesTokenPath) {
-      const pureRead = READ_ONLY_VERBS.has(verb) && !SHELL_WRITE_OPERATOR_RE.test(segment);
       if (!pureRead) {
         return true;
       }
@@ -314,28 +375,35 @@ export function evaluateTrustGate(event, options = {}) {
     return { decision: "allow" };
   }
 
-  if (
-    event.kind === "tool-write" &&
-    isProtectedTrustStorePath(event.filePath, {
-      dataDir: options.dataDir,
-      workspaceDir: event.workspaceDir,
-    })
-  ) {
+  try {
+    if (
+      event.kind === "tool-write" &&
+      isProtectedTrustStorePath(event.filePath, {
+        dataDir: options.dataDir,
+        workspaceDir: event.workspaceDir,
+      })
+    ) {
+      return {
+        decision: "deny",
+        reason: "AStack trust-gate: agent writes to protected trust ledger or human settings are forbidden.",
+      };
+    }
+    if (
+      event.kind === "tool-command" &&
+      isProtectedTrustShellCommand(event.command, {
+        dataDir: options.dataDir,
+        workspaceDir: event.workspaceDir,
+      })
+    ) {
+      return {
+        decision: "deny",
+        reason: "AStack trust-gate: shell commands modifying protected trust ledger or human settings are forbidden.",
+      };
+    }
+  } catch {
     return {
       decision: "deny",
-      reason: "AStack trust-gate: agent writes to protected trust ledger or human settings are forbidden.",
-    };
-  }
-  if (
-    event.kind === "tool-command" &&
-    isProtectedTrustShellCommand(event.command, {
-      dataDir: options.dataDir,
-      workspaceDir: event.workspaceDir,
-    })
-  ) {
-    return {
-      decision: "deny",
-      reason: "AStack trust-gate: shell commands modifying protected trust ledger or human settings are forbidden.",
+      reason: "AStack trust-gate: failed closed while checking protected trust store boundary.",
     };
   }
 

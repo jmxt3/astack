@@ -542,6 +542,28 @@ function isLoopbackHostHeader(hostHeader, boundPort) {
   return Number(parsed.port) === boundPort;
 }
 
+function isLoopbackOriginHeader(originHeader, boundPort) {
+  if (originHeader === undefined || originHeader === "") return true;
+  if (typeof originHeader !== "string") return false;
+  const raw = originHeader.trim();
+  if (!raw || raw === "null" || /\s/.test(raw)) return false;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" || parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) {
+    return false;
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname !== "127.0.0.1" && hostname !== "localhost" && hostname !== "[::1]") {
+    return false;
+  }
+  if (!parsed.port) return boundPort === 80;
+  return Number(parsed.port) === boundPort;
+}
+
 function writeJsonResponse(res, status, payload, isHead = false) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
   res.end(isHead ? "" : JSON.stringify(payload));
@@ -609,8 +631,20 @@ export async function createTimelineServer(options = {}) {
         writeJsonResponse(res, 405, { error: "Method not allowed" }, isHead);
         return;
       }
-      if (!isTokenAuthorized(req, reqUrl, token)) {
+      if (
+        String(req.headers["sec-fetch-site"] ?? "").trim().toLowerCase() === "cross-site" ||
+        !isLoopbackOriginHeader(req.headers.origin, activePort)
+      ) {
+        writeJsonResponse(res, 403, { error: "Forbidden origin" }, false);
+        return;
+      }
+      if (!token || !isTokenAuthorized(req, reqUrl, token)) {
         writeJsonResponse(res, 401, { error: "Unauthorized" }, false);
+        return;
+      }
+      const contentType = String(req.headers["content-type"] ?? "").trim();
+      if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+        writeJsonResponse(res, 415, { error: "Content-Type must be application/json" }, false);
         return;
       }
       try {

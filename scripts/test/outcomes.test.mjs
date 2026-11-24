@@ -204,6 +204,24 @@ test("scripts/trust/cli.mjs and Timeline POST /api/trust/settings manage setting
     });
     assert.equal(unauthPost.status, 401);
 
+    const noTokenSrv = await createTimelineServer({
+      brainDir,
+      workspaceDir: repo,
+      dataDir,
+      token: "",
+      port: 0,
+    });
+    try {
+      const emptyTokPost = await fetch(`${noTokenSrv.url}api/trust/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ beastOn: false }),
+      });
+      assert.equal(emptyTokPost.status, 401, "Empty token server must fail closed on POST /api/trust/settings");
+    } finally {
+      await noTokenSrv.close();
+    }
+
     const headers = { "Content-Type": "application/json", "X-Sidecar-Token": "trust-secret-token" };
     const promoRes = await fetch(`${srv.url}api/trust/settings`, {
       method: "POST",

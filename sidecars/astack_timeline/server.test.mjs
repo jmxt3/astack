@@ -647,6 +647,38 @@ test("POST /api/trust/settings enforces auth, method, size limits, enrollment, a
   try {
     const authHeaders = { "Content-Type": "application/json", "X-Sidecar-Token": "trust-tok" };
     assert.equal((await fetch(`${srv.url}api/trust/settings`, { method: "POST", body: "{}" })).status, 401);
+    assert.equal(
+      (await fetch(`${srv.url}api/trust/settings`, {
+        method: "POST",
+        headers: { ...authHeaders, Origin: "https://evil.example" },
+        body: JSON.stringify({ beastOn: true }),
+      })).status,
+      403,
+    );
+    assert.equal(
+      (await fetch(`${srv.url}api/trust/settings`, {
+        method: "POST",
+        headers: { ...authHeaders, "Sec-Fetch-Site": "cross-site" },
+        body: JSON.stringify({ beastOn: true }),
+      })).status,
+      403,
+    );
+    assert.equal(
+      (await fetch(`${srv.url}api/trust/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain", "X-Sidecar-Token": "trust-tok" },
+        body: JSON.stringify({ beastOn: true }),
+      })).status,
+      415,
+    );
+    assert.equal(
+      (await fetch(`${srv.url}api/trust/settings`, {
+        method: "POST",
+        headers: { ...authHeaders, Origin: `http://127.0.0.1:${srv.port}` },
+        body: JSON.stringify({ beastOn: false, conversationId: convId }),
+      })).status,
+      200,
+    );
     assert.equal((await fetch(`${srv.url}api/trust/settings`, { method: "GET", headers: authHeaders })).status, 405);
     assert.equal(
       (await fetch(`${srv.url}api/trust/settings`, { method: "POST", headers: authHeaders, body: "x".repeat(20_000) })).status,
