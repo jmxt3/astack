@@ -966,7 +966,6 @@
       const statusText = mode === "done" ? "Done" : mode === "stale" ? "Stale" : mode === "run" ? "Next up" : "Pending";
       if (sub.detail) {
         seg.tabIndex = 0;
-        seg.title = sub.detail;
         attachStatusPopover(seg, title, statusText, mode, sub.detail);
       }
       seg.appendChild(bar);
@@ -1988,7 +1987,6 @@
         };
       }
       progressEl.tabIndex = 0;
-      progressEl.title = state.progressPopover.desc;
     }
     applyLiveStatus(snap);
 
@@ -2055,7 +2053,6 @@
         if (part.testId) node.dataset.testid = part.testId;
         if (part.popDesc) {
           node.tabIndex = 0;
-          node.title = part.popDesc;
           attachStatusPopover(node, part.popTitle, part.popStatus, part.popMode, part.popDesc);
         }
         metaRow.appendChild(node);
