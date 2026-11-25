@@ -1199,7 +1199,14 @@
     if (subagents.length > 0) {
       const wrap = el("div", "");
       const runningN = act.runningSubagentsCount || 0;
-      const metaText = runningN > 0 ? `${runningN}/${subagents.length} running` : `${subagents.length} done`;
+      const failedN = subagents.filter((a) => a.status === "failed").length;
+      const doneN = act.doneSubagentsCount ?? subagents.filter((a) => a.status === "done").length;
+      const metaText =
+        runningN > 0
+          ? `${runningN}/${subagents.length} running`
+          : failedN > 0
+            ? `${doneN} done, ${failedN} failed`
+            : `${doneN} done`;
       const meta = el("span", "sub-accordion-meta", metaText);
       const { btn, isOpen } = makeSubAccordionHeader("helpers", "orbit", "Subagents", meta);
       btn.dataset.testid = "accordion-subagents";
