@@ -488,7 +488,7 @@ test("createTimelineServer reports nextAction.inProgress when /plan is active be
     assert.equal(appRes.status, 200);
     assert.equal(cssRes.status, 200);
     const [appJs, cssText] = await Promise.all([appRes.text(), cssRes.text()]);
-    assert.match(appJs, /snap\.branch !== snap\.workspaceName/);
+    assert.doesNotMatch(appJs, /snap\.branch !== snap\.workspaceName/);
     assert.match(appJs, /timeline-risk-badge/);
     assert.match(appJs, /timeline-freshness/);
     assert.match(appJs, /build-stale-callout/);

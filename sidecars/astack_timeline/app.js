@@ -2439,11 +2439,6 @@
     };
 
     const metaParts = [];
-    if (snap.workspaceName) {
-      const repoLabel =
-        snap.branch && snap.branch !== snap.workspaceName ? `${snap.workspaceName} (${snap.branch})` : snap.workspaceName;
-      metaParts.push({ text: repoLabel });
-    }
     if (snap.riskTier !== null && snap.riskTier !== undefined) {
       const riskWord = RISK_TITLES[snap.riskTier] || `Tier ${snap.riskTier}`;
       const raScore = typeof snap.trust?.riskAssessment?.score === "number" ? snap.trust.riskAssessment.score : null;
@@ -2489,9 +2484,10 @@
     }
     const setupReady = snap.setup?.status === "ready";
     const isNonRepo = snap.trust?.scopeKind === "non_repo" && Boolean(snap.workspace) && !setupReady;
+    const hasTrustBadge = Boolean(snap.trust?.enrolled || snap.trust?.scopeKind === "git_unregistered");
     const metaRow = document.getElementById("meta-row");
     metaRow.replaceChildren();
-    if (!isNonRepo && (metaParts.length > 0 || setupReady)) {
+    if (!isNonRepo && (metaParts.length > 0 || setupReady || hasTrustBadge)) {
       metaRow.classList.remove("hidden");
       metaParts.forEach((part, idx) => {
         if (idx > 0) metaRow.appendChild(el("span", "meta-sep", "·"));
