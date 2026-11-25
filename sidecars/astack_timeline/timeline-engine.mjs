@@ -869,6 +869,23 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
             sch.active = false;
           }
         }
+        for (const sch of sig.schedules) {
+          if (
+            sch.active &&
+            !sch.cronExpression &&
+            sch.timerCondition &&
+            (sch.timerCondition === "any" || sch.timerCondition === sender)
+          ) {
+            sch.active = false;
+            if (sch.taskId && bgJobByTaskId.has(sch.taskId)) {
+              const linkedJob = bgJobByTaskId.get(sch.taskId);
+              if (linkedJob && linkedJob.status === "running") {
+                linkedJob.status = "stopped";
+                linkedJob.completedAt = marker.ts;
+              }
+            }
+          }
+        }
         if (bgJobByTaskId.has(sender)) {
           const job = bgJobByTaskId.get(sender);
           if (job && job.status === "running") {
@@ -896,13 +913,56 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         }
       }
 
-      for (const m of step.content.matchAll(/"conversationId"\s*:\s*"([0-9a-f-]{8,})"/gi)) {
-        const cid = m[1];
-        sig.childConvIds.add(cid);
-        if (pendingSubagentIndices.length > 0) {
-          const idx = pendingSubagentIndices.shift();
+      const cids = [...step.content.matchAll(/"conversationId"\s*:\s*"([0-9a-f-]{8,})"/gi)].map((m) => m[1]);
+      if (cids.length > 0) {
+        if (cids.length === 1 && shiftedTool?.kind === "subagent" && sig.subagents[shiftedTool.subagentIndex]) {
+          const cid = cids[0];
+          const idx = shiftedTool.subagentIndex;
+          sig.childConvIds.add(cid);
           sig.subagents[idx].childConvId = cid;
           subagentByConvId.set(cid, idx);
+          const pos = pendingSubagentIndices.indexOf(idx);
+          if (pos !== -1) pendingSubagentIndices.splice(pos, 1);
+        } else {
+          for (const cid of cids) {
+            sig.childConvIds.add(cid);
+            if (pendingSubagentIndices.length > 0) {
+              const idx = pendingSubagentIndices.shift();
+              sig.subagents[idx].childConvId = cid;
+              subagentByConvId.set(cid, idx);
+            }
+          }
+        }
+      } else if (step.status === "ERROR" || /Encountered error in step execution:/i.test(step.content)) {
+        if (shiftedTool?.kind === "subagent" && sig.subagents[shiftedTool.subagentIndex]) {
+          const idx = shiftedTool.subagentIndex;
+          sig.subagents[idx].status = "failed";
+          sig.subagents[idx].completedAt = marker.ts;
+          const pos = pendingSubagentIndices.indexOf(idx);
+          if (pos !== -1) pendingSubagentIndices.splice(pos, 1);
+        } else if (/subagent/i.test(step.content) && pendingSubagentIndices.length > 0) {
+          const idx = pendingSubagentIndices.shift();
+          sig.subagents[idx].status = "failed";
+          sig.subagents[idx].completedAt = marker.ts;
+        }
+      }
+
+      if (
+        (shiftedTool?.kind === "manage_task" &&
+          shiftedTool.action === "list" &&
+          /No background tasks are currently running/i.test(step.content)) ||
+        /^\s*No background tasks are currently running\.?\s*$/im.test(step.content)
+      ) {
+        for (const sch of sig.schedules) {
+          if (sch.active && !sch.isDaemon) {
+            sch.active = false;
+          }
+        }
+        for (const job of bgJobByTaskId.values()) {
+          if (job.status === "running" && !job.isDaemon) {
+            job.status = "done";
+            job.completedAt = marker.ts;
+          }
         }
       }
       const harnessHeader = step.content.split(/\r?\nCommand output:\r?\n/)[0];
@@ -947,6 +1007,8 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
             status: "running",
             isDaemon: Boolean(toolMeta?.isDaemon),
             isCron: Boolean(toolMeta?.isCron),
+            timerCondition: toolMeta?.timerCondition || matchedSchedule?.timerCondition || null,
+            prNumbers: toolMeta?.prNumbers || matchedSchedule?.prNumbers || extractPrReferences(cmdText).map((r) => r.number),
           });
         }
       }
@@ -996,50 +1058,12 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
       continue;
     }
     lastToolNames = new Set(step.tool_calls.map((tc) => String(tc?.name ?? "")).filter(Boolean));
-    pendingToolQueue = step.tool_calls.map((tc) => {
-      const tName = String(tc?.name ?? "");
-      const tArgs = tc?.args && typeof tc.args === "object" ? tc.args : {};
-      if (tName === "run_command") {
-        const c = unquoteArg(tArgs.CommandLine || tArgs.commandLine || tArgs.command);
-        const s = unquoteArg(tArgs.toolSummary || tArgs.Description);
-        return {
-          kind: "command",
-          title: s ? summarizeText(s, 72) : summarizeText(c, 64),
-          cmd: c,
-          isDaemon: parseBoolArg(tArgs.IsDaemon),
-          isCron: false,
-          ts: marker.ts,
-        };
-      }
-      if (tName === "schedule") {
-        const prm = unquoteArg(tArgs.Prompt);
-        const cron = unquoteArg(tArgs.CronExpression);
-        return {
-          kind: "schedule",
-          title: summarizeText(prm, 72) || "Scheduled check",
-          cmd: prm,
-          isDaemon: parseBoolArg(tArgs.IsDaemon),
-          isCron: Boolean(cron),
-          ts: marker.ts,
-        };
-      }
-      if (tName === "run_workflow") {
-        const desc = unquoteArg(tArgs.Description || tArgs.ScriptPath);
-        return {
-          kind: "workflow",
-          title: summarizeText(desc, 72) || "Workflow run",
-          cmd: desc,
-          isDaemon: false,
-          isCron: false,
-          ts: marker.ts,
-        };
-      }
-      return { kind: "other" };
-    });
+    pendingToolQueue = [];
 
     for (const tc of step.tool_calls) {
       const name = String(tc?.name ?? "");
       const args = tc?.args && typeof tc.args === "object" ? tc.args : {};
+      let queuedMeta = { kind: "other" };
 
       if (FILE_READ_TOOLS.has(name)) {
         const p = targetPathOf(args);
@@ -1126,8 +1150,10 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
           status: "running",
           order,
         };
-        pendingSubagentIndices.push(sig.subagents.length);
+        const subagentIndex = sig.subagents.length;
+        pendingSubagentIndices.push(subagentIndex);
         sig.subagents.push(entry);
+        queuedMeta = { kind: "subagent", subagentIndex, ts: marker.ts };
       } else if (name === "manage_subagents") {
         const act = unquoteArg(args.Action).toLowerCase();
         if (act === "kill_all") {
@@ -1219,14 +1245,26 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
           sig.workflow.stageId = inferTaskStageId(wfText, { hasWorkspaceWrite: Boolean(sig.latestWorkspaceWriteAt) });
         }
         pendingWorkflowRun = true;
+        const wfDesc = unquoteArg(args.Description || args.ScriptPath);
+        queuedMeta = {
+          kind: "workflow",
+          title: summarizeText(wfDesc, 72) || "Workflow run",
+          cmd: wfDesc,
+          isDaemon: false,
+          isCron: false,
+          ts: marker.ts,
+        };
       } else if (name === "schedule") {
         sig.detected.add("/schedule");
         const dur = parseIntArg(args.DurationSeconds);
         const cron = unquoteArg(args.CronExpression);
         const promptText = unquoteArg(args.Prompt);
+        const isDaemon = parseBoolArg(args.IsDaemon);
+        const timerCondition = unquoteArg(args.TimerCondition) || null;
         const prRefs = extractPrReferences(promptText);
         for (const prRef of prRefs) upsertPrEntry(sig.prs, prRef, { ts: marker.ts });
         const prRef = prRefs[0] ?? null;
+        const prNumbers = prRefs.map((r) => r.number);
         const label = /watch-pr/i.test(promptText)
           ? prRef
             ? `watch-pr.mjs --pr ${prRef.number}`
@@ -1238,16 +1276,32 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
           id: `sch-${sig.schedules.length}`,
           taskId: null,
           label,
+          prompt: promptText,
           cadence: formatCadenceLabel(dur, cron),
           stageId,
           startedAt: marker.ts,
           nextAt: computeScheduleNextAt(marker, dur, cron),
           durationSeconds: dur,
           cronExpression: cron || null,
+          isDaemon,
+          timerCondition,
+          prNumbers,
           active: true,
         });
+        queuedMeta = {
+          kind: "schedule",
+          title: summarizeText(promptText, 72) || "Scheduled check",
+          cmd: promptText,
+          isDaemon,
+          isCron: Boolean(cron),
+          timerCondition,
+          prNumbers,
+          ts: marker.ts,
+        };
       } else if (name === "manage_task") {
-        if (unquoteArg(args.Action).toLowerCase() === "kill") {
+        const manageAction = unquoteArg(args.Action).toLowerCase();
+        queuedMeta = { kind: "manage_task", action: manageAction };
+        if (manageAction === "kill") {
           const tid = unquoteArg(args.TaskId);
           if (tid && scheduleTaskMap.has(tid)) {
             sig.schedules[scheduleTaskMap.get(tid)].active = false;
@@ -1260,6 +1314,15 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         }
       } else if (name === "run_command") {
         const cmd = unquoteArg(args.CommandLine || args.commandLine || args.command);
+        const cmdSummary = unquoteArg(args.toolSummary || args.Description);
+        queuedMeta = {
+          kind: "command",
+          title: cmdSummary ? summarizeText(cmdSummary, 72) : summarizeText(cmd, 64),
+          cmd,
+          isDaemon: parseBoolArg(args.IsDaemon),
+          isCron: false,
+          ts: marker.ts,
+        };
         const createdTitle = extractGhPrCreateTitle(cmd);
         if (createdTitle) pendingPrTitle = createdTitle;
         for (const prRef of extractPrReferences(cmd)) {
@@ -1298,6 +1361,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
         sig.detected.add("pr-dossier.mjs");
       }
+      pendingToolQueue.push(queuedMeta);
     }
   }
 
@@ -1964,7 +2028,13 @@ function buildStageCollapsedSummary(stage, pr, prs, shipped, { railState = null,
   return stage.summary;
 }
 
-function buildSuggestedReview(reviewStage, changedFilesCount) {
+function buildSuggestedReview(reviewStage, changedFilesCount, { shipped = false } = {}) {
+  if (reviewStage.status === "done" || reviewStage.status === "skipped") {
+    return null;
+  }
+  if (shipped && reviewStage.status !== "stale" && reviewStage.status !== "active") {
+    return null;
+  }
   if (reviewStage.status !== "stale" && reviewStage.status !== "next" && changedFilesCount < 2) {
     return null;
   }
@@ -1977,6 +2047,91 @@ function buildSuggestedReview(reviewStage, changedFilesCount) {
   };
 }
 
+const DEFECT_RISK_SIGNALS = new Set([
+  "test_regression",
+  "deletes_assertions",
+  "bundled_sidecar_permissions",
+  "scope_drift",
+]);
+
+function buildRiskPresentation(riskAssessment, { prItems = [], reviewStage = null } = {}) {
+  if (!riskAssessment) return null;
+  const scoreNum = Number(riskAssessment.score ?? 0);
+  const scoreText = scoreNum.toFixed(2);
+  const whyItems = (riskAssessment.signals || []).map((s) => ({
+    id: s.id,
+    weightPct: Math.round((s.weight ?? 0) * 100),
+    evidence: String(s.evidence ?? "").trim(),
+    isDefect: DEFECT_RISK_SIGNALS.has(s.id),
+    isHard: s.id === "touches_governance" || DEFECT_RISK_SIGNALS.has(s.id),
+  }));
+  const rollbackCommand =
+    riskAssessment.rollback?.kind &&
+    riskAssessment.rollback.kind !== "none" &&
+    riskAssessment.rollback?.plan
+      ? String(riskAssessment.rollback.plan).trim()
+      : null;
+  const mergedPrs = prItems.filter((p) => p.state === "merged");
+  const allMerged =
+    prItems.length > 0 &&
+    mergedPrs.length === prItems.length &&
+    reviewStage?.status === "done";
+  const hasDefect = whyItems.some((s) => s.isDefect) || reviewStage?.status === "error";
+
+  if (allMerged) {
+    return {
+      mode: "resolved_merged",
+      tone: "done",
+      headerBadge: `Merged · R ${scoreText}`,
+      headline:
+        mergedPrs.length === 1
+          ? `Reviewed & merged (PR #${mergedPrs[0].number})`
+          : `Reviewed & merged (${mergedPrs.length} PRs)`,
+      nextHint: "No action needed. Checks and human review finished before merge.",
+      whyItems,
+      rollbackCommand,
+    };
+  }
+  if (
+    hasDefect ||
+    (riskAssessment.residual === "blocked" && !whyItems.some((s) => s.id === "touches_governance"))
+  ) {
+    return {
+      mode: "defect_blocked",
+      tone: "err",
+      headerBadge: null,
+      headline: `Action needed (R ${scoreText})`,
+      nextHint: "Fix the flagged issue above and re-run verification on HEAD.",
+      whyItems,
+      rollbackCommand,
+    };
+  }
+  if (
+    riskAssessment.residual === "blocked" ||
+    riskAssessment.residual === "high" ||
+    riskAssessment.residual === "medium"
+  ) {
+    return {
+      mode: "human_gate",
+      tone: "warn",
+      headerBadge: Number(riskAssessment.tier ?? 0) >= 3 ? `Review gate · R ${scoreText}` : null,
+      headline: `Human review required (R ${scoreText})`,
+      nextHint: "Inspect the PR dossier, then approve or merge when satisfied.",
+      whyItems,
+      rollbackCommand,
+    };
+  }
+  return {
+    mode: "low_ok",
+    tone: "neutral",
+    headerBadge: null,
+    headline: `Low risk (R ${scoreText})`,
+    nextHint: null,
+    whyItems,
+    rollbackCommand,
+  };
+}
+
 function buildActivitySnapshot({
   sig,
   buildStage,
@@ -1986,6 +2141,7 @@ function buildActivitySnapshot({
   suggestedStageId,
   prItems,
   sharedCounts,
+  shipped,
 }) {
   const {
     activeSubagentsCount,
@@ -2046,7 +2202,7 @@ function buildActivitySnapshot({
       active: sig.workflow.active,
       runsCount: sig.workflow.runsCount,
       stageId: sig.workflow.stageId ?? null,
-      suggestedReview: buildSuggestedReview(reviewStage, sig.changedFiles.size),
+      suggestedReview: buildSuggestedReview(reviewStage, sig.changedFiles.size, { shipped }),
     },
     sideQuestions: { count: sig.sideQuestionsCount },
     changedFilesCount: sig.changedFiles.size,
@@ -2275,6 +2431,36 @@ export function evaluateTimelineSnapshot({
   prItems.sort((a, b) => (STATE_RANK[a.state] ?? 3) - (STATE_RANK[b.state] ?? 3) || b.number - a.number);
   sig.pr = prItems.length > 0 ? [...prItems].sort((a, b) => b.number - a.number)[0] : null;
 
+  const closedOrMergedPrs = new Set(
+    prItems.filter((p) => p.state === "merged" || p.state === "closed").map((p) => p.number),
+  );
+  const hasOpenPr = prItems.some((p) => p.state === "open");
+  if (closedOrMergedPrs.size > 0) {
+    const isWatchPrEnded = (text, prNums = []) => {
+      if (!/\bwatch-pr\b/i.test(String(text ?? ""))) return false;
+      if (Array.isArray(prNums) && prNums.length > 0) {
+        return prNums.every((n) => closedOrMergedPrs.has(n));
+      }
+      return !hasOpenPr;
+    };
+    for (const sch of sig.schedules) {
+      if (sch.active && !sch.cronExpression && isWatchPrEnded(`${sch.label} ${sch.prompt ?? ""}`, sch.prNumbers)) {
+        sch.active = false;
+      }
+    }
+    for (const job of sig.backgroundJobs) {
+      if (
+        job.status === "running" &&
+        !job.isDaemon &&
+        !job.isCron &&
+        isWatchPrEnded(`${job.title} ${job.command}`, job.prNumbers)
+      ) {
+        job.status = "done";
+        job.completedAt = job.completedAt || job.startedAt;
+      }
+    }
+  }
+
   const shipStage = buildShipStage({ reviewStatus: reviewStage.status, shipped, shipLive: liveSet.has("ship"), sig });
   const rawSteps = [planStage, buildStage, reviewStage, shipStage];
   const nextAction = selectNextAction(rawSteps, setupState);
@@ -2350,6 +2536,7 @@ export function evaluateTimelineSnapshot({
     suggestedStageId,
     prItems,
     sharedCounts,
+    shipped,
   });
 
   const onlyBuildCleanStale =
@@ -2450,6 +2637,7 @@ export function evaluateTimelineSnapshot({
     categories: repoTrust?.categoryList ?? [],
     promoBanner,
     riskAssessment,
+    riskPresentation: buildRiskPresentation(riskAssessment, { prItems, reviewStage }),
   };
 
   const snapshot = {

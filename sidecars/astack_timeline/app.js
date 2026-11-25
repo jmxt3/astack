@@ -1213,6 +1213,10 @@
             const chk = svgIcon("check-sm", 10);
             chk.style.color = "var(--tl-done)";
             dw.appendChild(chk);
+          } else if (a.status === "failed") {
+            const errIc = svgIcon("warn", 10);
+            errIc.style.color = "var(--tl-error)";
+            dw.appendChild(errIc);
           } else {
             dw.appendChild(el("span", "sub-row-dot active"));
           }
@@ -1382,30 +1386,67 @@
 
     if (stage.id === "review" && snap.trust?.riskAssessment && snap.trust.scopeKind !== "non_repo") {
       const ra = snap.trust.riskAssessment;
+      const rp = snap.trust.riskPresentation || null;
       const cat = snap.trust.activeCatState;
-      const rc = el("div", ra.residual === "blocked" ? "risk-card is-err" : ra.residual !== "low" ? "risk-card is-warn" : "risk-card");
+      const cardTone = rp?.tone
+        ? rp.tone === "done"
+          ? "risk-card is-done"
+          : rp.tone === "err"
+            ? "risk-card is-err"
+            : rp.tone === "warn"
+              ? "risk-card is-warn"
+              : "risk-card"
+        : ra.residual === "blocked"
+          ? "risk-card is-err"
+          : ra.residual !== "low"
+            ? "risk-card is-warn"
+            : "risk-card";
+      const rc = el("div", cardTone);
       rc.dataset.testid = "timeline-risk-card";
-      rc.appendChild(el("p", "risk-card-lead", ra.summary || `${ra.residual} risk (R ${(ra.score ?? 0).toFixed(2)})`));
+      rc.appendChild(el("p", "risk-card-lead", rp?.headline || ra.summary || `${ra.residual} risk (R ${(ra.score ?? 0).toFixed(2)})`));
+      const whyWithEvidence = (rp?.whyItems || []).filter((w) => w.evidence);
+      if (whyWithEvidence.length > 0) {
+        const evWrap = el("div", "risk-card-evidence");
+        for (const w of whyWithEvidence) {
+          evWrap.appendChild(el("div", "risk-card-ev-line", `${w.id}: ${w.evidence}`));
+        }
+        rc.appendChild(evWrap);
+      }
+      if (rp?.nextHint) {
+        rc.appendChild(el("p", "risk-card-next", rp.nextHint));
+      }
       if (snap.trust.enrolled && cat) {
         const whyTone =
-          ra.residual === "blocked"
-            ? "is-err"
-            : snap.trust.beastOn && ra.residual === "low" && cat.level >= 3
-              ? "is-done"
-              : "is-warn";
-        const whyText = !snap.trust.beastOn
-          ? `Beast Mode is Off. Category ${cat.id} is L${cat.level} (T ${cat.score.toFixed(2)}, cap L${cat.ceiling}).`
-          : ra.residual === "blocked"
-            ? `Blocked by hard signal (${(ra.signals || []).map((s) => s.id).join(", ")}). Human review required.`
-            : ra.residual === "low" && cat.level >= 3
-              ? `Auto-eligible at L${cat.level} (${cat.id}, T ${cat.score.toFixed(2)}). Sampled 1-in-5 async audit active.`
-              : `Paused. Merge needs L3 for ${cat.id}, current L${cat.level} (T ${cat.score.toFixed(2)}). Residual ${ra.residual} (R ${(ra.score ?? 0).toFixed(2)}).`;
+          rp?.mode === "resolved_merged"
+            ? "is-done"
+            : rp?.mode === "defect_blocked"
+              ? "is-err"
+              : snap.trust.beastOn && ra.residual === "low" && cat.level >= 3
+                ? "is-done"
+                : "is-warn";
+        const whyText =
+          rp?.mode === "resolved_merged"
+            ? `Merged · category ${cat.id} is L${cat.level} (T ${cat.score.toFixed(2)}, cap L${cat.ceiling}).`
+            : !snap.trust.beastOn
+              ? `Beast Mode is Off. Category ${cat.id} is L${cat.level} (T ${cat.score.toFixed(2)}, cap L${cat.ceiling}).`
+              : rp?.mode === "human_gate" && ra.residual === "blocked"
+                ? `Requires human review (${cat.id} capped at L${cat.ceiling}).`
+                : ra.residual === "blocked"
+                  ? `Action needed on ${(ra.signals || []).map((s) => s.id).join(", ")}.`
+                  : ra.residual === "low" && cat.level >= 3
+                    ? `Auto-eligible at L${cat.level} (${cat.id}, T ${cat.score.toFixed(2)}). Sampled 1-in-5 async audit active.`
+                    : `Paused. Merge needs L3 for ${cat.id}, current L${cat.level} (T ${cat.score.toFixed(2)}). Residual ${ra.residual} (R ${(ra.score ?? 0).toFixed(2)}).`;
         rc.appendChild(el("p", `risk-card-why ${whyTone}`, whyText));
       }
       const sigRow = el("div", "subcmd-list");
+      const defectIds = new Set(["test_regression", "deletes_assertions", "bundled_sidecar_permissions", "scope_drift"]);
       for (const sig of ra.signals || []) {
-        const isHard = sig.id === "touches_governance" || sig.id === "bundled_sidecar_permissions" || sig.id === "scope_drift" || sig.id === "test_regression";
-        const sp = el("span", isHard ? "subcmd-pill is-warn-action" : "subcmd-pill");
+        const cls = defectIds.has(sig.id)
+          ? "subcmd-pill is-err-action"
+          : sig.id === "touches_governance"
+            ? "subcmd-pill is-warn-action"
+            : "subcmd-pill";
+        const sp = el("span", cls);
         sp.appendChild(el("span", "", `${sig.id} (${Math.round((sig.weight ?? 0) * 100)}%)`));
         sigRow.appendChild(sp);
       }
@@ -1417,6 +1458,23 @@
         sigRow.appendChild(sp);
       }
       if (sigRow.childNodes.length > 0) rc.appendChild(sigRow);
+
+      const rollbackCmd = rp?.rollbackCommand || (ra.rollback?.kind && ra.rollback.kind !== "none" ? ra.rollback.plan : null);
+      if (rollbackCmd) {
+        const rbRow = el("div", "risk-card-rollback");
+        rbRow.appendChild(el("span", "risk-card-rb-label", "Rollback:"));
+        rbRow.appendChild(el("code", "risk-card-rb-code", rollbackCmd));
+        const cpBtn = el("button", "copy-inline-btn", "Copy");
+        cpBtn.type = "button";
+        cpBtn.setAttribute("aria-label", `Copy rollback command ${rollbackCmd}`);
+        cpBtn.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          const ok = await writeClipboard(rollbackCmd);
+          showToast(ok ? `Copied "${rollbackCmd}"` : rollbackCmd);
+        });
+        rbRow.appendChild(cpBtn);
+        rc.appendChild(rbRow);
+      }
 
       if (snap.trust.enrolled && snap.fullHeadSha) {
         const outWrap = el("div", "subcmd-section");
@@ -1744,6 +1802,10 @@
             const chk = svgIcon("check-sm", 10);
             chk.style.color = "var(--tl-done)";
             dw.appendChild(chk);
+          } else if (a.status === "failed") {
+            const errIc = svgIcon("warn", 10);
+            errIc.style.color = "var(--tl-error)";
+            dw.appendChild(errIc);
           } else {
             dw.appendChild(el("span", "sub-row-dot active"));
           }
@@ -1892,6 +1954,121 @@
 
     container.replaceChildren();
     container.classList.add("hidden");
+  }
+
+  function renderStatusBanner(snap, isNonRepo) {
+    const wrap = document.getElementById("status-banner-wrap");
+    const banner = document.getElementById("status-banner");
+    if (!wrap || !banner) return;
+    banner.replaceChildren();
+    if (isNonRepo || snap.setup?.status === "needs_setup" || (!snap.hasConversation && !snap.nextAction)) {
+      wrap.classList.add("hidden");
+      return;
+    }
+
+    const stages = snap.stages || [];
+    const byId = new Map(stages.map((s) => [s.id, s]));
+    const plan = byId.get("plan");
+    const build = byId.get("build");
+    const review = byId.get("review");
+    const ship = byId.get("ship");
+    const liveIds = snap.activity?.liveStageIds || [];
+
+    let tone = "is-idle";
+    let iconKind = "dot";
+    let badge = "Next";
+    let text = "";
+    let action = null;
+
+    if (liveIds.length > 0) {
+      const liveStage = stages.find((s) => liveIds.includes(s.id));
+      tone = "is-running";
+      iconKind = "dot";
+      badge = "Working";
+      text = liveStage ? `${liveStage.label} · ${liveStage.collapsedSummary || liveStage.detail}` : "Agents running.";
+    } else if (review?.status === "error") {
+      tone = "is-err";
+      iconKind = "warn";
+      badge = "Needs attention";
+      text = review.detail || "Remediation round cap reached.";
+      action = { type: "copy", label: "/review-pr", command: "/review-pr" };
+    } else if (plan?.status === "waiting_gate") {
+      tone = "is-yourturn";
+      iconKind = "dot";
+      badge = "Your turn";
+      text = "Review the implementation plan, then click Proceed.";
+      action = plan.artifact
+        ? { type: "artifact", label: "Open Plan", artifact: plan.artifact }
+        : { type: "copy", label: "Proceed", command: "Proceed" };
+    } else if (review?.status === "waiting_gate") {
+      tone = "is-yourturn";
+      iconKind = "dot";
+      badge = "Your turn";
+      text = "Review the PR dossier, then open or merge the PR.";
+      action = review.artifact
+        ? { type: "artifact", label: "Open Dossier", artifact: review.artifact }
+        : { type: "view", label: "Open Dossier", view: "dossier" };
+    } else if (build?.status === "stale" || review?.status === "stale") {
+      tone = "is-yourturn";
+      iconKind = "warn";
+      badge = "Needs attention";
+      text = snap.nextAction?.hint || "New edits landed. Re-verify on HEAD.";
+      action = {
+        type: "copy",
+        label: snap.nextAction?.command || "/astack-mode",
+        command: snap.nextAction?.command || "/astack-mode",
+      };
+    } else if (ship?.status === "done" && !snap.nextAction) {
+      tone = "is-done";
+      iconKind = "check";
+      badge = "All done";
+      text = ship.collapsedSummary || "All workflow stages complete.";
+    } else if (snap.nextAction) {
+      tone = "is-idle";
+      iconKind = "dot";
+      badge = "Next";
+      text = snap.nextAction.hint || "Ready to start.";
+      if (snap.nextAction.command) {
+        action = { type: "copy", label: snap.nextAction.command, command: snap.nextAction.command };
+      }
+    } else {
+      wrap.classList.add("hidden");
+      return;
+    }
+
+    wrap.classList.remove("hidden");
+    banner.className = `status-banner ${tone}`;
+
+    const lead = el("div", "status-banner-lead");
+    if (iconKind === "check") {
+      const ic = svgIcon("check-sm", 12);
+      ic.classList.add("status-banner-icon");
+      lead.appendChild(ic);
+    } else if (iconKind === "warn") {
+      const ic = svgIcon("warn", 12);
+      ic.classList.add("status-banner-icon");
+      lead.appendChild(ic);
+    } else {
+      const dot = el("span", tone === "is-running" ? "status-banner-dot pulse" : "status-banner-dot");
+      dot.setAttribute("aria-hidden", "true");
+      lead.appendChild(dot);
+    }
+    lead.appendChild(el("span", "status-banner-badge", badge));
+    lead.appendChild(el("span", "status-banner-copy", text));
+    banner.appendChild(lead);
+
+    if (action) {
+      const btn = el("button", "status-banner-action", action.label);
+      btn.type = "button";
+      if (action.type === "copy") {
+        wireCommandAction(btn, lookupCommandMeta(snap, action.command) || action.command);
+      } else if (action.type === "artifact") {
+        btn.addEventListener("click", () => openArtifact(action.artifact, btn));
+      } else if (action.type === "view") {
+        btn.addEventListener("click", () => switchView(action.view));
+      }
+      banner.appendChild(btn);
+    }
   }
 
   function renderFooter(snap) {
@@ -2998,13 +3175,20 @@
       missing_receipts: { label: "Unverified", mode: "", desc: "No passing verification receipt recorded for this commit yet." },
     };
 
+    const rp = snap.trust?.riskPresentation || null;
     const metaParts = [];
     if (snap.riskTier !== null && snap.riskTier !== undefined) {
       const riskWord = RISK_TITLES[snap.riskTier] || `Tier ${snap.riskTier}`;
       const raScore = typeof snap.trust?.riskAssessment?.score === "number" ? snap.trust.riskAssessment.score : null;
-      const riskLabel = raScore !== null ? `${riskWord} · R ${raScore.toFixed(2)}` : riskWord;
+      const riskLabel = rp?.headerBadge || (raScore !== null ? `${riskWord} · R ${raScore.toFixed(2)}` : riskWord);
       const descParts = [];
-      if (snap.trust?.riskAssessment?.summary) {
+      if (rp) {
+        descParts.push(rp.headline);
+        for (const w of rp.whyItems || []) {
+          if (w.evidence) descParts.push(`${w.id}: ${w.evidence}`);
+        }
+        if (rp.nextHint) descParts.push(rp.nextHint);
+      } else if (snap.trust?.riskAssessment?.summary) {
         descParts.push(snap.trust.riskAssessment.summary);
       } else {
         if (snap.riskDescription) {
@@ -3016,13 +3200,16 @@
         }
         if (snap.riskTier >= 1) descParts.push("Requires human PR review.");
       }
+      const riskCls = rp?.mode === "resolved_merged"
+        ? "meta-pill meta-risk is-resolved"
+        : `meta-pill meta-risk tier-${snap.riskTier}`;
       metaParts.push({
         text: riskLabel,
-        cls: `meta-pill meta-risk tier-${snap.riskTier}`,
+        cls: riskCls,
         testId: "timeline-risk-badge",
         popTitle: raScore !== null ? `Risk Score · ${riskWord}` : `Blast-Radius Risk · Tier ${snap.riskTier}`,
         popStatus: raScore !== null ? `R ${raScore.toFixed(2)}` : riskWord,
-        popMode: snap.riskTier >= 3 ? "stale" : snap.riskTier === 0 ? "done" : "",
+        popMode: rp?.mode === "resolved_merged" ? "done" : snap.riskTier >= 3 ? "stale" : snap.riskTier === 0 ? "done" : "",
         popDesc: descParts.join(" "),
       });
     }
@@ -3089,12 +3276,19 @@
         });
         metaRow.appendChild(beastToggle);
       } else if (snap.trust?.scopeKind === "git_unregistered") {
-        const offPill = el("span", "meta-pill", "Trust: Off");
-        offPill.dataset.testid = "timeline-trust-off";
-        offPill.tabIndex = 0;
-        const offDesc = "Add .agents/risk-policy.json on the base branch to enroll this repository.";
-        attachStatusPopover(offPill, "Earned Trust", "Off", "", offDesc);
-        metaRow.appendChild(offPill);
+        const offBtn = el("button", "meta-btn is-neutral", "Trust: Off");
+        offBtn.type = "button";
+        offBtn.dataset.testid = "timeline-trust-off";
+        offBtn.setAttribute("aria-expanded", String(state.beastDrawerOpen));
+        const offDesc = "Beast Mode is enabled per repository. Click to see how to enroll this repo.";
+        attachStatusPopover(offBtn, "Earned Trust", "Off", "", offDesc);
+        offBtn.addEventListener("click", () => {
+          hideCommandPopover();
+          state.beastDrawerOpen = !state.beastDrawerOpen;
+          if (state.beastDrawerOpen) state.setupDrawerOpen = false;
+          render(state.snap);
+        });
+        metaRow.appendChild(offBtn);
       }
     } else {
       metaRow.classList.add("hidden");
@@ -3167,6 +3361,23 @@
         foot.appendChild(openTrust);
 
         beastDrawer.append(r1, r2, r3, foot);
+      } else if (snap.trust?.scopeKind === "git_unregistered" && state.beastDrawerOpen) {
+        beastDrawer.classList.remove("hidden");
+        beastDrawer.appendChild(
+          el(
+            "p",
+            "setup-drawer-detail",
+            "Beast Mode is enabled per repository. Add .agents/risk-policy.json on your base branch (main) to enroll this repo.",
+          ),
+        );
+        const chips = el("div", "chips");
+        const setupMeta = lookupCommandMeta(snap, "/setup-astack") || {
+          command: "/setup-astack",
+          copyText: "/setup-astack",
+          state: "next",
+        };
+        chips.appendChild(buildCommandChip({ ...setupMeta, command: "/setup-astack", copyText: "/setup-astack", state: "next" }));
+        beastDrawer.appendChild(chips);
       } else {
         beastDrawer.classList.add("hidden");
       }
@@ -3231,6 +3442,7 @@
     }
 
     renderTotalsStrip(snap);
+    renderStatusBanner(snap, isNonRepo);
 
     if (!state.userToggled) {
       state.expanded.clear();
