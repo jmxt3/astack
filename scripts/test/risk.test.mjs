@@ -171,7 +171,7 @@ test("risk-backtest.mjs replays origin/main history and flags PR #13 with follow
     encoding: "utf8",
   });
   if (shallow.status === 0 && shallow.stdout.trim() === "false" && hasOriginMain.status === 0) {
-    const run = spawnSync(process.execPath, [backtestCli, "--base", "origin/main", "--json"], {
+    const run = spawnSync(process.execPath, [backtestCli, "--base", "origin/main", "--limit", "100", "--json"], {
       cwd: rootDir,
       encoding: "utf8",
     });

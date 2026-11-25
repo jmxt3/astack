@@ -912,3 +912,33 @@ test("GET /api/dossier and /api/arch-audit stay read-only, enforce auth and vali
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("serves status banner, interactive Trust: Off drawer, calm Risk Card UI, and stationary amber yourturn rail", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-ux-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const [html, appJs, railJs, cssText] = await Promise.all([
+      (await fetch(`${srv.url}`)).text(),
+      (await fetch(`${srv.url}app.js`)).text(),
+      (await fetch(`${srv.url}living-rail.js`)).text(),
+      (await fetch(`${srv.url}styles.css`)).text(),
+    ]);
+    assert.match(html, /data-testid="timeline-status-banner"/);
+    assert.doesNotMatch(html, /id="next-bar"|data-testid="timeline-next"/);
+    assert.match(appJs, /renderStatusBanner\(/);
+    assert.match(appJs, /snap\.trust\?\.riskPresentation/);
+    assert.match(appJs, /const offBtn = el\("button", "meta-btn is-neutral", "Trust: Off"\)/);
+    assert.match(appJs, /Beast Mode is enabled per repository/);
+    assert.match(appJs, /a\.status === "failed"/);
+    assert.match(railJs, /if \(next\.state === "yourturn"\) return "yourturn"/);
+    assert.match(railJs, /else if \(kind === "yourturn"\)/);
+    assert.match(cssText, /\.status-banner\.is-yourturn/);
+    assert.match(cssText, /\.risk-card\.is-done/);
+    assert.match(cssText, /\.meta-risk\.is-resolved/);
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

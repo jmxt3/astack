@@ -2246,3 +2246,280 @@ test("living rail models parallel work, skipped ahead, waiting on you, and all-d
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("clears failed subagent retries, TimerCondition schedules, manage_task(list), merged watch-pr timers, and stale /run-workflow suggestion", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-ghosts-");
+  const convId = "conv-ghosts";
+  const retryChildId = "99999999-8888-4777-8666-555555555555";
+  try {
+    const headSha = "0123456789abcdef0123456789abcdef01234567";
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+    writeText(path.join(brainDir, convId, "pr-review.md"), "# PR Review\n");
+    writeText(
+      path.join(brainDir, convId, "astack-trust", "evidence.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha,
+        freshness: "fresh",
+        riskTier: 3,
+        riskLabel: "critical",
+        reviewRound: 2,
+        maxReviewRounds: 3,
+        roundState: "verified",
+        verifier: { verdict: "PASS" },
+      }),
+    );
+    writeTranscript(brainDir, retryChildId, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-25T02:52:24Z", content: "PASS" },
+    ]);
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-25T02:40:00Z",
+        content: "<USER_REQUEST>/astack-mode ship feature</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:41:00Z",
+        tool_calls: [
+          { name: "edit_file", args: { Path: path.join(workspaceDir, "src", "a.ts") } },
+          { name: "edit_file", args: { Path: path.join(workspaceDir, "src", "b.ts") } },
+          { name: "read_file", args: { Path: "/plugin/skills/deslop/SKILL.md" } },
+        ],
+      },
+      {
+        step_index: 2,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:41:03Z",
+        tool_calls: [
+          { name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "Verifier Round 2", Prompt: "Verify" } },
+        ],
+      },
+      {
+        step_index: 3,
+        type: "GENERIC",
+        status: "ERROR",
+        created_at: "2026-11-25T02:41:05Z",
+        content: "Encountered error in step execution: failed to resolve workspace URIs for subagent",
+      },
+      {
+        step_index: 4,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:41:10Z",
+        tool_calls: [{ name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "Verifier", Prompt: "Verify" } }],
+      },
+      {
+        step_index: 5,
+        type: "GENERIC",
+        status: "DONE",
+        created_at: "2026-11-25T02:41:12Z",
+        content: `Created the following subagent:\n{"conversationId":"${retryChildId}"}`,
+      },
+      {
+        step_index: 6,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-25T02:42:00Z",
+        content: `[Message] sender=${retryChildId} content=PASS`,
+      },
+      {
+        step_index: 7,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:43:00Z",
+        tool_calls: [
+          { name: "run_command", args: { CommandLine: "gh pr create --title \"feat: demo\" --body \"ok\"" } },
+          { name: "run_command", args: { CommandLine: "node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --pr 61", toolSummary: "Watch PR #61" } },
+        ],
+      },
+      {
+        step_index: 8,
+        type: "GENERIC",
+        created_at: "2026-11-25T02:43:01Z",
+        content: "https://github.com/acme/demo/pull/61\n",
+      },
+      {
+        step_index: 9,
+        type: "GENERIC",
+        created_at: "2026-11-25T02:43:02Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-10`,
+      },
+      {
+        step_index: 10,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:44:00Z",
+        tool_calls: [
+          {
+            name: "schedule",
+            args: {
+              DurationSeconds: 300,
+              Prompt: "Check watch-pr.mjs status on PR #61 if still running.",
+              TimerCondition: `${convId}/task-10`,
+            },
+          },
+        ],
+      },
+      {
+        step_index: 11,
+        type: "GENERIC",
+        created_at: "2026-11-25T02:44:01Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-11`,
+      },
+      {
+        step_index: 12,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-25T02:45:00Z",
+        content: `[Message] sender=${convId}/task-10 content=Task id "${convId}/task-10" finished with result:\nCommand exited with code 0.`,
+      },
+      {
+        step_index: 13,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:45:05Z",
+        tool_calls: [{ name: "manage_task", args: { Action: "list" } }],
+      },
+      {
+        step_index: 14,
+        type: "GENERIC",
+        created_at: "2026-11-25T02:45:06Z",
+        content: "No background tasks are currently running.",
+      },
+      {
+        step_index: 15,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:46:00Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: "gh pr merge 61 --squash" } }],
+      },
+    ]);
+    writeReceipt(brainDir, convId, [
+      { schemaVersion: 1, ts: "2026-11-25T02:41:01Z", conversationId: convId, kind: "file_write", category: "ui", headSha, ok: true, summary: "edit", paths: ["src/a.ts", "src/b.ts"] },
+      { schemaVersion: 1, ts: "2026-11-25T02:41:30Z", conversationId: convId, kind: "command", category: "test", headSha, ok: true, summary: "node --test", paths: [] },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.deepEqual(snap.stages.map((s) => s.railState), ["skipped", "done", "done", "done"]);
+    assert.deepEqual(snap.activity.liveStageIds, []);
+    assert.equal(snap.activity.runningSubagentsCount, 0);
+    assert.equal(snap.activity.runningTasksCount, 0);
+    assert.equal(snap.activity.scheduledCount, 0);
+    assert.equal(snap.activity.subagents[0].status, "failed");
+    assert.equal(snap.activity.subagents[1].status, "done");
+    assert.equal(snap.activity.workflow.suggestedReview, null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("buildRiskPresentation separates human governance gates, defect blocks, low risk, and merged PR resolution", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-riskpres-");
+  const headSha = "0123456789abcdef0123456789abcdef01234567";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+
+    const makeCase = (convId, { riskAssessment, merged = false }) => {
+      writeText(path.join(brainDir, convId, "pr-review.md"), "# PR Review\n");
+      writeText(
+        path.join(brainDir, convId, "astack-trust", "evidence.json"),
+        JSON.stringify({
+          schemaVersion: 1,
+          headSha,
+          freshness: "fresh",
+          riskTier: riskAssessment.tier,
+          riskLabel: riskAssessment.tier === 3 ? "critical" : "low",
+          reviewRound: 1,
+          maxReviewRounds: 3,
+          roundState: "verified",
+          verifier: { verdict: "PASS" },
+          riskAssessment,
+        }),
+      );
+      if (merged) {
+        writeTranscript(brainDir, convId, [
+          {
+            step_index: 0,
+            type: "PLANNER_RESPONSE",
+            created_at: "2026-11-25T02:50:00Z",
+            tool_calls: [{ name: "run_command", args: { CommandLine: "gh pr create --title \"x\" --body \"y\"" } }],
+          },
+          {
+            step_index: 1,
+            type: "GENERIC",
+            created_at: "2026-11-25T02:50:02Z",
+            content: "https://github.com/acme/demo/pull/61\n",
+          },
+          {
+            step_index: 2,
+            type: "PLANNER_RESPONSE",
+            created_at: "2026-11-25T02:51:00Z",
+            tool_calls: [{ name: "run_command", args: { CommandLine: "gh pr merge 61 --squash" } }],
+          },
+        ]);
+      }
+      return evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    };
+
+    const govGate = makeCase("conv-gov-gate", {
+      riskAssessment: {
+        tier: 3,
+        score: 0.5748,
+        residual: "blocked",
+        signals: [{ id: "touches_governance", weight: 0.55, evidence: ".agents/skills/verify-app/features/auth.md" }],
+        satisfied: [{ id: "targeted_tests" }],
+        rollback: { kind: "revert", plan: "git revert 0123456" },
+      },
+    });
+    assert.equal(govGate.trust.riskPresentation?.mode, "human_gate");
+    assert.equal(govGate.trust.riskPresentation?.tone, "warn");
+    assert.equal(govGate.trust.riskPresentation?.headerBadge, "Review gate · R 0.57");
+    assert.match(govGate.trust.riskPresentation?.headline ?? "", /Human review required/);
+    assert.equal(govGate.trust.riskPresentation?.whyItems[0]?.evidence, ".agents/skills/verify-app/features/auth.md");
+    assert.equal(govGate.trust.riskPresentation?.rollbackCommand, "git revert 0123456");
+
+    const defectGate = makeCase("conv-defect", {
+      riskAssessment: {
+        tier: 3,
+        score: 0.65,
+        residual: "blocked",
+        signals: [{ id: "test_regression", weight: 0.65, evidence: "node --test failed" }],
+        satisfied: [],
+        rollback: { kind: "revert", plan: "git revert 0123456" },
+      },
+    });
+    assert.equal(defectGate.trust.riskPresentation?.mode, "defect_blocked");
+    assert.equal(defectGate.trust.riskPresentation?.tone, "err");
+    assert.match(defectGate.trust.riskPresentation?.headline ?? "", /Action needed/);
+
+    const mergedGate = makeCase("conv-merged", {
+      merged: true,
+      riskAssessment: {
+        tier: 3,
+        score: 0.5748,
+        residual: "blocked",
+        signals: [{ id: "touches_governance", weight: 0.55, evidence: ".agents/skills/verify-app/features/auth.md" }],
+        satisfied: [{ id: "targeted_tests" }],
+        rollback: { kind: "revert", plan: "git revert 0123456" },
+      },
+    });
+    assert.equal(mergedGate.trust.riskPresentation?.mode, "resolved_merged");
+    assert.equal(mergedGate.trust.riskPresentation?.tone, "done");
+    assert.equal(mergedGate.trust.riskPresentation?.headerBadge, "Merged · R 0.57");
+    assert.equal(mergedGate.trust.riskPresentation?.headline, "Reviewed & merged (PR #61)");
+
+    const lowGate = makeCase("conv-low", {
+      riskAssessment: {
+        tier: 0,
+        score: 0.05,
+        residual: "low",
+        signals: [],
+        satisfied: [],
+        rollback: { kind: "revert", plan: "git revert 0123456" },
+      },
+    });
+    assert.equal(lowGate.trust.riskPresentation?.mode, "low_ok");
+    assert.equal(lowGate.trust.riskPresentation?.tone, "neutral");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
