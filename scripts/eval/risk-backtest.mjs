@@ -17,7 +17,7 @@ derives historical outcomes (clean, follow_up_fix, reverted), and prints Brier c
 Options:
   --base <ref>     Git ref to replay (defaults to origin/main, falling back to HEAD)
   --cwd <dir>      Git repository directory (defaults to repository root)
-  --limit <n>      Maximum PR commits to replay (default: 15)
+  --limit <n>      Maximum PR commits to replay (default: 50)
   --window <days>  Follow-up fix watch window in days (default: 7)
   --json           Emit machine-readable JSON output
   -h, --help       Show this help text and exit 0`;
@@ -75,7 +75,7 @@ function isRevertOf(laterSubject, earlier) {
 export function runRiskBacktest({
   cwd = DEFAULT_ROOT,
   baseRef = "origin/main",
-  limit = 15,
+  limit = 50,
   windowDays = 7,
 } = {}) {
   const resolvedCwd = path.resolve(cwd);
@@ -316,7 +316,7 @@ function main() {
     options: {
       base: { type: "string", default: "origin/main" },
       cwd: { type: "string" },
-      limit: { type: "string", default: "15" },
+      limit: { type: "string", default: "50" },
       window: { type: "string", default: "7" },
       json: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
@@ -329,7 +329,7 @@ function main() {
   const report = runRiskBacktest({
     cwd: values.cwd ?? DEFAULT_ROOT,
     baseRef: values.base,
-    limit: Number.parseInt(values.limit, 10) || 15,
+    limit: Number.parseInt(values.limit, 10) || 50,
     windowDays: Number.parseInt(values.window, 10) || 7,
   });
   if (values.json) {
