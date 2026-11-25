@@ -1,5 +1,7 @@
 (() => {
   const POLL_MS = 1800;
+  const POLL_TIMEOUT_MS = 12000;
+  const INITIAL_WS_WAIT_MS = 80;
   const DOCS_URL_PREFIX = "https://github.com/jmxt3/astack/";
   const PASTE_SHORTCUT = /mac/i.test(navigator.platform || navigator.userAgent || "") ? "Cmd+V" : "Ctrl+V";
   const params = new URLSearchParams(location.search);
@@ -7,6 +9,10 @@
   const state = {
     etag: "",
     pollSeq: 0,
+    pollTimer: null,
+    pollInFlight: false,
+    pollAbort: null,
+    lastPollError: null,
     snap: null,
     workspaceUri: params.get("workspaceUri") || "",
     view:
@@ -302,13 +308,15 @@
     return typeof window.sidecar?.fetch === "function" && !window.sidecar?.standalone;
   }
 
-  function apiFetch(endpoint, payload) {
+  function apiFetch(endpoint, payload, fetchOpts = {}) {
     if (isSdkHost()) {
-      return window.sidecar.fetch(endpoint, {
+      const opts = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-      });
+      };
+      if (fetchOpts.signal) opts.signal = fetchOpts.signal;
+      return window.sidecar.fetch(endpoint, opts);
     }
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(payload || {})) {
@@ -318,7 +326,9 @@
     const query = qs.toString();
     const urlToken = params.get("token");
     const headers = urlToken ? { "X-Sidecar-Token": urlToken } : undefined;
-    return fetch(query ? `${endpoint}?${query}` : endpoint, { method: "GET", headers });
+    const opts = { method: "GET", headers };
+    if (fetchOpts.signal) opts.signal = fetchOpts.signal;
+    return fetch(query ? `${endpoint}?${query}` : endpoint, opts);
   }
 
   function apiPost(endpoint, payload) {
@@ -403,7 +413,7 @@
       }
       if (successMsg) showToast(successMsg);
       state.etag = "";
-      await poll();
+      await poll({ force: true });
     } catch {
       showToast("Could not update trust settings");
     }
@@ -3552,19 +3562,88 @@
     }
   }
 
-  async function poll() {
-    if (document.hidden) return;
+  function scheduleNextPoll() {
+    if (state.pollTimer) {
+      clearTimeout(state.pollTimer);
+      state.pollTimer = null;
+    }
+    state.pollTimer = setTimeout(() => {
+      state.pollTimer = null;
+      poll();
+    }, POLL_MS);
+  }
+
+  function renderLoadFallback(title, detail) {
+    if (state.snap) return;
+    const list = document.getElementById("timeline");
+    if (!list) return;
+    const card = el("li", "timeline-fallback");
+    card.dataset.testid = "timeline-fallback";
+    card.appendChild(el("div", "timeline-fallback-title", title));
+    if (detail) {
+      card.appendChild(el("p", "timeline-fallback-detail", detail));
+    }
+    const actions = el("div", "timeline-fallback-actions");
+    const retryBtn = el("button", "chip next", "Retry");
+    retryBtn.type = "button";
+    retryBtn.dataset.testid = "timeline-retry";
+    retryBtn.addEventListener("click", () => poll({ force: true }));
+    actions.appendChild(retryBtn);
+    card.appendChild(actions);
+    list.replaceChildren(card);
+    renderFooter(null);
+  }
+
+  async function poll({ force = false } = {}) {
+    if (state.pollTimer) {
+      clearTimeout(state.pollTimer);
+      state.pollTimer = null;
+    }
+    if (document.hidden && state.snap && !force) {
+      scheduleNextPoll();
+      return;
+    }
+    if (state.pollInFlight) {
+      if (!force) return;
+      state.pollAbort?.abort();
+    }
     const reqSeq = ++state.pollSeq;
+    state.pollInFlight = true;
     const convId = getConversationId(false);
+    const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+    state.pollAbort = ctrl;
+    const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), POLL_TIMEOUT_MS) : null;
     try {
-      const res = await apiFetch("/api/timeline", {
-        conversationId: convId,
-        workspaceUri: state.workspaceUri,
-        etag: state.etag,
-      });
-      if (!res.ok || reqSeq !== state.pollSeq) return;
+      const res = await apiFetch(
+        "/api/timeline",
+        {
+          conversationId: convId,
+          workspaceUri: state.workspaceUri,
+          etag: state.etag,
+        },
+        ctrl ? { signal: ctrl.signal } : {},
+      );
+      if (reqSeq !== state.pollSeq) return;
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        if (reqSeq !== state.pollSeq) return;
+        const msg = errBody?.error || `HTTP ${res.status}`;
+        state.lastPollError = { status: res.status, message: msg };
+        const live = document.getElementById("live");
+        const liveLabel = document.getElementById("live-label");
+        if (live) live.className = res.status === 401 || res.status === 503 ? "live idle" : "live error";
+        if (liveLabel) liveLabel.textContent = res.status === 401 ? "Auth error" : "Error";
+        if (!state.snap) {
+          renderLoadFallback(
+            "Could not load AStack Timeline",
+            `${msg} (HTTP ${res.status}). Check that the sidecar is running or retry.`,
+          );
+        }
+        return;
+      }
       const data = await res.json();
       if (reqSeq !== state.pollSeq) return;
+      state.lastPollError = null;
       if (data.unchanged) {
         if (state.snap) applyLiveStatus(state.snap);
         return;
@@ -3572,10 +3651,26 @@
       state.etag = data.etag || "";
       state.snap = data;
       render(data);
-    } catch {
+    } catch (err) {
       if (reqSeq !== state.pollSeq) return;
-      document.getElementById("live").className = "live idle";
-      document.getElementById("live-label").textContent = "Offline";
+      const live = document.getElementById("live");
+      const liveLabel = document.getElementById("live-label");
+      if (live) live.className = "live idle";
+      if (liveLabel) liveLabel.textContent = "Offline";
+      if (!state.snap) {
+        const reason =
+          err?.name === "AbortError"
+            ? "Timeline request timed out. Retrying automatically."
+            : "Could not reach the AStack sidecar. Retrying automatically.";
+        renderLoadFallback("AStack Timeline unavailable", reason);
+      }
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (reqSeq === state.pollSeq) {
+        state.pollInFlight = false;
+        state.pollAbort = null;
+        scheduleNextPoll();
+      }
     }
   }
 
@@ -3588,7 +3683,7 @@
       state.dossier.error = null;
       state.audit.data = null;
       state.audit.error = null;
-      poll();
+      poll({ force: true });
       if (state.view === "dossier") loadDossierView();
       else if (state.view === "audit") loadAuditView();
     }
@@ -3699,9 +3794,19 @@
     switchView(state.view);
   }
 
-  syncWorkspaceUri();
-  poll();
-  setInterval(poll, POLL_MS);
+  if (!state.workspaceUri && typeof window.sidecar?.getWorkspaceUris === "function") {
+    Promise.race([
+      syncWorkspaceUri(),
+      new Promise((resolve) => setTimeout(resolve, INITIAL_WS_WAIT_MS)),
+    ]).then(() => {
+      if (!state.pollInFlight && !state.snap) {
+        poll();
+      }
+    });
+  } else {
+    syncWorkspaceUri();
+    poll();
+  }
   setInterval(tickTimers, 1000);
   document.addEventListener("visibilitychange", () => {
     rail?.setVisible(!document.hidden && state.view === "timeline");
@@ -3709,5 +3814,11 @@
       poll();
       tickTimers();
     }
+  });
+  window.addEventListener("focus", () => {
+    if (!document.hidden) poll();
+  });
+  window.addEventListener("pageshow", () => {
+    poll();
   });
 })();

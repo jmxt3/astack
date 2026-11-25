@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import vm from "node:vm";
 import { createTimelineServer, startTimelineSidecar } from "./main.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -939,6 +940,432 @@ test("serves status banner, interactive Trust: Off drawer, calm Risk Card UI, an
     assert.match(cssText, /\.meta-risk\.is-resolved/);
   } finally {
     await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function createAppJsTestHarness({
+  appJs,
+  conversationId = "11111111-2222-3333-4444-555555555555",
+  hidden = false,
+  workspaceUris = ["file:///repo"],
+  fetchImpl,
+}) {
+  let now = 0;
+  let nextTimerId = 1;
+  const timers = new Map();
+  let docHidden = hidden;
+
+  const scheduleTimer = (fn, ms, repeat = false) => {
+    const id = nextTimerId++;
+    const delay = Math.max(0, Number(ms) || 0);
+    timers.set(id, { id, fn, due: now + delay, interval: repeat ? delay : null });
+    return id;
+  };
+  const cancelTimer = (id) => {
+    timers.delete(id);
+  };
+  const flushMicrotasks = async () => {
+    for (let i = 0; i < 6; i++) {
+      await Promise.resolve();
+    }
+  };
+  const advanceBy = async (ms) => {
+    await flushMicrotasks();
+    const target = now + ms;
+    while (true) {
+      let next = null;
+      for (const t of timers.values()) {
+        if (t.due <= target && (!next || t.due < next.due || (t.due === next.due && t.id < next.id))) {
+          next = t;
+        }
+      }
+      if (!next) break;
+      now = next.due;
+      if (next.interval !== null) {
+        next.due = now + next.interval;
+      } else {
+        timers.delete(next.id);
+      }
+      next.fn();
+      await flushMicrotasks();
+    }
+    now = target;
+    await flushMicrotasks();
+  };
+
+  class FakeElement {
+    constructor(tag) {
+      this.tagName = String(tag).toUpperCase();
+      this.id = "";
+      this.className = "";
+      this._text = "";
+      this.children = [];
+      this.parentElement = null;
+      this.dataset = {};
+      this.attrs = new Map();
+      this.listeners = new Map();
+      this.style = { setProperty() {} };
+      this.scrollHeight = 160;
+      this.value = "";
+      this.tabIndex = -1;
+      const self = this;
+      this.classList = {
+        _tokens() {
+          return new Set(String(self.className || "").split(/\s+/).filter(Boolean));
+        },
+        add(...names) {
+          const s = this._tokens();
+          for (const n of names) if (n) s.add(n);
+          self.className = [...s].join(" ");
+        },
+        remove(...names) {
+          const s = this._tokens();
+          for (const n of names) s.delete(n);
+          self.className = [...s].join(" ");
+        },
+        toggle(name, force) {
+          const s = this._tokens();
+          const on = force === undefined ? !s.has(name) : Boolean(force);
+          if (on) s.add(name);
+          else s.delete(name);
+          self.className = [...s].join(" ");
+          return on;
+        },
+        contains(name) {
+          return this._tokens().has(name);
+        },
+      };
+    }
+    get textContent() {
+      if (this.children.length === 0) return this._text;
+      return this._text + this.children.map((c) => c.textContent).join("");
+    }
+    set textContent(v) {
+      this._text = String(v ?? "");
+      this.children = [];
+    }
+    setAttribute(k, v) {
+      if (k === "id") this.id = String(v);
+      this.attrs.set(k, String(v));
+    }
+    getAttribute(k) {
+      return this.attrs.has(k) ? this.attrs.get(k) : null;
+    }
+    removeAttribute(k) {
+      this.attrs.delete(k);
+    }
+    appendChild(node) {
+      if (node) {
+        node.parentElement = this;
+        this.children.push(node);
+      }
+      return node;
+    }
+    append(...nodes) {
+      for (const n of nodes) this.appendChild(n);
+    }
+    replaceChildren(...nodes) {
+      this._text = "";
+      this.children = [];
+      for (const n of nodes) this.appendChild(n);
+    }
+    addEventListener(type, fn) {
+      if (!this.listeners.has(type)) this.listeners.set(type, []);
+      this.listeners.get(type).push(fn);
+    }
+    click() {
+      for (const fn of this.listeners.get("click") || []) {
+        fn({ stopPropagation() {}, preventDefault() {}, target: this, currentTarget: this });
+      }
+    }
+    focus() {}
+    remove() {}
+    getBoundingClientRect() {
+      return { top: 0, left: 0, right: 120, bottom: 24, width: 120, height: 24 };
+    }
+    querySelectorAll(sel) {
+      const out = [];
+      const walk = (node) => {
+        for (const ch of node.children || []) {
+          if (sel === "[data-rail-node]" && ch.dataset?.railNode) out.push(ch);
+          walk(ch);
+        }
+      };
+      walk(this);
+      return out;
+    }
+    findByTestId(testId) {
+      if (this.dataset?.testid === testId) return this;
+      for (const ch of this.children || []) {
+        const hit = ch.findByTestId?.(testId);
+        if (hit) return hit;
+      }
+      return null;
+    }
+  }
+
+  const ids = [
+    "timeline-view", "progress", "live", "live-label", "meta-row", "setup-drawer", "beast-drawer",
+    "promo-wrap", "promo-card", "setup-wrap", "setup-card", "focus-strip", "focus-artifacts",
+    "status-banner-wrap", "status-banner", "living-rail", "timeline", "rail-announcer",
+    "btw-form", "askbar-icon", "astk-btw", "btw-submit", "panel-footer",
+    "trust-view", "dossier-view", "audit-view", "delegate-view", "artifact-view", "cmd-popover", "toast",
+  ];
+  const byId = new Map(ids.map((id) => {
+    const el = new FakeElement("div");
+    el.id = id;
+    return [id, el];
+  }));
+  byId.get("living-rail").parentElement = new FakeElement("div");
+  const docEl = new FakeElement("html");
+  const docListeners = new Map();
+  const winListeners = new Map();
+
+  const document = {
+    documentElement: docEl,
+    body: new FakeElement("body"),
+    activeElement: null,
+    get hidden() {
+      return docHidden;
+    },
+    getElementById: (id) => byId.get(id) || null,
+    querySelectorAll: () => [],
+    createElement: (tag) => new FakeElement(tag),
+    createElementNS: (_ns, tag) => new FakeElement(tag),
+    createTextNode: (text) => {
+      const n = new FakeElement("#text");
+      n.textContent = text;
+      return n;
+    },
+    contains: () => true,
+    addEventListener(type, fn) {
+      if (!docListeners.has(type)) docListeners.set(type, []);
+      docListeners.get(type).push(fn);
+    },
+  };
+
+  const sandbox = {
+    URLSearchParams,
+    AbortController,
+    MutationObserver: class { observe() {} disconnect() {} },
+    navigator: { platform: "Win32", userAgent: "node" },
+    location: { search: "", hash: "" },
+    getComputedStyle: () => ({ backgroundColor: "rgb(11, 11, 12)" }),
+    document,
+    ASTACK_CATALOG: { delegateGuide: {}, commandDocs: {} },
+    setTimeout: (fn, ms) => scheduleTimer(fn, ms, false),
+    clearTimeout: cancelTimer,
+    setInterval: (fn, ms) => scheduleTimer(fn, ms, true),
+    clearInterval: cancelTimer,
+    addEventListener(type, fn) {
+      if (!winListeners.has(type)) winListeners.set(type, []);
+      winListeners.get(type).push(fn);
+    },
+    sidecar: {
+      conversationId,
+      getWorkspaceUris: async () => workspaceUris,
+      onWorkspaceChange: () => () => {},
+      fetch: fetchImpl,
+    },
+  };
+  sandbox.window = sandbox;
+
+  vm.runInNewContext(appJs, sandbox, { filename: "app.js" });
+  return {
+    byId,
+    advanceBy,
+    flushMicrotasks,
+    setHidden(next) {
+      docHidden = Boolean(next);
+      for (const fn of docListeners.get("visibilitychange") || []) fn();
+    },
+  };
+}
+
+function makeFakeSnapshot(etag = "etag-1") {
+  return {
+    conversationId: "11111111-2222-3333-4444-555555555555",
+    hasConversation: true,
+    workspace: "/repo",
+    workspaceName: "repo",
+    branch: "main",
+    setup: { status: "ready", commands: [], autoSubCommands: [], moreCommands: [] },
+    trust: { scopeKind: "enrolled_repo", enrolled: true, beastOn: false, categories: [] },
+    doneCount: 1,
+    totalCount: 4,
+    liveState: "ok",
+    liveLabel: "Live",
+    nextAction: { stageId: "build", command: "/astack-mode", inProgress: false },
+    stages: [
+      { id: "plan", number: 1, label: "Plan", status: "done", railState: "done", summary: "Plan done", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+      { id: "build", number: 2, label: "Build & Prove", status: "next", railState: "suggested", summary: "Build", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+      { id: "review", number: 3, label: "PR Review", status: "pending", railState: "pending", summary: "Review", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+      { id: "ship", number: 4, label: "Ship", status: "pending", railState: "pending", summary: "Ship", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+    ],
+    activity: { liveStageIds: [], liveAgentsByStage: {}, subagents: [], schedules: [], automations: [], backgroundJobs: { count: 0, runningCount: 0, items: [] }, prs: { totalCount: 0, openCount: 0, mergedCount: 0, closedCount: 0, items: [] } },
+    etag,
+  };
+}
+
+test("app.js avoids slow-poll livelock, loads initial snapshot while hidden, and renders Retry fallback on errors", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-ui-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const appJs = await (await fetch(`${srv.url}app.js`)).text();
+
+    let slowCalls = 0;
+    let slowAborts = 0;
+    let resolveSlow = null;
+    const slowHarness = createAppJsTestHarness({
+      appJs,
+      fetchImpl: (_url, opts) => {
+        slowCalls += 1;
+        opts?.signal?.addEventListener("abort", () => {
+          slowAborts += 1;
+        });
+        return new Promise((resolve) => {
+          resolveSlow = () =>
+            resolve({
+              ok: true,
+              status: 200,
+              json: async () => makeFakeSnapshot("etag-slow"),
+            });
+        });
+      },
+    });
+    await slowHarness.advanceBy(100);
+    assert.equal(slowCalls, 1);
+    await slowHarness.advanceBy(4000);
+    assert.equal(slowCalls, 1, "Must not queue overlapping polls while first request is still in flight");
+    assert.equal(slowAborts, 0, "Slow 4s response below POLL_TIMEOUT_MS must not be aborted");
+    resolveSlow();
+    await slowHarness.flushMicrotasks();
+    assert.equal(slowHarness.byId.get("timeline").children.length, 4);
+    assert.equal(slowHarness.byId.get("live-label").textContent, "Live");
+
+    let hiddenCalls = 0;
+    const hiddenHarness = createAppJsTestHarness({
+      appJs,
+      hidden: true,
+      fetchImpl: async () => {
+        hiddenCalls += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => makeFakeSnapshot("etag-hidden"),
+        };
+      },
+    });
+    await hiddenHarness.advanceBy(100);
+    assert.equal(hiddenCalls, 1, "Initial snapshot must load even when document.hidden is true");
+    assert.equal(hiddenHarness.byId.get("timeline").children.length, 4);
+    await hiddenHarness.advanceBy(5000);
+    assert.equal(hiddenCalls, 1, "Subsequent polls wait while document remains hidden");
+
+    let failMode = true;
+    const errHarness = createAppJsTestHarness({
+      appJs,
+      fetchImpl: async () => {
+        if (failMode) {
+          return {
+            ok: false,
+            status: 500,
+            json: async () => ({ error: "boom" }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => makeFakeSnapshot("etag-recovered"),
+        };
+      },
+    });
+    await errHarness.advanceBy(100);
+    assert.equal(errHarness.byId.get("live-label").textContent, "Error");
+    const fallbackEl = errHarness.byId.get("timeline").findByTestId("timeline-fallback");
+    const retryBtn = errHarness.byId.get("timeline").findByTestId("timeline-retry");
+    assert.ok(fallbackEl, "Fallback card must appear instead of blank timeline");
+    assert.ok(retryBtn, "Retry button must be present");
+
+    failMode = false;
+    retryBtn.click();
+    await errHarness.flushMicrotasks();
+    assert.equal(errHarness.byId.get("timeline").children.length, 4);
+    assert.equal(errHarness.byId.get("live-label").textContent, "Live");
+    assert.equal(errHarness.byId.get("timeline").findByTestId("timeline-fallback"), null);
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("createTimelineServer coalesces concurrent polls, bounds slow agentapi lookups, and negatively caches failures", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-coalesce-"));
+  const brainDir = path.join(root, "brain");
+  const wsDir = path.join(root, "repo");
+  const convId = "77777777-8888-4999-8aaa-bbbbbbbbbbbb";
+  writeText(path.join(wsDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+  writeText(
+    path.join(brainDir, convId, ".system_generated", "logs", "transcript.jsonl"),
+    `${JSON.stringify({ step_index: 0, type: "USER_INPUT", content: "<USER_REQUEST>/plan ok</USER_REQUEST>" })}\n`,
+  );
+
+  let wsFetcherCalls = 0;
+  let releaseWsFetcher = null;
+  const slowSrv = await createTimelineServer({
+    brainDir,
+    port: 0,
+    workspaceWaitBudgetMs: 30,
+    workspaceFetcher: () => {
+      wsFetcherCalls += 1;
+      return new Promise((resolve) => {
+        releaseWsFetcher = () => resolve(wsDir);
+      });
+    },
+  });
+
+  let emptyFetcherCalls = 0;
+  const negSrv = await createTimelineServer({
+    brainDir,
+    port: 0,
+    workspaceNegativeTtlMs: 5000,
+    workspaceFetcher: async () => {
+      emptyFetcherCalls += 1;
+      return "";
+    },
+  });
+
+  try {
+    const wsUri = encodeURIComponent(pathToFileURL(wsDir).href);
+    const t0 = Date.now();
+    const first = await (await fetch(`${slowSrv.url}api/timeline?conversationId=${convId}&workspaceUri=${wsUri}`)).json();
+    const elapsedMs = Date.now() - t0;
+    assert.equal(first.setup.status, "ready");
+    assert.equal(first.workspace, path.resolve(wsDir));
+    assert.ok(elapsedMs < 1500, `Expected bounded wait via workspaceUri fallback, got ${elapsedMs}ms`);
+    assert.equal(wsFetcherCalls, 1);
+
+    releaseWsFetcher();
+    await new Promise((r) => setTimeout(r, 15));
+
+    const [p1, p2] = await Promise.all([
+      fetch(`${slowSrv.url}api/timeline?conversationId=${convId}&workspaceUri=${wsUri}`).then((r) => r.json()),
+      fetch(`${slowSrv.url}api/timeline?conversationId=${convId}&workspaceUri=${wsUri}&etag=${first.etag}`).then((r) => r.json()),
+    ]);
+    assert.equal(p1.etag, first.etag);
+    assert.equal(p2.unchanged, true);
+    assert.equal(p2.etag, first.etag);
+    assert.equal(wsFetcherCalls, 1, "Cached workspace result should avoid further agentapi calls");
+
+    await fetch(`${negSrv.url}api/timeline?conversationId=${convId}&workspaceUri=${wsUri}`);
+    await fetch(`${negSrv.url}api/timeline?conversationId=${convId}&workspaceUri=${wsUri}`);
+    assert.equal(emptyFetcherCalls, 1, "Empty agentapi result must be negatively cached across consecutive polls");
+  } finally {
+    await slowSrv.close();
+    await negSrv.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

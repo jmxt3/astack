@@ -461,6 +461,74 @@ function extractGhPrCreateTitle(cmd) {
 }
 
 const mergedPrCache = new Map();
+const WORKSPACE_POLICY_CACHE_TTL_MS = 5000;
+const workspacePolicyCache = new Map();
+
+function readFileStatFingerprint(filePath) {
+  try {
+    const st = fs.statSync(filePath);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return "-";
+  }
+}
+
+function readFileTextFingerprint(filePath) {
+  try {
+    return fs.readFileSync(filePath, "utf8").trim();
+  } catch {
+    return "-";
+  }
+}
+
+function buildWorkspacePolicyFingerprint(workspaceDir) {
+  const resolved = path.resolve(workspaceDir);
+  const locs = findGitLocationsFast(resolved);
+  const parts = [
+    resolved,
+    locs?.gitDir ?? "",
+    locs?.commonGitDir ?? "",
+    readFileStatFingerprint(path.join(resolved, ".agents", "risk-policy.json")),
+  ];
+  if (locs) {
+    parts.push(
+      readFileTextFingerprint(path.join(locs.gitDir, "HEAD")),
+      readFileStatFingerprint(path.join(locs.commonGitDir, "config")),
+      readFileStatFingerprint(path.join(locs.commonGitDir, "packed-refs")),
+      readFileTextFingerprint(path.join(locs.commonGitDir, "refs", "remotes", "origin", "HEAD")),
+      readFileTextFingerprint(path.join(locs.commonGitDir, "refs", "remotes", "origin", "main")),
+      readFileTextFingerprint(path.join(locs.commonGitDir, "refs", "heads", "main")),
+      readFileTextFingerprint(path.join(locs.commonGitDir, "refs", "remotes", "origin", "master")),
+      readFileTextFingerprint(path.join(locs.commonGitDir, "refs", "heads", "master")),
+    );
+  }
+  return parts.join("|");
+}
+
+function resolveWorkspacePolicyCached(workspaceDir) {
+  if (!workspaceDir) {
+    return {
+      workspaceScope: { kind: "non_repo", repoRoot: null, gitDir: null, commonDir: null, repoId: null },
+      policyResult: loadRiskPolicy(""),
+    };
+  }
+  const fp = buildWorkspacePolicyFingerprint(workspaceDir);
+  const now = Date.now();
+  const cached = workspacePolicyCache.get(fp);
+  if (cached && now - cached.ts < WORKSPACE_POLICY_CACHE_TTL_MS) {
+    return { workspaceScope: cached.workspaceScope, policyResult: cached.policyResult };
+  }
+  const workspaceScope = resolveWorkspaceScope(workspaceDir);
+  const policyResult =
+    workspaceScope.kind === "enrolled_repo"
+      ? loadRiskPolicy(workspaceDir, { baseRef: workspaceScope.baseRef })
+      : loadRiskPolicy(workspaceDir);
+  if (workspacePolicyCache.size >= 32) {
+    workspacePolicyCache.clear();
+  }
+  workspacePolicyCache.set(fp, { ts: now, workspaceScope, policyResult });
+  return { workspaceScope, policyResult };
+}
 
 function readMergedPrNumbersFast(workspaceDir) {
   if (!workspaceDir) return new Set();
@@ -2273,13 +2341,7 @@ export function evaluateTimelineSnapshot({
     : "";
 
   const setup = inspectSetupReadiness(workspaceDir);
-  const workspaceScope = workspaceDir
-    ? resolveWorkspaceScope(workspaceDir)
-    : { kind: "non_repo", repoRoot: null, gitDir: null, commonDir: null, repoId: null };
-  const policyResult =
-    workspaceScope.kind === "enrolled_repo"
-      ? loadRiskPolicy(workspaceDir, { baseRef: workspaceScope.baseRef })
-      : loadRiskPolicy(workspaceDir);
+  const { workspaceScope, policyResult } = resolveWorkspacePolicyCached(workspaceDir);
   const sig = mergeChildTranscriptSignals(
     analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir),
     brainDir,
