@@ -1,11 +1,15 @@
 # Watch-PR & TLA+ Statechart TypeScript Suites
 
-AStack runs its TypeScript helper CLIs (`watch-pr` and `statechart`) directly on Node 22+ via native type stripping (`watch-pr.mjs` always passes `--experimental-strip-types`; `statechart.mjs` passes it only on Node `22.6`–`22.17` and relies on default stripping from `22.18`) with zero Bun runtime dependency, backed by automated cross-platform CI suites on Linux, Windows, and macOS.
+AStack runs its TypeScript helper CLIs (`watch-pr` and `statechart`) and zero-Java formal verifiers directly on Node 22+ via native type stripping (`watch-pr.mjs` always passes `--experimental-strip-types`; `statechart.mjs` passes it only on Node `22.6`–`22.17` and relies on default stripping from `22.18`) with zero Bun runtime dependency, backed by automated cross-platform CI suites on Linux, Windows, and macOS.
 
 ## Sub-features
 
-- GitHub PR stack watcher (`skills/astack-mode/scripts/watch-pr/watch-pr.mjs` wrapping `cli-main.ts`, zero `@types/bun` / `bun-types` dependency)
+- GitHub PR stack watcher (`skills/astack-mode/scripts/watch-pr/watch-pr.mjs` wrapping `cli-main.ts`, zero `@types/bun` / `bun-types` dependency) with opt-in outcome ledger sync (`--record-outcome`, `--cwd <dir>`, `--data-dir <dir>`, `--category <cat>`, `--risk <0..1>`)
 - TLA+ / TLC statechart converter (`skills/statechart/scripts/statechart.mjs` wrapping `statechart.ts` with `-h`/`--help` exit `0` and unknown option exit `2`)
+- Zero-Java TypeScript formal verifiers running directly against production code:
+  - `verify-watch-pr-formal` (`.agents/skills/verify-watch-pr-formal/scripts/verify-policy.ts`)
+  - `verify-earned-trust-formal` (`.agents/skills/verify-earned-trust-formal/scripts/verify-trust.ts`)
+  - `verify-risk-mitigation-formal` (`.agents/skills/verify-risk-mitigation-formal/scripts/verify-risk.ts`)
 - TypeScript ESM module test loader in `skills/statechart/scripts/test/pipeline.test.ts` using `node:module` `register()` + `MessageChannel` (compatible with Node `22.6` through `22.18+`)
 - Windows `npm.cmd` invocation support in `skills/statechart/scripts/test/render.test.ts` testing 74 Mermaid and Pele 1.9.0 chart rendering cases
 
@@ -17,6 +21,10 @@ AStack runs its TypeScript helper CLIs (`watch-pr` and `statechart`) directly on
 - Automated suites via root `package.json`:
   - `node --run test:watch-pr`
   - `node --run test:statechart`
+- Formal verifiers (`--json`, `--emit-mermaid <path>`, `-h`/`--help`):
+  - `node --experimental-strip-types --disable-warning=ExperimentalWarning .agents/skills/verify-watch-pr-formal/scripts/verify-policy.ts --json`
+  - `node --experimental-strip-types --disable-warning=ExperimentalWarning .agents/skills/verify-earned-trust-formal/scripts/verify-trust.ts --json`
+  - `node --experimental-strip-types --disable-warning=ExperimentalWarning .agents/skills/verify-risk-mitigation-formal/scripts/verify-risk.ts --json`
 - Render corpus (no `package.json` script; run directly):
   - `node --experimental-strip-types --disable-warning=ExperimentalWarning --test skills/statechart/scripts/test/render.test.ts`
 
@@ -24,7 +32,8 @@ AStack runs its TypeScript helper CLIs (`watch-pr` and `statechart`) directly on
 
 Preconditions: `$ScratchDir` and `$EvidenceDir` exist from `Launch`; Node `>= 22.6.0` passed `Doctor`.
 
-- **`watch-pr.mjs` help & TypeScript unit suite (`56` tests + formal policy check)**: Run `node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --help`, `node --run test:watch-pr`, and `node --experimental-strip-types --disable-warning=ExperimentalWarning .agents/skills/verify-watch-pr-formal/scripts/verify-policy.ts`. Expect exit `0` on `--help` (`Usage: watch-pr [options]`), all `56` subtests passing (`fail=0`), and `ok: true` with `0` invariant violations from `verify-policy.ts`; save outputs to `$EvidenceDir/watch-pr-proof.txt`. (Report live `--pr <num>` GitHub API polling `verified-unreachable` when offline or unauthenticated.)
+- **`watch-pr.mjs` help, flag validation, and TypeScript unit suite (`60` tests)**: Run `node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --help`, `node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --category bogus` (expect exit `64`), and `node --run test:watch-pr`. Expect exit `0` on `--help` (`Usage: watch-pr [options]`, documenting `--record-outcome`) and all `60` subtests passing (`fail=0`); save outputs to `$EvidenceDir/watch-pr-proof.txt`. (Report live `--pr <num>` GitHub API polling `verified-unreachable` when offline or unauthenticated.)
+- **Zero-Java formal verifiers (`verify-policy.ts`, `verify-trust.ts`, `verify-risk.ts`)**: Run all three formal verifiers with `--json --emit-mermaid` writing `.mmd` outputs into `$EvidenceDir`. Expect exit `0`, `"ok": true`, `"findings": []`, and non-empty `stateDiagram-v2` files; save JSON reports to `$EvidenceDir/formal-verifiers.json`.
 - **`statechart.mjs` help, unknown-option exit `2`, and TypeScript test suite (`67` non-TLC tests)**:
   1. Run `node skills/statechart/scripts/statechart.mjs --help` and `-h` (expect exit `0` and `Usage: statechart SPEC.tla ...`).
   2. Run `node skills/statechart/scripts/statechart.mjs --bogus` (expect exit `2` and `Unknown option '--bogus'`).
