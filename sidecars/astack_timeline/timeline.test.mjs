@@ -2523,3 +2523,308 @@ test("buildRiskPresentation separates human governance gates, defect blocks, low
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("ignores manage_subagents(list) echoes, catches non-'subagent' spawn errors, and suppresses stage markers for unretried failed spawns", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-sa-edges-");
+  const convId = "conv-sa-edges";
+  const retryChildId = "44444444-4444-4444-8444-444444444444";
+  const secondChildId = "55555555-5555-4555-8555-555555555555";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(brainDir, convId, "pr-review.md"), "# PR Review\nPASS\n");
+    writeText(
+      path.join(brainDir, convId, "astack-trust", "evidence.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        freshness: "fresh",
+        riskTier: 1,
+        riskLabel: "medium",
+        reviewRound: 1,
+        maxReviewRounds: 3,
+        roundState: "verified",
+        verifier: { verdict: "PASS" },
+      }),
+    );
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-25T02:49:00Z",
+        content: "<USER_REQUEST>/review-pr</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:50:31Z",
+        tool_calls: [
+          {
+            name: "invoke_subagent",
+            args: {
+              TypeName: "pr-verifier",
+              Role: "Independent PR Verifier (Round 2)",
+              Prompt: "Verify branch diff",
+            },
+          },
+        ],
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        status: "ERROR",
+        created_at: "2026-11-25T02:50:40Z",
+        content: "Encountered error in step execution: failed to create git worktree: Filename too long",
+      },
+      {
+        step_index: 3,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:50:43Z",
+        tool_calls: [
+          {
+            name: "invoke_subagent",
+            args: {
+              TypeName: "pr-verifier",
+              Role: "Verifier",
+              Prompt: "Verify branch diff",
+            },
+          },
+        ],
+      },
+      {
+        step_index: 4,
+        type: "GENERIC",
+        status: "DONE",
+        created_at: "2026-11-25T02:50:54Z",
+        content: JSON.stringify({ conversationId: retryChildId }),
+      },
+      {
+        step_index: 5,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:51:00Z",
+        tool_calls: [
+          { name: "manage_subagents", args: { Action: "list" } },
+          {
+            name: "invoke_subagent",
+            args: {
+              TypeName: "self",
+              Role: "Follow-up Helper",
+              Prompt: "Check docs",
+            },
+          },
+        ],
+      },
+      {
+        step_index: 6,
+        type: "GENERIC",
+        status: "DONE",
+        created_at: "2026-11-25T02:51:01Z",
+        content: `You have 1 active subagent(s):\n${JSON.stringify([{ conversationId: retryChildId, role: "Verifier", type: "pr-verifier" }])}`,
+      },
+      {
+        step_index: 7,
+        type: "GENERIC",
+        status: "DONE",
+        created_at: "2026-11-25T02:51:02Z",
+        content: JSON.stringify({ conversationId: secondChildId }),
+      },
+      {
+        step_index: 8,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-25T02:52:25Z",
+        content: `[Message] sender=${retryChildId} content=PASS`,
+      },
+      {
+        step_index: 9,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-25T02:52:26Z",
+        content: `[Message] sender=${secondChildId} content=DONE`,
+      },
+      {
+        step_index: 10,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:53:00Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: "gh pr create --title \"fix: callback\" --body \"ok\"" } }],
+      },
+      {
+        step_index: 11,
+        type: "GENERIC",
+        status: "DONE",
+        created_at: "2026-11-25T02:53:05Z",
+        content: "https://github.com/org/repo/pull/62",
+      },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(snap.activity.totalSubagentsCount, 3);
+    assert.equal(snap.activity.doneSubagentsCount, 2);
+    assert.equal(snap.activity.runningSubagentsCount, 0);
+    assert.equal(snap.activity.subagents[0].status, "failed");
+    assert.equal(snap.activity.subagents[1].status, "done");
+    assert.equal(snap.activity.subagents[1].childConvId, retryChildId);
+    assert.equal(snap.activity.subagents[2].status, "done");
+    assert.equal(snap.activity.subagents[2].childConvId, secondChildId);
+    assert.deepEqual(snap.activity.liveStageIds, []);
+    const reviewStage = snap.stages.find((s) => s.id === "review");
+    assert.equal(reviewStage?.status, "done");
+    assert.equal(reviewStage?.railState, "done");
+
+    const convUnretried = "conv-failed-browser";
+    writeTranscript(brainDir, convUnretried, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T03:00:00Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(workspaceDir, "src", "app.js") } }],
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T03:00:05Z",
+        tool_calls: [{ name: "invoke_subagent", args: { TypeName: "browser", Role: "UI Verifier", Prompt: "Verify UI" } }],
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        status: "ERROR",
+        created_at: "2026-11-25T03:00:06Z",
+        content: "Encountered error in step execution: failed to start browser",
+      },
+    ]);
+    const unretriedSnap = evaluateTimelineSnapshot({ conversationId: convUnretried, brainDir, workspaceDir });
+    const buildStage = unretriedSnap.stages.find((s) => s.id === "build");
+    const verifyCheck = buildStage?.subChecks?.find((c) => c.id === "verify");
+    assert.equal(unretriedSnap.activity.subagents.length, 1);
+    assert.equal(unretriedSnap.activity.subagents[0].status, "failed");
+    assert.equal(unretriedSnap.activity.runningSubagentsCount, 0);
+    assert.equal(unretriedSnap.activity.doneSubagentsCount, 0);
+    assert.notEqual(verifyCheck?.status, "done");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("deactivates failed schedule calls, ignores TimerCondition 'never', and ignores error outputs on manage_task(list)", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-sch-edges-");
+  const convId = "conv-sch-edges";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:53:00Z",
+        tool_calls: [
+          {
+            name: "schedule",
+            args: {
+              DurationSeconds: 60,
+              Prompt: "First schedule that fails",
+            },
+          },
+        ],
+      },
+      {
+        step_index: 1,
+        type: "GENERIC",
+        status: "ERROR",
+        created_at: "2026-11-25T02:53:01Z",
+        content: "Encountered error in step execution: invalid schedule parameter",
+      },
+      {
+        step_index: 2,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:54:00Z",
+        tool_calls: [
+          {
+            name: "schedule",
+            args: {
+              DurationSeconds: 300,
+              TimerCondition: "never",
+              Prompt: "Check CI status",
+            },
+          },
+        ],
+      },
+      {
+        step_index: 3,
+        type: "GENERIC",
+        status: "RUNNING",
+        created_at: "2026-11-25T02:54:01Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-2`,
+      },
+      {
+        step_index: 4,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-25T02:55:00Z",
+        content: `[Message] sender=${convId}/task-other content=Task id "${convId}/task-other" finished with result:\nCommand exited with code 0.`,
+      },
+      {
+        step_index: 5,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:55:10Z",
+        tool_calls: [{ name: "manage_task", args: { Action: "list" } }],
+      },
+      {
+        step_index: 6,
+        type: "GENERIC",
+        status: "ERROR",
+        created_at: "2026-11-25T02:55:11Z",
+        content: "Encountered error in step execution: No background tasks are currently running.",
+      },
+    ]);
+
+    const midSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(midSnap.activity.schedules[0]?.active, false);
+    assert.equal(midSnap.activity.schedules[1]?.taskId, `${convId}/task-2`);
+    assert.equal(midSnap.activity.schedules[1]?.active, true);
+    assert.equal(midSnap.activity.runningTasksCount, 1);
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:53:00Z",
+        tool_calls: [{ name: "schedule", args: { DurationSeconds: 60, Prompt: "First schedule that fails" } }],
+      },
+      {
+        step_index: 1,
+        type: "GENERIC",
+        status: "ERROR",
+        created_at: "2026-11-25T02:53:01Z",
+        content: "Encountered error in step execution: invalid schedule parameter",
+      },
+      {
+        step_index: 2,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:54:00Z",
+        tool_calls: [{ name: "schedule", args: { DurationSeconds: 300, TimerCondition: "never", Prompt: "Check CI status" } }],
+      },
+      {
+        step_index: 3,
+        type: "GENERIC",
+        status: "RUNNING",
+        created_at: "2026-11-25T02:54:01Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-2`,
+      },
+      {
+        step_index: 4,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:56:00Z",
+        tool_calls: [{ name: "manage_task", args: { Action: "list" } }],
+      },
+      {
+        step_index: 5,
+        type: "GENERIC",
+        status: "DONE",
+        created_at: "2026-11-25T02:56:01Z",
+        content: "No background tasks are currently running.",
+      },
+    ]);
+
+    const afterListSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(afterListSnap.activity.schedules[1]?.active, false);
+    assert.equal(afterListSnap.activity.runningTasksCount, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
