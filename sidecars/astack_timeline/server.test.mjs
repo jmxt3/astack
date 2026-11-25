@@ -64,13 +64,15 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     assert.match(htmlText, /data-testid="timeline-footer"/);
     assert.match(htmlText, /data-testid="timeline-setup"/);
     assert.match(htmlText, /data-testid="timeline-setup-drawer"/);
-    assert.match(htmlText, /data-testid="timeline-scene"/);
+    assert.match(htmlText, /id="living-rail"/);
+    assert.match(htmlText, /class="timeline-wrap"/);
+    assert.match(htmlText, /data-testid="rail-announcer"/);
     assert.match(htmlText, /data-testid="focus-strip"/);
     assert.match(htmlText, /data-testid="focus-artifacts"/);
     assert.match(htmlText, /data-testid="btw-form"/);
     assert.match(htmlText, /data-testid="delegate-view"/);
     assert.match(htmlText, /data-testid="artifact-view"/);
-    assert.doesNotMatch(htmlText, /id="next-bar"|data-testid="timeline-next"/);
+    assert.doesNotMatch(htmlText, /id="next-bar"|data-testid="timeline-next"|data-testid="timeline-scene"|id="scene-section"/);
 
     const logoRes = await fetch(`${srv.url}logo.svg`);
     assert.equal(logoRes.status, 200);
@@ -84,9 +86,10 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     const cssText = await cssRes.text();
     assert.match(cssText, /--tl-done:/);
     assert.match(cssText, /\.setup-card\b/);
-    assert.match(cssText, /height:\s*188px;/);
+    assert.match(cssText, /\.living-rail\b/);
+    assert.match(cssText, /\.stage-stats\b/);
     assert.match(cssText, /\.chip-active-dot\b/);
-    assert.doesNotMatch(cssText, /\.scene-next\b/);
+    assert.doesNotMatch(cssText, /\.scene-next\b|\.scene-section\b/);
 
     const jsRes = await fetch(`${srv.url}app.js`);
     assert.equal(jsRes.status, 200);
@@ -98,13 +101,16 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     assert.match(jsText, /not a slash command/);
     assert.doesNotMatch(jsText, /getElementById\("next-bar"\)/);
 
+    const railRes = await fetch(`${srv.url}living-rail.js`);
+    assert.equal(railRes.status, 200);
+    assert.match(railRes.headers.get("content-type") ?? "", /javascript/);
+    assert.match(await railRes.text(), /window\.createLivingRail/);
+
     const threeRes = await fetch(`${srv.url}vendor/three.min.js`);
-    assert.equal(threeRes.status, 200);
-    assert.match(threeRes.headers.get("content-type") ?? "", /javascript/);
+    assert.equal(threeRes.status, 404);
 
     const sceneRes = await fetch(`${srv.url}scene-3d.js`);
-    assert.equal(sceneRes.status, 200);
-    assert.match(sceneRes.headers.get("content-type") ?? "", /javascript/);
+    assert.equal(sceneRes.status, 404);
 
     const catalogRes = await fetch(`${srv.url}catalog.js`);
     assert.equal(catalogRes.status, 200);
@@ -496,7 +502,7 @@ test("createTimelineServer reports nextAction.inProgress when /plan is active be
     assert.match(appJs, /focus-drawer-agents/);
     assert.match(appJs, /focus-drawer-prs/);
     assert.match(appJs, /focus-drawer-tasks/);
-    assert.match(cssText, /\.scene-section[\s\S]*height:\s*188px/);
+    assert.match(cssText, /\.living-rail\s*\{[^}]*top:\s*-32px/);
     assert.match(cssText, /\.pr-badge\.merged/);
   } finally {
     await srv.close();
@@ -589,10 +595,10 @@ test("createTimelineServer serves selectable task logs safely and exposes vertic
     const missingRes = await fetch(`${srv.url}api/artifact?conversationId=${convId}&taskLog=task-999.log`);
     assert.equal(missingRes.status, 404);
 
-    const [appJs, cssText, sceneJs] = await Promise.all([
+    const [appJs, cssText, livingRailJs] = await Promise.all([
       (await fetch(`${srv.url}app.js`)).text(),
       (await fetch(`${srv.url}styles.css`)).text(),
-      (await fetch(`${srv.url}scene-3d.js`)).text(),
+      (await fetch(`${srv.url}living-rail.js`)).text(),
     ]);
     assert.match(appJs, /focus-drawer-artifacts/);
     assert.match(appJs, /openTaskLog\(/);
@@ -602,12 +608,11 @@ test("createTimelineServer serves selectable task logs safely and exposes vertic
     assert.doesNotMatch(appJs, /bgItems\.slice\(-8\)/);
     assert.match(cssText, /\.focus-drawer-list[\s\S]*overflow-y:\s*auto/);
     assert.match(cssText, /\.progress\.is-mode\b/);
-    assert.match(cssText, /\.scene-stage-dot\.skipped\s*\{\s*background:\s*#6f757a/);
+    assert.match(cssText, /\.status-text\.skipped\s*\{\s*color:\s*var\(--tl-fg-faint\)/);
     assert.match(cssText, /\.subcmd-pill\.is-internal\b/);
     assert.match(cssText, /\.subcmd-tag\b/);
-    assert.match(sceneJs, /merged:\s*new T\.Color\("#a855f7"\)/);
-    assert.match(sceneJs, /prMergedEdges/);
-    assert.match(sceneJs, /prOpenEdges/);
+    assert.match(livingRailJs, /globalCompositeOperation\s*=\s*K\.blend/);
+    assert.match(livingRailJs, /createLivingRail/);
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });

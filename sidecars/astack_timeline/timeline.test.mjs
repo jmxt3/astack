@@ -1689,7 +1689,12 @@ test("clears Plan gate and unmutes Build & Prove when downstream walkthrough, PR
     assert.equal(snap.workflowMode, "pr_iteration");
     assert.equal(snap.workflowLabel, "PR iteration");
     assert.equal(snap.liveLabel, "Live");
-    assert.equal(snap.activity.activeStageId, "ship");
+    assert.deepEqual(snap.activity.liveStageIds, []);
+    assert.equal(snap.activity.suggestedStageId, null);
+    assert.deepEqual(
+      snap.stages.map((s) => s.railState),
+      ["done", "done", "done", "done"],
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -1873,6 +1878,370 @@ test("detects /astack-mode babysit, /astack-mode release-and-postmortem, and com
     assert.equal(ship.commands.find((c) => c.command === "/astack-mode babysit")?.state, "done");
     assert.equal(ship.autoSubCommands.find((c) => c.command === "watch-pr.mjs")?.ran, true);
     assert.equal(ship.moreCommands.find((c) => c.command === "/astack-mode release-and-postmortem")?.state, "done");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("living rail models parallel work, skipped ahead, waiting on you, and all-done rest with running background tasks", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-rail-");
+  try {
+    const headSha = "0123456789abcdef0123456789abcdef01234567";
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+
+    const convParallel = "conv-rail-parallel";
+    writeText(path.join(brainDir, convParallel, "implementation_plan.md"), "# Plan\n");
+    writeText(path.join(brainDir, convParallel, "walkthrough.md"), "# Walkthrough\n");
+    writeText(path.join(brainDir, convParallel, "pr-review.md"), "# PR Review\n");
+    writeTranscript(brainDir, convParallel, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-24T10:00:00Z",
+        content: "<USER_REQUEST>/plan build parallel rail</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-24T10:00:10Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convParallel, "implementation_plan.md") } }],
+      },
+      {
+        step_index: 2,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-24T10:01:00Z",
+        content: "Proceed",
+      },
+      {
+        step_index: 3,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-24T10:02:00Z",
+        tool_calls: [
+          { name: "edit_file", args: { Path: path.join(workspaceDir, "src", "rail.js") } },
+          { name: "invoke_subagent", args: { TypeName: "astack-agent", Role: "Builder", Prompt: "Build UI" } },
+          { name: "invoke_subagent", args: { TypeName: "browser", Role: "Verifier", Prompt: "Verify UI" } },
+          { name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "Reviewer", Prompt: "Review diff" } },
+        ],
+      },
+    ]);
+    const parallelSnap = evaluateTimelineSnapshot({ conversationId: convParallel, brainDir, workspaceDir });
+    assert.deepEqual(
+      parallelSnap.stages.map((s) => s.railState),
+      ["done", "running", "running", "suggested"],
+    );
+    assert.deepEqual(parallelSnap.activity.liveStageIds, ["build", "review"]);
+    assert.equal(parallelSnap.activity.liveAgentsByStage.build, 2);
+    assert.equal(parallelSnap.activity.liveAgentsByStage.review, 1);
+    assert.equal(parallelSnap.activity.suggestedStageId, "ship");
+
+    const convSkipped = "conv-rail-skipped";
+    writeTranscript(brainDir, convSkipped, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-24T11:00:00Z",
+        content: "<USER_REQUEST>/astack-mode ship directly</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-24T11:00:10Z",
+        tool_calls: [
+          { name: "edit_file", args: { Path: path.join(workspaceDir, "src", "ship.js") } },
+          { name: "read_file", args: { Path: "/plugin/skills/deslop/SKILL.md" } },
+          { name: "invoke_subagent", args: { TypeName: "astack-agent", Role: "Shipper", Prompt: "Open the PR on GitHub" } },
+        ],
+      },
+    ]);
+    writeReceipt(brainDir, convSkipped, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-24T11:00:05Z",
+        conversationId: convSkipped,
+        kind: "file_write",
+        category: "ui",
+        headSha,
+        ok: true,
+        summary: "edit_file src/ship.js",
+        paths: ["src/ship.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-24T11:00:20Z",
+        conversationId: convSkipped,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+    ]);
+    const skippedSnap = evaluateTimelineSnapshot({ conversationId: convSkipped, brainDir, workspaceDir });
+    assert.deepEqual(
+      skippedSnap.stages.map((s) => s.railState),
+      ["skipped", "done", "skipped", "running"],
+    );
+    assert.deepEqual(skippedSnap.activity.liveStageIds, ["ship"]);
+    assert.equal(skippedSnap.activity.liveAgentsByStage.ship, 1);
+    assert.equal(skippedSnap.activity.suggestedStageId, null);
+
+    const convWaiting = "conv-rail-waiting";
+    writeText(path.join(brainDir, convWaiting, "implementation_plan.md"), "# Plan\n");
+    writeTranscript(brainDir, convWaiting, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-24T12:00:00Z",
+        content: "<USER_REQUEST>/plan /astack-mode design queued build</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-24T12:00:10Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convWaiting, "implementation_plan.md") } }],
+      },
+    ]);
+    const waitingSnap = evaluateTimelineSnapshot({ conversationId: convWaiting, brainDir, workspaceDir });
+    assert.deepEqual(
+      waitingSnap.stages.map((s) => s.railState),
+      ["yourturn", "queued", "pending", "pending"],
+    );
+    assert.deepEqual(waitingSnap.activity.liveStageIds, []);
+    assert.equal(waitingSnap.activity.suggestedStageId, "plan");
+
+    const convDoneJob = "conv-rail-done-job";
+    writeText(path.join(brainDir, convDoneJob, "walkthrough.md"), "# Walkthrough\n");
+    writeText(path.join(brainDir, convDoneJob, "pr-review.md"), "# PR Review\n");
+    writeText(
+      path.join(brainDir, convDoneJob, "astack-trust", "evidence.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha,
+        freshness: "fresh",
+        riskTier: 0,
+        riskLabel: "low",
+        reviewRound: 1,
+        maxReviewRounds: 3,
+        roundState: "verified",
+        autoMergeEligible: true,
+        verifier: { verdict: "PASS" },
+      }),
+    );
+    writeTranscript(brainDir, convDoneJob, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-24T13:00:00Z",
+        content: "<USER_REQUEST>/astack-mode build and watch PR</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-24T13:01:00Z",
+        tool_calls: [
+          { name: "invoke_subagent", args: { TypeName: "research", Role: "Planner", Prompt: "Scan repo" } },
+          { name: "invoke_subagent", args: { TypeName: "astack-agent", Role: "Builder", Prompt: "Implement" } },
+          { name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "Reviewer", Prompt: "Verify" } },
+          { name: "run_command", args: { CommandLine: "gh pr create --fill" } },
+          { name: "run_command", args: { CommandLine: "node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --pr 42", toolSummary: "Watch PR #42" } },
+        ],
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        created_at: "2026-11-24T13:01:05Z",
+        content: `Tool is running as a background task with task id: ${convDoneJob}/task-7\nhttps://github.com/acme/demo/pull/42`,
+      },
+      {
+        step_index: 3,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-24T13:02:00Z",
+        content: "All your subagents and background tasks have been stopped due to user check.",
+      },
+      {
+        step_index: 4,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-24T13:03:00Z",
+        tool_calls: [
+          { name: "run_command", args: { CommandLine: "node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --pr 42", toolSummary: "Watch PR #42 live" } },
+        ],
+      },
+      {
+        step_index: 5,
+        type: "GENERIC",
+        created_at: "2026-11-24T13:03:02Z",
+        content: `Tool is running as a background task with task id: ${convDoneJob}/task-8`,
+      },
+    ]);
+    writeReceipt(brainDir, convDoneJob, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-24T13:01:10Z",
+        conversationId: convDoneJob,
+        kind: "file_write",
+        category: "ui",
+        headSha,
+        ok: true,
+        summary: "edit_file src/ui.js",
+        paths: ["src/ui.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-24T13:01:20Z",
+        conversationId: convDoneJob,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+    ]);
+    const doneJobSnap = evaluateTimelineSnapshot({ conversationId: convDoneJob, brainDir, workspaceDir });
+    assert.deepEqual(
+      doneJobSnap.stages.map((s) => s.railState),
+      ["skipped", "done", "done", "done"],
+    );
+    assert.deepEqual(doneJobSnap.activity.liveStageIds, []);
+    assert.equal(doneJobSnap.activity.suggestedStageId, null);
+    assert.equal(doneJobSnap.stages[3].stats.tasks.running, 1);
+
+    const sum = (fn) => doneJobSnap.stages.reduce((acc, s) => acc + fn(s.stats), 0);
+    assert.equal(sum((st) => st.agents.total), doneJobSnap.activity.agentsTotalCount);
+    assert.equal(sum((st) => st.agents.running), doneJobSnap.activity.agentsWorkingCount);
+    assert.equal(sum((st) => st.prs.open), doneJobSnap.activity.prs.openCount);
+    assert.equal(sum((st) => st.prs.merged), doneJobSnap.activity.prs.mergedCount);
+    assert.equal(sum((st) => st.prs.closed), doneJobSnap.activity.prs.closedCount);
+    assert.equal(sum((st) => st.artifacts.total), doneJobSnap.activity.artifactCount);
+    assert.equal(sum((st) => st.tasks.total), doneJobSnap.activity.tasksTotalCount);
+    assert.equal(sum((st) => st.tasks.running), doneJobSnap.activity.runningTasksCount);
+
+    assert.match(parallelSnap.stages[1].collapsedSummary, /2 subagents$/);
+    assert.match(parallelSnap.stages[2].collapsedSummary, /1 subagent$/);
+
+    const convErrStale = "conv-rail-err-stale";
+    writeText(path.join(brainDir, convErrStale, "pr-review.md"), "# PR Review\n");
+    writeText(
+      path.join(brainDir, convErrStale, "astack-trust", "evidence.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha,
+        freshness: "fresh",
+        riskTier: 2,
+        riskLabel: "high",
+        reviewRound: 3,
+        maxReviewRounds: 3,
+        roundState: "escalated",
+        verifier: { verdict: "FAIL" },
+      }),
+    );
+    writeTranscript(brainDir, convErrStale, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-24T14:00:00Z",
+        content: "<USER_REQUEST>/astack-mode fix widget</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-24T14:00:10Z",
+        tool_calls: [
+          { name: "read_file", args: { Path: "/plugin/skills/deslop/SKILL.md" } },
+          { name: "swarm", args: { action: "add", name: "worker", brief: "Edit widget" } },
+          { name: "invoke_subagent", args: { TypeName: "astack-agent", Role: "Tester", Prompt: "Check before we ship" } },
+          { name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "Verifier", Prompt: "Audit PR" } },
+          { name: "run_workflow", args: { Description: "Review changed files" } },
+        ],
+      },
+    ]);
+    writeReceipt(brainDir, convErrStale, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-24T14:00:20Z",
+        conversationId: convErrStale,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-24T14:00:30Z",
+        conversationId: convErrStale,
+        kind: "file_write",
+        category: "ui",
+        headSha,
+        ok: true,
+        summary: "edit_file src/widget.js",
+        paths: ["src/widget.js"],
+      },
+    ]);
+    const errStaleSnap = evaluateTimelineSnapshot({ conversationId: convErrStale, brainDir, workspaceDir });
+    assert.equal(errStaleSnap.stages[1].railState, "running");
+    assert.equal(errStaleSnap.stages[2].railState, "error", "Escalated error must not be masked by active review subagent/workflow");
+    assert.ok(errStaleSnap.activity.liveStageIds.includes("build"));
+    assert.ok(errStaleSnap.activity.liveStageIds.includes("review"));
+    assert.equal(errStaleSnap.activity.liveAgentsByStage.build, 2, "Swarm worker + build subagent mentioning 'ship' must stay on build");
+    assert.equal(errStaleSnap.activity.liveAgentsByStage.ship, 0);
+
+    const convStaleOnly = "conv-rail-stale-only";
+    writeTranscript(brainDir, convStaleOnly, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-24T15:00:00Z",
+        content: "<USER_REQUEST>/astack-mode update</USER_REQUEST>",
+      },
+    ]);
+    writeReceipt(brainDir, convStaleOnly, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-24T15:00:05Z",
+        conversationId: convStaleOnly,
+        kind: "file_write",
+        category: "ui",
+        headSha,
+        ok: true,
+        summary: "edit_file src/a.js",
+        paths: ["src/a.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-24T15:00:10Z",
+        conversationId: convStaleOnly,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-24T15:00:20Z",
+        conversationId: convStaleOnly,
+        kind: "file_write",
+        category: "ui",
+        headSha,
+        ok: true,
+        summary: "edit_file src/a.js",
+        paths: ["src/a.js"],
+      },
+    ]);
+    const staleOnlySnap = evaluateTimelineSnapshot({ conversationId: convStaleOnly, brainDir, workspaceDir });
+    assert.equal(staleOnlySnap.stages[1].railState, "stale");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
