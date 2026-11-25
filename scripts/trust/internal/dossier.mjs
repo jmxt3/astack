@@ -432,6 +432,7 @@ export function compilePrDossier({
   featureMapDir = null,
   repoUrl = null,
   mergeBodyPath = null,
+  writeEvidence = true,
 } = {}) {
   if (format !== "antigravity" && format !== "github") {
     throw new Error(`Invalid format "${format}": expected "antigravity" or "github"`);
@@ -764,8 +765,8 @@ export function compilePrDossier({
     markdown = renderDossierMarkdown({ workspaceDir, evidence, findingsDoc });
   }
 
-  const evidencePath = trustDir ? writeEvidenceSnapshotAtomic(trustDir, evidence) : null;
-  if (format === "github" && trustDir) {
+  const evidencePath = writeEvidence && trustDir ? writeEvidenceSnapshotAtomic(trustDir, evidence) : null;
+  if (writeEvidence && format === "github" && trustDir) {
     fs.mkdirSync(trustDir, { recursive: true });
     fs.writeFileSync(path.join(trustDir, "pr-body.md"), markdown, "utf8");
   }
@@ -778,6 +779,7 @@ export function compilePrDossier({
 
   return {
     evidence,
+    findingsDoc,
     markdown,
     evidencePath,
     outPath: writtenOutPath,

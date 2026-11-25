@@ -18,7 +18,7 @@ At the start of any build, feature, bug-fix, or refactor run, display this fligh
 3. [AUTO]       Build & Guard            (astack-agent / /swarm / /tdd, anti-rationalization, receipt hooks)
 4. [AUTO]       Clean & Harden           (/deslop, /no-comments via comment-sicko, re-verify tests)
 5. [AUTO]       Live Proof & AI Review   (verify-<app> / control-ui / control-cli, pr-dossier, pr-verifier <=3 rounds)
-6. [HUMAN GATE] Visual PR Review & Merge (aux_pane PR Dossier + pr-review.md RequestFeedback:true + ask_question; non-blocking RequestFeedback:false in Beast Mode / /goal / autopilot-* / Tier 0 auto)
+6. [HUMAN GATE] Visual PR Review & Merge (inline PR Dossier + AStack panel + pr-review.md RequestFeedback:true + ask_question; non-blocking RequestFeedback:false in Beast Mode / /goal / autopilot-* / Tier 0 auto)
 ```
 
 Before reporting done on a PR or branch review, run `/review-pr` (visual dossier + isolated `pr-verifier`, capped at 3 remediation rounds before human escalation). Use `/audit-architecture` for deep-module and `.agents/boundaries.json` scans.

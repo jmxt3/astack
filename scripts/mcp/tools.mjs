@@ -99,14 +99,6 @@ export const TOOL_DEFINITIONS = [
         resourceUri: "ui://astack/pr-dossier.html",
         visibility: ["model", "app"],
       },
-      "com.google.antigravity/ui": {
-        entrypoints: [
-          {
-            type: "aux_pane",
-            title: "AStack PR Dossier",
-          },
-        ],
-      },
     },
   },
   {
@@ -125,14 +117,6 @@ export const TOOL_DEFINITIONS = [
       ui: {
         resourceUri: "ui://astack/arch-audit.html",
         visibility: ["model", "app"],
-      },
-      "com.google.antigravity/ui": {
-        entrypoints: [
-          {
-            type: "aux_pane",
-            title: "AStack Architecture Audit",
-          },
-        ],
       },
     },
   },

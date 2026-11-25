@@ -5,7 +5,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { COMMAND_DOCS, DELEGATE_GUIDE_DATA } from "./command-catalog.mjs";
 import { evaluateTimelineSnapshot, resolveSafeArtifactUri, resolveSafeTaskLogPath } from "./timeline-engine.mjs";
@@ -13,10 +13,12 @@ import {
   OUTCOME_SCORES,
   TRUST_CATEGORIES,
   applyTrustSettingsAction,
+  compilePrDossier,
   loadRiskPolicy,
   readHeadShaFast,
   recordOutcomeWithTrustSync,
   resolveWorkspaceScope,
+  runArchitectureAudit,
 } from "../../scripts/trust/index.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -245,6 +247,11 @@ function makePrStatusResolver({ enabled = true, fetcher = fetchGhPrMeta, ttlMs =
       new Promise((resolve) => setTimeout(() => resolve(entry.map), waitBudgetMs)),
     ]);
   };
+}
+
+function toFileUrl(absPath, line = 1) {
+  const safeLine = Number.isInteger(line) && line > 0 ? line : 1;
+  return `${pathToFileURL(path.resolve(absPath)).href}#L${safeLine}`;
 }
 
 function createTimelineResponder({
@@ -511,6 +518,133 @@ function createArtifactResponder({
   };
 }
 
+function createDossierResponder({
+  brainDir,
+  defaultConversationId = "",
+  allowFixtureIds = false,
+  workspaceResolver,
+}) {
+  return async ({ conversationId = "", workspaceUri = "" } = {}) => {
+    const rawConv = String(conversationId || defaultConversationId || "").trim();
+    if (rawConv && !isValidConversationId(rawConv, allowFixtureIds)) {
+      return { status: 400, body: { error: "Invalid conversationId" } };
+    }
+    const workspaceDir = await workspaceResolver(rawConv, workspaceUri);
+    if (!workspaceDir) {
+      return {
+        status: 200,
+        body: { ok: false, reason: "no_workspace", message: "Open a git repository to inspect its PR dossier." },
+      };
+    }
+    const scope = resolveWorkspaceScope(workspaceDir, { checkEnrollment: false });
+    if (scope.kind === "non_repo") {
+      return {
+        status: 200,
+        body: { ok: false, reason: "non_repo", workspaceDir, message: "Current workspace is not a git repository." },
+      };
+    }
+    const convDir = rawConv ? path.join(brainDir, rawConv) : null;
+    const artifactDir = convDir && fs.existsSync(convDir) ? convDir : null;
+    try {
+      const result = compilePrDossier({
+        cwd: scope.repoRoot,
+        artifactDir,
+        writeEvidence: false,
+      });
+      const clustersWithUris = (result.evidence.clusters ?? []).slice(0, 40).map((c) => ({
+        ...c,
+        fileLinks: (c.files ?? []).slice(0, 50).map((rel) => {
+          const line = c.firstLines?.[rel] ?? 1;
+          return {
+            path: rel,
+            line,
+            uri: toFileUrl(path.resolve(scope.repoRoot, rel), line),
+          };
+        }),
+      }));
+      const enrichedFindingsDoc = result.findingsDoc
+        ? {
+            ...result.findingsDoc,
+            findings: Array.isArray(result.findingsDoc.findings)
+              ? result.findingsDoc.findings.slice(0, 100).map((f) => ({
+                  ...f,
+                  uri: f.file ? toFileUrl(path.resolve(scope.repoRoot, f.file), f.line || 1) : null,
+                }))
+              : [],
+          }
+        : null;
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          workspaceDir: scope.repoRoot,
+          evidence: { ...result.evidence, clusters: clustersWithUris },
+          findingsDoc: enrichedFindingsDoc,
+        },
+      };
+    } catch (err) {
+      return {
+        status: 200,
+        body: { ok: false, reason: "error", workspaceDir: scope.repoRoot, message: err.message },
+      };
+    }
+  };
+}
+
+function createArchAuditResponder({
+  defaultConversationId = "",
+  allowFixtureIds = false,
+  workspaceResolver,
+}) {
+  return async ({ conversationId = "", workspaceUri = "" } = {}) => {
+    const rawConv = String(conversationId || defaultConversationId || "").trim();
+    if (rawConv && !isValidConversationId(rawConv, allowFixtureIds)) {
+      return { status: 400, body: { error: "Invalid conversationId" } };
+    }
+    const workspaceDir = await workspaceResolver(rawConv, workspaceUri);
+    if (!workspaceDir) {
+      return {
+        status: 200,
+        body: { ok: false, reason: "no_workspace", message: "Open a workspace to run an architecture audit." },
+      };
+    }
+    try {
+      const report = runArchitectureAudit({ cwd: workspaceDir });
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          workspaceDir,
+          report: {
+            ...report,
+            boundaryViolations: (report.boundaryViolations ?? []).slice(0, 100).map((v) => ({
+              ...v,
+              uri: toFileUrl(path.resolve(workspaceDir, v.file), 1),
+            })),
+            bannedHits: (report.bannedHits ?? []).slice(0, 100).map((b) => ({
+              ...b,
+              uri: toFileUrl(path.resolve(workspaceDir, b.file), 1),
+            })),
+            shallowModules: (report.shallowModules ?? []).slice(0, 100).map((m) => ({
+              ...m,
+              uri: toFileUrl(path.resolve(workspaceDir, m.file), 1),
+            })),
+            gardeningHits: (report.gardeningHits ?? []).slice(0, 100).map((g) => ({
+              ...g,
+              uri: toFileUrl(path.resolve(workspaceDir, g.file), g.line || 1),
+            })),
+          },
+        },
+      };
+    } catch (err) {
+      return {
+        status: 200,
+        body: { ok: false, reason: "error", workspaceDir, message: err.message },
+      };
+    }
+  };
+}
+
 function isTokenAuthorized(req, url, expectedToken) {
   if (!expectedToken) return true;
   const headerToken = req.headers["x-sidecar-token"];
@@ -604,6 +738,17 @@ export async function createTimelineServer(options = {}) {
     brainDir,
     defaultConversationId: defaultConvId,
     allowFixtureIds,
+  });
+  const respondDossier = createDossierResponder({
+    brainDir,
+    defaultConversationId: defaultConvId,
+    allowFixtureIds,
+    workspaceResolver,
+  });
+  const respondArchAudit = createArchAuditResponder({
+    defaultConversationId: defaultConvId,
+    allowFixtureIds,
+    workspaceResolver,
   });
 
   const requestedPort = Number.isFinite(options.port) ? options.port : 0;
@@ -713,6 +858,32 @@ export async function createTimelineServer(options = {}) {
       return;
     }
 
+    if (reqUrl.pathname === "/api/dossier") {
+      if (!isTokenAuthorized(req, reqUrl, token)) {
+        writeJsonResponse(res, 401, { error: "Unauthorized" }, isHead);
+        return;
+      }
+      const { status, body } = await respondDossier({
+        conversationId: reqUrl.searchParams.get("conversationId") ?? "",
+        workspaceUri: reqUrl.searchParams.get("workspaceUri") ?? "",
+      });
+      writeJsonResponse(res, status, body, isHead);
+      return;
+    }
+
+    if (reqUrl.pathname === "/api/arch-audit") {
+      if (!isTokenAuthorized(req, reqUrl, token)) {
+        writeJsonResponse(res, 401, { error: "Unauthorized" }, isHead);
+        return;
+      }
+      const { status, body } = await respondArchAudit({
+        conversationId: reqUrl.searchParams.get("conversationId") ?? "",
+        workspaceUri: reqUrl.searchParams.get("workspaceUri") ?? "",
+      });
+      writeJsonResponse(res, status, body, isHead);
+      return;
+    }
+
     writeJsonResponse(res, 404, { error: "Not found" }, isHead);
   });
 
@@ -768,6 +939,17 @@ export async function startTimelineSidecar(options = {}) {
         defaultConversationId,
         allowFixtureIds,
       });
+      const respondDossier = createDossierResponder({
+        brainDir,
+        defaultConversationId,
+        allowFixtureIds,
+        workspaceResolver,
+      });
+      const respondArchAudit = createArchAuditResponder({
+        defaultConversationId,
+        allowFixtureIds,
+        workspaceResolver,
+      });
 
       const rootAsset = STATIC_ASSETS.get("/");
       app.page("/", () => readStaticAsset(rootAsset));
@@ -807,6 +989,28 @@ export async function startTimelineSidecar(options = {}) {
 
       app.api("/api/trust/settings", async (data) => {
         const res = await respondTrustSettings(data ?? {});
+        return new Response(JSON.stringify(res.body), {
+          status: res.status,
+          contentType: "application/json; charset=utf-8",
+        });
+      }, "POST");
+
+      app.api("/api/dossier", async (data) => {
+        const res = await respondDossier({
+          conversationId: data?.conversationId ?? "",
+          workspaceUri: data?.workspaceUri ?? "",
+        });
+        return new Response(JSON.stringify(res.body), {
+          status: res.status,
+          contentType: "application/json; charset=utf-8",
+        });
+      }, "POST");
+
+      app.api("/api/arch-audit", async (data) => {
+        const res = await respondArchAudit({
+          conversationId: data?.conversationId ?? "",
+          workspaceUri: data?.workspaceUri ?? "",
+        });
         return new Response(JSON.stringify(res.body), {
           status: res.status,
           contentType: "application/json; charset=utf-8",

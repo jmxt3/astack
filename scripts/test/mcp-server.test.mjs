@@ -127,13 +127,11 @@ test("MCP stdio server handles initialize, tools, resources, dossier/audit/docto
     const tlaTool = listTools.result.tools.find((t) => t.name === "open_tla_viewer");
     assert.deepEqual(tlaTool._meta["com.google.antigravity/ui"].entrypoints[0].extensions, [".tla"]);
     const dossierTool = listTools.result.tools.find((t) => t.name === "compile_pr_dossier");
-    assert.deepEqual(dossierTool._meta["com.google.antigravity/ui"].entrypoints, [
-      { type: "aux_pane", title: "AStack PR Dossier" },
-    ]);
+    assert.equal(dossierTool._meta.ui.resourceUri, "ui://astack/pr-dossier.html");
+    assert.equal(dossierTool._meta["com.google.antigravity/ui"], undefined);
     const auditTool = listTools.result.tools.find((t) => t.name === "audit_architecture");
-    assert.deepEqual(auditTool._meta["com.google.antigravity/ui"].entrypoints, [
-      { type: "aux_pane", title: "AStack Architecture Audit" },
-    ]);
+    assert.equal(auditTool._meta.ui.resourceUri, "ui://astack/arch-audit.html");
+    assert.equal(auditTool._meta["com.google.antigravity/ui"], undefined);
 
     const listResources = await client.request("resources/list");
     const uris = listResources.result.resources.map((r) => r.uri);
