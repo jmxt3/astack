@@ -71,6 +71,8 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     assert.match(htmlText, /data-testid="focus-artifacts"/);
     assert.match(htmlText, /data-testid="btw-form"/);
     assert.match(htmlText, /data-testid="delegate-view"/);
+    assert.match(htmlText, /data-testid="dossier-view"/);
+    assert.match(htmlText, /data-testid="audit-view"/);
     assert.match(htmlText, /data-testid="artifact-view"/);
     assert.doesNotMatch(htmlText, /id="next-bar"|data-testid="timeline-next"|data-testid="timeline-scene"|id="scene-section"/);
 
@@ -97,6 +99,8 @@ test("createTimelineServer serves static assets, ETag caching, traversal rejecti
     const jsText = await jsRes.text();
     assert.match(jsText, /chip-active-dot/);
     assert.match(jsText, /showStatusPopover/);
+    assert.match(jsText, /open-dossier-view/);
+    assert.match(jsText, /open-audit-view/);
     assert.match(jsText, /is-internal/);
     assert.match(jsText, /not a slash command/);
     assert.doesNotMatch(jsText, /getElementById\("next-bar"\)/);
@@ -811,6 +815,100 @@ test("createTimelineServer serves app.js without duplicate native title tooltips
     assert.doesNotMatch(appJs, /\.title\s*=[^\n;]*;?\s*\n\s*attach(?:Status|Command)Popover\(/);
   } finally {
     await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/dossier and /api/arch-audit stay read-only, enforce auth and validation, and serve sidecar_sdk POST routes", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-dossier-"));
+  const brainDir = path.join(root, "brain");
+  const gitRepo = path.join(root, "git-repo");
+  const nonRepo = path.join(root, "non-repo");
+  const convId = "66666666-7777-8888-9999-aaaaaaaaaaaa";
+
+  fs.mkdirSync(gitRepo, { recursive: true });
+  fs.mkdirSync(nonRepo, { recursive: true });
+  fs.mkdirSync(path.join(brainDir, convId), { recursive: true });
+  execFileSync("git", ["init", "-b", "main"], { cwd: gitRepo, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "t@e.com"], { cwd: gitRepo, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "T"], { cwd: gitRepo, stdio: "ignore" });
+  writeText(path.join(gitRepo, "src", "index.js"), "export const a = 1;\n");
+  execFileSync("git", ["add", "."], { cwd: gitRepo, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "init"], { cwd: gitRepo, stdio: "ignore" });
+  writeText(path.join(gitRepo, "src", "index.js"), "export const a = 2;\n");
+
+  const srv = await createTimelineServer({
+    brainDir,
+    workspaceDir: gitRepo,
+    conversationId: convId,
+    token: "dos-tok",
+    port: 0,
+  });
+  const nonRepoSrv = await createTimelineServer({
+    brainDir,
+    workspaceDir: nonRepo,
+    conversationId: convId,
+    token: "dos-tok",
+    port: 0,
+  });
+
+  try {
+    const headers = { "X-Sidecar-Token": "dos-tok" };
+
+    assert.equal((await fetch(`${srv.url}api/dossier?conversationId=${convId}`)).status, 401);
+    assert.equal((await fetch(`${srv.url}api/arch-audit?conversationId=${convId}`)).status, 401);
+    assert.equal((await fetch(`${srv.url}api/dossier`, { method: "POST", headers })).status, 405);
+    assert.equal((await fetch(`${srv.url}api/arch-audit`, { method: "POST", headers })).status, 405);
+    assert.equal((await fetch(`${srv.url}api/dossier?conversationId=../bad`, { headers })).status, 400);
+    assert.equal((await fetch(`${srv.url}api/arch-audit?conversationId=../bad`, { headers })).status, 400);
+
+    const nonRepoDossier = await (await fetch(`${nonRepoSrv.url}api/dossier?conversationId=${convId}`, { headers })).json();
+    assert.equal(nonRepoDossier.ok, false);
+    assert.equal(nonRepoDossier.reason, "non_repo");
+    assert.deepEqual(fs.readdirSync(nonRepo), []);
+
+    const dossierRes = await fetch(`${srv.url}api/dossier?conversationId=${convId}`, { headers });
+    assert.equal(dossierRes.status, 200);
+    const dossierBody = await dossierRes.json();
+    assert.equal(dossierBody.ok, true);
+    assert.ok(Array.isArray(dossierBody.evidence.clusters) && dossierBody.evidence.clusters.length > 0);
+    assert.match(dossierBody.evidence.clusters[0].fileLinks[0].uri, /^file:\/\//);
+    assert.equal(fs.existsSync(path.join(brainDir, convId, "astack-trust", "evidence.json")), false);
+
+    const auditRes = await fetch(`${srv.url}api/arch-audit?conversationId=${convId}`, { headers });
+    assert.equal(auditRes.status, 200);
+    const auditBody = await auditRes.json();
+    assert.equal(auditBody.ok, true);
+    assert.ok(auditBody.report.summary.filesScanned >= 1);
+
+    const routes = [];
+    class MockResponse {
+      constructor(body, opts = {}) {
+        this.body = body;
+        this.status = opts.status || 200;
+        this.contentType = opts.contentType || "text/plain";
+      }
+    }
+    class MockSidecarApp {
+      constructor() { this.config = { conversationId: convId }; }
+      page() {}
+      api(routePath, handler, method) { routes.push({ routePath, handler, method }); }
+      async run() {}
+    }
+    await startTimelineSidecar({
+      brainDir,
+      workspaceDir: gitRepo,
+      sdk: { SidecarApp: MockSidecarApp, Response: MockResponse },
+    });
+    const dossierRoute = routes.find((r) => r.routePath === "/api/dossier");
+    const auditRoute = routes.find((r) => r.routePath === "/api/arch-audit");
+    assert.equal(dossierRoute?.method, "POST");
+    assert.equal(auditRoute?.method, "POST");
+    assert.equal(JSON.parse((await dossierRoute.handler({})).body).ok, true);
+    assert.equal(JSON.parse((await auditRoute.handler({})).body).ok, true);
+  } finally {
+    await srv.close();
+    await nonRepoSrv.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

@@ -14,7 +14,13 @@
         ? "delegate"
         : params.get("view") === "trust" || location.hash === "#trust"
           ? "trust"
-          : "timeline",
+          : params.get("view") === "dossier" || location.hash === "#dossier"
+            ? "dossier"
+            : params.get("view") === "audit" || location.hash === "#audit"
+              ? "audit"
+              : "timeline",
+    dossier: { loading: false, data: null, error: null, severity: "all", reqSeq: 0 },
+    audit: { loading: false, data: null, error: null, reqSeq: 0 },
     guideExpandedStage: null,
     guideUserToggled: false,
     guideCmdDrawerOpen: false,
@@ -244,6 +250,20 @@
     } catch {
       return false;
     }
+  }
+
+  async function openWorkspaceFile(uri, label) {
+    if (uri && typeof window.sidecar?.ui?.toggleAuxPane === "function") {
+      try {
+        await window.sidecar.ui.toggleAuxPane({ tabType: "fileView", uri });
+        return;
+      } catch {
+      }
+    }
+    const target = label || uri || "";
+    if (!target) return;
+    const ok = await writeClipboard(target);
+    showToast(ok ? `Path copied: ${target}` : target);
   }
 
   function focusActiveChat() {
@@ -1598,6 +1618,27 @@
       strip.appendChild(chip);
     }
     strip.appendChild(el("span", "focus-spacer"));
+    const nav = el("nav", "view-nav-group");
+    nav.setAttribute("aria-label", "AStack views");
+
+    const dossierBtn = el("button", "guide-link-btn");
+    dossierBtn.type = "button";
+    dossierBtn.id = "open-dossier-view";
+    dossierBtn.dataset.testid = "open-dossier-view";
+    dossierBtn.appendChild(el("span", "", "Dossier"));
+    dossierBtn.appendChild(svgIcon("chevron", 10));
+    dossierBtn.addEventListener("click", () => switchView("dossier"));
+    nav.appendChild(dossierBtn);
+
+    const auditBtn = el("button", "guide-link-btn");
+    auditBtn.type = "button";
+    auditBtn.id = "open-audit-view";
+    auditBtn.dataset.testid = "open-audit-view";
+    auditBtn.appendChild(el("span", "", "Audit"));
+    auditBtn.appendChild(svgIcon("chevron", 10));
+    auditBtn.addEventListener("click", () => switchView("audit"));
+    nav.appendChild(auditBtn);
+
     if (snap.trust?.enrolled) {
       const trustBtn = el("button", "guide-link-btn");
       trustBtn.type = "button";
@@ -1607,7 +1648,7 @@
       trustBtn.appendChild(el("span", "", `Trust · L${activeLvl}`));
       trustBtn.appendChild(svgIcon("chevron", 10));
       trustBtn.addEventListener("click", () => switchView("trust"));
-      strip.appendChild(trustBtn);
+      nav.appendChild(trustBtn);
     }
     const guideBtn = el("button", "guide-link-btn");
     guideBtn.type = "button";
@@ -1616,7 +1657,8 @@
     guideBtn.appendChild(el("span", "", "Guide"));
     guideBtn.appendChild(svgIcon("chevron", 10));
     guideBtn.addEventListener("click", () => switchView("delegate"));
-    strip.appendChild(guideBtn);
+    nav.appendChild(guideBtn);
+    strip.appendChild(nav);
 
     const focusDrawer = document.getElementById("focus-artifacts");
     if (focusDrawer) {
@@ -2291,6 +2333,380 @@
     container.replaceChildren(header, picker, secWrap);
   }
 
+  function buildSubViewHeader({ backId, refreshId, title, pillText, pillClass = "", leadText, loading = false, onRefresh }) {
+    const header = el("header", "delegate-header");
+    const navRow = el("div", "artifact-nav-row");
+    const backBtn = el("button", "back-btn");
+    backBtn.type = "button";
+    backBtn.id = backId;
+    backBtn.dataset.testid = backId;
+    backBtn.appendChild(svgIcon("back", 10));
+    backBtn.appendChild(el("span", "", "Timeline"));
+    backBtn.addEventListener("click", () => switchView("timeline", true));
+    navRow.appendChild(backBtn);
+
+    if (onRefresh) {
+      const refBtn = el("button", "refresh-btn");
+      refBtn.type = "button";
+      refBtn.id = refreshId;
+      refBtn.dataset.testid = refreshId;
+      refBtn.disabled = Boolean(loading);
+      refBtn.textContent = loading ? "Refreshing..." : "Refresh";
+      refBtn.addEventListener("click", onRefresh);
+      navRow.appendChild(refBtn);
+    }
+    header.appendChild(navRow);
+
+    const titleRow = el("div", "delegate-title-row");
+    titleRow.appendChild(el("h1", "title", title));
+    if (pillText) {
+      const statusPill = el("span", pillClass ? `delegate-status-pill ${pillClass}` : "delegate-status-pill");
+      const pDot = el("span", "live-dot");
+      pDot.style.background = "currentColor";
+      statusPill.appendChild(pDot);
+      statusPill.appendChild(el("span", "", pillText));
+      titleRow.appendChild(statusPill);
+    }
+    header.appendChild(titleRow);
+    if (leadText) {
+      header.appendChild(el("p", "delegate-lead", leadText));
+    }
+    return header;
+  }
+
+  function buildCopyActionPill(label, copyText, extraClass = "") {
+    const btn = el("button", `subcmd-pill is-sans ${extraClass}`.trim(), label);
+    btn.type = "button";
+    btn.addEventListener("click", () => copyCommand({ command: label, copyText }, btn, copyText !== label));
+    return btn;
+  }
+
+  async function loadPanelEndpoint(slotKey, endpoint, renderFn) {
+    const slot = state[slotKey];
+    const reqSeq = ++slot.reqSeq;
+    slot.loading = true;
+    slot.error = null;
+    renderFn();
+    try {
+      const res = await apiFetch(endpoint, {
+        conversationId: getConversationId(false),
+        workspaceUri: state.workspaceUri,
+      });
+      if (reqSeq !== slot.reqSeq) return;
+      if (!res.ok) {
+        slot.error = `Request failed (${res.status})`;
+      } else {
+        slot.data = await res.json();
+      }
+    } catch (err) {
+      if (reqSeq !== slot.reqSeq) return;
+      slot.error = err?.message || "Could not load view.";
+    } finally {
+      if (reqSeq === slot.reqSeq) {
+        slot.loading = false;
+        renderFn();
+      }
+    }
+  }
+
+  function loadDossierView() {
+    return loadPanelEndpoint("dossier", "/api/dossier", renderDossierView);
+  }
+
+  function loadAuditView() {
+    return loadPanelEndpoint("audit", "/api/arch-audit", renderAuditView);
+  }
+
+  function renderDossierView() {
+    const container = document.getElementById("dossier-view");
+    if (!container) return;
+    const slot = state.dossier;
+    const res = slot.data;
+    const ev = res?.ok ? res.evidence : null;
+    const findingsDoc = res?.ok ? res.findingsDoc : null;
+
+    let pillText = slot.loading ? "Compiling..." : "Idle";
+    let pillClass = "";
+    let leadText = "Branch diff blast radius, guided reading clusters, and PR verifier findings for the active repository.";
+
+    if (ev) {
+      pillText = `Tier ${ev.riskTier} (${ev.riskLabel})`;
+      pillClass = ev.riskTier >= 3 ? "err" : ev.riskTier === 2 ? "warn" : ev.riskTier === 0 ? "done" : "";
+      const shortHead = (ev.headSha || "none").slice(0, 7);
+      leadText = `${ev.freshness} · ${shortHead} · Round ${ev.reviewRound}/${ev.maxReviewRounds} (${ev.roundState})`;
+    } else if (slot.error || (res && !res.ok)) {
+      pillText = res?.reason === "non_repo" || res?.reason === "no_workspace" ? "Unavailable" : "Error";
+      pillClass = res?.reason === "non_repo" || res?.reason === "no_workspace" ? "warn" : "err";
+    }
+
+    const header = buildSubViewHeader({
+      backId: "back-from-dossier",
+      refreshId: "refresh-dossier",
+      title: "PR Dossier",
+      pillText,
+      pillClass,
+      leadText,
+      loading: slot.loading,
+      onRefresh: () => loadDossierView(),
+    });
+
+    const body = el("div", "dossier-sections");
+
+    if (!res && slot.loading) {
+      const sec = el("section", "dossier-section");
+      sec.appendChild(el("p", "audit-empty", "Compiling PR review dossier..."));
+      body.appendChild(sec);
+    } else if (slot.error || (res && !res.ok)) {
+      const sec = el("section", "dossier-section");
+      sec.appendChild(el("p", "audit-empty", slot.error || res.message || "Could not compile PR dossier."));
+      const acts = el("div", "dossier-actions");
+      if (slot.error) {
+        const retryBtn = el("button", "subcmd-pill is-sans", "Retry");
+        retryBtn.type = "button";
+        retryBtn.addEventListener("click", () => loadDossierView());
+        acts.appendChild(retryBtn);
+      }
+      acts.appendChild(buildCopyActionPill("/review-pr", "/review-pr"));
+      sec.appendChild(acts);
+      body.appendChild(sec);
+    } else if (ev) {
+      const delta = ev.assertionDelta || { added: 0, removed: 0, weakeningRatio: 0, flagged: false };
+      const deltaSec = el("section", "dossier-section");
+      const deltaHead = el("div", "dossier-section-head");
+      deltaHead.appendChild(el("h2", "dossier-section-title", "Diff Signals & Test Integrity"));
+      deltaHead.appendChild(
+        el(
+          "span",
+          `dossier-badge ${delta.flagged ? "err" : "done"}`,
+          delta.flagged ? "FLAGGED" : ev.autoMergeEligible ? "Tier 0 Auto" : "Human Review",
+        ),
+      );
+      deltaSec.appendChild(deltaHead);
+      deltaSec.appendChild(
+        el("p", "audit-detail", `Test assertions: +${delta.added} / -${delta.removed} (ratio ${delta.weakeningRatio})`),
+      );
+      const bar = el("div", "trust-ema-bar");
+      const pct = Math.min(100, Math.round((Number(delta.weakeningRatio) || 0) * 100));
+      const fill = el("div", `dossier-meter-fill ${delta.flagged ? "err" : pct > 10 ? "warn" : ""}`.trim());
+      fill.style.width = `${Math.max(4, pct || 4)}%`;
+      bar.appendChild(fill);
+      deltaSec.appendChild(bar);
+      body.appendChild(deltaSec);
+
+      const clusters = Array.isArray(ev.clusters) ? ev.clusters : [];
+      const clSec = el("section", "dossier-section");
+      const clHead = el("div", "dossier-section-head");
+      clHead.appendChild(el("h2", "dossier-section-title", `Guided Reading Clusters (${clusters.length})`));
+      clSec.appendChild(clHead);
+      if (clusters.length === 0) {
+        clSec.appendChild(el("p", "audit-empty", "No changed files against base ref."));
+      } else {
+        clusters.forEach((cl, idx) => {
+          const det = el("details", "dossier-cluster");
+          if (idx === 0) det.open = true;
+          const sum = el("summary", "dossier-cluster-sum");
+          sum.appendChild(el("span", "", cl.title || cl.id));
+          sum.appendChild(el("span", "dossier-section-sub", `${(cl.files || []).length} files · +${cl.additions}/-${cl.deletions}`));
+          det.appendChild(sum);
+          for (const f of Array.isArray(cl.fileLinks) ? cl.fileLinks : []) {
+            const row = el("div", "audit-row");
+            const btn = el("button", "audit-file-btn", `${f.path}:${f.line}`);
+            btn.type = "button";
+            btn.addEventListener("click", () => openWorkspaceFile(f.uri, `${f.path}:${f.line}`));
+            row.appendChild(btn);
+            det.appendChild(row);
+          }
+          clSec.appendChild(det);
+        });
+      }
+      body.appendChild(clSec);
+
+      const fSec = el("section", "dossier-section");
+      const allFindings = Array.isArray(findingsDoc?.findings) ? findingsDoc.findings : [];
+      const fHead = el("div", "dossier-section-head");
+      fHead.appendChild(el("h2", "dossier-section-title", findingsDoc ? `PR Verifier (${findingsDoc.verdict})` : "PR Verifier"));
+      fSec.appendChild(fHead);
+      if (!findingsDoc) {
+        fSec.appendChild(el("p", "audit-empty", "No findings.json attached yet."));
+      } else {
+        const tabs = el("div", "guide-example-chips");
+        tabs.setAttribute("role", "group");
+        tabs.setAttribute("aria-label", "Filter findings by severity");
+        for (const sev of ["all", "important", "nit", "pre_existing"]) {
+          const cnt = sev === "all" ? allFindings.length : allFindings.filter((f) => f.severity === sev).length;
+          const tab = el("button", "pick-chip", `${sev} (${cnt})`);
+          tab.type = "button";
+          tab.setAttribute("aria-pressed", String(slot.severity === sev));
+          tab.addEventListener("click", () => {
+            slot.severity = sev;
+            renderDossierView();
+          });
+          tabs.appendChild(tab);
+        }
+        fSec.appendChild(tabs);
+
+        const visible = slot.severity === "all" ? allFindings : allFindings.filter((f) => f.severity === slot.severity);
+        if (visible.length === 0) {
+          fSec.appendChild(el("p", "audit-empty", "No matching findings in this category."));
+        } else {
+          for (const item of visible) {
+            const row = el("div", "audit-row");
+            row.appendChild(el("div", "audit-detail", `[${item.severity}] ${item.claim}`));
+            if (item.uri || item.file) {
+              const btn = el("button", "audit-file-btn", `${item.file}:${item.line} (${item.category})`);
+              btn.type = "button";
+              btn.addEventListener("click", () => openWorkspaceFile(item.uri, `${item.file}:${item.line}`));
+              row.appendChild(btn);
+            }
+            fSec.appendChild(row);
+          }
+        }
+      }
+      body.appendChild(fSec);
+
+      const acts = el("div", "dossier-actions");
+      acts.appendChild(buildCopyActionPill("/review-pr", "/review-pr"));
+      if (allFindings.some((f) => f.severity === "important")) {
+        acts.appendChild(
+          buildCopyActionPill(
+            "Fix important findings",
+            "/astack-mode Fix the verified important findings from findings.json and re-verify on HEAD.",
+          ),
+        );
+      }
+      body.appendChild(acts);
+    }
+
+    container.replaceChildren(header, body);
+  }
+
+  function buildAuditListSection(title, items, renderItem) {
+    const sec = el("section", "dossier-section");
+    const head = el("div", "dossier-section-head");
+    head.appendChild(el("h2", "dossier-section-title", `${title} (${items.length})`));
+    sec.appendChild(head);
+    if (items.length === 0) {
+      sec.appendChild(el("p", "audit-empty", "None detected."));
+    } else {
+      items.slice(0, 25).forEach((item) => sec.appendChild(renderItem(item)));
+    }
+    return sec;
+  }
+
+  function renderAuditView() {
+    const container = document.getElementById("audit-view");
+    if (!container) return;
+    const slot = state.audit;
+    const res = slot.data;
+    const report = res?.ok ? res.report : null;
+    const s = report?.summary;
+
+    let pillText = slot.loading ? "Scanning..." : "Idle";
+    let pillClass = "";
+    let leadText = "Scans .agents/boundaries.json import rules, banned patterns, shallow modules, and gardening hits.";
+
+    if (report && s) {
+      pillText = report.ok ? "PASS" : "VIOLATIONS";
+      pillClass = report.ok ? "done" : "err";
+      leadText = `${s.filesScanned} files scanned · ${report.boundariesPresent ? "boundaries.json active" : "no boundaries.json"} · ${s.shallowModules} shallow · ${s.gardeningHits} gardening`;
+    } else if (slot.error || (res && !res.ok)) {
+      pillText = res?.reason === "no_workspace" ? "Unavailable" : "Error";
+      pillClass = res?.reason === "no_workspace" ? "warn" : "err";
+    }
+
+    const header = buildSubViewHeader({
+      backId: "back-from-audit",
+      refreshId: "refresh-audit",
+      title: "Architecture Audit",
+      pillText,
+      pillClass,
+      leadText,
+      loading: slot.loading,
+      onRefresh: () => loadAuditView(),
+    });
+
+    const body = el("div", "dossier-sections");
+
+    if (!res && slot.loading) {
+      const sec = el("section", "dossier-section");
+      sec.appendChild(el("p", "audit-empty", "Scanning repository architecture..."));
+      body.appendChild(sec);
+    } else if (slot.error || (res && !res.ok)) {
+      const sec = el("section", "dossier-section");
+      sec.appendChild(el("p", "audit-empty", slot.error || res.message || "Architecture audit failed."));
+      const acts = el("div", "dossier-actions");
+      if (slot.error) {
+        const retryBtn = el("button", "subcmd-pill is-sans", "Retry");
+        retryBtn.type = "button";
+        retryBtn.addEventListener("click", () => loadAuditView());
+        acts.appendChild(retryBtn);
+      }
+      acts.appendChild(buildCopyActionPill("/audit-architecture", "/audit-architecture"));
+      sec.appendChild(acts);
+      body.appendChild(sec);
+    } else if (report && s) {
+      const boundaryAndBanned = [
+        ...(report.boundaryViolations || []),
+        ...(report.bannedHits || []),
+      ];
+      body.appendChild(
+        buildAuditListSection("Boundary & Banned Pattern Hits", boundaryAndBanned, (hit) => {
+          const row = el("div", "audit-row");
+          const btn = el("button", "audit-file-btn", hit.file);
+          btn.type = "button";
+          btn.addEventListener("click", () => openWorkspaceFile(hit.uri, hit.file));
+          row.append(btn, el("div", "audit-detail", hit.detail));
+          return row;
+        }),
+      );
+
+      body.appendChild(
+        buildAuditListSection("Shallow Module Warnings", report.shallowModules || [], (mod) => {
+          const row = el("div", "audit-row");
+          const btn = el("button", "audit-file-btn", mod.file);
+          btn.type = "button";
+          btn.addEventListener("click", () => openWorkspaceFile(mod.uri, mod.file));
+          row.append(btn, el("div", "audit-detail", mod.reason));
+          return row;
+        }),
+      );
+
+      body.appendChild(
+        buildAuditListSection("Gardening Hits", report.gardeningHits || [], (hit) => {
+          const row = el("div", "audit-row");
+          const btn = el("button", "audit-file-btn", `${hit.file}:${hit.line}`);
+          btn.type = "button";
+          btn.addEventListener("click", () => openWorkspaceFile(hit.uri, `${hit.file}:${hit.line}`));
+          row.append(btn, el("div", "audit-detail mono", `[${hit.id}] ${hit.snippet}`));
+          return row;
+        }),
+      );
+
+      const hasIssues =
+        !report.ok ||
+        s.boundaryViolations > 0 ||
+        s.bannedHits > 0 ||
+        s.shallowModules > 0 ||
+        s.gardeningHits > 0;
+      const acts = el("div", "dossier-actions");
+      acts.appendChild(buildCopyActionPill("/audit-architecture", "/audit-architecture"));
+      if (!report.boundariesPresent) {
+        acts.appendChild(buildCopyActionPill("/setup-astack", "/setup-astack"));
+      }
+      if (hasIssues) {
+        acts.appendChild(
+          buildCopyActionPill(
+            "Run /correct",
+            "/correct Review architecture audit findings and encode structural guards in types, lints, or .agents/boundaries.json.",
+          ),
+        );
+      }
+      body.appendChild(acts);
+    }
+
+    container.replaceChildren(header, body);
+  }
+
   function switchView(nextView, restoreFocus = false) {
     const prevView = state.view;
     state.view = nextView;
@@ -2298,6 +2714,8 @@
     hideCommandPopover();
     const tlView = document.getElementById("timeline-view");
     const trView = document.getElementById("trust-view");
+    const dsView = document.getElementById("dossier-view");
+    const auView = document.getElementById("audit-view");
     const dgView = document.getElementById("delegate-view");
     const artView = document.getElementById("artifact-view");
     if (!tlView || !dgView || !artView) return;
@@ -2305,6 +2723,8 @@
     const views = [
       { key: "timeline", el: tlView },
       ...(trView ? [{ key: "trust", el: trView }] : []),
+      ...(dsView ? [{ key: "dossier", el: dsView }] : []),
+      ...(auView ? [{ key: "audit", el: auView }] : []),
       { key: "delegate", el: dgView },
       { key: "artifact", el: artView },
     ];
@@ -2326,6 +2746,14 @@
     if (nextView === "trust") {
       renderTrustView(state.snap);
       document.getElementById("back-from-trust")?.focus();
+    } else if (nextView === "dossier") {
+      renderDossierView();
+      loadDossierView();
+      document.getElementById("back-from-dossier")?.focus();
+    } else if (nextView === "audit") {
+      renderAuditView();
+      loadAuditView();
+      document.getElementById("back-from-audit")?.focus();
     } else if (nextView === "delegate") {
       state.guideUserToggled = false;
       state.guideCmdDrawerOpen = false;
@@ -2343,6 +2771,10 @@
           state.artifactReturnEl.focus();
         } else if (prevView === "trust") {
           document.getElementById("open-trust-view")?.focus();
+        } else if (prevView === "dossier") {
+          document.getElementById("open-dossier-view")?.focus();
+        } else if (prevView === "audit") {
+          document.getElementById("open-audit-view")?.focus();
         } else if (prevView === "delegate") {
           document.getElementById("open-delegate-guide")?.focus();
         }
@@ -2933,7 +3365,13 @@
     if ((allowEmpty || first) && first !== state.workspaceUri) {
       state.workspaceUri = first;
       state.etag = "";
+      state.dossier.data = null;
+      state.dossier.error = null;
+      state.audit.data = null;
+      state.audit.error = null;
       poll();
+      if (state.view === "dossier") loadDossierView();
+      else if (state.view === "audit") loadAuditView();
     }
   }
 
@@ -3025,7 +3463,7 @@
         }
         return;
       }
-      if (state.view === "delegate" || state.view === "artifact" || state.view === "trust") {
+      if (state.view === "delegate" || state.view === "artifact" || state.view === "trust" || state.view === "dossier" || state.view === "audit") {
         switchView("timeline", true);
       }
     }
@@ -3038,8 +3476,8 @@
     hideCommandPopover();
   });
 
-  if (state.view === "delegate") {
-    switchView("delegate");
+  if (state.view === "delegate" || state.view === "dossier" || state.view === "audit" || state.view === "trust") {
+    switchView(state.view);
   }
 
   syncWorkspaceUri();
