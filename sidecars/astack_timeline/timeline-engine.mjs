@@ -663,6 +663,37 @@ function formatTrackedChangedFile(rawPath, workspaceDir) {
   return normalizePosix(rawPath);
 }
 
+function inferTaskStageId(text, { hasWorkspaceWrite = false } = {}) {
+  const str = String(text ?? "");
+  if (/\bwatch-pr\b|\bgh\s+pr\s+(?:create|merge|checks|view|edit|comment)\b|\bgit\s+push\b|\bbabysit\b/i.test(str)) {
+    return "ship";
+  }
+  if (/\bpr-dossier\b|\breview-pr\b|\bpr-verifier\b/i.test(str)) {
+    return "review";
+  }
+  if (!hasWorkspaceWrite && /\bplan\b|\bgrill-me\b/i.test(str)) {
+    return "plan";
+  }
+  return "build";
+}
+
+function inferSubagentStageId(subType, roleText, promptText, hasWorkspaceWrite) {
+  const combined = `${subType} ${roleText} ${promptText}`;
+  if (subType === "pr-verifier" || /\bpr[- ]?verifier\b|\breview[- ]?pr\b|\bpr[- ]?dossier\b/i.test(combined)) {
+    return "review";
+  }
+  if (
+    /\bshipper\b/i.test(String(roleText ?? "")) ||
+    /\b(?:open[- ]?(?:the[- ]?|a[- ]?)?pr|create[- ]?(?:the[- ]?|a[- ]?)?pr|watch[- ]?pr|babysit|merge[- ]?(?:the[- ]?|a[- ]?)?pr|gh\s+pr\b|ship[- ]?(?:the[- ]?|a[- ]?)?pr|land[- ]?(?:the[- ]?)?stack)\b/i.test(combined)
+  ) {
+    return "ship";
+  }
+  if (subType === "research" && !hasWorkspaceWrite) {
+    return "plan";
+  }
+  return "build";
+}
+
 function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir = "") {
   const sig = {
     startedAt: null,
@@ -695,7 +726,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
     subagents: [],
     schedules: [],
     automations: [],
-    workflow: { active: false, runsCount: 0 },
+    workflow: { active: false, runsCount: 0, stageId: null },
     backgroundJobs: [],
     sideQuestionsCount: 0,
     changedFiles: new Set(),
@@ -753,10 +784,12 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         } else if (cmd === "/btw") {
           sig.sideQuestionsCount += 1;
         } else if (cmd === "/automation" && sig.automations.length === 0) {
+          const autoLabel = summarizeText(body.replace(/^\/automation\s*/i, ""), 44) || "Background automation";
           sig.automations.push({
             id: "auto-0",
-            label: summarizeText(body.replace(/^\/automation\s*/i, ""), 44) || "Background automation",
+            label: autoLabel,
             cadence: "recurring",
+            stageId: inferTaskStageId(autoLabel, { hasWorkspaceWrite: Boolean(sig.latestWorkspaceWriteAt) }),
             active: true,
           });
         }
@@ -877,9 +910,11 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
       if (taskCreated) {
         const taskId = taskCreated[1];
         const isCommandBg = /Tool is running as a background task/i.test(harnessHeader);
+        let matchedSchedule = null;
         if (pendingScheduleIndices.length > 0 && (!isCommandBg || shiftedTool?.kind === "schedule")) {
           const idx = pendingScheduleIndices.shift();
-          sig.schedules[idx].taskId = taskId;
+          matchedSchedule = sig.schedules[idx];
+          matchedSchedule.taskId = taskId;
           scheduleTaskMap.set(taskId, idx);
         }
         if (!bgJobByTaskId.has(taskId)) {
@@ -894,12 +929,16 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
           const cmdText = toolMeta?.cmd || descLine || "";
           const candidateLog = /^task-\d+$/.test(taskSlug) ? `${taskSlug}.log` : null;
           const logFile = candidateLog && resolveSafeTaskLogPath(brainConvDir, candidateLog) ? candidateLog : null;
+          const stageId = matchedSchedule?.stageId || inferTaskStageId(`${cmdText} ${title}`, {
+            hasWorkspaceWrite: Boolean(sig.latestWorkspaceWriteAt),
+          });
           bgJobByTaskId.set(taskId, {
             id: `bg-${bgJobByTaskId.size}`,
             taskId,
             taskSlug,
             logFile,
             kind: toolMeta?.kind || "command",
+            stageId,
             title,
             summary: title,
             command: summarizeText(cmdText, 120),
@@ -1014,6 +1053,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
               id: "auto-0",
               label: "App automation",
               cadence: "recurring",
+              stageId: "build",
               active: true,
             });
           }
@@ -1073,12 +1113,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
           sig.detected.add("/control-ui");
           sig.detected.add("/browser");
         }
-        const stageId =
-          subType === "pr-verifier"
-            ? "review"
-            : subType === "research" && !sig.latestWorkspaceWriteAt
-              ? "plan"
-              : "build";
+        const stageId = inferSubagentStageId(subType, roleText, promptText, Boolean(sig.latestWorkspaceWriteAt));
         const entry = {
           id: `sa-${sig.subagents.length}`,
           type: subType,
@@ -1173,6 +1208,16 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         sig.detected.add("/run-workflow");
         sig.workflow.runsCount += 1;
         sig.workflow.active = true;
+        const wfText = unquoteArg(args.Description || args.ScriptPath || args.Script);
+        if (/\bship\b|\bmerge\b|\bwatch-pr\b|\bbabysit\b/i.test(wfText)) {
+          sig.workflow.stageId = "ship";
+        } else if (/\breview|\bpr[- ]?verifier|\bdossier\b/i.test(wfText)) {
+          sig.workflow.stageId = "review";
+        } else if (/\bplan\b|\bdesign\b|\barchitect\b/i.test(wfText) && !sig.latestWorkspaceWriteAt) {
+          sig.workflow.stageId = "plan";
+        } else {
+          sig.workflow.stageId = inferTaskStageId(wfText, { hasWorkspaceWrite: Boolean(sig.latestWorkspaceWriteAt) });
+        }
         pendingWorkflowRun = true;
       } else if (name === "schedule") {
         sig.detected.add("/schedule");
@@ -1273,6 +1318,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
             taskSlug: slug,
             logFile: entry.name,
             kind: "command",
+            stageId: "build",
             title: slug,
             summary: slug,
             command: "",
@@ -1593,6 +1639,7 @@ function buildReviewStage({
   evidence,
   maxReviewRounds,
   shipped,
+  shipActive,
   prVerifierRunning,
   reviewAfterShip,
 }) {
@@ -1602,6 +1649,7 @@ function buildReviewStage({
   const reviewPass = verdict === "PASS" || verdict === "PASS_WITH_NOTES";
 
   let status = "pending";
+  let skippedReason = null;
   if (roundState === "escalated") status = "error";
   else if (reviewStarted && staleFromReceipts) status = "stale";
   else if (reviewStarted && reviewFresh && (reviewArtifact || reviewPass)) {
@@ -1609,7 +1657,10 @@ function buildReviewStage({
   } else if (reviewStarted && shipped && reviewFresh && !prVerifierRunning && !reviewAfterShip) {
     status = "done";
   } else if (reviewStarted) status = "active";
-  else if (buildStatus === "done") status = "next";
+  else if (shipped || shipActive) {
+    status = "skipped";
+    skippedReason = "direct";
+  } else if (buildStatus === "done") status = "next";
 
   const detail = roundState === "escalated"
     ? `Remediation hit ${reviewRound}/${maxReviewRounds} round cap. Human decision required.`
@@ -1621,11 +1672,14 @@ function buildReviewStage({
           ? reviewArtifact || reviewPass
             ? `PR review passed (Tier ${evidence?.riskTier ?? 1}).`
             : "PR review ran before push."
-          : "Compile pr-review.md and run isolated pr-verifier.";
+          : status === "skipped"
+            ? "Skipped — moved directly to Ship."
+            : "Compile pr-review.md and run isolated pr-verifier.";
 
   return {
     ...TIMELINE_STEPS[2],
     status,
+    ...(skippedReason ? { skippedReason } : {}),
     commands: [
       makeCommandItem(
         "/review-pr",
@@ -1646,11 +1700,11 @@ function buildReviewStage({
   };
 }
 
-function buildShipStage({ reviewStatus, shipped, sig }) {
+function buildShipStage({ reviewStatus, shipped, shipLive, sig }) {
   let status = "pending";
   if (shipped) status = "done";
+  else if (shipLive || sig.openPrAt) status = "active";
   else if (reviewStatus === "waiting_gate" || reviewStatus === "done") status = "next";
-  else if (sig.openPrAt) status = "active";
 
   const detail = shipped
     ? sig.babysitAt
@@ -1727,13 +1781,81 @@ function selectNextAction(stepViews, setupState) {
   };
 }
 
-function selectActiveStageId(stepViews) {
-  for (const targetStatus of ["active", "error", "stale", "waiting_gate", "next"]) {
-    const match = stepViews.find((s) => s.status === targetStatus);
-    if (match) return match.id;
+function computeLive(sig) {
+  const agents = { plan: 0, build: 0, review: 0, ship: 0 };
+  for (const sa of sig.subagents) {
+    if (sa.status === "running" && sa.stageId in agents) agents[sa.stageId] += 1;
   }
-  const lastDone = [...stepViews].reverse().find((s) => s.status === "done");
-  return lastDone ? lastDone.id : "plan";
+  const working = sig.swarm.active
+    ? sig.swarm.members.filter((m) => m.status === "working").length
+    : 0;
+  if (working) agents.build += working;
+  const live = new Set(Object.keys(agents).filter((id) => agents[id] > 0));
+  if (sig.workflow.active) live.add(sig.workflow.stageId ?? "build");
+  return { liveStageIds: [...live], liveAgentsByStage: agents };
+}
+
+function resolveSuggestedStageId(nextAction, stepViews, liveSet) {
+  if (!nextAction || nextAction.stageId === "setup") return null;
+  if (!liveSet.has(nextAction.stageId)) return nextAction.stageId;
+  const nextNonLive = stepViews.find((s) => s.status === "next" && !liveSet.has(s.id));
+  if (nextNonLive) return nextNonLive.id;
+  let lastProgIdx = -1;
+  stepViews.forEach((s, i) => {
+    if (s.status === "done" || s.status === "skipped" || liveSet.has(s.id)) lastProgIdx = i;
+  });
+  const afterProg = stepViews.find((s, i) => i > lastProgIdx && s.status === "pending");
+  return afterProg ? afterProg.id : null;
+}
+
+function computeRailState(stage, liveSet, suggestedStageId, { buildQueuedByPlan = false } = {}) {
+  if (stage.status === "error") return "error";
+  if (liveSet.has(stage.id)) return "running";
+  switch (stage.status) {
+    case "done": return "done";
+    case "skipped": return "skipped";
+    case "waiting_gate": return "yourturn";
+    case "stale": return "stale";
+    case "active": return "queued";
+  }
+  if (stage.id === "build" && buildQueuedByPlan) return "queued";
+  return stage.id === suggestedStageId ? "suggested" : "pending";
+}
+
+function buildStageStats(stage, {
+  sig,
+  activeSwarmMembers,
+  workingSwarmCount,
+  bgItems,
+  unbackedSchedules,
+  activeAutomations,
+  openPrsCount,
+  mergedPrsCount,
+  closedPrsCount,
+}) {
+  const stageSubagents = sig.subagents.filter((a) => (a.stageId || "build") === stage.id);
+  const swarmTotal = stage.id === "build" ? activeSwarmMembers.length : 0;
+  const swarmRunning = stage.id === "build" ? workingSwarmCount : 0;
+  const agents = {
+    total: stageSubagents.length + swarmTotal,
+    running: stageSubagents.filter((a) => a.status === "running").length + swarmRunning,
+  };
+  const prs = stage.id === "ship"
+    ? { open: openPrsCount, merged: mergedPrsCount, closed: closedPrsCount }
+    : { open: 0, merged: 0, closed: 0 };
+  const fileArts = (stage.artifacts || []).filter((a) => a.kind !== "pr");
+  const artifacts = {
+    total: fileArts.length,
+    updating: fileArts.filter((a) => a.status === "updating").length,
+  };
+  const stageBg = bgItems.filter((j) => (j.stageId || "build") === stage.id);
+  const stageScheds = unbackedSchedules.filter((s) => (s.stageId || "build") === stage.id);
+  const stageAutos = activeAutomations.filter((a) => (a.stageId || "build") === stage.id);
+  const tasks = {
+    total: stageBg.length + stageScheds.length + stageAutos.length,
+    running: stageBg.filter((j) => j.status === "running").length + stageScheds.length + stageAutos.length,
+  };
+  return { agents, prs, artifacts, tasks };
 }
 
 function buildStageArtifacts(stage, { planArtifact, walkthroughArtifact, reviewArtifact, brainConvDir, pr, prs, shipped }) {
@@ -1786,17 +1908,24 @@ function buildStageArtifacts(stage, { planArtifact, walkthroughArtifact, reviewA
   return [];
 }
 
-function buildStageCollapsedSummary(stage, pr, prs, shipped) {
+function buildStageCollapsedSummary(stage, pr, prs, shipped, { railState = null, liveAgents = 0 } = {}) {
+  const withLiveAgents = (base) => {
+    if (railState !== "running" || liveAgents <= 0) return base;
+    const noun = liveAgents === 1 ? "subagent" : "subagents";
+    return `${base.replace(/\.$/, "")} · ${liveAgents} ${noun}`;
+  };
   if (stage.id === "plan") {
+    if (railState === "running") return withLiveAgents("Drafting implementation plan.");
     if (stage.status === "done") return "Plan completed.";
     if (stage.status === "waiting_gate") return "implementation_plan.md ready for review.";
     if (stage.status === "skipped") {
       return stage.skippedReason === "earlier" ? "Not needed — started at PR review." : "Skipped for direct edit flow.";
     }
-    if (stage.status === "active") return "Drafting implementation plan.";
-    return stage.summary;
+    if (stage.status === "active") return withLiveAgents("Drafting implementation plan.");
+    return withLiveAgents(stage.summary);
   }
   if (stage.id === "build") {
+    if (railState === "running") return withLiveAgents("Running build, cleanup, and verification.");
     if (stage.status === "stale") {
       const onlyClean =
         stage.subChecks?.some((c) => c.id === "clean" && c.status === "stale") &&
@@ -1808,13 +1937,16 @@ function buildStageCollapsedSummary(stage, pr, prs, shipped) {
     return stage.summary;
   }
   if (stage.id === "review") {
+    if (railState === "running") return withLiveAgents("pr-verifier checking HEAD.");
     if (stage.status === "stale") return "Your latest edits came after the last review.";
     if (stage.status === "waiting_gate") return "Ready for your visual review.";
     if (stage.status === "error") return stage.detail;
     if (stage.status === "done") return "PR review passed.";
+    if (stage.status === "skipped") return "Skipped — moved directly to Ship.";
     return stage.summary;
   }
   if (stage.id === "ship") {
+    if (railState === "running") return withLiveAgents("Preparing PR and shipping checks.");
     if (Array.isArray(prs) && prs.length > 1 && shipped) {
       const openN = prs.filter((p) => p.state === "open").length;
       const mergedN = prs.filter((p) => p.state === "merged").length;
@@ -1845,27 +1977,37 @@ function buildSuggestedReview(reviewStage, changedFilesCount) {
   };
 }
 
-function buildActivitySnapshot({ sig, buildStage, reviewStage, artifactCount, activeStageId, prItems }) {
-  const activeSubagentsCount = sig.subagents.filter((a) => a.status === "running").length;
-  const doneSubagentsCount = sig.subagents.filter((a) => a.status === "done").length;
-  const activeSwarmMembers = sig.swarm.members.filter((m) => m.status !== "killed");
-  const workingSwarmCount = activeSwarmMembers.filter((m) => m.status === "working").length;
-  const activeSchedules = sig.schedules.filter((s) => s.active);
-  const activeAutomations = sig.automations.filter((a) => a.active);
+function buildActivitySnapshot({
+  sig,
+  buildStage,
+  reviewStage,
+  artifactCount,
+  liveInfo,
+  suggestedStageId,
+  prItems,
+  sharedCounts,
+}) {
+  const {
+    activeSubagentsCount,
+    doneSubagentsCount,
+    activeSwarmMembers,
+    workingSwarmCount,
+    activeSchedules,
+    activeAutomations,
+    bgItems,
+    unbackedSchedules,
+    runningBgCount,
+    openPrsCount,
+    mergedPrsCount,
+    closedPrsCount,
+  } = sharedCounts;
   const checksDone = buildStage.subChecks.filter((c) => c.status === "done").length;
   const checksTotal = buildStage.subChecks.length || 3;
 
-  const bgItems = [...sig.backgroundJobs];
-  const bgTaskIds = new Set(bgItems.map((j) => j.taskId).filter(Boolean));
-  const unbackedSchedules = activeSchedules.filter((s) => !s.taskId || !bgTaskIds.has(s.taskId));
-  const runningBgCount = bgItems.filter((j) => j.status === "running").length;
-
-  const openPrsCount = prItems.filter((p) => p.state === "open").length;
-  const mergedPrsCount = prItems.filter((p) => p.state === "merged").length;
-  const closedPrsCount = prItems.filter((p) => p.state === "closed").length;
-
   return {
-    activeStageId,
+    liveStageIds: liveInfo.liveStageIds,
+    liveAgentsByStage: liveInfo.liveAgentsByStage,
+    suggestedStageId,
     agentsWorkingCount: activeSubagentsCount + workingSwarmCount,
     agentsTotalCount: sig.subagents.length + activeSwarmMembers.length,
     scheduledCount: activeSchedules.length + activeAutomations.length,
@@ -1903,6 +2045,7 @@ function buildActivitySnapshot({ sig, buildStage, reviewStage, artifactCount, ac
     workflow: {
       active: sig.workflow.active,
       runsCount: sig.workflow.runsCount,
+      stageId: sig.workflow.stageId ?? null,
       suggestedReview: buildSuggestedReview(reviewStage, sig.changedFiles.size),
     },
     sideQuestions: { count: sig.sideQuestionsCount },
@@ -2071,6 +2214,8 @@ export function evaluateTimelineSnapshot({
     buildStageSubCommands("setup", sig.detected, new Set((setupState.commands || []).map((c) => c.command))),
   );
 
+  const liveInfo = computeLive(sig);
+  const liveSet = new Set(liveInfo.liveStageIds);
   const planStage = buildPlanStage({
     hasConv,
     setupState,
@@ -2105,6 +2250,7 @@ export function evaluateTimelineSnapshot({
     evidence,
     maxReviewRounds,
     shipped,
+    shipActive: Boolean(liveSet.has("ship") || sig.openPrAt),
     prVerifierRunning,
     reviewAfterShip,
   });
@@ -2129,11 +2275,49 @@ export function evaluateTimelineSnapshot({
   prItems.sort((a, b) => (STATE_RANK[a.state] ?? 3) - (STATE_RANK[b.state] ?? 3) || b.number - a.number);
   sig.pr = prItems.length > 0 ? [...prItems].sort((a, b) => b.number - a.number)[0] : null;
 
-  const shipStage = buildShipStage({ reviewStatus: reviewStage.status, shipped, sig });
-  const stepViews = [planStage, buildStage, reviewStage, shipStage].map((stage) => ({
-    ...stage,
-    collapsedSummary: buildStageCollapsedSummary(stage, sig.pr, prItems, shipped),
-    artifacts: buildStageArtifacts(stage, {
+  const shipStage = buildShipStage({ reviewStatus: reviewStage.status, shipped, shipLive: liveSet.has("ship"), sig });
+  const rawSteps = [planStage, buildStage, reviewStage, shipStage];
+  const nextAction = selectNextAction(rawSteps, setupState);
+  const suggestedStageId = resolveSuggestedStageId(nextAction, rawSteps, liveSet);
+  const buildQueuedByPlan =
+    Boolean(sig.astackModeAt) &&
+    (planStage.status === "active" || planStage.status === "waiting_gate") &&
+    buildStage.status === "pending";
+
+  const activeSubagentsCount = sig.subagents.filter((a) => a.status === "running").length;
+  const doneSubagentsCount = sig.subagents.filter((a) => a.status === "done").length;
+  const activeSwarmMembers = sig.swarm.members.filter((m) => m.status !== "killed");
+  const workingSwarmCount = sig.swarm.active
+    ? activeSwarmMembers.filter((m) => m.status === "working").length
+    : 0;
+  const activeSchedules = sig.schedules.filter((s) => s.active);
+  const activeAutomations = sig.automations.filter((a) => a.active);
+  const bgItems = [...sig.backgroundJobs];
+  const bgTaskIds = new Set(bgItems.map((j) => j.taskId).filter(Boolean));
+  const unbackedSchedules = activeSchedules.filter((s) => !s.taskId || !bgTaskIds.has(s.taskId));
+  const runningBgCount = bgItems.filter((j) => j.status === "running").length;
+  const openPrsCount = prItems.filter((p) => p.state === "open").length;
+  const mergedPrsCount = prItems.filter((p) => p.state === "merged").length;
+  const closedPrsCount = prItems.filter((p) => p.state === "closed").length;
+
+  const sharedCounts = {
+    activeSubagentsCount,
+    doneSubagentsCount,
+    activeSwarmMembers,
+    workingSwarmCount,
+    activeSchedules,
+    activeAutomations,
+    bgItems,
+    unbackedSchedules,
+    runningBgCount,
+    openPrsCount,
+    mergedPrsCount,
+    closedPrsCount,
+  };
+
+  const stepViews = rawSteps.map((stage) => {
+    const railState = computeRailState(stage, liveSet, suggestedStageId, { buildQueuedByPlan });
+    const artifacts = buildStageArtifacts(stage, {
       planArtifact,
       walkthroughArtifact,
       reviewArtifact,
@@ -2141,19 +2325,31 @@ export function evaluateTimelineSnapshot({
       pr: sig.pr,
       prs: prItems,
       shipped,
-    }),
-    ...buildStageSubCommands(stage.id, sig.detected),
-  }));
+    });
+    const stageWithArts = { ...stage, artifacts };
+    return {
+      ...stage,
+      railState,
+      collapsedSummary: buildStageCollapsedSummary(stage, sig.pr, prItems, shipped, {
+        railState,
+        liveAgents: liveInfo.liveAgentsByStage[stage.id] ?? 0,
+      }),
+      artifacts,
+      stats: buildStageStats(stageWithArts, { sig, ...sharedCounts }),
+      ...buildStageSubCommands(stage.id, sig.detected),
+    };
+  });
 
   const artifactCount = stepViews.reduce((acc, s) => acc + s.artifacts.filter((a) => a.kind !== "pr").length, 0);
-  const activeStageId = selectActiveStageId(stepViews);
   const activity = buildActivitySnapshot({
     sig,
     buildStage,
     reviewStage,
     artifactCount,
-    activeStageId,
+    liveInfo,
+    suggestedStageId,
     prItems,
+    sharedCounts,
   });
 
   const onlyBuildCleanStale =
@@ -2279,7 +2475,7 @@ export function evaluateTimelineSnapshot({
     totalCount: stepViews.length,
     liveState,
     liveLabel,
-    nextAction: selectNextAction(stepViews, setupState),
+    nextAction,
     stages: stepViews,
     activity,
   };

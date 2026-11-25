@@ -33,17 +33,15 @@
       <div id="setup-card" class="setup-card hidden" data-testid="timeline-setup"></div>
     </section>
 
-    <section id="scene-section" class="scene-section" aria-label="Live agent activity" data-testid="timeline-scene">
-      <canvas id="scene-canvas" data-astack-scene="1" role="img" aria-label="3D timeline showing the active stage stream, running agents, scheduled checks, and artifacts."></canvas>
-      <p id="scene-fallback" class="scene-fallback hidden">3D view unavailable in this viewer.</p>
-      <div id="scene-stages" class="scene-stages" data-testid="scene-stages"></div>
-    </section>
-
-    <div id="focus-strip" class="focus-strip" role="group" aria-label="Focus the 3D view" data-testid="focus-strip"></div>
+    <div id="focus-strip" class="focus-strip" role="group" aria-label="Activity totals" data-testid="focus-strip"></div>
     <div id="focus-artifacts" class="focus-artifacts hidden" data-testid="focus-artifacts"></div>
 
     <main class="main">
-      <ol id="timeline" class="timeline" aria-label="AStack engineering workflow timeline" data-testid="timeline-list"></ol>
+      <div class="timeline-wrap">
+        <canvas id="living-rail" class="living-rail" aria-hidden="true"></canvas>
+        <ol id="timeline" class="timeline" aria-label="AStack engineering workflow timeline" data-testid="timeline-list"></ol>
+      </div>
+      <div id="rail-announcer" class="sr-only" aria-live="polite" data-testid="rail-announcer"></div>
     </main>
 
     <div class="bottom-dock">
@@ -63,8 +61,7 @@
 
   <div id="cmd-popover" class="cmd-popover hidden" role="tooltip" data-testid="cmd-popover"></div>
   <div id="toast" class="toast" role="status" aria-live="polite" data-testid="timeline-toast"></div>
-  <script src="/vendor/three.min.js"></script>
-  <script src="/scene-3d.js"></script>
+  <script src="/living-rail.js"></script>
   <script src="/catalog.js"></script>
   <script src="/app.js"></script>
 </body>

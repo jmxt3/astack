@@ -36,7 +36,15 @@
     pulsedTimers: new Set(),
   };
 
-  let scene = null;
+  let rail = null;
+  let railStages = [];
+  let railWrap = null;
+  let railList = null;
+  let prevLiveIds = new Set();
+  let railAnnounceReady = false;
+  let railAnnounceTimer = null;
+  let pendingAnnouncements = [];
+  const PAD_TOP = 32;
 
   function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -181,11 +189,6 @@
     return svg;
   }
 
-  function resolveSceneAccent(theme) {
-    const rawPrimary = getComputedStyle(document.documentElement).getPropertyValue("--primary").trim();
-    return theme === "dark" && rawPrimary ? rawPrimary : "#5aa2ff";
-  }
-
   function syncScheme() {
     const bg = getComputedStyle(document.documentElement).backgroundColor;
     const nums = (bg.match(/[\d.]+/g) || []).map(Number);
@@ -197,9 +200,7 @@
       if (document.documentElement.dataset.theme !== theme) {
         document.documentElement.dataset.theme = theme;
       }
-      if (scene) {
-        scene.setAccent(resolveSceneAccent(theme));
-      }
+      rail?.refreshTheme();
     }
   }
 
@@ -748,7 +749,6 @@
         const nextMs = Date.parse(nextAt);
         if (Number.isFinite(nextMs) && nextMs <= Date.now() && !state.pulsedTimers.has(nextAt)) {
           state.pulsedTimers.add(nextAt);
-          scene?.pulseSchedule();
         }
       }
     }
@@ -1017,10 +1017,12 @@
     document.getElementById("live-label").textContent = snap.liveLabel;
   }
 
-  function stageStatusLabel(status, stage) {
-    if (status === "done") return { text: "Done", cls: "done" };
-    if (status === "active") return { text: "Running", cls: "active" };
-    if (status === "stale") {
+  function stageStatusLabel(stage, stages) {
+    const rs = stage?.railState;
+    if (rs === "running") return { text: "Running", cls: "running" };
+    if (rs === "done") return { text: "Done", cls: "done" };
+    if (rs === "yourturn") return { text: "Your turn", cls: "yourturn" };
+    if (rs === "stale") {
       if (stage?.id === "build") {
         const cleanStale = stage.subChecks?.some((c) => c.id === "clean" && c.status === "stale");
         const verifyStale = stage.subChecks?.some((c) => c.id === "verify" && c.status === "stale");
@@ -1029,11 +1031,15 @@
       }
       return { text: "Needs re-run", cls: "stale" };
     }
-    if (status === "waiting_gate") return { text: "Review", cls: "waiting_gate" };
-    if (status === "error") return { text: "Escalated", cls: "error" };
-    if (status === "next") return { text: "Next", cls: "next" };
-    if (status === "skipped") {
-      return { text: stage?.skippedReason === "earlier" ? "Earlier" : "Skipped", cls: "muted" };
+    if (rs === "error") return { text: "Escalated", cls: "error" };
+    if (rs === "queued") {
+      const idx = Array.isArray(stages) ? stages.findIndex((s) => s.id === stage.id) : -1;
+      const earlierBusy = idx > 0 && stages.slice(0, idx).some((s) => s.railState === "running" || s.railState === "yourturn");
+      return { text: earlierBusy ? "Queued" : "Idle", cls: "queued" };
+    }
+    if (rs === "suggested") return { text: "Suggested", cls: "muted" };
+    if (rs === "skipped") {
+      return { text: stage?.skippedReason === "earlier" ? "Earlier" : "Skipped", cls: "faint" };
     }
     return null;
   }
@@ -1145,8 +1151,6 @@
     const swarm = act.swarm || {};
     if (swarm.active || (swarm.members && swarm.members.length > 0)) {
       const wrap = el("div", "");
-      wrap.addEventListener("mouseenter", () => scene?.setHighlight("cmd", "swarm"));
-      wrap.addEventListener("mouseleave", () => scene?.setHighlight("cmd", null));
       const meta = el("span", "sub-accordion-meta", `${swarm.workingCount || 0} of ${swarm.totalCount || 0} working`);
       const { btn, isOpen } = makeSubAccordionHeader("swarm", "swarm", "Swarm", meta);
       btn.dataset.testid = "accordion-swarm";
@@ -1155,8 +1159,6 @@
         const ul = el("ul", "sub-accordion-list");
         for (const m of swarm.members || []) {
           const li = el("li", "sub-row");
-          li.addEventListener("mouseenter", () => scene?.setHighlight("member", m.id));
-          li.addEventListener("mouseleave", () => scene?.setHighlight("member", null));
           const dw = el("span", "sub-row-dot-wrap");
           const dotCls = m.role === "verifier" ? "sub-row-dot ring" : "sub-row-dot";
           const d = el("span", m.status === "working" ? `${dotCls} active` : dotCls);
@@ -1176,8 +1178,6 @@
     const subagents = act.subagents || [];
     if (subagents.length > 0) {
       const wrap = el("div", "");
-      wrap.addEventListener("mouseenter", () => scene?.setHighlight("cmd", "subagents"));
-      wrap.addEventListener("mouseleave", () => scene?.setHighlight("cmd", null));
       const runningN = act.runningSubagentsCount || 0;
       const metaText = runningN > 0 ? `${runningN}/${subagents.length} running` : `${subagents.length} done`;
       const meta = el("span", "sub-accordion-meta", metaText);
@@ -1188,8 +1188,6 @@
         const ul = el("ul", "sub-accordion-list");
         for (const a of subagents) {
           const li = el("li", "sub-row");
-          li.addEventListener("mouseenter", () => scene?.setHighlight("agent", a.id));
-          li.addEventListener("mouseleave", () => scene?.setHighlight("agent", null));
           const dw = el("span", "sub-row-dot-wrap");
           if (a.status === "done") {
             const chk = svgIcon("check-sm", 10);
@@ -1219,8 +1217,6 @@
     const teamwork = act.teamwork || {};
     if (goal.detected || teamwork.detected) {
       const wrap = el("div", "");
-      wrap.addEventListener("mouseenter", () => scene?.setHighlight("cmd", "goal"));
-      wrap.addEventListener("mouseleave", () => scene?.setHighlight("cmd", null));
       const labelTitle = goal.detected ? "Goal" : "Teamwork";
       const meta = el("span", "sub-accordion-meta");
       if (goal.active && goal.startedAt) {
@@ -1277,8 +1273,6 @@
           if (docMeta) {
             attachCommandPopover(row, docMeta);
           }
-          row.addEventListener("mouseenter", () => scene?.setHighlight("cmd", item.id));
-          row.addEventListener("mouseleave", () => scene?.setHighlight("cmd", null));
           const ic = el("span", "delegate-menu-icon");
           ic.appendChild(svgIcon(item.icon, 13));
           row.appendChild(ic);
@@ -1351,10 +1345,6 @@
       if (art.badge) {
         btn.appendChild(el("span", `artifact-badge ${art.status || ""}`, art.badge));
       }
-      btn.addEventListener("mouseenter", () => scene?.setHighlight("art", art.key || art.id));
-      btn.addEventListener("mouseleave", () => scene?.setHighlight("art", null));
-      btn.addEventListener("focus", () => scene?.setHighlight("art", art.key || art.id));
-      btn.addEventListener("blur", () => scene?.setHighlight("art", null));
       btn.addEventListener("click", (ev) => {
         ev.stopPropagation();
         openArtifact(art, btn);
@@ -1444,8 +1434,6 @@
     if (stage.id === "review" && act.workflow?.suggestedReview) {
       const sug = act.workflow.suggestedReview;
       const box = el("div", "faster-workflow");
-      box.addEventListener("mouseenter", () => scene?.setHighlight("cmd", "rw"));
-      box.addEventListener("mouseleave", () => scene?.setHighlight("cmd", null));
       const p = el("p", "faster-workflow-text");
       p.appendChild(el("span", "faster-workflow-lead", "Faster: "));
       p.appendChild(document.createTextNode(`${sug.summary} `));
@@ -1470,8 +1458,6 @@
       const shipAutos = (act.automations || []).filter((a) => a.active);
       if (shipScheds.length > 0 || shipAutos.length > 0) {
         const jobsWrap = el("div", "ship-jobs");
-        jobsWrap.addEventListener("mouseenter", () => scene?.setHighlight("cmd", "schedule"));
-        jobsWrap.addEventListener("mouseleave", () => scene?.setHighlight("cmd", null));
         for (const s of shipScheds) {
           const row = el("div", "ship-job-row");
           const ic = el("span", "ship-job-icon");
@@ -1508,30 +1494,8 @@
     return detail;
   }
 
-  function renderSceneSection(snap) {
+  function renderTotalsStrip(snap) {
     const act = snap.activity || {};
-    const focalId = act.activeStageId || "plan";
-
-    const stagesEl = document.getElementById("scene-stages");
-    stagesEl.replaceChildren();
-    for (const stg of snap.stages) {
-      const btn = el("button", stg.id === focalId ? "scene-stage-btn is-active" : "scene-stage-btn");
-      btn.type = "button";
-      const dot = el("span", `scene-stage-dot ${stg.status}`);
-      if (stg.status === "active") dot.classList.add("pulse");
-      btn.appendChild(dot);
-      btn.appendChild(el("span", "", stg.label));
-      btn.addEventListener("mouseenter", () => scene?.setHighlight("stage", stg.id));
-      btn.addEventListener("mouseleave", () => scene?.setHighlight("stage", null));
-      btn.addEventListener("focus", () => scene?.setHighlight("stage", stg.id));
-      btn.addEventListener("blur", () => scene?.setHighlight("stage", null));
-      btn.addEventListener("click", () => {
-        state.userToggled = true;
-        state.expanded.add(stg.id);
-        render(state.snap);
-      });
-      stagesEl.appendChild(btn);
-    }
 
     const strip = document.getElementById("focus-strip");
     strip.replaceChildren();
@@ -1626,15 +1590,10 @@
       chip.appendChild(el("span", "focus-count", f.countText));
       chip.appendChild(el("span", "", f.label));
       attachStatusPopover(chip, f.popTitle, f.popStatus, f.popMode, f.popDesc);
-      chip.addEventListener("mouseenter", () => scene?.setHighlight("cmd", f.key));
-      chip.addEventListener("mouseleave", () => scene?.setHighlight("cmd", null));
-      chip.addEventListener("focus", () => scene?.setHighlight("cmd", f.key));
-      chip.addEventListener("blur", () => scene?.setHighlight("cmd", null));
       chip.addEventListener("click", () => {
         hideCommandPopover();
         state.solo = state.solo === f.key ? null : f.key;
-        scene?.setSolo(state.solo);
-        renderSceneSection(state.snap);
+        renderTotalsStrip(state.snap);
       });
       strip.appendChild(chip);
     }
@@ -1701,10 +1660,6 @@
           const chev = svgIcon("chevron", 11);
           chev.classList.add("drawer-item-chev");
           btn.appendChild(chev);
-          btn.addEventListener("mouseenter", () => scene?.setHighlight("art", art.key || art.id));
-          btn.addEventListener("mouseleave", () => scene?.setHighlight("art", null));
-          btn.addEventListener("focus", () => scene?.setHighlight("art", art.key || art.id));
-          btn.addEventListener("blur", () => scene?.setHighlight("art", null));
           btn.addEventListener("click", (ev) => {
             ev.stopPropagation();
             openArtifact(art, btn);
@@ -1730,8 +1685,6 @@
         const ul = el("ul", "sub-accordion-list focus-drawer-list");
         for (const m of swarmMembers) {
           const li = el("li", "sub-row");
-          li.addEventListener("mouseenter", () => scene?.setHighlight("member", m.id));
-          li.addEventListener("mouseleave", () => scene?.setHighlight("member", null));
           const dw = el("span", "sub-row-dot-wrap");
           const dotCls = m.role === "verifier" ? "sub-row-dot ring" : "sub-row-dot";
           dw.appendChild(el("span", m.status === "working" ? `${dotCls} active` : dotCls));
@@ -1744,8 +1697,6 @@
         }
         for (const a of subagents) {
           const li = el("li", "sub-row");
-          li.addEventListener("mouseenter", () => scene?.setHighlight("agent", a.id));
-          li.addEventListener("mouseleave", () => scene?.setHighlight("agent", null));
           const dw = el("span", "sub-row-dot-wrap");
           if (a.status === "done") {
             const chk = svgIcon("check-sm", 10);
@@ -1922,9 +1873,9 @@
 
   function resolveDefaultGuideStage(snap, stages) {
     if (snap?.setup?.status === "needs_setup") return "setup";
-    const activeId = snap?.activity?.activeStageId;
-    if (activeId && Array.isArray(stages) && stages.some((s) => s.id === activeId)) {
-      return activeId;
+    const targetId = snap?.activity?.liveStageIds?.[0] || snap?.activity?.suggestedStageId;
+    if (targetId && Array.isArray(stages) && stages.some((s) => s.id === targetId)) {
+      return targetId;
     }
     return "plan";
   }
@@ -2003,7 +1954,13 @@
     if (snap?.setup?.status === "needs_setup") {
       return { text: "Setup needed", cls: "warn" };
     }
-    const focalStage = snap?.stages?.find((s) => s.id === snap?.activity?.activeStageId);
+    const stages = snap?.stages || [];
+    const liveIds = snap?.activity?.liveStageIds || [];
+    const focalStage =
+      stages.find((s) => liveIds.includes(s.id)) ||
+      stages.find((s) => s.railState === "error" || s.railState === "stale" || s.railState === "yourturn") ||
+      stages.find((s) => s.id === snap?.activity?.suggestedStageId) ||
+      stages.find((s) => s.railState === "done");
     if (focalStage) {
       const mapped = GUIDE_STAGE_STATUS[focalStage.status];
       return {
@@ -2362,6 +2319,10 @@
       releaseArtifactObjectUrl();
     }
 
+    if (nextView !== "timeline") {
+      rail?.setVisible(false);
+    }
+
     if (nextView === "trust") {
       renderTrustView(state.snap);
       document.getElementById("back-from-trust")?.focus();
@@ -2375,7 +2336,8 @@
       document.getElementById("back-from-artifact")?.focus();
     } else {
       renderFooter(state.snap);
-      scene?.resize();
+      rail?.setVisible(!document.hidden);
+      layoutRail();
       if (restoreFocus) {
         if (prevView === "artifact" && state.artifactReturnEl && document.contains(state.artifactReturnEl)) {
           state.artifactReturnEl.focus();
@@ -2387,6 +2349,172 @@
         state.artifactReturnEl = null;
       }
     }
+  }
+
+  function layoutRail() {
+    if (!rail || !railWrap || !railList || state.view !== "timeline") return;
+    const height = railList.scrollHeight;
+    if (!height) return;
+    const top = railWrap.getBoundingClientRect().top;
+    const ys = [...railList.querySelectorAll("[data-rail-node]")].map((nodeEl) => {
+      const r = nodeEl.getBoundingClientRect();
+      return r.top + r.height / 2 - top + PAD_TOP;
+    });
+    rail.resize(height + PAD_TOP);
+    rail.setNodes(railStages.map((s, i) => ({ state: s.railState, agents: s.agents, y: ys[i] ?? PAD_TOP })));
+  }
+
+  function scheduleRailAnnouncement(snap) {
+    const liveIds = new Set(snap?.activity?.liveStageIds || []);
+    if (!railAnnounceReady) {
+      railAnnounceReady = true;
+      prevLiveIds = liveIds;
+      return;
+    }
+    const labelsById = new Map((snap?.stages || []).map((s) => [s.id, s.label]));
+    const started = [...liveIds]
+      .filter((id) => !prevLiveIds.has(id))
+      .map((id) => `${labelsById.get(id) || id} started running`);
+    const stopped = [...prevLiveIds]
+      .filter((id) => !liveIds.has(id))
+      .map((id) => `${labelsById.get(id) || id} stopped running`);
+    prevLiveIds = liveIds;
+    const msgs = [...started, ...stopped];
+    if (msgs.length === 0) return;
+    pendingAnnouncements.push(...msgs);
+    if (railAnnounceTimer) clearTimeout(railAnnounceTimer);
+    railAnnounceTimer = setTimeout(() => {
+      const announcer = document.getElementById("rail-announcer");
+      if (announcer && pendingAnnouncements.length > 0) {
+        announcer.textContent = pendingAnnouncements.join(". ");
+      }
+      pendingAnnouncements = [];
+      railAnnounceTimer = null;
+    }, 2000);
+  }
+
+  function updateRail(snap) {
+    railStages = (snap?.stages || []).map((s) => ({
+      railState: s.railState || "pending",
+      agents: snap?.activity?.liveAgentsByStage?.[s.id] ?? 0,
+    }));
+    layoutRail();
+    scheduleRailAnnouncement(snap);
+  }
+
+  function railNodeAriaLabel(stage, stLabel, liveAgents) {
+    const stateWord = (stLabel?.text || (stage.railState === "pending" ? "Not started" : stage.railState)).toLowerCase();
+    if (stage.railState === "running" && liveAgents > 0) {
+      return `${stage.label}, ${stateWord}, ${liveAgents} ${liveAgents === 1 ? "subagent" : "subagents"}`;
+    }
+    return `${stage.label}, ${stateWord}`;
+  }
+
+  function buildStageStatsRow(stage) {
+    const st = stage?.stats;
+    if (!st) return null;
+    const items = [];
+    if (st.agents?.total > 0) {
+      const running = st.agents.running || 0;
+      const total = st.agents.total;
+      const done = Math.max(0, total - running);
+      items.push({
+        key: "agents",
+        icon: "dot",
+        dotMode: running > 0 ? "pulse" : "done",
+        countText: running > 0 ? `${running}/${total}` : String(total),
+        label: running > 0 ? "active" : total === 1 ? "agent" : "agents",
+        popTitle: `${stage.label} · Agents`,
+        popStatus: running > 0 ? `${running} running` : `${done} done`,
+        popMode: running > 0 ? "active" : "done",
+        popDesc: `${total} agent${total === 1 ? "" : "s"} in ${stage.label} (${done} done, ${running} running). Click to toggle stage details.`,
+      });
+    }
+    const prOpen = st.prs?.open || 0;
+    const prMerged = st.prs?.merged || 0;
+    const prClosed = st.prs?.closed || 0;
+    const prTotal = prOpen + prMerged + prClosed;
+    if (prTotal > 0) {
+      const prParts = [];
+      if (prOpen > 0) prParts.push(`${prOpen} open`);
+      if (prMerged > 0) prParts.push(`${prMerged} merged`);
+      if (prClosed > 0) prParts.push(`${prClosed} closed`);
+      const breakdown = prParts.join(", ");
+      items.push({
+        key: "prs",
+        icon: prOpen === 0 && prMerged > 0 ? "pr-merged" : "pr",
+        iconTone: prOpen > 0 ? "open" : prMerged > 0 ? "merged" : "",
+        countText: String(prTotal),
+        label: prTotal === 1 ? "PR" : "PRs",
+        popTitle: `${stage.label} · Pull Requests`,
+        popStatus: breakdown,
+        popMode: prOpen > 0 ? "done" : "",
+        popDesc: `${prTotal} pull request${prTotal === 1 ? "" : "s"} (${breakdown}). Click to toggle stage details.`,
+      });
+    }
+    if (st.artifacts?.total > 0) {
+      const total = st.artifacts.total;
+      const updating = st.artifacts.updating || 0;
+      items.push({
+        key: "artifacts",
+        icon: "diamond",
+        pulseIcon: updating > 0,
+        iconTone: updating > 0 ? "active" : "",
+        countText: String(total),
+        label: total === 1 ? "artifact" : "artifacts",
+        popTitle: `${stage.label} · Artifacts`,
+        popStatus: updating > 0 ? `${updating} updating` : `${total} file${total === 1 ? "" : "s"}`,
+        popMode: updating > 0 ? "active" : "done",
+        popDesc: `${total} artifact${total === 1 ? "" : "s"} in ${stage.label}${updating > 0 ? ` (${updating} updating)` : ""}. Click to toggle stage details.`,
+      });
+    }
+    if (st.tasks?.total > 0) {
+      const total = st.tasks.total;
+      const running = st.tasks.running || 0;
+      items.push({
+        key: "tasks",
+        icon: "clock",
+        iconTone: running > 0 ? "active" : "",
+        countText: running > 0 ? `${running}/${total}` : String(total),
+        label: running > 0 ? "running" : total === 1 ? "task" : "tasks",
+        popTitle: `${stage.label} · Tasks`,
+        popStatus: running > 0 ? `${running} running` : `${total} total`,
+        popMode: running > 0 ? "active" : "done",
+        popDesc: `${total} task${total === 1 ? "" : "s"} in ${stage.label}${running > 0 ? ` (${running} running)` : ""}. Click to toggle stage details.`,
+      });
+    }
+    if (items.length === 0) return null;
+
+    const isExpanded = state.expanded.has(stage.id);
+    const row = el("div", "stage-stats");
+    row.dataset.testid = `stage-stats-${stage.id}`;
+    for (const item of items) {
+      const chip = el("button", "focus-chip stage-stat-chip");
+      chip.type = "button";
+      chip.dataset.testid = `stage-stat-${stage.id}-${item.key}`;
+      chip.setAttribute("aria-expanded", String(isExpanded));
+      if (item.icon === "dot") {
+        chip.appendChild(el("span", `focus-dot ${item.dotMode}`.trim()));
+      } else {
+        const ic = svgIcon(item.icon, item.icon === "diamond" ? 10 : 11);
+        if (item.pulseIcon) ic.classList.add("pulse");
+        if (item.iconTone) ic.classList.add(`focus-icon-${item.iconTone}`);
+        chip.appendChild(ic);
+      }
+      chip.appendChild(el("span", "focus-count", item.countText));
+      chip.appendChild(el("span", "", item.label));
+      attachStatusPopover(chip, item.popTitle, item.popStatus, item.popMode, item.popDesc);
+      chip.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        hideCommandPopover();
+        state.userToggled = true;
+        if (state.expanded.has(stage.id)) state.expanded.delete(stage.id);
+        else state.expanded.add(stage.id);
+        render(state.snap);
+      });
+      row.appendChild(chip);
+    }
+    return row;
   }
 
   function render(snap) {
@@ -2670,58 +2798,52 @@
       setupCard.className = "setup-card hidden";
     }
 
-    renderSceneSection(snap);
-    scene?.updateState(snap);
+    renderTotalsStrip(snap);
 
     if (!state.userToggled) {
       state.expanded.clear();
       const focus =
-        snap.stages.find((s) => s.status === "error") ||
-        snap.stages.find((s) => s.status === "active") ||
-        snap.stages.find((s) => s.status === "stale") ||
-        snap.stages.find((s) => s.status === "waiting_gate");
+        snap.stages.find((s) => s.railState === "error") ||
+        snap.stages.find((s) => s.railState === "running") ||
+        snap.stages.find((s) => s.railState === "stale") ||
+        snap.stages.find((s) => s.railState === "yourturn");
       if (focus) state.expanded.add(focus.id);
     }
 
     const list = document.getElementById("timeline");
     list.replaceChildren();
     list.classList.toggle("is-dimmed", isNonRepo);
+    railWrap?.classList.toggle("is-dimmed", isNonRepo);
+    const liveIds = snap.activity?.liveStageIds || [];
 
     snap.stages.forEach((stage, idx) => {
       const isLast = idx === snap.stages.length - 1;
       const isExpanded = state.expanded.has(stage.id);
-      const li = el("li", `step ${stage.status}`);
-      if (stage.id === snap.activity?.activeStageId) {
+      const rs = stage.railState || "pending";
+      const stLabel = stageStatusLabel(stage, snap.stages);
+      const liveAgents = snap.activity?.liveAgentsByStage?.[stage.id] ?? 0;
+
+      const li = el("li", `step ${rs}`);
+      li.dataset.testid = `timeline-step-${stage.id}`;
+      if (
+        rs === "running" ||
+        (liveIds.length === 0 && (rs === "yourturn" || rs === "suggested"))
+      ) {
         li.setAttribute("aria-current", "step");
       }
-      li.addEventListener("mouseenter", () => scene?.setHighlight("stage", stage.id));
-      li.addEventListener("mouseleave", () => scene?.setHighlight("stage", null));
 
-      const rail = el("div", "rail");
-      const node = el("span", `node ${stage.status}`);
-      node.setAttribute("aria-hidden", "true");
-      if (stage.status === "done") node.appendChild(svgIcon("check", 11));
-      else if (stage.status === "stale" || stage.status === "error") node.appendChild(svgIcon("warn", 11));
-      else if (stage.status === "waiting_gate") node.appendChild(svgIcon("gate", 11));
-      else if (stage.status === "active") {
-        const arc = svgIcon("active-arc", 18);
-        arc.classList.add("node-spin-svg", "spin");
-        node.appendChild(arc);
-        node.appendChild(el("span", "node-active-core"));
-      }
-      rail.appendChild(node);
+      const railEl = el("div", "rail");
+      const node = el("span", `node ${rs}`);
+      node.dataset.railNode = "1";
+      node.setAttribute("role", "img");
+      node.setAttribute("aria-label", railNodeAriaLabel(stage, stLabel, liveAgents));
+      railEl.appendChild(node);
       if (!isLast) {
-        const stemCls =
-          stage.status === "active"
-            ? "stem flow"
-            : stage.status === "done"
-              ? "stem done"
-              : "stem";
-        const stem = el("span", stemCls);
+        const stem = el("span", "stem");
         stem.setAttribute("aria-hidden", "true");
-        rail.appendChild(stem);
+        railEl.appendChild(stem);
       }
-      li.appendChild(rail);
+      li.appendChild(railEl);
 
       const body = el("div", "step-body");
       const stepBtn = el("button", "step-btn");
@@ -2735,10 +2857,9 @@
       });
 
       stepBtn.appendChild(el("span", "step-title", `${stage.number}. ${stage.label}`));
-      const stLabel = stageStatusLabel(stage.status, stage);
       if (stLabel) {
         stepBtn.appendChild(el("span", `status-text ${stLabel.cls}`, stLabel.text));
-      } else if (stage.id === "plan" && stage.status === "pending") {
+      } else if (stage.id === "plan" && rs === "pending") {
         stepBtn.appendChild(el("span", "status-text muted", "Optional"));
       }
       const chev = svgIcon("chevron", 14);
@@ -2751,6 +2872,11 @@
         body.appendChild(el("p", "stage-summary", summaryText));
       }
 
+      const statsRow = buildStageStatsRow(stage);
+      if (statsRow) {
+        body.appendChild(statsRow);
+      }
+
       if (isExpanded) {
         body.appendChild(
           stage.id === "build" ? buildBuildStageDetail(stage, snap) : buildGenericStageDetail(stage, snap),
@@ -2760,6 +2886,8 @@
       li.appendChild(body);
       list.appendChild(li);
     });
+
+    updateRail(snap);
 
     renderFooter(snap);
     if (state.view === "trust") {
@@ -2824,27 +2952,25 @@
     }
   }
 
-  const sceneEl = document.getElementById("scene-section");
-  const canvasEl = document.getElementById("scene-canvas");
-  const fallbackEl = document.getElementById("scene-fallback");
-  if (window.AStackScene3D && canvasEl) {
-    const theme = document.documentElement.dataset.theme || "light";
-    scene = window.AStackScene3D.create(canvasEl, {
-      accent: resolveSceneAccent(theme),
-      onUnavailable: () => fallbackEl?.classList.remove("hidden"),
-    });
-  } else {
-    fallbackEl?.classList.remove("hidden");
+  const railCanvas = document.getElementById("living-rail");
+  railList = document.getElementById("timeline");
+  railWrap = railCanvas?.parentElement || null;
+  if (window.createLivingRail && railCanvas) {
+    rail = window.createLivingRail(railCanvas);
   }
-
-  if (sceneEl) {
-    sceneEl.addEventListener("mousemove", (e) => {
-      const r = sceneEl.getBoundingClientRect();
-      if (!r.width || !r.height) return;
-      scene?.setPointer(((e.clientX - r.left) / r.width) * 2 - 1, ((e.clientY - r.top) / r.height) * 2 - 1);
-    });
-    sceneEl.addEventListener("mouseleave", () => scene?.setPointer(0, 0));
+  if (railList && typeof ResizeObserver === "function") {
+    new ResizeObserver(layoutRail).observe(railList);
   }
+  document.fonts?.ready?.then(layoutRail);
+  if (railWrap && typeof IntersectionObserver === "function") {
+    new IntersectionObserver(([entry]) => {
+      rail?.setVisible(Boolean(entry?.isIntersecting) && state.view === "timeline" && !document.hidden);
+    }).observe(railWrap);
+  }
+  new MutationObserver(() => rail?.refreshTheme()).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
 
   const askIcon = document.getElementById("askbar-icon");
   if (askIcon) askIcon.appendChild(svgIcon("fork", 14));
@@ -2862,7 +2988,6 @@
       }
       const cleanQ = raw.replace(/^\/btw\s+/i, "").trim();
       const payload = `/btw ${cleanQ}`;
-      scene?.spawnFork();
       if (input) input.value = "";
       copyCommand({ command: "/btw", copyText: payload }, btwSubmit);
     });
@@ -2922,6 +3047,7 @@
   setInterval(poll, POLL_MS);
   setInterval(tickTimers, 1000);
   document.addEventListener("visibilitychange", () => {
+    rail?.setVisible(!document.hidden && state.view === "timeline");
     if (!document.hidden) {
       poll();
       tickTimers();
