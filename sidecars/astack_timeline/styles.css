@@ -2505,6 +2505,38 @@ h4.md-heading { font-size: 13px; }
   gap: 6px;
 }
 
+.timeline-fallback {
+  list-style: none;
+  margin: 4px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--tl-card);
+  border: 1px solid var(--tl-line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.timeline-fallback-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--tl-fg);
+}
+
+.timeline-fallback-detail {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--tl-fg-muted);
+}
+
+.timeline-fallback-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
 @media (hover: none) {
   .row-ask-btn { opacity: 1; }
 }

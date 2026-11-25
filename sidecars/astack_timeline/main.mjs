@@ -122,23 +122,58 @@ function resolveWorkspaceUriInput(rawUri) {
   return "";
 }
 
-function makeWorkspaceResolver({ explicitWorkspace = "" } = {}) {
+function makeWorkspaceResolver({
+  explicitWorkspace = "",
+  fetcher = fetchWorkspaceFromAgentApi,
+  waitBudgetMs = 400,
+  negativeTtlMs = 3000,
+} = {}) {
   const cache = new Map();
   return async (convId, workspaceUri = "") => {
     if (explicitWorkspace) return path.resolve(explicitWorkspace);
+    const fallbackDir = resolveWorkspaceUriInput(workspaceUri) || process.env.ANTIGRAVITY_WORKSPACE_DIR || "";
     if (convId) {
-      let pending = cache.get(convId);
-      if (!pending) {
-        pending = fetchWorkspaceFromAgentApi(convId).then((dir) => {
-          if (!dir) cache.delete(convId);
-          return dir;
-        });
-        cache.set(convId, pending);
+      let entry = cache.get(convId);
+      if (!entry) {
+        entry = { dir: "", negativeUntil: 0, pending: null };
+        cache.set(convId, entry);
       }
-      const dir = await pending;
-      if (dir) return dir;
+      if (entry.dir) return entry.dir;
+      if (!entry.pending && Date.now() >= entry.negativeUntil) {
+        entry.pending = Promise.resolve()
+          .then(() => fetcher(convId))
+          .then((dir) => {
+            entry.pending = null;
+            if (dir) {
+              entry.dir = dir;
+              entry.negativeUntil = 0;
+            } else {
+              entry.negativeUntil = Date.now() + negativeTtlMs;
+            }
+            return dir || "";
+          })
+          .catch(() => {
+            entry.pending = null;
+            entry.negativeUntil = Date.now() + negativeTtlMs;
+            return "";
+          });
+      }
+      if (entry.pending) {
+        if (fallbackDir) {
+          if (waitBudgetMs > 0) {
+            const resolved = await Promise.race([
+              entry.pending,
+              new Promise((resolve) => setTimeout(() => resolve(""), waitBudgetMs)),
+            ]);
+            if (resolved) return resolved;
+          }
+          return fallbackDir;
+        }
+        const dir = await entry.pending;
+        if (dir) return dir;
+      }
     }
-    return resolveWorkspaceUriInput(workspaceUri) || process.env.ANTIGRAVITY_WORKSPACE_DIR || "";
+    return fallbackDir;
   };
 }
 
@@ -216,7 +251,7 @@ function fetchGhPrMeta(workspaceDir) {
 
 function makePrStatusResolver({ enabled = true, fetcher = fetchGhPrMeta, ttlMs = 30_000, waitBudgetMs = 350 } = {}) {
   const cache = new Map();
-  return async (workspaceDir) => {
+  const resolver = async (workspaceDir) => {
     if (!enabled || !workspaceDir) return null;
     const key = path.resolve(workspaceDir);
     const now = Date.now();
@@ -247,6 +282,12 @@ function makePrStatusResolver({ enabled = true, fetcher = fetchGhPrMeta, ttlMs =
       new Promise((resolve) => setTimeout(() => resolve(entry.map), waitBudgetMs)),
     ]);
   };
+  resolver.peek = (workspaceDir) => {
+    if (!enabled || !workspaceDir) return null;
+    const entry = cache.get(path.resolve(workspaceDir));
+    return entry?.map ?? null;
+  };
+  return resolver;
 }
 
 function toFileUrl(absPath, line = 1) {
@@ -262,24 +303,54 @@ function createTimelineResponder({
   prStatusResolver = null,
   dataDir = null,
 }) {
+  const inFlight = new Map();
   return async ({ conversationId = "", etag = "", workspaceUri = "" } = {}) => {
     const rawConv = String(conversationId || defaultConversationId || "").trim();
     if (rawConv && !isValidConversationId(rawConv, allowFixtureIds)) {
       return { status: 400, body: { error: "Invalid conversationId" } };
     }
 
-    const workspaceDir = await workspaceResolver(rawConv, workspaceUri);
-    let snap = evaluateTimelineSnapshot({ conversationId: rawConv, brainDir, workspaceDir, dataDir });
-    if (prStatusResolver && workspaceDir && (snap.activity?.prs?.totalCount ?? 0) > 0) {
-      const prMetaByNumber = await prStatusResolver(workspaceDir);
-      if (prMetaByNumber && prMetaByNumber.size > 0) {
-        snap = evaluateTimelineSnapshot({ conversationId: rawConv, brainDir, workspaceDir, prMetaByNumber, dataDir });
-      }
+    const flightKey = `${rawConv}|${workspaceUri}`;
+    let pending = inFlight.get(flightKey);
+    if (!pending) {
+      pending = (async () => {
+        try {
+          const workspaceDir = await workspaceResolver(rawConv, workspaceUri);
+          const cachedPrMeta = prStatusResolver?.peek && workspaceDir ? prStatusResolver.peek(workspaceDir) : null;
+          let snap = evaluateTimelineSnapshot({
+            conversationId: rawConv,
+            brainDir,
+            workspaceDir,
+            ...(cachedPrMeta ? { prMetaByNumber: cachedPrMeta } : {}),
+            dataDir,
+          });
+          if (prStatusResolver && workspaceDir && (snap.activity?.prs?.totalCount ?? 0) > 0) {
+            const prMetaByNumber = await prStatusResolver(workspaceDir);
+            if (prMetaByNumber && prMetaByNumber.size > 0 && prMetaByNumber !== cachedPrMeta) {
+              snap = evaluateTimelineSnapshot({
+                conversationId: rawConv,
+                brainDir,
+                workspaceDir,
+                prMetaByNumber,
+                dataDir,
+              });
+            }
+          }
+          return { status: 200, body: snap };
+        } catch (err) {
+          return { status: 500, body: { error: err?.message || "Failed to evaluate timeline" } };
+        } finally {
+          inFlight.delete(flightKey);
+        }
+      })();
+      inFlight.set(flightKey, pending);
     }
-    if (etag && etag === snap.etag) {
-      return { status: 200, body: { conversationId: rawConv || null, unchanged: true, etag: snap.etag } };
+
+    const result = await pending;
+    if (result.status === 200 && etag && etag === result.body.etag) {
+      return { status: 200, body: { conversationId: rawConv || null, unchanged: true, etag: result.body.etag } };
     }
-    return { status: 200, body: snap };
+    return result;
   };
 }
 
@@ -712,6 +783,9 @@ export async function createTimelineServer(options = {}) {
   const token = options.token ?? process.env.ANTIGRAVITY_SIDECAR_UI_TOKEN ?? "";
   const workspaceResolver = makeWorkspaceResolver({
     explicitWorkspace: options.workspaceDir || "",
+    ...(options.workspaceFetcher ? { fetcher: options.workspaceFetcher } : {}),
+    ...(Number.isFinite(options.workspaceWaitBudgetMs) ? { waitBudgetMs: options.workspaceWaitBudgetMs } : {}),
+    ...(Number.isFinite(options.workspaceNegativeTtlMs) ? { negativeTtlMs: options.workspaceNegativeTtlMs } : {}),
   });
   const prStatusResolver =
     options.prStatusResolver ||
@@ -910,7 +984,12 @@ export async function startTimelineSidecar(options = {}) {
       const { SidecarApp, Response } = options.sdk || (await import("sidecar_sdk"));
       const app = new SidecarApp();
       const brainDir = resolveBrainDir(options.brainDir);
-      const workspaceResolver = makeWorkspaceResolver({ explicitWorkspace: options.workspaceDir || "" });
+      const workspaceResolver = makeWorkspaceResolver({
+        explicitWorkspace: options.workspaceDir || "",
+        ...(options.workspaceFetcher ? { fetcher: options.workspaceFetcher } : {}),
+        ...(Number.isFinite(options.workspaceWaitBudgetMs) ? { waitBudgetMs: options.workspaceWaitBudgetMs } : {}),
+        ...(Number.isFinite(options.workspaceNegativeTtlMs) ? { negativeTtlMs: options.workspaceNegativeTtlMs } : {}),
+      });
       const defaultConversationId = String(app.config?.conversationId ?? options.conversationId ?? "");
       const allowFixtureIds = Boolean(options.allowFixtureIds);
       const prStatusResolver =

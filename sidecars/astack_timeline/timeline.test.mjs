@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -2824,6 +2825,48 @@ test("deactivates failed schedule calls, ignores TimerCondition 'never', and ign
     const afterListSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(afterListSnap.activity.schedules[1]?.active, false);
     assert.equal(afterListSnap.activity.runningTasksCount, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("evaluateTimelineSnapshot invalidates cached workspace scope and policy on immediate risk-policy or main commit mutations", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-policy-cache-");
+  const convId = "conv-policy-cache";
+  try {
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    execFileSync("git", ["init", "-b", "main"], { cwd: workspaceDir, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "t@e.com"], { cwd: workspaceDir, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "T"], { cwd: workspaceDir, stdio: "ignore" });
+    writeText(path.join(workspaceDir, "README.md"), "# Init\n");
+    execFileSync("git", ["add", "."], { cwd: workspaceDir, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: workspaceDir, stdio: "ignore" });
+
+    const beforeEnroll = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(beforeEnroll.trust.scopeKind, "git_unregistered");
+    assert.equal(beforeEnroll.trust.enrolled, false);
+
+    writeText(
+      path.join(workspaceDir, ".agents", "risk-policy.json"),
+      JSON.stringify({ schemaVersion: 1, autonomy: { defaultCeiling: 2, ceilings: { ui: 1 } } }, null, 2),
+    );
+    execFileSync("git", ["add", "."], { cwd: workspaceDir, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "enroll"], { cwd: workspaceDir, stdio: "ignore" });
+
+    const afterEnroll = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(afterEnroll.trust.scopeKind, "enrolled_repo");
+    assert.equal(afterEnroll.trust.enrolled, true);
+    assert.equal(afterEnroll.trust.activeCatState?.ceiling, 1);
+
+    writeText(
+      path.join(workspaceDir, ".agents", "risk-policy.json"),
+      JSON.stringify({ schemaVersion: 1, autonomy: { defaultCeiling: 2, ceilings: { ui: 2 } } }, null, 2),
+    );
+    execFileSync("git", ["add", "."], { cwd: workspaceDir, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "raise ceiling"], { cwd: workspaceDir, stdio: "ignore" });
+
+    const afterPolicyBump = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(afterPolicyBump.trust.activeCatState?.ceiling, 2);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
