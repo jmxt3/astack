@@ -8,12 +8,12 @@ AStack aligns 100% with Antigravity's 18 public slash commands through a single 
 - Byte-identical generated Markdown table (`node scripts/validate-astack.mjs --write-native-commands`) checked automatically by `validate-astack.mjs`
 - Hard `/plan` approval gate (`implementation_plan.md` with `RequestFeedback: true` and `UserFacing: true`, zero workspace edits before approval), automated post-approval Step 6 finish gates (clicking **Proceed** or replying with short approval triggers `astack-mode`, live verification, `/deslop` + `/no-comments`, `walkthrough.md`, and local commit boundary before `git push`), and `/learn` `learning_proposal.md` gate
 - Model-decision intent routing (`trigger: model_decision`) via `rules/astack-orchestration.md` plus explicit `/` command priority and sticky active-playbook follow-ups reset by `"new task"`
-- Behavioral routing evaluation suite (`R1` to `R12` plus negative twin `R1-neg`, defined only in this file below) graded from transcripts using the general blinded-eval protocol in [eval.md](../../../../skills/astack-mode/playbooks/eval.md)
+- Behavioral routing evaluation suite (`R1` to `R12` plus negative twin `R1-neg`, codified in `scripts/eval/fixtures/routing-cases.json` alongside `SEC-1` and `SEC-2` for `15` offline routing cases checked by `node scripts/eval/run-eval.mjs --json`) graded from transcripts using the general blinded-eval protocol in [eval.md](../../../../skills/astack-mode/playbooks/eval.md)
 
 ## How to get to it (user POV)
 
 - Inspect or regenerate the native command reference: `node scripts/validate-astack.mjs --write-native-commands`
-- Drive behavioral routing prompts interactively in a fresh Antigravity App session or non-interactively via `agy -p --output-format stream-json "<prompt>"` (excluding App-only `/automation` and `/generative_ui` surfaces).
+- Drive behavioral routing prompts interactively in a fresh Antigravity App session or non-interactively via `agy -p --output-format stream-json "<prompt>"` (excluding App-only `/automation`, `/generative_ui`, and `/mcp-app-development` surfaces).
 
 ## Driving it with control-cli
 
@@ -47,5 +47,5 @@ Execute each prompt inside a clean `/astack-mode` session (use an isolated scrat
 ## Gotchas
 
 - Prompts mentioning `"plan"` as a domain noun (covered by negative twin `R1-neg`) must match **planning intent**, never bare keywords.
-- Headless `agy -p` runs cannot trigger App-only interactive UI flows (`/automation` Automations tab, `/generative_ui` inline widgets) or interactive `ask_question` prompts unless scripted or executed interactively in the Antigravity App; mark App-only sub-checks `verified-unreachable` in CLI-only CI runs and verify them in the App UI.
+- Headless `agy -p` runs cannot trigger App-only interactive UI flows (`/automation` Automations tab, `/generative_ui` inline widgets, `/mcp-app-development` App resources) or interactive `ask_question` prompts unless scripted or executed interactively in the Antigravity App; mark App-only sub-checks `verified-unreachable` in CLI-only CI runs and verify them in the App UI.
 - Remember to test `"new task"` reset and plan-less rule routing (`"plan X"` without `/astack-mode` via `rules/astack-orchestration.md`) manually when verifying interactive sessions.

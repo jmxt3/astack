@@ -4,14 +4,14 @@ Each file under `features/` documents one verification surface of the AStack rep
 
 ## Baseline preconditions
 
-- Repository root `c:\Users\jmach\dev\astack` is checked out and clean relative to intended work.
+- Repository root (your local `astack` checkout or worktree) is checked out and clean relative to intended work.
 - Node 22+ (`node -v`, minimum `>= 22.6.0`) is on `PATH` (supports `--experimental-strip-types` and `node --run`).
 - `git` and Antigravity CLI (`agy --version`) are on `PATH` unless testing offline structural fallback with `--no-agy`.
 - Per-run directories `$ScratchDir` (`.tmp/verify-astack-scratch/<run-id>`) and `$EvidenceDir` (`.tmp/verify-astack-evidence/<run-id>`) exist; `.tmp/` is listed in `.gitignore`.
 
 ## Driving conventions
 
-- Run commands from the repository root (`c:\Users\jmach\dev\astack`).
+- Run commands from the repository root.
 - Write temporary fixtures, synthetic repos, mock upstream trees, and generated `.tsv`/`.plan.md` artifacts only inside `$ScratchDir`.
 - Write captured stdout/stderr, `$LASTEXITCODE` records, and serialized JSON/TSV outputs directly into `$EvidenceDir` so Cleanup never erases proof.
 - Pipe JSON payloads cleanly in `pwsh` without BOM issues (`[System.Text.UTF8Encoding]::new($false)` or plain PowerShell pipeline `'...' | node ...`).
@@ -37,10 +37,10 @@ Every feature file in this directory stays user-observable and concise:
 
 ## Features
 
-- [Plugin & Strict Antigravity Validation](./plugin-validation.md): `validate-astack.mjs` structural lints, `--apply-frontmatter-policy` against `catalog.json`, auto-invocation context-budget caps, official skill/agent frontmatter schemas, `RESERVED_SKILL_NAMES` collision guard, command-surface & doc-count sync checks, `native-commands.md` sync check, `--json` telemetry, and `agy plugin validate --strict`.
+- [Plugin & Strict Antigravity Validation](./plugin-validation.md): `validate-astack.mjs` structural lints, `--apply-frontmatter-policy` against `catalog.json`, auto-invocation context-budget caps, official skill/agent frontmatter schemas, `RESERVED_SKILL_NAMES` collision guard, `hooks.json` matcher parity, trust facade boundary & sidecar permission checks, command-surface & doc-count sync checks (`audit-surfaces.mjs`), `native-commands.md` sync check, `--json` telemetry, and `agy plugin validate --strict`.
 - [Read-Only Upstream Watch](./upstream-watch.md): `upstream-watch.mjs` read-only inspection of `pstack`, `gstack`, and `security-audit-skill`, counterpart classification, `--fail-on-updates`, internal `--out` refusal (`exit 2`), and SHA-256 repository invariance.
-- [Opt-In Safety & Verification Lifecycle Hooks](./lifecycle-hooks.md): `hooks.json` entrypoints `irreversible-guard.mjs`, `secret-guard.mjs` (`PreToolUse`), and `verify-reminder.mjs` (`Stop`) across allow/block/skip cases.
-- [Bundled Workflow & Control Glass CLIs](./workflow-clis.md): `log.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, `run-eval.mjs`, `validate-findings.cjs`, `validate-coverage-ledger.cjs`, and `control-cli-template.mjs` real CLI execution, `-h`/`--help`, `--json`, `--dry-run`, exit codes, and preserved proof artifacts.
-- [Watch-PR & TLA+ Statechart TypeScript Suites](./watch-pr-and-statechart.md): `watch-pr.mjs` (`56` TS tests + `verify-watch-pr-formal`), `statechart.mjs` (`--help`/`-h`, `67` non-TLC tests, `74` Mermaid/Pele `render.test.ts` checks), and `verified-unreachable` boundaries.
-- [Setup Onboarding & Banner CLI](./setup-onboarding.md): `setup-banner.mjs` workspace inspection and `--doctor --json` readiness checks plus `setup-astack` Orchestrator inheritance and verification scaffolding contracts.
-- [Native Antigravity Command Registry & Behavioral Routing](./native-routing.md): 18-command registry consistency checks plus `R1` to `R12` and negative twin `R1-neg` transcript-graded routing evaluations.
+- [Opt-In Safety & Verification Lifecycle Hooks](./lifecycle-hooks.md): all 10 `hooks.json` entrypoints (`3` passive enabled: `receipt-ledger.mjs`, `session-context.mjs`, `pr-intent.mjs`; `7` opt-in blocking gates: `irreversible-guard.mjs`, `secret-guard.mjs`, `verify-reminder.mjs`, `evidence-gate.mjs`, `boundary-guard.mjs`, `round-limiter.mjs`, `trust-gate.mjs`) plus `WorkspaceScope` `non_repo` silence.
+- [Bundled Workflow & Control Glass CLIs](./workflow-clis.md): `log.mjs`, `check-plan.mjs`, `worktree-audit.mjs`, `pr-dossier.mjs`, `arch-audit.mjs`, `init-repo-policy.mjs`, `scripts/trust/cli.mjs`, `scripts/cli/statusline.mjs`, `scripts/cli/title.mjs`, `scripts/mcp/server.mjs`, `sidecars/astack_timeline/main.mjs`, `run-eval.mjs` (plus `--replay`), `validate-findings.cjs`, `validate-coverage-ledger.cjs`, and `control-cli-template.mjs` real CLI execution, `-h`/`--help`, `--json`, `--dry-run`, exit codes, and preserved proof artifacts.
+- [Watch-PR & TLA+ Statechart TypeScript Suites](./watch-pr-and-statechart.md): `watch-pr.mjs` (`60` TS tests + `--record-outcome` flags), `statechart.mjs` (`--help`/`-h`, `67` non-TLC tests, `74` Mermaid/Pele `render.test.ts` checks), zero-Java formal verifiers (`verify-watch-pr-formal`, `verify-earned-trust-formal`, `verify-risk-mitigation-formal`), and `verified-unreachable` boundaries.
+- [Setup Onboarding & Banner CLI](./setup-onboarding.md): `setup-banner.mjs` workspace inspection, `3/10` split hooks, `init-repo-policy.mjs` scaffolding, and 7 `--doctor --json` checks (including `repo-policies` and `trust-ledger`) plus `setup-astack` Orchestrator inheritance contracts.
+- [Native Antigravity Command Registry & Behavioral Routing](./native-routing.md): 18-command registry consistency checks, `routing-cases.json` offline evals, App-only surfaces (`/automation`, `/generative_ui`, `/mcp-app-development`), plus `R1` to `R12` and negative twin `R1-neg` transcript-graded routing evaluations.

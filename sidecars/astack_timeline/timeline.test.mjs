@@ -2247,10 +2247,288 @@ test("living rail models parallel work, skipped ahead, waiting on you, and all-d
   }
 });
 
-test("drops failed invoke_subagent spawns so retry binds properly and manage_subagents(list) does not orphan agents", () => {
-  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-failed-sa-");
-  const convId = "conv-failed-sa";
+test("clears failed subagent retries, TimerCondition schedules, manage_task(list), merged watch-pr timers, and stale /run-workflow suggestion", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-ghosts-");
+  const convId = "conv-ghosts";
+  const retryChildId = "99999999-8888-4777-8666-555555555555";
+  try {
+    const headSha = "0123456789abcdef0123456789abcdef01234567";
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+    writeText(path.join(brainDir, convId, "pr-review.md"), "# PR Review\n");
+    writeText(
+      path.join(brainDir, convId, "astack-trust", "evidence.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha,
+        freshness: "fresh",
+        riskTier: 3,
+        riskLabel: "critical",
+        reviewRound: 2,
+        maxReviewRounds: 3,
+        roundState: "verified",
+        verifier: { verdict: "PASS" },
+      }),
+    );
+    writeTranscript(brainDir, retryChildId, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-25T02:52:24Z", content: "PASS" },
+    ]);
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-25T02:40:00Z",
+        content: "<USER_REQUEST>/astack-mode ship feature</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:41:00Z",
+        tool_calls: [
+          { name: "edit_file", args: { Path: path.join(workspaceDir, "src", "a.ts") } },
+          { name: "edit_file", args: { Path: path.join(workspaceDir, "src", "b.ts") } },
+          { name: "read_file", args: { Path: "/plugin/skills/deslop/SKILL.md" } },
+        ],
+      },
+      {
+        step_index: 2,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:41:03Z",
+        tool_calls: [
+          { name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "Verifier Round 2", Prompt: "Verify" } },
+        ],
+      },
+      {
+        step_index: 3,
+        type: "GENERIC",
+        status: "ERROR",
+        created_at: "2026-11-25T02:41:05Z",
+        content: "Encountered error in step execution: failed to resolve workspace URIs for subagent",
+      },
+      {
+        step_index: 4,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:41:10Z",
+        tool_calls: [{ name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "Verifier", Prompt: "Verify" } }],
+      },
+      {
+        step_index: 5,
+        type: "GENERIC",
+        status: "DONE",
+        created_at: "2026-11-25T02:41:12Z",
+        content: `Created the following subagent:\n{"conversationId":"${retryChildId}"}`,
+      },
+      {
+        step_index: 6,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-25T02:42:00Z",
+        content: `[Message] sender=${retryChildId} content=PASS`,
+      },
+      {
+        step_index: 7,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:43:00Z",
+        tool_calls: [
+          { name: "run_command", args: { CommandLine: "gh pr create --title \"feat: demo\" --body \"ok\"" } },
+          { name: "run_command", args: { CommandLine: "node skills/astack-mode/scripts/watch-pr/watch-pr.mjs --pr 61", toolSummary: "Watch PR #61" } },
+        ],
+      },
+      {
+        step_index: 8,
+        type: "GENERIC",
+        created_at: "2026-11-25T02:43:01Z",
+        content: "https://github.com/acme/demo/pull/61\n",
+      },
+      {
+        step_index: 9,
+        type: "GENERIC",
+        created_at: "2026-11-25T02:43:02Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-10`,
+      },
+      {
+        step_index: 10,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:44:00Z",
+        tool_calls: [
+          {
+            name: "schedule",
+            args: {
+              DurationSeconds: 300,
+              Prompt: "Check watch-pr.mjs status on PR #61 if still running.",
+              TimerCondition: `${convId}/task-10`,
+            },
+          },
+        ],
+      },
+      {
+        step_index: 11,
+        type: "GENERIC",
+        created_at: "2026-11-25T02:44:01Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-11`,
+      },
+      {
+        step_index: 12,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-25T02:45:00Z",
+        content: `[Message] sender=${convId}/task-10 content=Task id "${convId}/task-10" finished with result:\nCommand exited with code 0.`,
+      },
+      {
+        step_index: 13,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:45:05Z",
+        tool_calls: [{ name: "manage_task", args: { Action: "list" } }],
+      },
+      {
+        step_index: 14,
+        type: "GENERIC",
+        created_at: "2026-11-25T02:45:06Z",
+        content: "No background tasks are currently running.",
+      },
+      {
+        step_index: 15,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:46:00Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: "gh pr merge 61 --squash" } }],
+      },
+    ]);
+    writeReceipt(brainDir, convId, [
+      { schemaVersion: 1, ts: "2026-11-25T02:41:01Z", conversationId: convId, kind: "file_write", category: "ui", headSha, ok: true, summary: "edit", paths: ["src/a.ts", "src/b.ts"] },
+      { schemaVersion: 1, ts: "2026-11-25T02:41:30Z", conversationId: convId, kind: "command", category: "test", headSha, ok: true, summary: "node --test", paths: [] },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.deepEqual(snap.stages.map((s) => s.railState), ["skipped", "done", "done", "done"]);
+    assert.deepEqual(snap.activity.liveStageIds, []);
+    assert.equal(snap.activity.runningSubagentsCount, 0);
+    assert.equal(snap.activity.runningTasksCount, 0);
+    assert.equal(snap.activity.scheduledCount, 0);
+    assert.equal(snap.activity.subagents[0].status, "failed");
+    assert.equal(snap.activity.subagents[1].status, "done");
+    assert.equal(snap.activity.workflow.suggestedReview, null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("buildRiskPresentation separates human governance gates, defect blocks, low risk, and merged PR resolution", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-riskpres-");
+  const headSha = "0123456789abcdef0123456789abcdef01234567";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+
+    const makeCase = (convId, { riskAssessment, merged = false }) => {
+      writeText(path.join(brainDir, convId, "pr-review.md"), "# PR Review\n");
+      writeText(
+        path.join(brainDir, convId, "astack-trust", "evidence.json"),
+        JSON.stringify({
+          schemaVersion: 1,
+          headSha,
+          freshness: "fresh",
+          riskTier: riskAssessment.tier,
+          riskLabel: riskAssessment.tier === 3 ? "critical" : "low",
+          reviewRound: 1,
+          maxReviewRounds: 3,
+          roundState: "verified",
+          verifier: { verdict: "PASS" },
+          riskAssessment,
+        }),
+      );
+      if (merged) {
+        writeTranscript(brainDir, convId, [
+          {
+            step_index: 0,
+            type: "PLANNER_RESPONSE",
+            created_at: "2026-11-25T02:50:00Z",
+            tool_calls: [{ name: "run_command", args: { CommandLine: "gh pr create --title \"x\" --body \"y\"" } }],
+          },
+          {
+            step_index: 1,
+            type: "GENERIC",
+            created_at: "2026-11-25T02:50:02Z",
+            content: "https://github.com/acme/demo/pull/61\n",
+          },
+          {
+            step_index: 2,
+            type: "PLANNER_RESPONSE",
+            created_at: "2026-11-25T02:51:00Z",
+            tool_calls: [{ name: "run_command", args: { CommandLine: "gh pr merge 61 --squash" } }],
+          },
+        ]);
+      }
+      return evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    };
+
+    const govGate = makeCase("conv-gov-gate", {
+      riskAssessment: {
+        tier: 3,
+        score: 0.5748,
+        residual: "blocked",
+        signals: [{ id: "touches_governance", weight: 0.55, evidence: ".agents/skills/verify-app/features/auth.md" }],
+        satisfied: [{ id: "targeted_tests" }],
+        rollback: { kind: "revert", plan: "git revert 0123456" },
+      },
+    });
+    assert.equal(govGate.trust.riskPresentation?.mode, "human_gate");
+    assert.equal(govGate.trust.riskPresentation?.tone, "warn");
+    assert.equal(govGate.trust.riskPresentation?.headerBadge, "Review gate · R 0.57");
+    assert.match(govGate.trust.riskPresentation?.headline ?? "", /Human review required/);
+    assert.equal(govGate.trust.riskPresentation?.whyItems[0]?.evidence, ".agents/skills/verify-app/features/auth.md");
+    assert.equal(govGate.trust.riskPresentation?.rollbackCommand, "git revert 0123456");
+
+    const defectGate = makeCase("conv-defect", {
+      riskAssessment: {
+        tier: 3,
+        score: 0.65,
+        residual: "blocked",
+        signals: [{ id: "test_regression", weight: 0.65, evidence: "node --test failed" }],
+        satisfied: [],
+        rollback: { kind: "revert", plan: "git revert 0123456" },
+      },
+    });
+    assert.equal(defectGate.trust.riskPresentation?.mode, "defect_blocked");
+    assert.equal(defectGate.trust.riskPresentation?.tone, "err");
+    assert.match(defectGate.trust.riskPresentation?.headline ?? "", /Action needed/);
+
+    const mergedGate = makeCase("conv-merged", {
+      merged: true,
+      riskAssessment: {
+        tier: 3,
+        score: 0.5748,
+        residual: "blocked",
+        signals: [{ id: "touches_governance", weight: 0.55, evidence: ".agents/skills/verify-app/features/auth.md" }],
+        satisfied: [{ id: "targeted_tests" }],
+        rollback: { kind: "revert", plan: "git revert 0123456" },
+      },
+    });
+    assert.equal(mergedGate.trust.riskPresentation?.mode, "resolved_merged");
+    assert.equal(mergedGate.trust.riskPresentation?.tone, "done");
+    assert.equal(mergedGate.trust.riskPresentation?.headerBadge, "Merged · R 0.57");
+    assert.equal(mergedGate.trust.riskPresentation?.headline, "Reviewed & merged (PR #61)");
+
+    const lowGate = makeCase("conv-low", {
+      riskAssessment: {
+        tier: 0,
+        score: 0.05,
+        residual: "low",
+        signals: [],
+        satisfied: [],
+        rollback: { kind: "revert", plan: "git revert 0123456" },
+      },
+    });
+    assert.equal(lowGate.trust.riskPresentation?.mode, "low_ok");
+    assert.equal(lowGate.trust.riskPresentation?.tone, "neutral");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ignores manage_subagents(list) echoes, catches non-'subagent' spawn errors, and suppresses stage markers for unretried failed spawns", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-sa-edges-");
+  const convId = "conv-sa-edges";
   const retryChildId = "44444444-4444-4444-8444-444444444444";
+  const secondChildId = "55555555-5555-4555-8555-555555555555";
   try {
     writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
     writeText(path.join(brainDir, convId, "pr-review.md"), "# PR Review\nPASS\n");
@@ -2323,7 +2601,17 @@ test("drops failed invoke_subagent spawns so retry binds properly and manage_sub
         step_index: 5,
         type: "PLANNER_RESPONSE",
         created_at: "2026-11-25T02:51:00Z",
-        tool_calls: [{ name: "manage_subagents", args: { Action: "list" } }],
+        tool_calls: [
+          { name: "manage_subagents", args: { Action: "list" } },
+          {
+            name: "invoke_subagent",
+            args: {
+              TypeName: "self",
+              Role: "Follow-up Helper",
+              Prompt: "Check docs",
+            },
+          },
+        ],
       },
       {
         step_index: 6,
@@ -2334,18 +2622,31 @@ test("drops failed invoke_subagent spawns so retry binds properly and manage_sub
       },
       {
         step_index: 7,
+        type: "GENERIC",
+        status: "DONE",
+        created_at: "2026-11-25T02:51:02Z",
+        content: JSON.stringify({ conversationId: secondChildId }),
+      },
+      {
+        step_index: 8,
         type: "SYSTEM_MESSAGE",
         created_at: "2026-11-25T02:52:25Z",
         content: `[Message] sender=${retryChildId} content=PASS`,
       },
       {
-        step_index: 8,
+        step_index: 9,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-25T02:52:26Z",
+        content: `[Message] sender=${secondChildId} content=DONE`,
+      },
+      {
+        step_index: 10,
         type: "PLANNER_RESPONSE",
         created_at: "2026-11-25T02:53:00Z",
         tool_calls: [{ name: "run_command", args: { CommandLine: "gh pr create --title \"fix: callback\" --body \"ok\"" } }],
       },
       {
-        step_index: 9,
+        step_index: 11,
         type: "GENERIC",
         status: "DONE",
         created_at: "2026-11-25T02:53:05Z",
@@ -2354,13 +2655,18 @@ test("drops failed invoke_subagent spawns so retry binds properly and manage_sub
     ]);
 
     const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
-    assert.equal(snap.activity.totalSubagentsCount, 1);
+    assert.equal(snap.activity.totalSubagentsCount, 3);
+    assert.equal(snap.activity.doneSubagentsCount, 2);
     assert.equal(snap.activity.runningSubagentsCount, 0);
+    assert.equal(snap.activity.subagents[0].status, "failed");
+    assert.equal(snap.activity.subagents[1].status, "done");
+    assert.equal(snap.activity.subagents[1].childConvId, retryChildId);
+    assert.equal(snap.activity.subagents[2].status, "done");
+    assert.equal(snap.activity.subagents[2].childConvId, secondChildId);
     assert.deepEqual(snap.activity.liveStageIds, []);
     const reviewStage = snap.stages.find((s) => s.id === "review");
     assert.equal(reviewStage?.status, "done");
     assert.equal(reviewStage?.railState, "done");
-    assert.deepEqual(reviewStage?.stats?.agents, { total: 1, running: 0 });
 
     const convUnretried = "conv-failed-browser";
     writeTranscript(brainDir, convUnretried, [
@@ -2381,22 +2687,25 @@ test("drops failed invoke_subagent spawns so retry binds properly and manage_sub
         type: "GENERIC",
         status: "ERROR",
         created_at: "2026-11-25T03:00:06Z",
-        content: "Encountered error in step execution: failed to start browser subagent",
+        content: "Encountered error in step execution: failed to start browser",
       },
     ]);
     const unretriedSnap = evaluateTimelineSnapshot({ conversationId: convUnretried, brainDir, workspaceDir });
     const buildStage = unretriedSnap.stages.find((s) => s.id === "build");
     const verifyCheck = buildStage?.subChecks?.find((c) => c.id === "verify");
-    assert.equal(unretriedSnap.activity.totalSubagentsCount, 0);
+    assert.equal(unretriedSnap.activity.subagents.length, 1);
+    assert.equal(unretriedSnap.activity.subagents[0].status, "failed");
+    assert.equal(unretriedSnap.activity.runningSubagentsCount, 0);
+    assert.equal(unretriedSnap.activity.doneSubagentsCount, 0);
     assert.notEqual(verifyCheck?.status, "done");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("clears TimerCondition schedules on matching sender completion and reconciles empty manage_task(list)", () => {
-  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-timer-cond-");
-  const convId = "conv-timer-cond";
+test("deactivates failed schedule calls, ignores TimerCondition 'never', and ignores error outputs on manage_task(list)", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-sch-edges-");
+  const convId = "conv-sch-edges";
   try {
     writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
     writeTranscript(brainDir, convId, [
@@ -2406,17 +2715,20 @@ test("clears TimerCondition schedules on matching sender completion and reconcil
         created_at: "2026-11-25T02:53:00Z",
         tool_calls: [
           {
-            name: "run_command",
-            args: { CommandLine: "node watch-pr.mjs --pr 61", toolSummary: "Watch PR #61" },
+            name: "schedule",
+            args: {
+              DurationSeconds: 60,
+              Prompt: "First schedule that fails",
+            },
           },
         ],
       },
       {
         step_index: 1,
         type: "GENERIC",
-        status: "RUNNING",
-        created_at: "2026-11-25T02:53:05Z",
-        content: `Tool is running as a background task with task id: ${convId}/task-1`,
+        status: "ERROR",
+        created_at: "2026-11-25T02:53:01Z",
+        content: "Encountered error in step execution: invalid schedule parameter",
       },
       {
         step_index: 2,
@@ -2427,8 +2739,8 @@ test("clears TimerCondition schedules on matching sender completion and reconcil
             name: "schedule",
             args: {
               DurationSeconds: 300,
-              TimerCondition: `${convId}/task-1`,
-              Prompt: "Check watch-pr.mjs status on PR #61",
+              TimerCondition: "never",
+              Prompt: "Check CI status",
             },
           },
         ],
@@ -2443,58 +2755,74 @@ test("clears TimerCondition schedules on matching sender completion and reconcil
       {
         step_index: 4,
         type: "SYSTEM_MESSAGE",
-        created_at: "2026-11-25T02:56:00Z",
-        content: `[Message] sender=${convId}/task-1 content=Task id "${convId}/task-1" finished with result:\nCommand exited with code 0.`,
+        created_at: "2026-11-25T02:55:00Z",
+        content: `[Message] sender=${convId}/task-other content=Task id "${convId}/task-other" finished with result:\nCommand exited with code 0.`,
+      },
+      {
+        step_index: 5,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:55:10Z",
+        tool_calls: [{ name: "manage_task", args: { Action: "list" } }],
+      },
+      {
+        step_index: 6,
+        type: "GENERIC",
+        status: "ERROR",
+        created_at: "2026-11-25T02:55:11Z",
+        content: "Encountered error in step execution: No background tasks are currently running.",
       },
     ]);
 
-    const afterSenderSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
-    const timerJob = afterSenderSnap.activity.backgroundJobs.items.find((j) => j.taskSlug === "task-2");
-    assert.equal(timerJob?.status, "stopped");
-    assert.equal(afterSenderSnap.activity.schedules[0]?.active, false);
-    assert.equal(afterSenderSnap.activity.runningTasksCount, 0);
+    const midSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(midSnap.activity.schedules[0]?.active, false);
+    assert.equal(midSnap.activity.schedules[1]?.taskId, `${convId}/task-2`);
+    assert.equal(midSnap.activity.schedules[1]?.active, true);
+    assert.equal(midSnap.activity.runningTasksCount, 1);
 
     writeTranscript(brainDir, convId, [
       {
         step_index: 0,
         type: "PLANNER_RESPONSE",
-        created_at: "2026-11-25T02:54:00Z",
-        tool_calls: [
-          {
-            name: "schedule",
-            args: {
-              DurationSeconds: 300,
-              Prompt: "Check watch-pr.mjs status on PR #61",
-            },
-          },
-        ],
+        created_at: "2026-11-25T02:53:00Z",
+        tool_calls: [{ name: "schedule", args: { DurationSeconds: 60, Prompt: "First schedule that fails" } }],
       },
       {
         step_index: 1,
         type: "GENERIC",
-        status: "RUNNING",
-        created_at: "2026-11-25T02:54:01Z",
-        content: `Tool is running as a background task with task id: ${convId}/task-3`,
+        status: "ERROR",
+        created_at: "2026-11-25T02:53:01Z",
+        content: "Encountered error in step execution: invalid schedule parameter",
       },
       {
         step_index: 2,
         type: "PLANNER_RESPONSE",
-        created_at: "2026-11-25T02:59:00Z",
-        tool_calls: [{ name: "manage_task", args: { Action: "list" } }],
+        created_at: "2026-11-25T02:54:00Z",
+        tool_calls: [{ name: "schedule", args: { DurationSeconds: 300, TimerCondition: "never", Prompt: "Check CI status" } }],
       },
       {
         step_index: 3,
         type: "GENERIC",
+        status: "RUNNING",
+        created_at: "2026-11-25T02:54:01Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-2`,
+      },
+      {
+        step_index: 4,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-25T02:56:00Z",
+        tool_calls: [{ name: "manage_task", args: { Action: "list" } }],
+      },
+      {
+        step_index: 5,
+        type: "GENERIC",
         status: "DONE",
-        created_at: "2026-11-25T02:59:01Z",
+        created_at: "2026-11-25T02:56:01Z",
         content: "No background tasks are currently running.",
       },
     ]);
 
     const afterListSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
-    const listJob = afterListSnap.activity.backgroundJobs.items.find((j) => j.taskSlug === "task-3");
-    assert.notEqual(listJob?.status, "running");
-    assert.equal(afterListSnap.activity.schedules[0]?.active, false);
+    assert.equal(afterListSnap.activity.schedules[1]?.active, false);
     assert.equal(afterListSnap.activity.runningTasksCount, 0);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

@@ -66,6 +66,7 @@
 
   function connectorKind(cur, next) {
     if (next.state === "running") return "flow";
+    if (next.state === "yourturn") return "yourturn";
     if ((cur.state === "done" || cur.state === "skipped") && next.state === "done") return "done";
     if (next.state === "suggested" || next.state === "queued") return "dashed";
     if (next.state === "skipped") return "faint";
@@ -98,6 +99,10 @@
         c.fillStyle = rgba(K.spark, 0.9 * al);
         disc(c, X, y, 1.4);
       }
+    } else if (kind === "yourturn") {
+      c.strokeStyle = rgba(K.warn, 0.58);
+      c.lineWidth = 2;
+      c.stroke();
     } else if (kind === "done") {
       c.strokeStyle = rgba(K.done, 0.68);
       c.lineWidth = 2;
@@ -195,16 +200,24 @@
         drawRunning(c, node, t, K);
         break;
       case "yourturn": {
-        const k = (t % 2.4) / 2.4;
-        c.strokeStyle = rgba(K.warn, 0.6 * (1 - k));
+        const k = (t % 2.8) / 2.8;
+        const g = c.createRadialGradient(X, y, 0, X, y, 15);
+        g.addColorStop(0, rgba(K.warn, 0.34));
+        g.addColorStop(1, rgba(K.warn, 0));
+        c.fillStyle = g;
+        disc(c, X, y, 15);
+        c.strokeStyle = rgba(K.warn, 0.55 * (1 - k));
         c.lineWidth = 1.5;
-        ring(c, X, y, 9 + k * 9);
+        ring(c, X, y, 9 + k * 8);
+        c.fillStyle = rgba(K.core, 1);
+        disc(c, X, y, 8.5);
         c.fillStyle = rgba(K.warn, 0.18);
-        disc(c, X, y, 9);
+        disc(c, X, y, 8.5);
         c.strokeStyle = rgba(K.warn, 1);
-        ring(c, X, y, 9);
+        c.lineWidth = 1.6;
+        ring(c, X, y, 8.5);
         c.fillStyle = rgba(K.warn, 1);
-        disc(c, X, y, 2.6);
+        disc(c, X, y, 3);
         break;
       }
       case "stale":
