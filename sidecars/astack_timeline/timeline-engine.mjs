@@ -739,6 +739,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
   const pendingTestCmds = new Map();
   const pendingSubagentIndices = [];
   const subagentByConvId = new Map();
+  const subagentMarkers = new Map();
   const pendingScheduleIndices = [];
   const scheduleTaskMap = new Map();
   const swarmMemberById = new Map();
@@ -882,6 +883,19 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
             }
           }
         }
+        for (const sch of sig.schedules) {
+          if (!sch.active || sch.cronExpression || !sch.timerCondition) continue;
+          if (sch.timerCondition === "any" || sch.timerCondition === sender) {
+            sch.active = false;
+            if (sch.taskId && bgJobByTaskId.has(sch.taskId)) {
+              const job = bgJobByTaskId.get(sch.taskId);
+              if (job && job.status === "running") {
+                job.status = "stopped";
+                job.completedAt = marker.ts;
+              }
+            }
+          }
+        }
       }
       continue;
     }
@@ -896,13 +910,48 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         }
       }
 
-      for (const m of step.content.matchAll(/"conversationId"\s*:\s*"([0-9a-f-]{8,})"/gi)) {
-        const cid = m[1];
-        sig.childConvIds.add(cid);
-        if (pendingSubagentIndices.length > 0) {
-          const idx = pendingSubagentIndices.shift();
-          sig.subagents[idx].childConvId = cid;
-          subagentByConvId.set(cid, idx);
+      const isSubagentListOutput =
+        (shiftedTool?.kind === "manage_subagents" && shiftedTool.action === "list") ||
+        /\bYou have \d+ active subagent\(s\):/i.test(step.content);
+      const matchedConvIds = [...step.content.matchAll(/"conversationId"\s*:\s*"([0-9a-f-]{8,})"/gi)].map((m) => m[1]);
+      const isStepError = step.status === "ERROR" || /Encountered error in step execution:/i.test(step.content);
+
+      if (matchedConvIds.length > 0) {
+        for (const cid of matchedConvIds) {
+          sig.childConvIds.add(cid);
+          if (isSubagentListOutput || subagentByConvId.has(cid)) continue;
+          let idx = -1;
+          if (
+            shiftedTool?.kind === "invoke_subagent" &&
+            matchedConvIds.length === 1 &&
+            sig.subagents[shiftedTool.subagentIndex] &&
+            !sig.subagents[shiftedTool.subagentIndex].childConvId &&
+            !sig.subagents[shiftedTool.subagentIndex].spawnFailed
+          ) {
+            idx = shiftedTool.subagentIndex;
+            const pos = pendingSubagentIndices.indexOf(idx);
+            if (pos >= 0) pendingSubagentIndices.splice(pos, 1);
+          } else if (pendingSubagentIndices.length > 0) {
+            idx = pendingSubagentIndices.shift();
+          }
+          if (idx >= 0 && sig.subagents[idx]) {
+            sig.subagents[idx].childConvId = cid;
+            subagentByConvId.set(cid, idx);
+          }
+        }
+      } else if (isStepError && !isSubagentListOutput) {
+        let failedIdx = -1;
+        if (shiftedTool?.kind === "invoke_subagent" && sig.subagents[shiftedTool.subagentIndex]) {
+          failedIdx = shiftedTool.subagentIndex;
+          const pos = pendingSubagentIndices.indexOf(failedIdx);
+          if (pos >= 0) pendingSubagentIndices.splice(pos, 1);
+        } else if (pendingSubagentIndices.length > 0 && lastToolNames.size === 1 && lastToolNames.has("invoke_subagent")) {
+          failedIdx = pendingSubagentIndices.shift();
+        }
+        if (failedIdx >= 0 && sig.subagents[failedIdx]) {
+          sig.subagents[failedIdx].spawnFailed = true;
+          sig.subagents[failedIdx].status = "failed";
+          sig.subagents[failedIdx].completedAt = marker.ts;
         }
       }
       const harnessHeader = step.content.split(/\r?\nCommand output:\r?\n/)[0];
@@ -949,6 +998,12 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
             isCron: Boolean(toolMeta?.isCron),
           });
         }
+      } else if (isStepError && shiftedTool?.kind === "schedule" && Number.isInteger(shiftedTool.scheduleIndex)) {
+        const pos = pendingScheduleIndices.indexOf(shiftedTool.scheduleIndex);
+        if (pos >= 0) pendingScheduleIndices.splice(pos, 1);
+        if (sig.schedules[shiftedTool.scheduleIndex]) {
+          sig.schedules[shiftedTool.scheduleIndex].active = false;
+        }
       }
       const taskCancelled = step.content.match(/Task\s+"([^"]+)"\s+(?:was\s+)?cancell?ed/i);
       if (taskCancelled) {
@@ -960,6 +1015,20 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
           const job = bgJobByTaskId.get(cancelledId);
           job.status = "stopped";
           job.completedAt = marker.ts;
+        }
+      }
+      const isManageTaskList =
+        (shiftedTool?.kind === "manage_task" && shiftedTool.action === "list") ||
+        (lastToolNames.size === 1 && lastToolNames.has("manage_task"));
+      if (isManageTaskList && !isStepError && /No background tasks are currently running\./i.test(step.content)) {
+        for (const job of bgJobByTaskId.values()) {
+          if (job.status === "running") {
+            job.status = "done";
+            job.completedAt = marker.ts;
+          }
+        }
+        for (const sch of sig.schedules) {
+          if (sch.active) sch.active = false;
         }
       }
       if (pendingWorkflowRun && (step.status === "DONE" || step.status === "ERROR")) {
@@ -996,6 +1065,8 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
       continue;
     }
     lastToolNames = new Set(step.tool_calls.map((tc) => String(tc?.name ?? "")).filter(Boolean));
+    let nextSubagentIndex = sig.subagents.length;
+    let nextScheduleIndex = sig.schedules.length;
     pendingToolQueue = step.tool_calls.map((tc) => {
       const tName = String(tc?.name ?? "");
       const tArgs = tc?.args && typeof tc.args === "object" ? tc.args : {};
@@ -1016,6 +1087,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         const cron = unquoteArg(tArgs.CronExpression);
         return {
           kind: "schedule",
+          scheduleIndex: nextScheduleIndex++,
           title: summarizeText(prm, 72) || "Scheduled check",
           cmd: prm,
           isDaemon: parseBoolArg(tArgs.IsDaemon),
@@ -1033,6 +1105,15 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
           isCron: false,
           ts: marker.ts,
         };
+      }
+      if (tName === "invoke_subagent") {
+        return { kind: "invoke_subagent", subagentIndex: nextSubagentIndex++, ts: marker.ts };
+      }
+      if (tName === "manage_task") {
+        return { kind: "manage_task", action: unquoteArg(tArgs.Action).toLowerCase(), ts: marker.ts };
+      }
+      if (tName === "manage_subagents") {
+        return { kind: "manage_subagents", action: unquoteArg(tArgs.Action).toLowerCase(), ts: marker.ts };
       }
       return { kind: "other" };
     });
@@ -1102,17 +1183,6 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         const subType = unquoteArg(args.TypeName) || "self";
         const roleText = unquoteArg(args.Role);
         const promptText = unquoteArg(args.Prompt);
-        if (subType === "comment-sicko") {
-          sig.cleanAt = latestMarker(sig.cleanAt, marker);
-          sig.detected.add("/no-comments");
-        } else if (subType === "pr-verifier") {
-          sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
-          sig.detected.add("pr-verifier");
-        } else if (subType === "browser") {
-          sig.verifyRunAt = latestMarker(sig.verifyRunAt, marker);
-          sig.detected.add("/control-ui");
-          sig.detected.add("/browser");
-        }
         const stageId = inferSubagentStageId(subType, roleText, promptText, Boolean(sig.latestWorkspaceWriteAt));
         const entry = {
           id: `sa-${sig.subagents.length}`,
@@ -1127,6 +1197,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
           order,
         };
         pendingSubagentIndices.push(sig.subagents.length);
+        subagentMarkers.set(entry, marker);
         sig.subagents.push(entry);
       } else if (name === "manage_subagents") {
         const act = unquoteArg(args.Action).toLowerCase();
@@ -1224,6 +1295,8 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         const dur = parseIntArg(args.DurationSeconds);
         const cron = unquoteArg(args.CronExpression);
         const promptText = unquoteArg(args.Prompt);
+        const rawTimerCond = unquoteArg(args.TimerCondition).trim();
+        const timerCondition = rawTimerCond && rawTimerCond.toLowerCase() !== "never" ? rawTimerCond : null;
         const prRefs = extractPrReferences(promptText);
         for (const prRef of prRefs) upsertPrEntry(sig.prs, prRef, { ts: marker.ts });
         const prRef = prRefs[0] ?? null;
@@ -1244,6 +1317,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
           nextAt: computeScheduleNextAt(marker, dur, cron),
           durationSeconds: dur,
           cronExpression: cron || null,
+          timerCondition,
           active: true,
         });
       } else if (name === "manage_task") {
@@ -1342,6 +1416,22 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         sa.status = "done";
         sa.completedAt = typeof doneRes === "string" ? doneRes : sa.startedAt;
       }
+    }
+  }
+  sig.subagents = sig.subagents.filter((sa) => !sa.spawnFailed);
+  for (const sa of sig.subagents) {
+    const saMarker = subagentMarkers.get(sa);
+    if (!saMarker) continue;
+    if (sa.type === "comment-sicko") {
+      sig.cleanAt = latestMarker(sig.cleanAt, saMarker);
+      sig.detected.add("/no-comments");
+    } else if (sa.type === "pr-verifier") {
+      sig.reviewPrAt = latestMarker(sig.reviewPrAt, saMarker);
+      sig.detected.add("pr-verifier");
+    } else if (sa.type === "browser") {
+      sig.verifyRunAt = latestMarker(sig.verifyRunAt, saMarker);
+      sig.detected.add("/control-ui");
+      sig.detected.add("/browser");
     }
   }
 
