@@ -2871,3 +2871,358 @@ test("evaluateTimelineSnapshot invalidates cached workspace scope and policy on 
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("main-agent active turns light up running blue flame across stages and hold compound open-PR prompts queued until Build & Review finish", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-main-turn-");
+  try {
+    const headSha = "0123456789abcdef0123456789abcdef01234567";
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+
+    const convPlan = "conv-main-plan";
+    writeTranscript(brainDir, convPlan, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T03:00:00Z",
+        content: "<USER_REQUEST>/plan design running rail</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T03:00:02Z",
+        tool_calls: [{ name: "read_file", args: { Path: path.join(workspaceDir, "README.md") } }],
+      },
+    ]);
+    const planNow = Date.parse("2026-11-26T03:00:05Z");
+    const planSnap = evaluateTimelineSnapshot({ conversationId: convPlan, brainDir, workspaceDir, nowMs: planNow });
+    assert.equal(planSnap.stages[0].railState, "running");
+    assert.deepEqual(planSnap.activity.liveStageIds, ["plan"]);
+
+    const convCompound = "conv-main-compound";
+    writeTranscript(brainDir, convCompound, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T03:03:40Z",
+        content: "<USER_REQUEST>/astack-mode Okay, proceeds. Open a PR.</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T03:03:45Z",
+        tool_calls: [{ name: "edit_file", args: { Path: path.join(workspaceDir, "src", "app.js") } }],
+      },
+    ]);
+    const compoundNow = Date.parse("2026-11-26T03:03:50Z");
+    const compoundSnap = evaluateTimelineSnapshot({ conversationId: convCompound, brainDir, workspaceDir, nowMs: compoundNow });
+    assert.equal(compoundSnap.stages[1].railState, "running");
+    assert.equal(compoundSnap.stages[2].status, "pending", "Compound open-PR prompt must not prematurely skip PR Review while Build is active");
+    assert.equal(compoundSnap.stages[3].railState, "queued", "Ship should be queued behind Build & Review");
+    assert.equal(compoundSnap.nextAction?.stageId, "build");
+    assert.deepEqual(compoundSnap.activity.liveStageIds, ["build"]);
+    assert.equal(compoundSnap.activity.liveAgentsByStage.build, 0, "Main-agent turn must not add fake subagent count");
+
+    const convReview = "conv-main-review";
+    writeTranscript(brainDir, convReview, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T03:04:00Z",
+        content: "<USER_REQUEST>/review-pr check branch</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T03:04:05Z",
+        tool_calls: [{ name: "edit_file", args: { Path: path.join(workspaceDir, "src", "app.js") } }],
+      },
+      {
+        step_index: 2,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T03:04:10Z",
+        tool_calls: [{ name: "read_file", args: { Path: "/plugin/skills/deslop/SKILL.md" } }],
+      },
+      {
+        step_index: 3,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T03:04:20Z",
+        content: "<USER_REQUEST>/astack-mode Open a PR after review</USER_REQUEST>",
+      },
+      {
+        step_index: 4,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T03:04:22Z",
+        tool_calls: [{ name: "call_mcp_tool", args: { ServerName: "astack_trust", ToolName: "compile_pr_dossier" } }],
+      },
+    ]);
+    writeReceipt(brainDir, convReview, [
+      { schemaVersion: 1, ts: "2026-11-26T03:04:06Z", conversationId: convReview, kind: "file_write", category: "ui", headSha, ok: true, summary: "edit", paths: ["src/app.js"] },
+      { schemaVersion: 1, ts: "2026-11-26T03:04:12Z", conversationId: convReview, kind: "command", category: "test", headSha, ok: true, summary: "node --test", paths: [] },
+    ]);
+    const reviewNow = Date.parse("2026-11-26T03:04:25Z");
+    const reviewSnap = evaluateTimelineSnapshot({ conversationId: convReview, brainDir, workspaceDir, nowMs: reviewNow });
+    assert.equal(reviewSnap.stages[1].status, "done");
+    assert.equal(reviewSnap.stages[2].railState, "running");
+    assert.equal(reviewSnap.stages[2].collapsedSummary, "Compiling PR dossier and verifying HEAD.");
+    assert.equal(reviewSnap.stages[3].railState, "queued");
+    assert.deepEqual(reviewSnap.activity.liveStageIds, ["review"]);
+
+    const convShip = "conv-main-ship";
+    writeText(path.join(brainDir, convShip, "pr-review.md"), "# PR Review\n");
+    writeText(
+      path.join(brainDir, convShip, "astack-trust", "evidence.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha,
+        freshness: "fresh",
+        riskTier: 1,
+        riskLabel: "low",
+        reviewRound: 1,
+        maxReviewRounds: 3,
+        roundState: "verified",
+        autoMergeEligible: true,
+        verifier: { verdict: "PASS" },
+      }),
+    );
+    writeTranscript(brainDir, convShip, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T03:05:00Z",
+        content: "<USER_REQUEST>/astack-mode open the pr</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T03:05:05Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: "git status -sb" } }],
+      },
+    ]);
+    const shipNow = Date.parse("2026-11-26T03:05:10Z");
+    const shipSnap = evaluateTimelineSnapshot({ conversationId: convShip, brainDir, workspaceDir, nowMs: shipNow });
+    assert.equal(shipSnap.stages[2].status, "done");
+    assert.equal(shipSnap.stages[3].railState, "running");
+    assert.deepEqual(shipSnap.activity.liveStageIds, ["ship"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("main-turn running indicator clears immediately on completion, ask_question, errors, stops, and stale transcripts", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-main-clear-");
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+
+    const convDone = "conv-clear-done";
+    writeTranscript(brainDir, convDone, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T03:10:00Z",
+        content: "<USER_REQUEST>/astack-mode update widget</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T03:10:05Z",
+        tool_calls: [{ name: "edit_file", args: { Path: path.join(workspaceDir, "src", "widget.js") } }],
+      },
+      {
+        step_index: 2,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T03:10:10Z",
+        content: "Updated src/widget.js.",
+      },
+    ]);
+    const doneSnap = evaluateTimelineSnapshot({
+      conversationId: convDone,
+      brainDir,
+      workspaceDir,
+      nowMs: Date.parse("2026-11-26T03:10:11Z"),
+    });
+    assert.notEqual(doneSnap.stages[1].railState, "running");
+    assert.equal(doneSnap.stages[1].railState, "queued");
+    assert.deepEqual(doneSnap.activity.liveStageIds, []);
+
+    const convAsk = "conv-clear-ask";
+    writeTranscript(brainDir, convAsk, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T03:11:00Z",
+        content: "<USER_REQUEST>/plan clarify options</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T03:11:05Z",
+        tool_calls: [{ name: "ask_question", args: { questions: [] } }],
+      },
+    ]);
+    const askSnap = evaluateTimelineSnapshot({
+      conversationId: convAsk,
+      brainDir,
+      workspaceDir,
+      nowMs: Date.parse("2026-11-26T03:11:06Z"),
+    });
+    assert.notEqual(askSnap.stages[0].railState, "running");
+    assert.deepEqual(askSnap.activity.liveStageIds, []);
+
+    const convErr = "conv-clear-err";
+    writeTranscript(brainDir, convErr, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T03:12:00Z",
+        content: "<USER_REQUEST>/astack-mode fix bug</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "ERROR_MESSAGE",
+        status: "DONE",
+        created_at: "2026-11-26T03:12:03Z",
+        content: "Error: The stream was interrupted.",
+      },
+    ]);
+    const errSnap = evaluateTimelineSnapshot({
+      conversationId: convErr,
+      brainDir,
+      workspaceDir,
+      nowMs: Date.parse("2026-11-26T03:12:04Z"),
+    });
+    assert.notEqual(errSnap.stages[1].railState, "running");
+    assert.deepEqual(errSnap.activity.liveStageIds, []);
+
+    const convStopped = "conv-clear-stopped";
+    writeTranscript(brainDir, convStopped, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T03:13:00Z",
+        content: "<USER_REQUEST>/astack-mode fix bug</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "SYSTEM_MESSAGE",
+        status: "DONE",
+        created_at: "2026-11-26T03:13:03Z",
+        content: "All your subagents and background tasks have been stopped.",
+      },
+    ]);
+    const stoppedSnap = evaluateTimelineSnapshot({
+      conversationId: convStopped,
+      brainDir,
+      workspaceDir,
+      nowMs: Date.parse("2026-11-26T03:13:04Z"),
+    });
+    assert.notEqual(stoppedSnap.stages[1].railState, "running");
+    assert.deepEqual(stoppedSnap.activity.liveStageIds, []);
+
+    const convStale = "conv-clear-stale";
+    writeTranscript(brainDir, convStale, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T03:00:00Z",
+        content: "<USER_REQUEST>/astack-mode abandoned turn</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T03:00:05Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: "node --test" } }],
+      },
+    ]);
+    const staleSnap = evaluateTimelineSnapshot({
+      conversationId: convStale,
+      brainDir,
+      workspaceDir,
+      nowMs: Date.parse("2026-11-26T03:06:06Z"),
+    });
+    assert.notEqual(staleSnap.stages[1].railState, "running");
+    assert.deepEqual(staleSnap.activity.liveStageIds, []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("running background command keeps an active build stage running while waiting for wakeup", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-bg-cmd-");
+  const convId = "conv-bg-cmd-running";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T03:20:00Z",
+        content: "<USER_REQUEST>/astack-mode run test suite</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T03:20:02Z",
+        tool_calls: [
+          { name: "edit_file", args: { Path: path.join(workspaceDir, "src", "main.js") } },
+          { name: "run_command", args: { CommandLine: "node --run test", toolSummary: "Run test suite" } },
+        ],
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        status: "DONE",
+        created_at: "2026-11-26T03:20:03Z",
+        content: "Edited src/main.js",
+      },
+      {
+        step_index: 3,
+        type: "GENERIC",
+        status: "RUNNING",
+        created_at: "2026-11-26T03:20:04Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-1\nTask Description: node --run test`,
+      },
+      {
+        step_index: 4,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T03:20:05Z",
+        content: "Waiting for background test run to finish.",
+      },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({
+      conversationId: convId,
+      brainDir,
+      workspaceDir,
+      nowMs: Date.parse("2026-11-26T03:20:30Z"),
+    });
+    assert.equal(snap.stages[1].status, "active");
+    assert.equal(snap.stages[1].railState, "running");
+    assert.deepEqual(snap.activity.liveStageIds, ["build"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
