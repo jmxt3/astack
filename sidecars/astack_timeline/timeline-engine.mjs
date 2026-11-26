@@ -109,6 +109,7 @@ const FILE_WRITE_TOOLS = new Set(TOOL_MATCHERS.fileWriteTools);
 const FILE_READ_TOOLS = new Set(["read_file", "view_file"]);
 const VERIFY_CATEGORIES = new Set(["test", "verify", "lint", "build"]);
 const DOC_EXT_RE = /\.(?:md|txt)$/i;
+const MAIN_TURN_STALE_MS = 5 * 60 * 1000;
 const POLICY_REL_PATHS = [
   [".agents/risk-policy.json", "risk-policy.json"],
   [".agents/boundaries.json", "boundaries.json"],
@@ -795,6 +796,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
     schedules: [],
     automations: [],
     workflow: { active: false, runsCount: 0, stageId: null },
+    mainTurn: { active: false, waitingOnUser: false, lastActivityMs: 0 },
     backgroundJobs: [],
     sideQuestionsCount: 0,
     changedFiles: new Set(),
@@ -833,6 +835,9 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
     if (!sig.startedAt && marker.ts) sig.startedAt = marker.ts;
 
     if (step.type === "USER_INPUT" || step.source === "USER_EXPLICIT") {
+      sig.mainTurn.active = true;
+      sig.mainTurn.waitingOnUser = false;
+      if (marker.tsMs) sig.mainTurn.lastActivityMs = Math.max(sig.mainTurn.lastActivityMs, marker.tsMs);
       const rawContent = String(step.content ?? "");
       const cmds = extractInvokedSlashCommands(rawContent);
       const body = extractRequestBody(rawContent).trim();
@@ -909,6 +914,8 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
 
     if (step.type === "SYSTEM_MESSAGE" && typeof step.content === "string") {
       if (/All your subagents and background tasks have been stopped/i.test(step.content)) {
+        sig.mainTurn.active = false;
+        sig.mainTurn.waitingOnUser = false;
         for (const sa of sig.subagents) {
           if (sa.status === "running") {
             sa.status = "done";
@@ -924,6 +931,9 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
       }
       const senderMatch = step.content.match(/\bsender=([^\s\]]+)/i);
       if (senderMatch) {
+        sig.mainTurn.active = true;
+        sig.mainTurn.waitingOnUser = false;
+        if (marker.tsMs) sig.mainTurn.lastActivityMs = Math.max(sig.mainTurn.lastActivityMs, marker.tsMs);
         const sender = senderMatch[1];
         if (subagentByConvId.has(sender)) {
           const sa = sig.subagents[subagentByConvId.get(sender)];
@@ -972,7 +982,23 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
       continue;
     }
 
+    if (step.type === "ERROR_MESSAGE" || step.type === "CHECKPOINT") {
+      sig.mainTurn.active = false;
+      sig.mainTurn.waitingOnUser = false;
+      continue;
+    }
+
+    if (step.type === "EPHEMERAL_MESSAGE") {
+      if (sig.mainTurn.active && marker.tsMs) {
+        sig.mainTurn.lastActivityMs = Math.max(sig.mainTurn.lastActivityMs, marker.tsMs);
+      }
+      continue;
+    }
+
     if (step.type === "GENERIC" && typeof step.content === "string") {
+      sig.mainTurn.active = true;
+      sig.mainTurn.waitingOnUser = false;
+      if (marker.tsMs) sig.mainTurn.lastActivityMs = Math.max(sig.mainTurn.lastActivityMs, marker.tsMs);
       const shiftedTool = pendingToolQueue.length > 0 ? pendingToolQueue.shift() : null;
       const onlyFileReads = lastToolNames.size > 0 && [...lastToolNames].every((t) => FILE_READ_TOOLS.has(t));
       if (!onlyFileReads) {
@@ -1136,6 +1162,24 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
     }
 
     if (step.type !== "PLANNER_RESPONSE") continue;
+
+    const toolCalls = Array.isArray(step.tool_calls) ? step.tool_calls : [];
+    const hasTools = toolCalls.length > 0;
+    const asksUser = toolCalls.some((tc) => String(tc?.name ?? "") === "ask_question");
+    if (step.status === "RUNNING") {
+      sig.mainTurn.active = true;
+      sig.mainTurn.waitingOnUser = false;
+    } else if (asksUser) {
+      sig.mainTurn.active = false;
+      sig.mainTurn.waitingOnUser = true;
+    } else if (hasTools) {
+      sig.mainTurn.active = true;
+      sig.mainTurn.waitingOnUser = false;
+    } else {
+      sig.mainTurn.active = false;
+      sig.mainTurn.waitingOnUser = false;
+    }
+    if (marker.tsMs) sig.mainTurn.lastActivityMs = Math.max(sig.mainTurn.lastActivityMs, marker.tsMs);
 
     if (typeof step.content === "string") {
       if (/<!--\s*GOAL_(?:COMPLETE|CANCELLED)\s*-->/i.test(step.content)) {
@@ -1871,10 +1915,10 @@ function buildReviewStage({
   };
 }
 
-function buildShipStage({ reviewStatus, shipped, shipLive, sig }) {
+function buildShipStage({ reviewStatus, shipped, shipLive, openPrRequested = false, sig }) {
   let status = "pending";
   if (shipped) status = "done";
-  else if (shipLive || sig.openPrAt) status = "active";
+  else if (shipLive || openPrRequested) status = "active";
   else if (reviewStatus === "waiting_gate" || reviewStatus === "done") status = "next";
 
   const detail = shipped
@@ -1931,7 +1975,7 @@ function selectNextAction(stepViews, setupState) {
       hint: "Run once in this repo to scaffold verification skills and policies.",
     };
   }
-  const current = stepViews.find((s) => s.status === "next" || s.status === "active");
+  const current = stepViews.find((s) => s.status === "active") || stepViews.find((s) => s.status === "next");
   if (current) {
     return {
       stageId: current.id,
@@ -1979,7 +2023,15 @@ function resolveSuggestedStageId(nextAction, stepViews, liveSet) {
   return afterProg ? afterProg.id : null;
 }
 
-function computeRailState(stage, liveSet, suggestedStageId, { buildQueuedByPlan = false } = {}) {
+function resolveMainTurnStageId(rawSteps, liveSet) {
+  const activeOrStale = rawSteps.find((s) => s.status === "active" || s.status === "stale");
+  if (activeOrStale) return activeOrStale.id;
+  if (liveSet.size > 0) return null;
+  const nextStage = rawSteps.find((s) => s.status === "next");
+  return nextStage ? nextStage.id : null;
+}
+
+function computeRailState(stage, liveSet, suggestedStageId, { buildQueuedByPlan = false, shipQueuedByEarlier = false } = {}) {
   if (stage.status === "error") return "error";
   if (liveSet.has(stage.id)) return "running";
   switch (stage.status) {
@@ -1990,6 +2042,7 @@ function computeRailState(stage, liveSet, suggestedStageId, { buildQueuedByPlan 
     case "active": return "queued";
   }
   if (stage.id === "build" && buildQueuedByPlan) return "queued";
+  if (stage.id === "ship" && shipQueuedByEarlier) return "queued";
   return stage.id === suggestedStageId ? "suggested" : "pending";
 }
 
@@ -2108,7 +2161,9 @@ function buildStageCollapsedSummary(stage, pr, prs, shipped, { railState = null,
     return stage.summary;
   }
   if (stage.id === "review") {
-    if (railState === "running") return withLiveAgents("pr-verifier checking HEAD.");
+    if (railState === "running") {
+      return liveAgents > 0 ? withLiveAgents("pr-verifier checking HEAD.") : "Compiling PR dossier and verifying HEAD.";
+    }
     if (stage.status === "stale") return "Your latest edits came after the last review.";
     if (stage.status === "waiting_gate") return "Ready for your visual review.";
     if (stage.status === "error") return stage.detail;
@@ -2333,6 +2388,7 @@ export function evaluateTimelineSnapshot({
   workspaceDir = "",
   prMetaByNumber = null,
   dataDir = null,
+  nowMs = Date.now(),
 } = {}) {
   const hasConv = Boolean(conversationId && brainDir);
   const brainConvDir = hasConv ? path.join(brainDir, conversationId) : "";
@@ -2498,6 +2554,7 @@ export function evaluateTimelineSnapshot({
     walkthroughArtifact,
     shipped,
   });
+  const buildInProgress = buildStage.status === "active" || buildStage.status === "stale";
   const reviewStage = buildReviewStage({
     buildStatus: buildStage.status,
     reviewStarted,
@@ -2507,7 +2564,7 @@ export function evaluateTimelineSnapshot({
     evidence,
     maxReviewRounds,
     shipped,
-    shipActive: Boolean(liveSet.has("ship") || sig.openPrAt),
+    shipActive: Boolean(liveSet.has("ship") || (sig.openPrAt && !buildInProgress)),
     prVerifierRunning,
     reviewAfterShip,
   });
@@ -2562,14 +2619,60 @@ export function evaluateTimelineSnapshot({
     }
   }
 
-  const shipStage = buildShipStage({ reviewStatus: reviewStage.status, shipped, shipLive: liveSet.has("ship"), sig });
+  const reviewInProgress =
+    reviewStage.status === "active" ||
+    reviewStage.status === "stale" ||
+    reviewStage.status === "waiting_gate";
+  const shipStage = buildShipStage({
+    reviewStatus: reviewStage.status,
+    shipped,
+    shipLive: liveSet.has("ship"),
+    openPrRequested: Boolean(sig.openPrAt && !buildInProgress && !reviewInProgress),
+    sig,
+  });
   const rawSteps = [planStage, buildStage, reviewStage, shipStage];
+
+  for (const job of sig.backgroundJobs) {
+    if (job.kind !== "command" || job.status !== "running" || job.isDaemon || job.isCron || !job.stageId) continue;
+    const targetStage = rawSteps.find((s) => s.id === job.stageId);
+    if (
+      targetStage &&
+      targetStage.status !== "done" &&
+      targetStage.status !== "skipped" &&
+      targetStage.status !== "error" &&
+      targetStage.status !== "waiting_gate"
+    ) {
+      liveSet.add(job.stageId);
+    }
+  }
+
+  const mainTurnFresh =
+    sig.mainTurn.active &&
+    !sig.mainTurn.waitingOnUser &&
+    sig.mainTurn.lastActivityMs > 0 &&
+    nowMs - sig.mainTurn.lastActivityMs <= MAIN_TURN_STALE_MS;
+  if (mainTurnFresh) {
+    const mainStageId = resolveMainTurnStageId(rawSteps, liveSet);
+    if (mainStageId) liveSet.add(mainStageId);
+  }
+
+  const effectiveLiveInfo = {
+    liveStageIds: [...liveSet],
+    liveAgentsByStage: liveInfo.liveAgentsByStage,
+  };
+
   const nextAction = selectNextAction(rawSteps, setupState);
   const suggestedStageId = resolveSuggestedStageId(nextAction, rawSteps, liveSet);
   const buildQueuedByPlan =
     Boolean(sig.astackModeAt) &&
     (planStage.status === "active" || planStage.status === "waiting_gate") &&
     buildStage.status === "pending";
+  const shipQueuedByEarlier =
+    Boolean(sig.openPrAt) &&
+    !shipped &&
+    !liveSet.has("ship") &&
+    shipStage.status === "pending" &&
+    (buildInProgress || reviewInProgress);
 
   const activeSubagentsCount = sig.subagents.filter((a) => a.status === "running").length;
   const doneSubagentsCount = sig.subagents.filter((a) => a.status === "done").length;
@@ -2603,7 +2706,7 @@ export function evaluateTimelineSnapshot({
   };
 
   const stepViews = rawSteps.map((stage) => {
-    const railState = computeRailState(stage, liveSet, suggestedStageId, { buildQueuedByPlan });
+    const railState = computeRailState(stage, liveSet, suggestedStageId, { buildQueuedByPlan, shipQueuedByEarlier });
     const artifacts = buildStageArtifacts(stage, {
       planArtifact,
       walkthroughArtifact,
@@ -2619,7 +2722,7 @@ export function evaluateTimelineSnapshot({
       railState,
       collapsedSummary: buildStageCollapsedSummary(stage, sig.pr, prItems, shipped, {
         railState,
-        liveAgents: liveInfo.liveAgentsByStage[stage.id] ?? 0,
+        liveAgents: effectiveLiveInfo.liveAgentsByStage[stage.id] ?? 0,
       }),
       artifacts,
       stats: buildStageStats(stageWithArts, { sig, ...sharedCounts }),
@@ -2633,7 +2736,7 @@ export function evaluateTimelineSnapshot({
     buildStage,
     reviewStage,
     artifactCount,
-    liveInfo,
+    liveInfo: effectiveLiveInfo,
     suggestedStageId,
     prItems,
     sharedCounts,
