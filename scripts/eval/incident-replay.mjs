@@ -175,7 +175,7 @@ function invokeLiveStreamVerifierBatch({ incidents, schemaPath, agent, cwd }) {
 export function runIncidentReplay({
   rootDir = DEFAULT_ROOT_DIR,
   fixturesPath = path.join(rootDir, "scripts", "eval", "fixtures", "incidents", "seed-incidents.json"),
-  schemaPath = path.join(rootDir, "skills", "review-pr", "scripts", "findings-schema.json"),
+  schemaPath = path.join(rootDir, "skills", "pre-pr", "scripts", "findings-schema.json"),
   live = false,
   stream = false,
   agent = "pr-verifier",

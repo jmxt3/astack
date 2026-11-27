@@ -1394,7 +1394,7 @@ export function evaluateStageHandoff(event, options = {}) {
       });
       if (prRes.decision === "auto_approve") {
         transitionId = "stage2_to_stage3";
-        prompt = `Beast Mode Stage 2 -> Stage 3 (PR Review): HEAD ${(headSha ?? "").slice(0, 7)} verification receipts are fresh (${category} L${catState.level}, residual ${residual}). Run isolated pr-verifier and compile the PR dossier (pr-dossier.mjs --format github) before opening or updating the PR.`;
+        prompt = `Beast Mode Stage 2 -> Stage 3 (Pre-PR Check): HEAD ${(headSha ?? "").slice(0, 7)} verification receipts are fresh (${category} L${catState.level}, residual ${residual}). Run isolated pr-verifier and compile the PR dossier (pr-dossier.mjs --format github) before opening or updating the PR.`;
       } else {
         return { decision: "allow" };
       }
@@ -1501,7 +1501,7 @@ export function evaluateStageContext(event, options = {}) {
     const stage = merged
       ? "4. Ship"
       : verifiedPass && fresh
-        ? "3. PR Review (ready)"
+        ? "3. Pre-PR Check (ready)"
         : changedFiles.length > 0
           ? "2. Build & Verify"
           : "1. Plan & Intent";

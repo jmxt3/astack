@@ -10,7 +10,7 @@
     "validate": "node scripts/validate-astack.mjs",
     "test:plugin": "node --test scripts/test/hooks.test.mjs scripts/test/validate.test.mjs scripts/test/upstream-watch.test.mjs",
     "test:sidecar": "node --test sidecars/astack_timeline/timeline.test.mjs sidecars/astack_timeline/server.test.mjs",
-    "test:trust": "node --test scripts/test/trust-core.test.mjs scripts/test/risk.test.mjs scripts/test/mitigation.test.mjs scripts/test/intent.test.mjs scripts/test/outcomes.test.mjs scripts/test/trust-level.test.mjs skills/review-pr/scripts/pr-dossier.test.mjs skills/audit-architecture/scripts/arch-audit.test.mjs",
+    "test:trust": "node --test scripts/test/trust-core.test.mjs scripts/test/risk.test.mjs scripts/test/mitigation.test.mjs scripts/test/intent.test.mjs scripts/test/outcomes.test.mjs scripts/test/trust-level.test.mjs skills/pre-pr/scripts/pr-dossier.test.mjs skills/audit-architecture/scripts/arch-audit.test.mjs",
     "test:helpers": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test skills/astack-mode/scripts/check-plan.test.ts skills/astack-mode/scripts/worktree-audit.test.mjs skills/show-me-your-work/scripts/log.test.mjs skills/setup-astack/scripts/setup-banner.test.mjs",
     "test:watch-pr": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test skills/astack-mode/scripts/watch-pr/cli.test.ts skills/astack-mode/scripts/watch-pr/github.test.ts skills/astack-mode/scripts/watch-pr/policy.test.ts",
     "test:statechart": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test skills/statechart/scripts/test/chart.test.ts skills/statechart/scripts/test/messages.test.ts skills/statechart/scripts/test/pipeline.test.ts skills/statechart/scripts/test/tlc-out.test.ts",

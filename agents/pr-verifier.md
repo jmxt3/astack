@@ -22,7 +22,7 @@ You are an independent, read-only pull request verifier operating in a fresh con
 
 ## Output Contract
 
-Emit valid JSON matching `skills/review-pr/scripts/findings-schema.json`:
+Emit valid JSON matching `skills/pre-pr/scripts/findings-schema.json`:
 - `schemaVersion`: `1`
 - `headSha`, `baseSha`, `round` (`1..3`)
 - `verdict`: `"PASS" | "PASS_WITH_NOTES" | "FAIL" | "ESCALATE_HUMAN"`

@@ -209,7 +209,7 @@ test("evaluateRoundState, evaluateEvidenceGate, evaluateRoundLimit, and formatPi
       ),
       "verify",
     );
-    assert.equal(classifyCommandCategory("node skills/review-pr/scripts/pr-dossier.mjs --json"), "verify");
+    assert.equal(classifyCommandCategory("node skills/pre-pr/scripts/pr-dossier.mjs --json"), "verify");
     assert.equal(classifyCommandCategory("node skills/audit-architecture/scripts/arch-audit.mjs --cwd . --strict"), "lint");
     assert.equal(classifyCommandCategory("agy plugin validate --strict --json ."), "lint");
     assert.equal(classifyCommandCategory("Get-ChildItem .agents/skills/verify-astack/features | Select-Object Name"), "other");
