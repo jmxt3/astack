@@ -33,7 +33,8 @@
       "prompt": "/astack-mode investigate why invoices duplicate, then plan the fix",
       "expectedCommand": "/plan",
       "expectedMode": "contract",
-      "expectedSecurityMode": null
+      "expectedSecurityMode": null,
+      "expectedInvestigationMode": "combined_gate"
     },
     {
       "id": "R5",
@@ -104,6 +105,38 @@
       "expectedCommand": null,
       "expectedMode": "playbook",
       "expectedSecurityMode": "full-audit"
+    },
+    {
+      "id": "INV-1",
+      "prompt": "/investigate why the Windows release runner exited mid-build",
+      "expectedCommand": null,
+      "expectedMode": "playbook",
+      "expectedSecurityMode": null,
+      "expectedInvestigationMode": "investigate_only"
+    },
+    {
+      "id": "INV-2",
+      "prompt": "find out why the checkout webhook dropped retries without editing code",
+      "expectedCommand": null,
+      "expectedMode": "playbook",
+      "expectedSecurityMode": null,
+      "expectedInvestigationMode": "investigate_only"
+    },
+    {
+      "id": "INV-3",
+      "prompt": "/astack-mode find the root cause of the duplicate export bug and fix it",
+      "expectedCommand": null,
+      "expectedMode": "playbook",
+      "expectedSecurityMode": null,
+      "expectedInvestigationMode": "combined_gate"
+    },
+    {
+      "id": "INV-neg",
+      "prompt": "fix the typo in README.md line 12",
+      "expectedCommand": null,
+      "expectedMode": "playbook",
+      "expectedSecurityMode": null,
+      "expectedInvestigationMode": null
     }
   ]
 }

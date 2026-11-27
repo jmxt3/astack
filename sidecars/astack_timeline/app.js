@@ -43,7 +43,8 @@
     reviewPrMoreOpen: false,
     expanded: new Set(),
     moreExpanded: new Set(),
-    subExpanded: { swarm: false, helpers: false, goal: false, more: false },
+    subExpanded: { swarm: false, goal: false, more: false },
+    highlightTarget: null,
     solo: null,
     artifact: null,
     artifactReturnEl: null,
@@ -54,6 +55,15 @@
     suppressedPopoverEl: null,
     progressPopover: null,
     pulsedTimers: new Set(),
+    beast: {
+      initialized: false,
+      prevOn: false,
+      pendingOn: false,
+      igniting: false,
+      igniteTimer: null,
+      toastTimer: null,
+      mounted: false,
+    },
   };
 
   let rail = null;
@@ -76,7 +86,22 @@
   function svgIcon(kind, sizePx = 12) {
     const ns = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(ns, "svg");
-    const box = kind === "chevron" ? "0 0 16 16" : kind === "diamond" ? "0 0 10 10" : kind === "active-arc" ? "0 0 18 18" : "0 0 14 14";
+    const is24 =
+      kind === "flame-outline" ||
+      kind === "flame-solid" ||
+      kind === "flame-color" ||
+      kind === "bolt" ||
+      kind === "lock" ||
+      kind === "wheel";
+    const box = is24
+      ? "0 0 24 24"
+      : kind === "chevron"
+        ? "0 0 16 16"
+        : kind === "diamond"
+          ? "0 0 10 10"
+          : kind === "active-arc"
+            ? "0 0 18 18"
+            : "0 0 14 14";
     svg.setAttribute("viewBox", box);
     svg.setAttribute("fill", "none");
     svg.setAttribute("stroke", "currentColor");
@@ -205,6 +230,28 @@
       svg.setAttribute("stroke-width", "1.3");
       add("circle", { cx: "7", cy: "7", r: "5.2" });
       add("path", { d: "M5.1 5.1l3.8 3.8M8.9 5.1l-3.8 3.8" });
+    } else if (kind === "flame-outline") {
+      svg.setAttribute("stroke-width", "1.8");
+      add("path", { d: "M12 1.8c1.6 3.7 5.7 6.3 5.7 11.9 0 4.3-2.6 7.6-5.7 7.6s-5.7-2.5-5.7-6.3c0-2.9 1.6-4.8 2.9-6.3 0 2.1.8 3.4 1.9 4-.4-3.5.2-7.3.9-10.9z" });
+    } else if (kind === "flame-solid") {
+      svg.setAttribute("stroke", "none");
+      add("path", { fill: "currentColor", d: "M12 1.8c1.6 3.7 5.7 6.3 5.7 11.9 0 4.3-2.6 7.6-5.7 7.6s-5.7-2.5-5.7-6.3c0-2.9 1.6-4.8 2.9-6.3 0 2.1.8 3.4 1.9 4-.4-3.5.2-7.3.9-10.9z" });
+    } else if (kind === "flame-color") {
+      svg.setAttribute("stroke", "none");
+      add("path", { fill: "#ff8a00", d: "M12 1.8c1.6 3.7 5.7 6.3 5.7 11.9 0 4.3-2.6 7.6-5.7 7.6s-5.7-2.5-5.7-6.3c0-2.9 1.6-4.8 2.9-6.3 0 2.1.8 3.4 1.9 4-.4-3.5.2-7.3.9-10.9z" });
+      add("path", { fill: "#ffd84a", d: "M12 21.3c-1.8 0-3-1.4-3-3.2 0-1.9 1.3-3.1 2.3-4.3.2 1.3 1 2.2 1.8 2.5.3-.9.4-1.8.3-2.8 1.2 1.3 1.6 2.8 1.6 4.2 0 2.1-1.4 3.6-3 3.6z" });
+    } else if (kind === "bolt") {
+      svg.setAttribute("stroke-width", "2.3");
+      add("path", { d: "M13 2 4 14h7l-1 8 9-12h-7l1-8z" });
+    } else if (kind === "lock") {
+      svg.setAttribute("stroke-width", "2.3");
+      add("rect", { x: "5", y: "11", width: "14", height: "10", rx: "2" });
+      add("path", { d: "M8 11V8a4 4 0 0 1 8 0v3" });
+    } else if (kind === "wheel") {
+      svg.setAttribute("stroke-width", "2");
+      add("circle", { cx: "12", cy: "12", r: "9" });
+      add("circle", { cx: "12", cy: "12", r: "2" });
+      add("path", { d: "M12 14v7M10 12H3.5M14 12h6.5" });
     }
     return svg;
   }
@@ -405,6 +452,9 @@
 
   async function updateTrustSettings(actionPayload, successMsg) {
     const actionSeq = ++state.trustActionSeq;
+    if (Object.prototype.hasOwnProperty.call(actionPayload || {}, "beastOn")) {
+      state.beast.pendingOn = Boolean(actionPayload.beastOn);
+    }
     state.pollSeq += 1;
     if (state.pollTimer) {
       clearTimeout(state.pollTimer);
@@ -440,6 +490,10 @@
       if (actionSeq !== state.trustActionSeq) return;
       showToast("Could not update trust settings");
       if (!state.pollInFlight) scheduleNextPoll();
+    } finally {
+      if (actionSeq === state.trustActionSeq) {
+        state.beast.pendingOn = false;
+      }
     }
   }
 
@@ -991,7 +1045,9 @@
   function appendSubCommands(container, sectionId, autoSubCommands, moreCommands) {
     if (Array.isArray(autoSubCommands) && autoSubCommands.length > 0) {
       const subWrap = el("div", "subcmd-section");
-      subWrap.appendChild(el("div", "subcmd-label", "Triggered automatically"));
+      const beastOn = isBeastActive(state.snap, state.snap?.trust?.scopeKind === "non_repo");
+      const labelText = beastOn && autoSubCommands.some((s) => s.ran) ? "Ran automatically" : "Triggered automatically";
+      subWrap.appendChild(el("div", "subcmd-label", labelText));
       const subList = el("div", "subcmd-list");
       for (const sub of autoSubCommands) {
         if (sub.invocable === false) {
@@ -1068,6 +1124,7 @@
     const live = document.getElementById("live");
     const liveMode = !snap.hasConversation ? "idle" : snap.liveState;
     live.className = `live ${liveMode}`;
+    live.title = snap.liveLabel || "";
     document.getElementById("live-label").textContent = snap.liveLabel;
   }
 
@@ -1077,19 +1134,33 @@
     if (rs === "done") return { text: "Done", cls: "done" };
     if (rs === "yourturn") return { text: "Your turn", cls: "yourturn" };
     if (rs === "stale") {
-      if (stage?.id === "build") {
-        const cleanStale = stage.subChecks?.some((c) => c.id === "clean" && c.status === "stale");
-        const verifyStale = stage.subChecks?.some((c) => c.id === "verify" && c.status === "stale");
-        if (cleanStale && !verifyStale) return { text: "Re-clean", cls: "stale" };
-        if (verifyStale) return { text: "Re-verify", cls: "stale" };
-      }
       return { text: "Needs re-run", cls: "stale" };
     }
     if (rs === "error") return { text: "Escalated", cls: "error" };
     if (rs === "queued") {
       const idx = Array.isArray(stages) ? stages.findIndex((s) => s.id === stage.id) : -1;
       const earlierBusy = idx > 0 && stages.slice(0, idx).some((s) => s.railState === "running" || s.railState === "yourturn");
-      return { text: earlierBusy ? "Queued" : "Idle", cls: "queued" };
+      if (earlierBusy) return { text: "Queued", cls: "queued" };
+      if (stage?.id === "build" && stage.status === "active") {
+        const editsDone = stage.subChecks?.some((c) => c.id === "edits" && c.status === "done");
+        const cleanSub = stage.subChecks?.find((c) => c.id === "clean");
+        const cleanPendingRequired = cleanSub?.status === "pending" && !cleanSub?.optional;
+        const cleanDoneOrOptional =
+          cleanSub?.status === "done" || (cleanSub?.status === "pending" && Boolean(cleanSub?.optional));
+        const verifyStatus = stage.subChecks?.find((c) => c.id === "verify")?.status;
+        if (editsDone && verifyStatus === "done" && cleanPendingRequired) {
+          return { text: "Cleanup left", cls: "queued" };
+        }
+        if (editsDone && cleanDoneOrOptional && verifyStatus === "pending") {
+          return { text: "Verify left", cls: "queued" };
+        }
+        if (editsDone && cleanPendingRequired && verifyStatus === "pending") {
+          return { text: "2 steps left", cls: "queued" };
+        }
+        return { text: "In progress", cls: "queued" };
+      }
+      if (stage?.status === "active") return { text: "In progress", cls: "queued" };
+      return { text: "Idle", cls: "queued" };
     }
     if (rs === "suggested") return { text: "Suggested", cls: "muted" };
     if (rs === "skipped") {
@@ -1106,8 +1177,8 @@
     input.focus();
   }
 
-  function makeSubAccordionHeader(key, iconName, titleText, metaNode, isAccent = false) {
-    const isOpen = Boolean(state.subExpanded[key]);
+  function makeSubAccordionHeader(key, iconName, titleText, metaNode, isAccent = false, defaultOpen = false) {
+    const isOpen = state.subExpanded[key] !== undefined ? Boolean(state.subExpanded[key]) : Boolean(defaultOpen);
     const btn = el("button", isAccent ? "sub-accordion-btn is-accent" : "sub-accordion-btn");
     btn.type = "button";
     btn.setAttribute("aria-expanded", String(isOpen));
@@ -1122,10 +1193,93 @@
     btn.appendChild(chev);
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      state.subExpanded[key] = !state.subExpanded[key];
+      state.subExpanded[key] = !isOpen;
       render(state.snap);
     });
     return { btn, isOpen };
+  }
+
+  function buildStageSubagentsSection(stageId, act) {
+    const stageSubagents = (act?.subagents || []).filter((a) => (a.stageId || "build") === stageId);
+    if (stageSubagents.length === 0) return null;
+
+    const testId = `stage-subagents-${stageId}`;
+    const wrap = el("div", state.highlightTarget === testId ? "subagents-section is-highlighted" : "subagents-section");
+    wrap.dataset.testid = testId;
+
+    const runningN = stageSubagents.filter((a) => a.status === "running").length;
+    const failedN = stageSubagents.filter((a) => a.status === "failed").length;
+    const doneN = stageSubagents.filter((a) => a.status === "done").length;
+    const metaText =
+      runningN > 0
+        ? `${runningN}/${stageSubagents.length} running`
+        : failedN > 0
+          ? `${doneN} done, ${failedN} failed`
+          : `${doneN} done`;
+    const meta = el("span", "sub-accordion-meta", metaText);
+    const { btn, isOpen } = makeSubAccordionHeader(
+      `subagents:${stageId}`,
+      "orbit",
+      "Subagents",
+      meta,
+      false,
+      runningN > 0,
+    );
+    btn.dataset.testid = `accordion-subagents-${stageId}`;
+    wrap.appendChild(btn);
+
+    if (isOpen) {
+      const ul = el("ul", "sub-accordion-list");
+      for (const a of stageSubagents) {
+        const li = el("li", "sub-row is-subagent");
+        const head = el("div", "sub-row-head");
+        const dw = el("span", "sub-row-dot-wrap");
+        if (a.status === "done") {
+          const chk = svgIcon("check-sm", 10);
+          chk.style.color = "var(--tl-done)";
+          dw.appendChild(chk);
+        } else if (a.status === "failed") {
+          const errIc = svgIcon("warn", 10);
+          errIc.style.color = "var(--tl-error)";
+          dw.appendChild(errIc);
+        } else {
+          dw.appendChild(el("span", "sub-row-dot active"));
+        }
+        head.appendChild(dw);
+
+        const displayName = String(a.role || a.type || "Subagent").trim();
+        const titleEl = el("span", "sub-row-title", displayName);
+        titleEl.title = displayName;
+        head.appendChild(titleEl);
+
+        if (a.type && a.type !== "self" && a.type.toLowerCase() !== displayName.toLowerCase()) {
+          head.appendChild(el("span", "sub-row-badge", a.type));
+        }
+        if (a.workspace && a.workspace !== "inherit") {
+          head.appendChild(el("span", "sub-row-badge", a.workspace));
+        }
+
+        const timerEl = el("span", "sub-row-timer", formatElapsedText(a.startedAt, a.completedAt));
+        if (a.status === "running" && a.startedAt) {
+          timerEl.dataset.timerKind = "elapsed";
+          timerEl.dataset.startedAt = a.startedAt;
+        }
+        head.appendChild(timerEl);
+        appendAskButton(head, `What is ${displayName} finding?`, `Ask /btw about ${displayName}`);
+        li.appendChild(head);
+
+        const desc = String(a.task || "").trim();
+        if (desc && desc.toLowerCase() !== displayName.toLowerCase()) {
+          const descEl = el("div", "sub-row-desc", desc);
+          descEl.title = desc;
+          li.appendChild(descEl);
+        }
+        ul.appendChild(li);
+      }
+      wrap.appendChild(ul);
+    }
+
+    return wrap;
   }
 
   function appendAskButton(row, question, ariaLabel) {
@@ -1141,28 +1295,44 @@
     row.appendChild(askBtn);
   }
 
-  function buildBuildStageDetail(stage, snap) {
-    const detail = el("div", "detail");
-    const act = snap.activity || {};
-
-    const segGrid = el("div", "progress-segments");
+  function buildSubChecksBar(stage) {
+    const subChecks = stage.subChecks || [];
+    if (subChecks.length === 0) return null;
+    const segGrid = el("div", subChecks.length === 2 ? "progress-segments is-two" : "progress-segments");
     segGrid.setAttribute("role", "list");
     segGrid.setAttribute("aria-label", "Progress");
-    const subChecks = stage.subChecks || [];
     let activeAssigned = false;
     for (const sub of subChecks) {
       const seg = el("div", "progress-seg");
       seg.setAttribute("role", "listitem");
       let mode = sub.status;
-      if (mode === "pending" && stage.status === "active" && !activeAssigned) {
+      if (mode === "pending" && stage.status === "active" && !activeAssigned && stage.id !== "plan") {
         mode = "run";
         activeAssigned = true;
       }
       const bar = el("span", `progress-seg-bar ${mode}`);
       if (mode === "run") bar.classList.add("pulse");
       const title = sub.label.charAt(0).toUpperCase() + sub.label.slice(1);
-      const labelText = mode === "done" ? `✓ ${title}` : mode === "stale" ? `! ${title}` : mode === "run" ? `${title}…` : title;
-      const statusText = mode === "done" ? "Done" : mode === "stale" ? "Stale" : mode === "run" ? "Next up" : "Pending";
+      const labelText =
+        mode === "done"
+          ? `✓ ${title}`
+          : mode === "stale"
+            ? `! ${title}`
+            : mode === "run"
+              ? `${title}…`
+              : mode === "optional"
+                ? `${title} (opt)`
+                : title;
+      const statusText =
+        mode === "done"
+          ? "Done"
+          : mode === "stale"
+            ? "Stale"
+            : mode === "run"
+              ? "In progress"
+              : mode === "optional"
+                ? "Optional"
+                : "Pending";
       if (sub.detail) {
         seg.tabIndex = 0;
         attachStatusPopover(seg, title, statusText, mode, sub.detail);
@@ -1171,40 +1341,52 @@
       seg.appendChild(el("span", `progress-seg-label ${mode}`, labelText));
       segGrid.appendChild(seg);
     }
-    detail.appendChild(segGrid);
+    return segGrid;
+  }
 
-    const staleSubs = subChecks.filter((c) => c.status === "stale");
-    if (staleSubs.length > 0) {
-      const callout = el("div", "subcheck-callout");
-      callout.dataset.testid = "build-stale-callout";
-      const msgRow = el("div", "subcheck-callout-msg");
-      const warnIc = svgIcon("warn", 12);
-      warnIc.classList.add("subcheck-callout-icon");
-      msgRow.append(warnIc, el("span", "", staleSubs.map((s) => s.detail).join(" ")));
-      callout.appendChild(msgRow);
+  function buildBuildStageDetail(stage, snap) {
+    const detail = el("div", "detail");
+    const act = snap.activity || {};
 
-      const actionCmds = [];
-      if (staleSubs.some((s) => s.id === "clean")) actionCmds.push("/deslop", "/no-comments");
-      if (staleSubs.some((s) => s.id === "verify")) actionCmds.push("/astack-mode");
-      if (actionCmds.length > 0) {
-        const actionRow = el("div", "subcheck-callout-actions");
-        for (const cmd of actionCmds) {
-          const meta = lookupCommandMeta(snap, cmd);
-          const btn = el("button", "subcmd-pill stale-action");
-          btn.type = "button";
-          btn.appendChild(el("span", "", cmd));
-          wireCommandAction(btn, meta ? { ...meta, command: cmd } : cmd);
-          actionRow.appendChild(btn);
+    const subChecks = stage.subChecks || [];
+    const segGrid = buildSubChecksBar(stage);
+    if (segGrid) detail.appendChild(segGrid);
+
+    if (stage.status === "active" && stage.railState !== "running") {
+      const editsDone = subChecks.some((c) => c.id === "edits" && c.status === "done");
+      const pendingSubs = subChecks.filter((c) => c.status === "pending" && c.id !== "edits" && !c.optional);
+      if (editsDone && pendingSubs.length > 0) {
+        const callout = el("div", "subcheck-callout is-info");
+        callout.dataset.testid = "build-remaining-callout";
+        const msgRow = el("div", "subcheck-callout-msg");
+        const dot = el("span", "status-banner-dot");
+        dot.style.marginTop = "4px";
+        dot.setAttribute("aria-hidden", "true");
+        msgRow.append(dot, el("span", "", `Still left in Build & Prove: ${pendingSubs.map((s) => s.detail).join(" ")}`));
+        callout.appendChild(msgRow);
+
+        const actionCmds = [];
+        if (pendingSubs.some((s) => s.id === "clean")) actionCmds.push("/deslop", "/no-comments");
+        if (pendingSubs.some((s) => s.id === "verify")) actionCmds.push("/astack-mode");
+        if (actionCmds.length > 0) {
+          const actionRow = el("div", "subcheck-callout-actions");
+          for (const cmd of actionCmds) {
+            const meta = lookupCommandMeta(snap, cmd);
+            const btn = el("button", "subcmd-pill");
+            btn.type = "button";
+            btn.appendChild(el("span", "", cmd));
+            wireCommandAction(btn, meta ? { ...meta, command: cmd } : cmd);
+            actionRow.appendChild(btn);
+          }
+          callout.appendChild(actionRow);
         }
-        callout.appendChild(actionRow);
+        detail.appendChild(callout);
       }
-      detail.appendChild(callout);
     }
-
     const accGroup = el("div", "accordion-group");
     const swarm = act.swarm || {};
     if (swarm.active || (swarm.members && swarm.members.length > 0)) {
-      const wrap = el("div", "");
+      const wrap = el("div", state.highlightTarget === "accordion-swarm" ? "subagents-section is-highlighted" : "");
       const meta = el("span", "sub-accordion-meta", `${swarm.workingCount || 0} of ${swarm.totalCount || 0} working`);
       const { btn, isOpen } = makeSubAccordionHeader("swarm", "swarm", "Swarm", meta);
       btn.dataset.testid = "accordion-swarm";
@@ -1229,53 +1411,9 @@
       accGroup.appendChild(wrap);
     }
 
-    const subagents = act.subagents || [];
-    if (subagents.length > 0) {
-      const wrap = el("div", "");
-      const runningN = act.runningSubagentsCount || 0;
-      const failedN = subagents.filter((a) => a.status === "failed").length;
-      const doneN = act.doneSubagentsCount ?? subagents.filter((a) => a.status === "done").length;
-      const metaText =
-        runningN > 0
-          ? `${runningN}/${subagents.length} running`
-          : failedN > 0
-            ? `${doneN} done, ${failedN} failed`
-            : `${doneN} done`;
-      const meta = el("span", "sub-accordion-meta", metaText);
-      const { btn, isOpen } = makeSubAccordionHeader("helpers", "orbit", "Subagents", meta);
-      btn.dataset.testid = "accordion-subagents";
-      wrap.appendChild(btn);
-      if (isOpen) {
-        const ul = el("ul", "sub-accordion-list");
-        for (const a of subagents) {
-          const li = el("li", "sub-row");
-          const dw = el("span", "sub-row-dot-wrap");
-          if (a.status === "done") {
-            const chk = svgIcon("check-sm", 10);
-            chk.style.color = "var(--tl-done)";
-            dw.appendChild(chk);
-          } else if (a.status === "failed") {
-            const errIc = svgIcon("warn", 10);
-            errIc.style.color = "var(--tl-error)";
-            dw.appendChild(errIc);
-          } else {
-            dw.appendChild(el("span", "sub-row-dot active"));
-          }
-          li.appendChild(dw);
-          li.appendChild(el("span", "sub-row-name", a.type));
-          li.appendChild(el("span", "sub-row-task", a.task));
-          const timerEl = el("span", "sub-row-timer", formatElapsedText(a.startedAt, a.completedAt));
-          if (a.status === "running" && a.startedAt) {
-            timerEl.dataset.timerKind = "elapsed";
-            timerEl.dataset.startedAt = a.startedAt;
-          }
-          li.appendChild(timerEl);
-          appendAskButton(li, `What is the ${a.type} subagent finding?`, `Ask /btw about the ${a.type} subagent`);
-          ul.appendChild(li);
-        }
-        wrap.appendChild(ul);
-      }
-      accGroup.appendChild(wrap);
+    const buildSubagentsEl = buildStageSubagentsSection("build", act);
+    if (buildSubagentsEl) {
+      accGroup.appendChild(buildSubagentsEl);
     }
 
     const goal = act.goal || {};
@@ -1422,7 +1560,53 @@
   function buildGenericStageDetail(stage, snap) {
     const detail = el("div", "detail");
     const act = snap.activity || {};
+    if (stage.id === "plan") {
+      const segGrid = buildSubChecksBar(stage);
+      if (segGrid) detail.appendChild(segGrid);
+      if (stage.readOnlyActive) {
+        const roBadge = el("span", "stage-readonly-pill", "Read-only");
+        roBadge.dataset.testid = "plan-readonly-pill";
+        detail.appendChild(roBadge);
+      }
+    }
+    const beastOn = isBeastActive(snap, snap.trust?.scopeKind === "non_repo");
+    const liveSub = beastOn
+      ? (act.subagents || []).find((a) => a.status === "running" && a.stageId === stage.id)
+      : null;
+    if (liveSub) {
+      const aRow = el("div", "stage-agent-row");
+      aRow.appendChild(el("span", "stage-agent-avatar", (liveSub.type || "A").charAt(0).toUpperCase()));
+      const aCopy = el("span", "stage-agent-copy");
+      aCopy.appendChild(el("strong", "", `${liveSub.type} `));
+      aCopy.appendChild(document.createTextNode(liveSub.task || "running"));
+      aRow.appendChild(aCopy);
+      if (liveSub.startedAt) {
+        const tmr = el("span", "sub-row-timer", formatElapsedText(liveSub.startedAt, liveSub.completedAt));
+        tmr.dataset.timerKind = "elapsed";
+        tmr.dataset.startedAt = liveSub.startedAt;
+        aRow.appendChild(tmr);
+      }
+      detail.appendChild(aRow);
+    }
     detail.appendChild(el("p", "detail-text", stage.detail));
+    if (stage.id === "review" && stage.status === "pending") {
+      const buildStage = (snap.stages || []).find((s) => s.id === "build");
+      if (buildStage?.status === "active" || buildStage?.status === "stale") {
+        const prereq = el(
+          "p",
+          "detail-note",
+          "Finish Step 2 (Build & Prove) first, or run /pre-pr now to check HEAD immediately.",
+        );
+        prereq.dataset.testid = "review-prerequisite-note";
+        detail.appendChild(prereq);
+      }
+    }
+    const stageSubagentsEl = buildStageSubagentsSection(stage.id, act);
+    if (stageSubagentsEl) {
+      const accGroup = el("div", "accordion-group");
+      accGroup.appendChild(stageSubagentsEl);
+      detail.appendChild(accGroup);
+    }
     detail.appendChild(buildCommandChips(stage.commands));
 
     if (stage.id === "review" && snap.trust?.riskAssessment && snap.trust.scopeKind !== "non_repo") {
@@ -1502,10 +1686,13 @@
 
       const rollbackCmd = rp?.rollbackCommand || (ra.rollback?.kind && ra.rollback.kind !== "none" ? ra.rollback.plan : null);
       if (rollbackCmd) {
+        const rbDetails = el("details", "risk-card-rollback-details");
+        rbDetails.dataset.testid = "risk-card-rollback";
+        rbDetails.appendChild(el("summary", "risk-card-rollback-sum", "Undo / rollback command (only after commit or merge)"));
+        rbDetails.appendChild(el("p", "risk-card-rb-note", "Safety reference only — not a workflow next step."));
         const rbRow = el("div", "risk-card-rollback");
-        rbRow.appendChild(el("span", "risk-card-rb-label", "Rollback:"));
         rbRow.appendChild(el("code", "risk-card-rb-code", rollbackCmd));
-        const cpBtn = el("button", "copy-inline-btn", "Copy");
+        const cpBtn = el("button", "subcmd-pill is-sans", "Copy");
         cpBtn.type = "button";
         cpBtn.setAttribute("aria-label", `Copy rollback command ${rollbackCmd}`);
         cpBtn.addEventListener("click", async (ev) => {
@@ -1514,7 +1701,8 @@
           showToast(ok ? `Copied "${rollbackCmd}"` : rollbackCmd);
         });
         rbRow.appendChild(cpBtn);
-        rc.appendChild(rbRow);
+        rbDetails.appendChild(rbRow);
+        rc.appendChild(rbDetails);
       }
 
       if (snap.trust.enrolled && snap.fullHeadSha) {
@@ -1550,16 +1738,20 @@
       detail.appendChild(rc);
     }
 
-    if (stage.id === "review" && act.workflow?.suggestedReview) {
+    if (
+      stage.id === "review" &&
+      act.workflow?.suggestedReview &&
+      (stage.status === "next" || stage.status === "stale" || stage.status === "active")
+    ) {
       const sug = act.workflow.suggestedReview;
       const box = el("div", "faster-workflow");
       const p = el("p", "faster-workflow-text");
-      p.appendChild(el("span", "faster-workflow-lead", "Faster: "));
+      p.appendChild(el("span", "faster-workflow-lead", "Optional alternative: "));
       p.appendChild(document.createTextNode(`${sug.summary} `));
       p.appendChild(el("span", "faster-workflow-cmd", sug.command));
-      p.appendChild(document.createTextNode("."));
+      p.appendChild(document.createTextNode(" (instead of single-pass /pre-pr)."));
       box.appendChild(p);
-      const copyBtn = el("button", "copy-inline-btn", "Copy");
+      const copyBtn = el("button", "subcmd-pill is-sans", "Copy");
       copyBtn.type = "button";
       copyBtn.setAttribute("aria-label", "Copy the /run-workflow prompt");
       copyBtn.addEventListener("click", (ev) => {
@@ -1613,6 +1805,50 @@
     return detail;
   }
 
+  function jumpToAgentsSection(snap) {
+    state.solo = null;
+    if (state.view !== "timeline") switchView("timeline");
+    if (state.panelMode !== "build") state.panelMode = "build";
+
+    const act = snap?.activity || {};
+    const subagents = act.subagents || [];
+    const swarmMembers = act.swarm?.members || [];
+    if (subagents.length === 0 && swarmMembers.length === 0) {
+      showToast("No subagents or swarm workers executed yet.");
+      renderTotalsStrip(state.snap);
+      return;
+    }
+
+    let targetTestId = null;
+    if (subagents.length > 0) {
+      const stages = snap?.stages || [];
+      const runningStage = stages.find((s) =>
+        subagents.some((a) => (a.stageId || "build") === s.id && a.status === "running"),
+      );
+      const latestStage = [...stages]
+        .reverse()
+        .find((s) => subagents.some((a) => (a.stageId || "build") === s.id));
+      const targetStageId = runningStage?.id || latestStage?.id || subagents[0]?.stageId || "build";
+      state.userToggled = true;
+      state.expanded.add(targetStageId);
+      state.subExpanded[`subagents:${targetStageId}`] = true;
+      targetTestId = `stage-subagents-${targetStageId}`;
+    } else {
+      state.userToggled = true;
+      state.expanded.add("build");
+      state.subExpanded.swarm = true;
+      targetTestId = "accordion-swarm";
+    }
+
+    state.highlightTarget = targetTestId;
+    render(state.snap);
+    state.highlightTarget = null;
+    const targetEl = typeof document.querySelector === "function"
+      ? document.querySelector(`[data-testid="${targetTestId}"]`)
+      : null;
+    targetEl?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+  }
+
   function renderTotalsStrip(snap) {
     const act = snap.activity || {};
 
@@ -1647,7 +1883,7 @@
         popMode: agentsWorking > 0 ? "active" : agentsTotal > 0 ? "done" : "",
         popDesc:
           agentsTotal > 0
-            ? `${agentsTotal} total executed (${agentsDone} done, ${agentsWorking} running). Click to inspect without opening Step 2.`
+            ? `${agentsTotal} total executed (${agentsDone} done, ${agentsWorking} running). Click to jump to its stage.`
             : "No subagents or swarm workers executed in this conversation yet.",
       },
       {
@@ -1692,25 +1928,32 @@
             : "No background tasks or active schedules in this conversation yet.",
       },
     ];
+    const beastOn = isBeastActive(snap, snap.trust?.scopeKind === "non_repo");
+    const hasBeastWork = beastOn && (agentsWorking > 0 || (act.liveStageIds || []).length > 0);
     for (const f of focusDefs) {
       const chip = el("button", "focus-chip");
       chip.type = "button";
       chip.dataset.focus = f.key;
       chip.dataset.testid = `focus-chip-${f.key}`;
-      chip.setAttribute("aria-pressed", String(state.solo === f.key));
+      chip.setAttribute("aria-pressed", f.key === "agents" ? "false" : String(state.solo === f.key));
       if (f.icon === "dot") {
-        const d = el("span", `focus-dot ${f.dotMode || ""}`.trim());
+        const dotCls = hasBeastWork ? "focus-dot is-beast-pulse" : `focus-dot ${f.dotMode || ""}`.trim();
+        const d = el("span", dotCls);
         chip.appendChild(d);
       } else {
         const ic = svgIcon(f.icon, f.icon === "diamond" ? 10 : 11);
         if (f.iconTone) ic.classList.add(`focus-icon-${f.iconTone}`);
         chip.appendChild(ic);
       }
-      chip.appendChild(el("span", "focus-count", f.countText));
+      chip.appendChild(el("span", hasBeastWork && f.key === "agents" ? "focus-count is-beast-count" : "focus-count", f.countText));
       chip.appendChild(el("span", "", f.label));
       attachStatusPopover(chip, f.popTitle, f.popStatus, f.popMode, f.popDesc);
       chip.addEventListener("click", () => {
         hideCommandPopover();
+        if (f.key === "agents") {
+          jumpToAgentsSection(state.snap);
+          return;
+        }
         state.solo = state.solo === f.key ? null : f.key;
         renderTotalsStrip(state.snap);
       });
@@ -1806,60 +2049,6 @@
             openArtifact(art, btn);
           });
           li.appendChild(btn);
-          ul.appendChild(li);
-        }
-        box.appendChild(ul);
-      }
-      container.replaceChildren(box);
-      container.classList.remove("hidden");
-      return;
-    }
-
-    if (state.solo === "agents") {
-      const box = el("div", "focus-drawer");
-      box.dataset.testid = "focus-drawer-agents";
-      const swarmMembers = act.swarm?.members || [];
-      const subagents = act.subagents || [];
-      if (swarmMembers.length === 0 && subagents.length === 0) {
-        box.appendChild(el("p", "focus-empty", "No subagents or swarm workers executed yet."));
-      } else {
-        const ul = el("ul", "sub-accordion-list focus-drawer-list");
-        for (const m of swarmMembers) {
-          const li = el("li", "sub-row");
-          const dw = el("span", "sub-row-dot-wrap");
-          const dotCls = m.role === "verifier" ? "sub-row-dot ring" : "sub-row-dot";
-          dw.appendChild(el("span", m.status === "working" ? `${dotCls} active` : dotCls));
-          li.appendChild(dw);
-          li.appendChild(el("span", "sub-row-name", m.name));
-          li.appendChild(el("span", "sub-row-task", m.task));
-          li.appendChild(el("span", m.status === "working" ? "sub-row-stat active" : "sub-row-stat", m.status));
-          appendAskButton(li, `What is ${m.name} working on right now?`, `Ask /btw about ${m.name}`);
-          ul.appendChild(li);
-        }
-        for (const a of subagents) {
-          const li = el("li", "sub-row");
-          const dw = el("span", "sub-row-dot-wrap");
-          if (a.status === "done") {
-            const chk = svgIcon("check-sm", 10);
-            chk.style.color = "var(--tl-done)";
-            dw.appendChild(chk);
-          } else if (a.status === "failed") {
-            const errIc = svgIcon("warn", 10);
-            errIc.style.color = "var(--tl-error)";
-            dw.appendChild(errIc);
-          } else {
-            dw.appendChild(el("span", "sub-row-dot active"));
-          }
-          li.appendChild(dw);
-          li.appendChild(el("span", "sub-row-name", a.type));
-          li.appendChild(el("span", "sub-row-task", a.task));
-          const timerEl = el("span", "sub-row-timer", formatElapsedText(a.startedAt, a.completedAt));
-          if (a.status === "running" && a.startedAt) {
-            timerEl.dataset.timerKind = "elapsed";
-            timerEl.dataset.startedAt = a.startedAt;
-          }
-          li.appendChild(timerEl);
-          appendAskButton(li, `What is the ${a.type} subagent finding?`, `Ask /btw about the ${a.type} subagent`);
           ul.appendChild(li);
         }
         box.appendChild(ul);
@@ -1997,6 +2186,266 @@
     container.classList.add("hidden");
   }
 
+  function isBeastActive(snap, isNonRepo) {
+    return Boolean(!isNonRepo && snap?.trust?.enrolled && snap?.trust?.beastOn);
+  }
+
+  function computeBeastStopChips(snap) {
+    const cat = snap?.trust?.activeCatState;
+    const lvl = Number(cat?.level ?? 0);
+    const maxCap = Number(cat?.maxCeiling ?? 2);
+    if (lvl <= 0) return ["Plan / risky writes", "Failing checks", "Risky diff", "Merge"];
+    if (lvl >= 3 && maxCap >= 3) return ["Failing checks", "Risky diff", "Sampled merge"];
+    return ["Failing checks", "Risky diff", "Merge"];
+  }
+
+  function computeBeastStageMeta(stage, snap, stages, beastActive) {
+    const rs = stage?.railState || "pending";
+    if (!beastActive) {
+      return { railState: rs, pilotScale: 0.52, pilotAlpha: 1, pillKind: null, pillText: "", note: "" };
+    }
+    if (rs === "running" || rs === "done" || rs === "yourturn" || rs === "stale" || rs === "error" || rs === "skipped") {
+      return { railState: rs, pilotScale: 0.52, pilotAlpha: 1, pillKind: null, pillText: "", note: "" };
+    }
+    const cat = snap?.trust?.activeCatState;
+    const lvl = Number(cat?.level ?? 0);
+    const maxCap = Number(cat?.maxCeiling ?? 2);
+    const residual = snap?.trust?.riskAssessment?.residual;
+    if (stage.id === "ship") {
+      const autoMerge = lvl >= 3 && maxCap >= 3 && residual === "low";
+      if (autoMerge) {
+        return {
+          railState: "pilot",
+          pilotScale: 0.44,
+          pilotAlpha: 0.72,
+          pillKind: "auto",
+          pillText: "Auto · low risk",
+          note: "Auto-merges low-risk diffs at L3; pauses on high risk.",
+        };
+      }
+      return {
+        railState: "lock",
+        pilotScale: 0.44,
+        pilotAlpha: 0.72,
+        pillKind: "gate",
+        pillText: "Needs you · merge",
+        note: "Agents open the PR and watch CI. You press merge.",
+      };
+    }
+    const idx = Array.isArray(stages) ? stages.findIndex((s) => s.id === stage.id) : -1;
+    const runningIdx = Array.isArray(stages) ? stages.findIndex((s) => s.railState === "running") : -1;
+    const isNext =
+      rs === "queued" ||
+      rs === "suggested" ||
+      (runningIdx >= 0 && idx === runningIdx + 1);
+    if (stage.id === "build") {
+      return {
+        railState: "pilot",
+        pilotScale: isNext ? 0.54 : 0.46,
+        pilotAlpha: isNext ? 1 : 0.78,
+        pillKind: isNext ? "auto-next" : "auto",
+        pillText: isNext ? "Auto · next" : "Auto",
+        note: isNext ? "Starts automatically once the plan lands." : "",
+      };
+    }
+    if (stage.id === "review") {
+      return {
+        railState: "pilot",
+        pilotScale: isNext ? 0.52 : 0.42,
+        pilotAlpha: isNext ? 0.95 : 0.65,
+        pillKind: isNext ? "auto-next" : "auto",
+        pillText: isNext ? "Auto · next" : "Auto",
+        note: "Always runs in Beast mode (optional in Manual)",
+      };
+    }
+    return {
+      railState: "pilot",
+      pilotScale: 0.5,
+      pilotAlpha: 0.9,
+      pillKind: "auto",
+      pillText: "Auto",
+      note: "",
+    };
+  }
+
+  function buildBeastGlowFrame(igniting) {
+    const frame = el("div", igniting ? "beast-glow-frame is-igniting" : "beast-glow-frame");
+    frame.dataset.testid = "beast-glow-frame";
+    frame.setAttribute("aria-hidden", "true");
+
+    const corners = [
+      ["beast-bloom is-tl", "top:-200px;left:-200px"],
+      ["beast-bloom is-tr", "top:-200px;right:-200px"],
+      ["beast-bloom beast-bloom-lg is-bl", "bottom:-240px;left:-240px"],
+      ["beast-bloom beast-bloom-lg is-br", "bottom:-240px;right:-240px"],
+    ];
+    for (const [cls, css] of corners) {
+      const b = el("div", cls);
+      b.style.cssText = css;
+      frame.appendChild(b);
+    }
+    frame.appendChild(el("div", "beast-ring"));
+    for (const cls of [
+      "beast-sweep beast-sx beast-s-top",
+      "beast-sweep beast-sx beast-halo beast-s-top",
+      "beast-sweep beast-sy beast-s-right",
+      "beast-sweep beast-sy beast-halo beast-s-right",
+      "beast-sweep beast-sx beast-s-bottom",
+      "beast-sweep beast-sx beast-halo beast-s-bottom",
+      "beast-sweep beast-sy beast-s-left",
+      "beast-sweep beast-sy beast-halo beast-s-left",
+    ]) {
+      frame.appendChild(el("div", cls));
+    }
+    const rnd = (s) => {
+      const x = Math.sin(s * 127.1 + 311.7) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    for (let j = 0; j < 10; j++) {
+      const a = rnd(41 + j * 2.7);
+      const b = rnd(53 + j * 3.9);
+      const c = rnd(67 + j * 5.1);
+      const left = j % 2 === 0;
+      const em = el("div", left ? "beast-ember e-l" : "beast-ember e-r");
+      em.style[left ? "left" : "right"] = `${Math.round(4 + a * 34)}px`;
+      em.style.animationDuration = `${(2.6 + b * 2).toFixed(2)}s`;
+      em.style.animationDelay = `${(-c * 5).toFixed(2)}s`;
+      frame.appendChild(em);
+    }
+    return frame;
+  }
+
+  function buildBeastHeaderBar() {
+    const bar = el("div", "beast-header-bar");
+    bar.dataset.testid = "beast-header-bar";
+
+    const iconBox = el("div", "beast-hero-icon");
+    iconBox.setAttribute("aria-hidden", "true");
+    const mf = el("div", "mf");
+    mf.append(el("div", "mf-glow"), el("div", "mf-t mf-o"), el("div", "mf-t mf-m"), el("div", "mf-t mf-c"));
+    const p1 = el("span", "mp");
+    p1.style.marginLeft = "-3px";
+    const p2 = el("span", "mp mp-b");
+    p2.style.marginLeft = "2px";
+    p2.style.animationDelay = "-0.5s";
+    const p3 = el("span", "mp mp-c");
+    p3.style.marginLeft = "-1px";
+    p3.style.animationDelay = "-0.9s";
+    mf.append(p1, p2, p3);
+    iconBox.appendChild(mf);
+
+    const copy = el("div", "beast-hero-copy");
+    copy.appendChild(el("div", "beast-hero-title", "BEAST MODE"));
+    copy.appendChild(el("div", "beast-hero-sub", "Autopilot · agents drive every step"));
+
+    const wheelBtn = el("button", "beast-wheel-btn");
+    wheelBtn.type = "button";
+    wheelBtn.dataset.testid = "beast-take-wheel";
+    wheelBtn.appendChild(svgIcon("wheel", 14));
+    wheelBtn.appendChild(el("span", "", "Take the wheel"));
+    wheelBtn.addEventListener("click", () => {
+      updateTrustSettings({ beastOn: false }, "Manual mode · current step finishes, next steps wait for you");
+    });
+
+    bar.append(iconBox, copy, wheelBtn);
+    return bar;
+  }
+
+  function buildBeastActivationToast() {
+    const wrap = el("div", "beast-activation-toast");
+    wrap.dataset.testid = "beast-activation-toast";
+    wrap.setAttribute("role", "status");
+    const card = el("div", "beast-activation-card");
+    const ic = svgIcon("flame-color", 22);
+    ic.classList.add("beast-lick");
+    ic.style.flexShrink = "0";
+    const copy = el("div", "beast-hero-copy");
+    copy.appendChild(el("div", "beast-activation-title", "Beast mode is on"));
+    copy.appendChild(
+      el(
+        "div",
+        "beast-activation-body",
+        "Agents will run Plan → Build → Pre-PR → Ship back to back. You're pulled in only for failing checks, risky diffs and the merge.",
+      ),
+    );
+    card.append(ic, copy);
+    wrap.appendChild(card);
+    return wrap;
+  }
+
+  function clearBeastTimers() {
+    if (state.beast.igniteTimer) {
+      clearTimeout(state.beast.igniteTimer);
+      state.beast.igniteTimer = null;
+    }
+    if (state.beast.toastTimer) {
+      clearTimeout(state.beast.toastTimer);
+      state.beast.toastTimer = null;
+    }
+  }
+
+  function syncBeastChrome(snap, isNonRepo) {
+    const beastOn = isBeastActive(snap, isNonRepo);
+    const viewEl = document.getElementById("timeline-view");
+    const glowSlot = document.getElementById("beast-glow-slot");
+    const toastSlot = document.getElementById("beast-toast-slot");
+    const bannerSlot = document.getElementById("beast-banner-slot");
+    const btwInput = document.getElementById("astk-btw");
+
+    if (viewEl) {
+      viewEl.classList.toggle("is-beast", beastOn);
+      viewEl.dataset.beast = beastOn ? "on" : "off";
+    }
+    if (btwInput) {
+      btwInput.placeholder = beastOn
+        ? "Nudge the agents without stopping them"
+        : "Ask a side question without interrupting the agents";
+    }
+    rail?.setBeastMode?.(beastOn);
+
+    const turnedOn = state.beast.initialized && !state.beast.prevOn && beastOn;
+    state.beast.initialized = true;
+    state.beast.prevOn = beastOn;
+
+    if (!beastOn) {
+      clearBeastTimers();
+      state.beast.igniting = false;
+      state.beast.mounted = false;
+      glowSlot?.replaceChildren();
+      toastSlot?.replaceChildren();
+      bannerSlot?.replaceChildren();
+      return;
+    }
+
+    if (turnedOn) {
+      clearBeastTimers();
+      state.beast.igniting = true;
+      rail?.triggerIgnition?.();
+      state.beast.igniteTimer = setTimeout(() => {
+        state.beast.igniting = false;
+        state.beast.igniteTimer = null;
+        const gf = glowSlot?.children?.[0];
+        gf?.classList?.remove("is-igniting");
+      }, 1600);
+      if (toastSlot) {
+        toastSlot.replaceChildren(buildBeastActivationToast());
+        state.beast.toastTimer = setTimeout(() => {
+          state.beast.toastTimer = null;
+          toastSlot.replaceChildren();
+        }, 6600);
+      }
+    }
+
+    if (!state.beast.mounted) {
+      glowSlot?.replaceChildren(buildBeastGlowFrame(state.beast.igniting));
+      bannerSlot?.replaceChildren(buildBeastHeaderBar());
+      state.beast.mounted = true;
+    } else if (turnedOn) {
+      const gf = glowSlot?.children?.[0];
+      gf?.classList?.add("is-igniting");
+    }
+  }
+
   function renderStatusBanner(snap, isNonRepo) {
     const wrap = document.getElementById("status-banner-wrap");
     const banner = document.getElementById("status-banner");
@@ -2007,6 +2456,7 @@
       return;
     }
 
+    const beastOn = isBeastActive(snap, isNonRepo);
     const stages = snap.stages || [];
     const byId = new Map(stages.map((s) => [s.id, s]));
     const plan = byId.get("plan");
@@ -2015,11 +2465,59 @@
     const ship = byId.get("ship");
     const liveIds = snap.activity?.liveStageIds || [];
 
+    if (beastOn && liveIds.length > 0 && state.panelMode !== "review_pr") {
+      const liveStage = stages.find((s) => liveIds.includes(s.id));
+      const liveText = liveStage
+        ? `${liveStage.label} · ${liveStage.collapsedSummary || liveStage.detail}`
+        : "Agents running.";
+      wrap.classList.remove("hidden");
+      banner.className = "status-banner is-autopilot";
+      banner.dataset.testid = "beast-autopilot-card";
+
+      const lead = el("div", "status-banner-lead");
+      const badgeEl = el("span", "beast-autopilot-badge");
+      badgeEl.appendChild(svgIcon("bolt", 13));
+      badgeEl.appendChild(el("span", "", "Autopilot"));
+      lead.appendChild(badgeEl);
+      lead.appendChild(el("span", "status-banner-copy", liveText));
+      banner.appendChild(lead);
+
+      const runningPos = Math.max(1, stages.findIndex((s) => s.railState === "running") + 1);
+      const progBar = el("div", "beast-prog-bar");
+      progBar.setAttribute("role", "img");
+      progBar.setAttribute("aria-label", `Step ${runningPos} of ${stages.length || 4} running, the rest will start automatically`);
+      for (const s of stages) {
+        const cls =
+          s.railState === "done"
+            ? "beast-seg is-done"
+            : s.railState === "running"
+              ? "beast-seg is-run"
+              : "beast-seg";
+        progBar.appendChild(el("div", cls));
+      }
+      banner.appendChild(progBar);
+
+      const stopsRow = el("div", "beast-stops-row");
+      stopsRow.appendChild(el("span", "", "Stops for you only on"));
+      for (const stopLabel of computeBeastStopChips(snap)) {
+        stopsRow.appendChild(el("span", "beast-stop-chip", stopLabel));
+      }
+      banner.appendChild(stopsRow);
+      return;
+    }
+
     let tone = "is-idle";
     let iconKind = "dot";
     let badge = "Next";
     let text = "";
-    let action = null;
+    let guided = false;
+    let title = "";
+    let instruction = "";
+    let cmdPrompt = null;
+    let cmdLabel = null;
+    let secondaryAction = null;
+    let manualHint = "";
+    const alternative = snap.nextAction?.alternative || null;
 
     if (state.panelMode === "review_pr" && snap.colleagueReview?.detected) {
       tone = snap.colleagueReview.running ? "is-running" : "is-done";
@@ -2029,94 +2527,206 @@
       text = cmds.length > 0
         ? `Colleague PR review active (${cmds.join(", ")}).`
         : "Colleague PR review mode active.";
+    } else if (state.panelMode === "review_pr") {
+      wrap.classList.add("hidden");
+      return;
     } else if (liveIds.length > 0) {
       const liveStage = stages.find((s) => liveIds.includes(s.id));
       tone = "is-running";
       iconKind = "dot";
       badge = "Working";
       text = liveStage ? `${liveStage.label} · ${liveStage.collapsedSummary || liveStage.detail}` : "Agents running.";
-    } else if (review?.status === "error") {
-      tone = "is-err";
-      iconKind = "warn";
-      badge = "Needs attention";
-      text = review.detail || "Remediation round cap reached.";
-      action = { type: "copy", label: "/pre-pr", command: "/pre-pr" };
-    } else if (plan?.status === "waiting_gate") {
-      tone = "is-yourturn";
-      iconKind = "dot";
-      badge = "Your turn";
-      text = "Review the implementation plan, then click Proceed.";
-      action = plan.artifact
-        ? { type: "artifact", label: "Open Plan", artifact: plan.artifact }
-        : { type: "copy", label: "Proceed", command: "Proceed" };
-    } else if (review?.status === "waiting_gate") {
-      tone = "is-yourturn";
-      iconKind = "dot";
-      badge = "Your turn";
-      text = "Review the PR dossier, then open or merge the PR.";
-      action = review.artifact
-        ? { type: "artifact", label: "Open Dossier", artifact: review.artifact }
-        : { type: "view", label: "Open Dossier", view: "dossier" };
-    } else if (build?.status === "stale" || review?.status === "stale") {
-      tone = "is-yourturn";
-      iconKind = "warn";
-      badge = "Needs attention";
-      text = snap.nextAction?.hint || "New edits landed. Re-verify on HEAD.";
-      action = {
-        type: "copy",
-        label: snap.nextAction?.command || "/astack-mode",
-        command: snap.nextAction?.command || "/astack-mode",
-      };
+      manualHint = "You start each step";
+    } else if (
+      plan?.readOnlyComplete &&
+      !snap.nextAction &&
+      build?.status === "pending" &&
+      review?.status === "pending" &&
+      ship?.status === "pending"
+    ) {
+      tone = "is-done";
+      iconKind = "check";
+      badge = "Done";
+      text = plan.collapsedSummary || "Investigation complete (read-only).";
     } else if (ship?.status === "done" && !snap.nextAction) {
       tone = "is-done";
       iconKind = "check";
       badge = "All done";
       text = ship.collapsedSummary || "All workflow stages complete.";
+    } else if (review?.status === "error") {
+      guided = true;
+      tone = "is-err";
+      iconKind = "warn";
+      badge = "Needs attention";
+      title = snap.nextAction?.title || "Resolve escalated Pre-PR findings";
+      instruction = snap.nextAction?.instruction || review.detail || "Remediation round cap reached.";
+      cmdLabel = snap.nextAction?.command || "/pre-pr";
+      cmdPrompt = snap.nextAction?.prompt || "/pre-pr";
+    } else if (review?.status === "stale") {
+      guided = true;
+      tone = "is-yourturn";
+      iconKind = "warn";
+      badge = "Needs attention";
+      title = snap.nextAction?.title || "Re-run Pre-PR Check on updated HEAD";
+      instruction = snap.nextAction?.instruction || snap.nextAction?.hint || "New edits invalidated the PR check. Re-run /pre-pr.";
+      cmdLabel = snap.nextAction?.command || "/pre-pr";
+      cmdPrompt = snap.nextAction?.prompt || cmdLabel;
+    } else if (plan?.status === "waiting_gate") {
+      guided = true;
+      tone = "is-yourturn";
+      iconKind = "dot";
+      badge = "Your turn";
+      if (plan.waitingArtifact === "diagnosis") {
+        const diagArt = (plan.artifacts || []).find((a) => a.name === "diagnosis.md") || plan.artifact;
+        title = snap.nextAction?.title || "Review root-cause diagnosis";
+        instruction =
+          snap.nextAction?.instruction || "Review diagnosis.md, then run /plan to draft a fix or close read-only.";
+        cmdLabel = "/plan";
+        cmdPrompt = snap.nextAction?.prompt || "/plan";
+        if (diagArt) {
+          secondaryAction = { type: "artifact", label: "Open Diagnosis", artifact: diagArt };
+        }
+      } else {
+        const planArt = (plan.artifacts || []).find((a) => a.name === "implementation_plan.md") || plan.artifact;
+        title =
+          snap.nextAction?.title ||
+          (plan.combinedGate ? "Approve combined diagnosis and plan" : "Approve implementation plan");
+        instruction =
+          snap.nextAction?.instruction ||
+          (plan.combinedGate
+            ? "Review diagnosis and implementation plan, then click Proceed."
+            : "Review implementation_plan.md, then click Proceed.");
+        cmdLabel = "Proceed";
+        cmdPrompt = snap.nextAction?.prompt || "Proceed";
+        if (planArt) {
+          secondaryAction = { type: "artifact", label: "Open Plan", artifact: planArt };
+        }
+      }
+    } else if (review?.status === "waiting_gate") {
+      guided = true;
+      tone = "is-yourturn";
+      iconKind = "dot";
+      badge = "Your turn";
+      title = snap.nextAction?.title || "Inspect PR dossier, then open PR";
+      instruction = snap.nextAction?.instruction || "Review the PR dossier, then open or merge the PR.";
+      cmdLabel = snap.nextAction?.command || "/astack-mode open the pr";
+      cmdPrompt = snap.nextAction?.prompt || "/astack-mode open the pr";
+      secondaryAction = review.artifact
+        ? { type: "artifact", label: "Open Dossier", artifact: review.artifact }
+        : { type: "view", label: "Open Dossier", view: "dossier" };
     } else if (snap.nextAction) {
+      guided = true;
       tone = "is-idle";
       iconKind = "dot";
-      badge = "Next";
-      text = snap.nextAction.hint || "Ready to start.";
-      if (snap.nextAction.command) {
-        action = { type: "copy", label: snap.nextAction.command, command: snap.nextAction.command };
-      }
+      badge = "Recommended next";
+      title = snap.nextAction.title || snap.nextAction.stageLabel || "Next step";
+      instruction = snap.nextAction.instruction || snap.nextAction.hint || "Ready to start.";
+      cmdLabel = snap.nextAction.command || null;
+      cmdPrompt = snap.nextAction.prompt || cmdLabel;
     } else {
       wrap.classList.add("hidden");
       return;
     }
 
-    wrap.classList.remove("hidden");
-    banner.className = `status-banner ${tone}`;
-
-    const lead = el("div", "status-banner-lead");
-    if (iconKind === "check") {
-      const ic = svgIcon("check-sm", 12);
-      ic.classList.add("status-banner-icon");
-      lead.appendChild(ic);
-    } else if (iconKind === "warn") {
-      const ic = svgIcon("warn", 12);
-      ic.classList.add("status-banner-icon");
-      lead.appendChild(ic);
-    } else {
-      const dot = el("span", tone === "is-running" ? "status-banner-dot pulse" : "status-banner-dot");
-      dot.setAttribute("aria-hidden", "true");
-      lead.appendChild(dot);
-    }
-    lead.appendChild(el("span", "status-banner-badge", badge));
-    lead.appendChild(el("span", "status-banner-copy", text));
-    banner.appendChild(lead);
-
-    if (action) {
-      const btn = el("button", "status-banner-action", action.label);
-      btn.type = "button";
-      if (action.type === "copy") {
-        wireCommandAction(btn, lookupCommandMeta(snap, action.command) || action.command);
-      } else if (action.type === "artifact") {
-        btn.addEventListener("click", () => openArtifact(action.artifact, btn));
-      } else if (action.type === "view") {
-        btn.addEventListener("click", () => switchView(action.view));
+    const appendIcon = (parent) => {
+      if (iconKind === "check") {
+        const ic = svgIcon("check-sm", 12);
+        ic.classList.add("status-banner-icon");
+        parent.appendChild(ic);
+      } else if (iconKind === "warn") {
+        const ic = svgIcon("warn", 12);
+        ic.classList.add("status-banner-icon");
+        parent.appendChild(ic);
+      } else {
+        const dot = el("span", tone === "is-running" ? "status-banner-dot pulse" : "status-banner-dot");
+        dot.setAttribute("aria-hidden", "true");
+        parent.appendChild(dot);
       }
-      banner.appendChild(btn);
+    };
+
+    wrap.classList.remove("hidden");
+    banner.dataset.testid = "timeline-status-banner";
+    if (!guided) {
+      banner.className = `status-banner ${tone}`;
+      const lead = el("div", "status-banner-lead");
+      appendIcon(lead);
+      lead.appendChild(el("span", "status-banner-badge", badge));
+      lead.appendChild(el("span", "status-banner-copy", text));
+      banner.appendChild(lead);
+      if (manualHint) {
+        banner.appendChild(el("span", "status-banner-manual-hint", manualHint));
+      }
+      return;
+    }
+
+    banner.className = `status-banner is-guided ${tone}`;
+    const head = el("div", "status-banner-head");
+    appendIcon(head);
+    head.appendChild(el("span", "status-banner-badge", badge));
+    if (title) head.appendChild(el("span", "status-banner-title", title));
+    banner.appendChild(head);
+
+    if (instruction) {
+      banner.appendChild(el("p", "status-banner-instruction", instruction));
+    }
+
+    if (cmdPrompt || secondaryAction) {
+      const cmdRow = el("div", "status-banner-cmd-row");
+      if (cmdPrompt) {
+        const codeEl = el("code", "status-banner-cmd", cmdPrompt);
+        codeEl.dataset.testid = "status-banner-cmd";
+        cmdRow.appendChild(codeEl);
+      }
+      const actions = el("div", "status-banner-actions");
+      if (secondaryAction) {
+        const secBtn = el("button", "status-banner-action", secondaryAction.label);
+        secBtn.type = "button";
+        if (secondaryAction.type === "artifact") {
+          secBtn.addEventListener("click", () => openArtifact(secondaryAction.artifact, secBtn));
+        } else if (secondaryAction.type === "view") {
+          secBtn.addEventListener("click", () => switchView(secondaryAction.view));
+        }
+        actions.appendChild(secBtn);
+      }
+      if (cmdPrompt) {
+        const isProceed = cmdPrompt === "Proceed";
+        const copyBtn = el("button", "status-banner-action is-primary");
+        copyBtn.type = "button";
+        copyBtn.dataset.testid = "status-banner-copy";
+        if (!isProceed) {
+          copyBtn.appendChild(svgIcon("copy", 11));
+        }
+        copyBtn.appendChild(el("span", "", isProceed ? "Proceed" : "Copy command"));
+        const meta = cmdLabel ? lookupCommandMeta(snap, cmdLabel) : null;
+        copyBtn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          copyCommand(
+            { ...(meta || {}), command: cmdLabel || cmdPrompt, copyText: cmdPrompt },
+            copyBtn,
+            cmdPrompt !== (cmdLabel || cmdPrompt),
+          );
+        });
+        actions.appendChild(copyBtn);
+      }
+      cmdRow.appendChild(actions);
+      banner.appendChild(cmdRow);
+    }
+
+    if (alternative && alternative.prompt) {
+      const altRow = el("div", "status-banner-alt");
+      altRow.appendChild(el("span", "status-banner-alt-label", "Optional:"));
+      const altBtn = el("button", "subcmd-pill is-sans", alternative.label || alternative.command);
+      altBtn.type = "button";
+      altBtn.dataset.testid = "status-banner-alt";
+      if (alternative.summary) {
+        attachStatusPopover(altBtn, alternative.label || alternative.command, alternative.command, "", alternative.summary);
+      }
+      altBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        copyCommand({ command: alternative.command, copyText: alternative.prompt }, altBtn, true);
+      });
+      altRow.appendChild(altBtn);
+      banner.appendChild(altRow);
     }
   }
 
@@ -2156,7 +2766,7 @@
     const stage = snap.stages?.find((s) => s.id === stageId);
     const act = snap.activity || {};
     if (stage?.status === "error") return { text: "escalated", cls: "warn" };
-    if (stage?.status === "stale") return { text: "re-verify", cls: "warn" };
+    if (stage?.status === "stale") return { text: "re-run", cls: "warn" };
     if (stage?.status === "waiting_gate") return { text: "review", cls: "warn" };
     if (
       stageId === "build" &&
@@ -2214,7 +2824,7 @@
     active: { word: "running", cls: "" },
     waiting_gate: { word: "review", cls: "warn" },
     error: { word: "escalated", cls: "warn" },
-    stale: { word: "re-verify", cls: "warn" },
+    stale: { word: "re-run", cls: "warn" },
     done: { word: "done", cls: "done" },
   };
 
@@ -2700,17 +3310,38 @@
       const deltaSec = el("section", "dossier-section");
       const deltaHead = el("div", "dossier-section-head");
       deltaHead.appendChild(el("h2", "dossier-section-title", "Diff Signals & Test Integrity"));
+      const autoBadgeText = delta.flagged
+        ? "FLAGGED"
+        : ev.autoMergeEligible
+          ? ev.autoMerge?.mode === "earned_trust_l3"
+            ? "Auto-Merge L3"
+            : "Tier 0 Auto"
+          : "Human Review";
       deltaHead.appendChild(
         el(
           "span",
           `dossier-badge ${delta.flagged ? "err" : "done"}`,
-          delta.flagged ? "FLAGGED" : ev.autoMergeEligible ? "Tier 0 Auto" : "Human Review",
+          autoBadgeText,
         ),
       );
       deltaSec.appendChild(deltaHead);
       deltaSec.appendChild(
         el("p", "audit-detail", `Test assertions: +${delta.added} / -${delta.removed} (ratio ${delta.weakeningRatio})`),
       );
+      if (ev.trustContext) {
+        const tc = ev.trustContext;
+        const targetLabel = tc.category === "governance" ? "L2 cap" : "L3";
+        deltaSec.appendChild(
+          el(
+            "p",
+            "audit-detail",
+            `Agent Trust: ${tc.category} L${tc.level}/${targetLabel} (T ${Number(tc.score ?? 0).toFixed(2)}, ceiling L${tc.ceiling}, ${tc.merges}/${tc.minMergesForL3} merges)`,
+          ),
+        );
+      }
+      if (ev.autoMerge?.reason) {
+        deltaSec.appendChild(el("p", "audit-detail", ev.autoMerge.reason));
+      }
       const bar = el("div", "trust-ema-bar");
       const pct = Math.min(100, Math.round((Number(delta.weakeningRatio) || 0) * 100));
       const fill = el("div", `dossier-meter-fill ${delta.flagged ? "err" : pct > 10 ? "warn" : ""}`.trim());
@@ -2990,7 +3621,7 @@
       document.getElementById("back-from-artifact")?.focus();
     } else {
       renderFooter(state.snap);
-      rail?.setVisible(!document.hidden);
+      rail?.setVisible(!document.hidden && state.panelMode === "build");
       layoutRail();
       if (restoreFocus) {
         if (prevView === "artifact" && state.artifactReturnEl && document.contains(state.artifactReturnEl)) {
@@ -3019,7 +3650,15 @@
       return r.top + r.height / 2 - top + PAD_TOP;
     });
     rail.resize(height + PAD_TOP);
-    rail.setNodes(railStages.map((s, i) => ({ state: s.railState, agents: s.agents, y: ys[i] ?? PAD_TOP })));
+    rail.setNodes(
+      railStages.map((s, i) => ({
+        state: s.railState,
+        agents: s.agents,
+        pilotScale: s.pilotScale,
+        pilotAlpha: s.pilotAlpha,
+        y: ys[i] ?? PAD_TOP,
+      })),
+    );
   }
 
   function scheduleRailAnnouncement(snap) {
@@ -3052,10 +3691,19 @@
   }
 
   function updateRail(snap) {
-    railStages = (snap?.stages || []).map((s) => ({
-      railState: s.railState || "pending",
-      agents: snap?.activity?.liveAgentsByStage?.[s.id] ?? 0,
-    }));
+    const setupReady = snap?.setup?.status === "ready";
+    const isNonRepo = snap?.trust?.scopeKind === "non_repo" && Boolean(snap?.workspace) && !setupReady;
+    const beastOn = isBeastActive(snap, isNonRepo);
+    const stages = snap?.stages || [];
+    railStages = stages.map((s) => {
+      const meta = computeBeastStageMeta(s, snap, stages, beastOn);
+      return {
+        railState: meta.railState,
+        agents: snap?.activity?.liveAgentsByStage?.[s.id] ?? 0,
+        pilotScale: meta.pilotScale,
+        pilotAlpha: meta.pilotAlpha,
+      };
+    });
     layoutRail();
     scheduleRailAnnouncement(snap);
   }
@@ -3167,7 +3815,10 @@
         hideCommandPopover();
         state.userToggled = true;
         if (state.expanded.has(stage.id)) state.expanded.delete(stage.id);
-        else state.expanded.add(stage.id);
+        else {
+          state.expanded.add(stage.id);
+          if (item.key === "agents") state.subExpanded[`subagents:${stage.id}`] = true;
+        }
         render(state.snap);
       });
       row.appendChild(chip);
@@ -3365,7 +4016,10 @@
     if (state.snap) return;
     const live = document.getElementById("live");
     const liveLabel = document.getElementById("live-label");
-    if (live) live.className = "live idle";
+    if (live) {
+      live.className = "live idle";
+      live.title = "Loading…";
+    }
     if (liveLabel) liveLabel.textContent = "Loading…";
     const list = document.getElementById("timeline");
     if (!list || list.children.length > 0) return;
@@ -3385,6 +4039,11 @@
     syncPanelMode(snap);
     const progressEl = document.getElementById("progress");
     const WORKFLOW_MODE_COPY = {
+      investigation: {
+        title: "Investigation",
+        status: "Read-only",
+        desc: "Isolating root cause or exploring read-only before planning any edits.",
+      },
       pr_iteration: {
         title: "PR Iteration",
         status: "Advisory",
@@ -3432,11 +4091,8 @@
 
     const RISK_TITLES = ["Low risk", "Medium risk", "High risk", "Critical risk"];
     const FRESHNESS_DISPLAY = {
-      fresh: { label: "Verified", mode: "done", desc: "Tests or validation passed on the current git HEAD with no unverified edits." },
-      fresh_rebase_patch_id: { label: "Verified", mode: "done", desc: "Rebased commit matches previously verified patch-id on current HEAD." },
-      dirty_after_verify: { label: "Needs re-verify", mode: "stale", desc: "Files changed after the last verification run. Re-run tests on HEAD." },
-      stale_sha: { label: "Stale commit", mode: "stale", desc: "Receipts belong to an older git commit. Re-run verification on HEAD." },
-      missing_receipts: { label: "Unverified", mode: "", desc: "No passing verification receipt recorded for this commit yet." },
+      fresh: { label: "✓ Verified", mode: "done", desc: "Tests or validation passed on the current git HEAD with no unverified edits." },
+      fresh_rebase_patch_id: { label: "✓ Verified", mode: "done", desc: "Rebased commit matches previously verified patch-id on current HEAD." },
     };
 
     const rp = snap.trust?.riskPresentation || null;
@@ -3444,7 +4100,8 @@
     if (snap.riskTier !== null && snap.riskTier !== undefined) {
       const riskWord = RISK_TITLES[snap.riskTier] || `Tier ${snap.riskTier}`;
       const raScore = typeof snap.trust?.riskAssessment?.score === "number" ? snap.trust.riskAssessment.score : null;
-      const riskLabel = rp?.headerBadge || (raScore !== null ? `${riskWord} · R ${raScore.toFixed(2)}` : riskWord);
+      const riskPct = raScore !== null ? Math.round(raScore * 100) : null;
+      const riskLabel = rp?.headerBadge || (riskPct !== null ? `${riskWord} · ${riskPct}%` : riskWord);
       const descParts = [];
       if (rp) {
         descParts.push(rp.headline);
@@ -3472,17 +4129,13 @@
         cls: riskCls,
         testId: "timeline-risk-badge",
         popTitle: raScore !== null ? `Risk Score · ${riskWord}` : `Blast-Radius Risk · Tier ${snap.riskTier}`,
-        popStatus: raScore !== null ? `R ${raScore.toFixed(2)}` : riskWord,
+        popStatus: raScore !== null ? `Risk ${riskPct}% (R ${raScore.toFixed(2)})` : riskWord,
         popMode: rp?.mode === "resolved_merged" ? "done" : snap.riskTier >= 3 ? "stale" : snap.riskTier === 0 ? "done" : "",
         popDesc: descParts.join(" "),
       });
     }
-    if (snap.freshness) {
-      const fm = FRESHNESS_DISPLAY[snap.freshness] || {
-        label: snap.freshness,
-        mode: "",
-        desc: `Trust ledger freshness status: ${snap.freshness}.`,
-      };
+    if (snap.freshness && FRESHNESS_DISPLAY[snap.freshness]) {
+      const fm = FRESHNESS_DISPLAY[snap.freshness];
       metaParts.push({
         text: fm.label,
         cls: `meta-pill meta-fresh ${fm.mode}`.trim(),
@@ -3526,19 +4179,49 @@
       }
       if (snap.trust?.enrolled) {
         const activeCat = snap.trust.activeCatState;
-        const beastToggle = el("button", snap.trust.beastOn ? "meta-btn is-beast" : "meta-btn is-neutral");
+        const beastOn = Boolean(snap.trust.beastOn);
+        if (!beastOn) {
+          state.beastDrawerOpen = false;
+        }
+        const rmGroup = el("div", "run-mode-switch");
+        rmGroup.setAttribute("role", "group");
+        rmGroup.setAttribute("aria-label", "Run mode");
+        rmGroup.dataset.testid = "timeline-run-mode";
+
+        const manualBtn = el("button", "run-mode-btn is-manual", "Manual");
+        manualBtn.type = "button";
+        manualBtn.dataset.testid = "timeline-mode-manual";
+        manualBtn.setAttribute("aria-pressed", String(!beastOn));
+        manualBtn.addEventListener("click", () => {
+          if (beastOn || state.beast.pendingOn) {
+            updateTrustSettings({ beastOn: false }, "Manual mode · current step finishes, next steps wait for you");
+          }
+        });
+
+        const beastToggle = el("button", beastOn ? "run-mode-btn is-beast" : "run-mode-btn is-beast-idle");
         beastToggle.type = "button";
         beastToggle.dataset.testid = "timeline-beast-toggle";
-        beastToggle.setAttribute("aria-expanded", String(state.beastDrawerOpen));
-        beastToggle.textContent = snap.trust.beastOn
-          ? `Beast · L${activeCat?.level ?? 0}`
-          : "Beast · Off";
+        beastToggle.setAttribute("aria-pressed", String(beastOn));
+        if (beastOn) {
+          beastToggle.setAttribute("aria-expanded", String(state.beastDrawerOpen));
+        }
+        const flameIc = svgIcon(beastOn ? "flame-solid" : "flame-outline", 12);
+        if (beastOn) flameIc.classList.add("beast-lick");
+        beastToggle.appendChild(flameIc);
+        beastToggle.appendChild(
+          el("span", "", beastOn ? `Beast · L${activeCat?.level ?? 0}` : "Beast"),
+        );
         beastToggle.addEventListener("click", () => {
+          if (!beastOn) {
+            updateTrustSettings({ beastOn: true }, "");
+            return;
+          }
           state.beastDrawerOpen = !state.beastDrawerOpen;
           if (state.beastDrawerOpen) state.setupDrawerOpen = false;
           render(state.snap);
         });
-        metaRow.appendChild(beastToggle);
+        rmGroup.append(manualBtn, beastToggle);
+        metaRow.appendChild(rmGroup);
       } else if (snap.trust?.scopeKind === "git_unregistered") {
         const offBtn = el("button", "meta-btn is-neutral", "Trust: Off");
         offBtn.type = "button";
@@ -3705,6 +4388,7 @@
       setupCard.className = "setup-card hidden";
     }
 
+    syncBeastChrome(snap, isNonRepo);
     renderTotalsStrip(snap);
     renderStatusBanner(snap, isNonRepo);
 
@@ -3714,7 +4398,8 @@
         snap.stages.find((s) => s.railState === "error") ||
         snap.stages.find((s) => s.railState === "running") ||
         snap.stages.find((s) => s.railState === "stale") ||
-        snap.stages.find((s) => s.railState === "yourturn");
+        snap.stages.find((s) => s.railState === "yourturn") ||
+        snap.stages.find((s) => s.id === snap.nextAction?.stageId && s.status !== "pending");
       if (focus) state.expanded.add(focus.id);
     }
 
@@ -3735,11 +4420,13 @@
       list.classList.toggle("is-dimmed", isNonRepo);
       railWrap?.classList.toggle("is-dimmed", isNonRepo);
       const liveIds = snap.activity?.liveStageIds || [];
+      const beastActive = isBeastActive(snap, isNonRepo);
 
       snap.stages.forEach((stage, idx) => {
         const isLast = idx === snap.stages.length - 1;
         const isExpanded = state.expanded.has(stage.id);
         const rs = stage.railState || "pending";
+        const beastMeta = computeBeastStageMeta(stage, snap, snap.stages, beastActive);
         const stLabel = stageStatusLabel(stage, snap.stages);
         const liveAgents = snap.activity?.liveAgentsByStage?.[stage.id] ?? 0;
 
@@ -3777,7 +4464,17 @@
         });
 
         stepBtn.appendChild(el("span", "step-title", `${stage.number}. ${stage.label}`));
-        if (stLabel) {
+        if (beastActive && rs === "running") {
+          const runAuto = el("span", "status-text running-auto");
+          runAuto.appendChild(el("span", "beast-spin"));
+          runAuto.appendChild(el("span", "", "Running · auto"));
+          stepBtn.appendChild(runAuto);
+        } else if (beastMeta.pillKind) {
+          const pill = el("span", `beast-stage-pill is-${beastMeta.pillKind}`);
+          pill.appendChild(svgIcon(beastMeta.pillKind === "gate" ? "lock" : "bolt", 10));
+          pill.appendChild(el("span", "", beastMeta.pillText));
+          stepBtn.appendChild(pill);
+        } else if (stLabel) {
           stepBtn.appendChild(el("span", `status-text ${stLabel.cls}`, stLabel.text));
         } else if (stage.id === "plan" && rs === "pending") {
           stepBtn.appendChild(el("span", "status-text muted", "Optional"));
@@ -3790,6 +4487,9 @@
         const summaryText = isExpanded ? stage.summary : stage.collapsedSummary || stage.summary;
         if (summaryText) {
           body.appendChild(el("p", "stage-summary", summaryText));
+        }
+        if (beastMeta.note) {
+          body.appendChild(el("p", "stage-beast-note", beastMeta.note));
         }
 
         const statsRow = buildStageStatsRow(stage);
@@ -3893,8 +4593,12 @@
         state.lastPollError = { status: res.status, message: msg };
         const live = document.getElementById("live");
         const liveLabel = document.getElementById("live-label");
-        if (live) live.className = res.status === 401 || res.status === 503 ? "live idle" : "live error";
-        if (liveLabel) liveLabel.textContent = res.status === 401 ? "Auth error" : "Error";
+        const statusText = res.status === 401 ? "Auth error" : "Error";
+        if (live) {
+          live.className = res.status === 401 || res.status === 503 ? "live idle" : "live error";
+          live.title = statusText;
+        }
+        if (liveLabel) liveLabel.textContent = statusText;
         if (!state.snap) {
           renderLoadFallback(
             "Could not load AStack Timeline",
@@ -3925,7 +4629,10 @@
       if (reqSeq !== state.pollSeq) return;
       const live = document.getElementById("live");
       const liveLabel = document.getElementById("live-label");
-      if (live) live.className = "live idle";
+      if (live) {
+        live.className = "live idle";
+        live.title = "Offline";
+      }
       if (liveLabel) liveLabel.textContent = "Offline";
       if (!state.snap) {
         const reason =
@@ -4093,8 +4800,10 @@
     poll();
   }
   setInterval(tickTimers, 1000);
+  document.getElementById("timeline-view")?.classList.toggle("is-paused", Boolean(document.hidden));
   document.addEventListener("visibilitychange", () => {
-    rail?.setVisible(!document.hidden && state.view === "timeline");
+    document.getElementById("timeline-view")?.classList.toggle("is-paused", Boolean(document.hidden));
+    rail?.setVisible(!document.hidden && state.view === "timeline" && state.panelMode === "build");
     if (!document.hidden) {
       poll();
       tickTimers();

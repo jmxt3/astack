@@ -104,6 +104,8 @@ const SIDECAR_PERMISSION_KEY_RE = /"(?:arguments|workspace_uris|access_grants)"\
 const PUBLIC_SURFACE_FILE_RE =
   /^(?:scripts\/trust\/index\.mjs|scripts\/mcp\/tools\.mjs|plugin\.json|mcp_config\.json)$/i;
 const FRONTMATTER_SKILL_OR_AGENT_RE = /^(?:skills\/[^/]+\/SKILL\.md|agents\/[^/]+\.md)$/i;
+const LOCKFILE_RE = /package-lock\.json|pnpm-lock\.yaml|yarn\.lock$/i;
+const COMPANION_SCOPE_CATEGORIES = new Set(["tests", "docs"]);
 
 const CATEGORY_PRECEDENCE = [
   "governance",
@@ -225,6 +227,10 @@ function parseDiffFiles(diffText) {
   return fileMap;
 }
 
+function isLargeDiffExempt(file) {
+  return LOCKFILE_RE.test(file) || matchesAnyGlob(file, TEST_GLOBS) || matchesAnyGlob(file, DOCS_GLOBS);
+}
+
 function parseNumstatTotals(numstatText) {
   const files = [];
   let totalLines = 0;
@@ -238,7 +244,7 @@ function parseNumstatTotals(numstatText) {
     const file = normalizePath(parts.slice(2).join("\t"));
     files.push({ file, added, deleted });
     totalLines += added + deleted;
-    if (!/package-lock\.json|pnpm-lock\.yaml|yarn\.lock$/i.test(file)) {
+    if (!isLargeDiffExempt(file)) {
       nonLockLines += added + deleted;
     }
   }
@@ -455,11 +461,11 @@ export function assessChange({
 
   const largeDiffThreshold = Number(effectivePolicy?.risk?.largeDiffThreshold ?? 400);
   const diffChangedLines =
-    numstatInfo.nonLockLines > 0
+    numstatInfo.files.length > 0
       ? numstatInfo.nonLockLines
       : [...diffFiles.values()].reduce(
           (sum, info) =>
-            /package-lock\.json|pnpm-lock\.yaml|yarn\.lock$/i.test(info.file)
+            isLargeDiffExempt(info.file)
               ? sum
               : sum + info.addedLines.length + info.removedLines.length,
           0,
@@ -482,12 +488,17 @@ export function assessChange({
   if (intent && Array.isArray(intent.affectedGlobs) && intent.affectedGlobs.length > 0) {
     const globs = intent.affectedGlobs.map((g) => normalizePath(g)).filter(Boolean);
     const hasWildcardAll = globs.some((g) => g === "**" || g === "**/*" || g === "*");
-    const coveredCats = new Set(globs.map((g) => classifyFileCategory(g.replace(/\*+/g, "file"))));
-    if (hasWildcardAll || globs.length > 10 || coveredCats.size >= 3) {
+    const primaryGlobs = globs.filter(
+      (g) => !COMPANION_SCOPE_CATEGORIES.has(classifyFileCategory(g.replace(/\*+/g, "file"))),
+    );
+    const primaryCats = new Set(
+      primaryGlobs.map((g) => classifyFileCategory(g.replace(/\*+/g, "file"))),
+    );
+    if (hasWildcardAll || primaryGlobs.length > 10 || primaryCats.size >= 3) {
       pushSignal(
         "wide_declared_scope",
         1,
-        `intent globs span ${hasWildcardAll ? "entire repo" : `${globs.length} globs across ${coveredCats.size} categories`}`,
+        `intent globs span ${hasWildcardAll ? "entire repo" : `${primaryGlobs.length} non-doc/test globs across ${primaryCats.size} code categories`}`,
       );
     }
     const drifted = files.filter((f) => !matchesAnyGlob(f, globs));

@@ -95,6 +95,27 @@ function extractTextChunks(args) {
   return chunks;
 }
 
+function extractCommandFailure(payload, baseError) {
+  if (baseError) return baseError;
+  const containers = [payload, payload.tool_response, payload.toolResponse, payload.result];
+  for (const obj of containers) {
+    if (!obj || typeof obj !== "object") continue;
+    if (obj.isError === true || obj.is_error === true) {
+      return "tool_error";
+    }
+    const code = obj.exitCode ?? obj.exit_code;
+    if (typeof code === "number" && Number.isFinite(code) && code !== 0) {
+      return `exit_code_${code}`;
+    }
+  }
+  for (const val of [payload.tool_response, payload.toolResponse, payload.output, payload.result]) {
+    if (typeof val === "string" && /Command exited with code [1-9]/i.test(val)) {
+      return "non_zero_exit";
+    }
+  }
+  return "";
+}
+
 /**
  * Normalizes raw Antigravity App, IDE, and CLI hook stdin payloads into a uniform event union.
  */
@@ -248,7 +269,7 @@ export function parseHookPayload(payload, hint) {
         conversationId,
         tool: rawToolName || "run_command",
         command,
-        error,
+        error: extractCommandFailure(payload, error),
         workspaceDir,
         artifactDir,
         ...meta,

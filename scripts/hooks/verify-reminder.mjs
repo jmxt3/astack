@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-/**
- * Opt-in Stop hook checking AStack receipt freshness and git status (override off with ASTACK_REQUIRE_VERIFY=0).
- * Enable in astack/hooks.json by setting "enabled": true on "astack-verify-reminder".
- */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -14,7 +10,8 @@ import {
 
 export function evaluateStop(payload, options = {}) {
   const event = parseHookPayload(payload, "stop");
-  const verify = evaluateVerifyReminder(event, options);
+  const dirtyOnly = options.dirtyOnly ?? process.argv.includes("--dirty-only");
+  const verify = evaluateVerifyReminder(event, { ...options, dirtyOnly });
   if (verify.decision !== "allow") return verify;
   return evaluateStageHandoff(event, options);
 }

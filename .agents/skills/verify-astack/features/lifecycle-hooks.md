@@ -1,6 +1,6 @@
 # Opt-In Safety & Verification Lifecycle Hooks
 
-AStack wires **10 lifecycle hooks** in `hooks.json` with split defaults: **3 passive/context hooks** (`astack-receipt-ledger`, `astack-session-context`, `astack-pr-intent`) ship `"enabled": true` to record receipts and inject base-branch governance context, while **7 blocking/gating hooks** ship `"enabled": false` until opted in (`astack-irreversible-guard`, `astack-secret-guard`, `astack-verify-reminder`, `astack-evidence-gate`, `astack-boundary-guard`, `astack-round-limiter`, `astack-trust-gate`).
+AStack wires **10 lifecycle hooks** in `hooks.json` with split defaults: **3 passive/context hooks** (`astack-receipt-ledger`, `astack-session-context`, `astack-pr-intent`) and `astack-verify-reminder --dirty-only` (`Stop`) ship `"enabled": true`, while **6 opt-in blocking/gating hooks** ship `"enabled": false` until opted in (`astack-irreversible-guard`, `astack-secret-guard`, `astack-evidence-gate`, `astack-boundary-guard`, `astack-round-limiter`, `astack-trust-gate`).
 
 ## Sub-features
 
@@ -20,7 +20,7 @@ AStack wires **10 lifecycle hooks** in `hooks.json` with split defaults: **3 pas
 
 ## How to get to it (user POV)
 
-By default, `hooks.json` enables all 3 passive/context hooks and disables all 7 blocking gates (`"enabled": false`). Maintainers verify the hook scripts by piping JSON hook payloads via stdin or running `node --test scripts/test/hooks.test.mjs`, and end users opt into blocking gates in `hooks.json` (using `ASTACK_REQUIRE_VERIFY=0` to silence `verify-reminder` temporarily).
+By default, `hooks.json` enables all 3 passive/context hooks plus `astack-verify-reminder --dirty-only` (`Stop`), and disables the remaining 6 blocking gates (`"enabled": false`). Maintainers verify the hook scripts by piping JSON hook payloads via stdin or running `node --test scripts/test/hooks.test.mjs`, and end users opt into blocking gates in `hooks.json` (using `ASTACK_REQUIRE_VERIFY=0` to silence `verify-reminder` temporarily).
 
 ## Driving it with control-cli
 

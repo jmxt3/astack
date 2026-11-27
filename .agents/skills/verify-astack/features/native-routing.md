@@ -8,7 +8,7 @@ AStack aligns 100% with Antigravity's 18 public slash commands through a single 
 - Byte-identical generated Markdown table (`node scripts/validate-astack.mjs --write-native-commands`) checked automatically by `validate-astack.mjs`
 - Hard `/plan` approval gate (`implementation_plan.md` with `RequestFeedback: true` and `UserFacing: true`, zero workspace edits before approval), automated post-approval Step 6 finish gates (clicking **Proceed** or replying with short approval triggers `astack-mode`, live verification, `/deslop` + `/no-comments`, `walkthrough.md`, and local commit boundary before `git push`), and `/learn` `learning_proposal.md` gate
 - Model-decision intent routing (`trigger: model_decision`) via `rules/astack-orchestration.md` plus explicit `/` command priority and sticky active-playbook follow-ups reset by `"new task"`
-- Behavioral routing evaluation suite (`R1` to `R12` plus negative twin `R1-neg`, codified in `scripts/eval/fixtures/routing-cases.json` alongside `SEC-1` and `SEC-2` for `15` offline routing cases checked by `node scripts/eval/run-eval.mjs --json`) graded from transcripts using the general blinded-eval protocol in [eval.md](../../../../skills/astack-mode/playbooks/eval.md)
+- Behavioral routing evaluation suite (`R1` to `R12` plus negative twin `R1-neg`, codified in `scripts/eval/fixtures/routing-cases.json` alongside `SEC-1`, `SEC-2`, `INV-1` to `INV-3`, and `INV-neg` for `19` offline routing cases checked by `node scripts/eval/run-eval.mjs --json`) graded from transcripts using the general blinded-eval protocol in [eval.md](../../../../skills/astack-mode/playbooks/eval.md)
 
 ## How to get to it (user POV)
 
