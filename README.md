@@ -105,7 +105,7 @@ Enable the optional [`AStack`](./sidecars/astack_timeline/sidecar.json) Timeline
 
 ## Security and privacy
 
-AStack runs locally with zero external npm dependencies, no hosted servers, no telemetry, and no stored credentials. [`hooks.json`](./hooks.json) enables `3` passive observe-only hooks by default and keeps all `7` blocking safety gates disabled until you opt in. To report a vulnerability, follow [SECURITY.md](./SECURITY.md).
+AStack runs locally with zero external npm dependencies, no hosted servers, no telemetry, and no stored credentials. [`hooks.json`](./hooks.json) enables `3` passive observe-only hooks plus `astack-verify-reminder --dirty-only` (`Stop`) by default and keeps the remaining `6` blocking safety gates disabled until you opt in. To report a vulnerability, follow [SECURITY.md](./SECURITY.md).
 
 ## Credits and license
 

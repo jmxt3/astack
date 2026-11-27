@@ -502,12 +502,15 @@ test("createTimelineServer reports nextAction.inProgress when /plan is active be
     assert.doesNotMatch(appJs, /snap\.branch !== snap\.workspaceName/);
     assert.match(appJs, /timeline-risk-badge/);
     assert.match(appJs, /timeline-freshness/);
-    assert.match(appJs, /build-stale-callout/);
+    assert.doesNotMatch(appJs, /build-stale-callout/);
+    assert.doesNotMatch(appJs, /Needs re-verify/);
     assert.match(appJs, /Critical risk/);
-    assert.match(appJs, /focus-drawer-agents/);
+    assert.doesNotMatch(appJs, /focus-drawer-agents/);
+    assert.match(appJs, /stage-subagents-/);
     assert.match(appJs, /focus-drawer-prs/);
     assert.match(appJs, /focus-drawer-tasks/);
     assert.match(cssText, /\.living-rail\s*\{[^}]*top:\s*-32px/);
+    assert.doesNotMatch(cssText, /\.subcmd-pill\.stale-action/);
     assert.match(cssText, /\.pr-badge\.merged/);
   } finally {
     await srv.close();
@@ -2215,17 +2218,17 @@ test("app.js renders guided next-step command banner, Cleanup left label, collap
       ...currentSnap,
       etag: "etag-stale-and-gate",
       nextAction: {
-        stageId: "build",
-        stageLabel: "Build & Prove",
-        command: "/astack-mode",
-        title: "Re-verify edits on HEAD",
-        instruction: "New edits landed after verification. Re-clean and re-verify on HEAD before Pre-PR Check.",
-        prompt: "/astack-mode Re-clean and re-verify the 5 changed files on HEAD.",
+        stageId: "review",
+        stageLabel: "Pre-PR Check",
+        command: "/pre-pr",
+        title: "Re-run Pre-PR Check on updated HEAD",
+        instruction: "New edits invalidated the previous PR dossier. Re-compile pr-review.md and run pr-verifier on HEAD.",
+        prompt: "/pre-pr Re-compile pr-review.md and run isolated pr-verifier on updated HEAD.",
       },
       stages: currentSnap.stages.map((s) =>
         s.id === "plan"
           ? { ...s, status: "waiting_gate", railState: "yourturn" }
-          : s.id === "build"
+          : s.id === "review"
             ? { ...s, status: "stale", railState: "stale" }
             : s,
       ),
@@ -2236,8 +2239,110 @@ test("app.js renders guided next-step command banner, Cleanup left label, collap
     assert.doesNotMatch(staleGateBanner.textContent, /Your turn/);
     assert.equal(
       staleGateBanner.findByTestId("status-banner-cmd")?.textContent,
-      "/astack-mode Re-clean and re-verify the 5 changed files on HEAD.",
+      "/pre-pr Re-compile pr-review.md and run isolated pr-verifier on updated HEAD.",
     );
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("app.js Option B renders stage-scoped subagent roles without top duplicate drawer and jumps on chip click", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-optb-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const appJs = await (await fetch(`${srv.url}app.js`)).text();
+    const snap = makeFakeSnapshot("etag-optb");
+    snap.stages[1].status = "stale";
+    snap.stages[1].railState = "stale";
+    snap.stages[2].status = "active";
+    snap.stages[2].railState = "pending";
+    snap.activity.agentsWorkingCount = 2;
+    snap.activity.agentsTotalCount = 3;
+    snap.activity.runningSubagentsCount = 2;
+    snap.activity.totalSubagentsCount = 3;
+    snap.activity.doneSubagentsCount = 1;
+    snap.activity.subagents = [
+      {
+        id: "sa-0",
+        type: "self",
+        role: "Timeline State Machine Adversary",
+        task: "Analyzing timeline-engine state machine logic",
+        workspace: "branch",
+        stageId: "review",
+        startedAt: "2026-11-27T17:59:41Z",
+        completedAt: null,
+        status: "running",
+      },
+      {
+        id: "sa-1",
+        type: "self",
+        role: "Timeline Frontend UI Adversary",
+        task: "Running adv2_browser.mjs Chrome CDP check",
+        workspace: "branch",
+        stageId: "review",
+        startedAt: "2026-11-27T17:59:59Z",
+        completedAt: null,
+        status: "running",
+      },
+      {
+        id: "sa-2",
+        type: "self",
+        role: "Contract & Regression Adversary",
+        task: "Completed contract & regression repros.",
+        workspace: "branch",
+        stageId: "review",
+        startedAt: "2026-11-27T18:00:00Z",
+        completedAt: "2026-11-27T18:08:42Z",
+        status: "done",
+      },
+    ];
+
+    const harness = createAppJsTestHarness({
+      appJs,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => snap,
+      }),
+    });
+    await harness.advanceBy(100);
+
+    const timelineEl = harness.byId.get("timeline");
+    assert.equal(timelineEl.findByTestId("stage-subagents-build"), null, "Build stage must not show review-stage subagents");
+    assert.equal(timelineEl.findByTestId("accordion-subagents"), null, "Global build subagents accordion must not exist");
+
+    const agentsChip = harness.byId.get("focus-strip").findByTestId("focus-chip-agents");
+    assert.ok(agentsChip, "Top agents chip must exist");
+    agentsChip.click();
+
+    const drawerEl = harness.byId.get("focus-artifacts");
+    assert.equal(drawerEl.findByTestId("focus-drawer-agents"), null, "Top chip click must not render a duplicate top drawer");
+
+    const reviewSubagents = timelineEl.findByTestId("stage-subagents-review");
+    assert.ok(reviewSubagents, "Review stage must render its stage-scoped subagents section");
+    assert.ok(reviewSubagents.classList.contains("is-highlighted"), "Jumping from top chip must highlight owning stage subagents");
+
+    const text = reviewSubagents.textContent;
+    assert.match(text, /Timeline State Machine Adversary/);
+    assert.match(text, /Timeline Frontend UI Adversary/);
+    assert.match(text, /Contract & Regression Adversary/);
+    assert.match(text, /Analyzing timeline-engine state machine logic/);
+    assert.match(text, /Running adv2_browser\.mjs Chrome CDP check/);
+    assert.match(text, /Completed contract & regression repros\./);
+    assert.doesNotMatch(text, /\bself\b/);
+
+    const askBtns = [];
+    const walk = (node) => {
+      if (node.className?.includes("row-ask-btn")) askBtns.push(node);
+      for (const ch of node.children || []) walk(ch);
+    };
+    walk(reviewSubagents);
+    assert.equal(askBtns.length, 3);
+    askBtns[0].click();
+    assert.equal(harness.byId.get("astk-btw").value, "What is Timeline State Machine Adversary finding?");
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });

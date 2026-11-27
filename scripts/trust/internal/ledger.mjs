@@ -767,18 +767,26 @@ export function computeFreshness({
   patchId = null,
   priorEvidence = null,
   treeDirty = false,
+  requirePostEditVerify = false,
 } = {}) {
+  const writes = receipts.filter((r) => r.kind === "file_write" && !isNonWorkspaceReceipt(r));
+  const earliestWrite = writes.length > 0
+    ? writes.reduce((min, r) => (String(r.ts) < String(min.ts) ? r : min), writes[0])
+    : null;
+  const latestWrite = writes.length > 0
+    ? writes.reduce((max, r) => (String(r.ts) > String(max.ts) ? r : max), writes[0])
+    : null;
+
   const verifyReceipts = receipts.filter(
     (r) =>
       r.ok &&
-      (r.kind === "verifier" || (r.kind === "command" && VERIFY_CATEGORIES.has(r.category))),
+      (r.kind === "verifier" || (r.kind === "command" && VERIFY_CATEGORIES.has(r.category))) &&
+      (!requirePostEditVerify || !earliestWrite || String(r.ts) >= String(earliestWrite.ts)),
   );
   if (verifyReceipts.length === 0) {
     return "missing_receipts";
   }
   const latestVerify = verifyReceipts[verifyReceipts.length - 1];
-  const writes = receipts.filter((r) => r.kind === "file_write" && !isNonWorkspaceReceipt(r));
-  const latestWrite = writes.length > 0 ? writes[writes.length - 1] : null;
 
   if (treeDirty || (latestWrite && String(latestWrite.ts) > String(latestVerify.ts))) {
     return "dirty_after_verify";
@@ -871,6 +879,7 @@ export function evaluateVerifyReminder(event, options = {}) {
   const evidence = readWithFallback(trustDir, workspaceDir, hasExplicitTrust, readEvidenceSnapshot);
   const receipts = readWithFallback(trustDir, workspaceDir, hasExplicitTrust, readMergedReceipts);
   const headSha = options.headSha ?? (workspaceDir ? readHeadShaFast(workspaceDir) : null);
+  const dirtyOnly = options.dirtyOnly ?? process.env.ASTACK_VERIFY_SCOPE === "dirty_only";
 
   const hasCodeWriteReceipts = receipts.some(
     (r) =>
@@ -884,7 +893,22 @@ export function evaluateVerifyReminder(event, options = {}) {
     return { decision: "allow" };
   }
 
-  const freshness = computeFreshness({ receipts, headSha, priorEvidence: evidence });
+  const freshness = computeFreshness({
+    receipts,
+    headSha,
+    priorEvidence: evidence,
+    requirePostEditVerify: dirtyOnly,
+  });
+  if (dirtyOnly) {
+    if (freshness !== "dirty_after_verify") {
+      return { decision: "allow" };
+    }
+    return {
+      decision: "continue",
+      reason:
+        "AStack auto-verify (dirty_after_verify): code edits landed after your last verification run. Re-run the relevant test or build check on HEAD now before stopping (set ASTACK_REQUIRE_VERIFY=0 to suppress).",
+    };
+  }
   if (freshness === "fresh" || freshness === "fresh_rebase_patch_id") {
     return { decision: "allow" };
   }

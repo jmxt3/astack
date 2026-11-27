@@ -128,7 +128,7 @@ test("setup-banner CLI prints ASCII banner and JSON status for --cwd", () => {
     assert.equal(parsed.hookBreakdown.passiveTotal, 3);
     assert.equal(parsed.hookBreakdown.passiveEnabled, 3);
     assert.equal(parsed.hookBreakdown.blockingTotal, 7);
-    assert.equal(parsed.hookBreakdown.blockingEnabled, 0);
+    assert.equal(parsed.hookBreakdown.blockingEnabled, 1);
     assert.equal(parsed.policies.boundaries, false);
 
     const liveStatus = inspectWorkspace({ cwd: path.resolve(here, "../../..") });

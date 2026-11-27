@@ -43,7 +43,8 @@
     reviewPrMoreOpen: false,
     expanded: new Set(),
     moreExpanded: new Set(),
-    subExpanded: { swarm: false, helpers: false, goal: false, more: false },
+    subExpanded: { swarm: false, goal: false, more: false },
+    highlightTarget: null,
     solo: null,
     artifact: null,
     artifactReturnEl: null,
@@ -1078,12 +1079,6 @@
     if (rs === "done") return { text: "Done", cls: "done" };
     if (rs === "yourturn") return { text: "Your turn", cls: "yourturn" };
     if (rs === "stale") {
-      if (stage?.id === "build") {
-        const cleanStale = stage.subChecks?.some((c) => c.id === "clean" && c.status === "stale");
-        const verifyStale = stage.subChecks?.some((c) => c.id === "verify" && c.status === "stale");
-        if (cleanStale && !verifyStale) return { text: "Re-clean", cls: "stale" };
-        if (verifyStale) return { text: "Re-verify", cls: "stale" };
-      }
       return { text: "Needs re-run", cls: "stale" };
     }
     if (rs === "error") return { text: "Escalated", cls: "error" };
@@ -1127,8 +1122,8 @@
     input.focus();
   }
 
-  function makeSubAccordionHeader(key, iconName, titleText, metaNode, isAccent = false) {
-    const isOpen = Boolean(state.subExpanded[key]);
+  function makeSubAccordionHeader(key, iconName, titleText, metaNode, isAccent = false, defaultOpen = false) {
+    const isOpen = state.subExpanded[key] !== undefined ? Boolean(state.subExpanded[key]) : Boolean(defaultOpen);
     const btn = el("button", isAccent ? "sub-accordion-btn is-accent" : "sub-accordion-btn");
     btn.type = "button";
     btn.setAttribute("aria-expanded", String(isOpen));
@@ -1143,10 +1138,93 @@
     btn.appendChild(chev);
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      state.subExpanded[key] = !state.subExpanded[key];
+      state.subExpanded[key] = !isOpen;
       render(state.snap);
     });
     return { btn, isOpen };
+  }
+
+  function buildStageSubagentsSection(stageId, act) {
+    const stageSubagents = (act?.subagents || []).filter((a) => (a.stageId || "build") === stageId);
+    if (stageSubagents.length === 0) return null;
+
+    const testId = `stage-subagents-${stageId}`;
+    const wrap = el("div", state.highlightTarget === testId ? "subagents-section is-highlighted" : "subagents-section");
+    wrap.dataset.testid = testId;
+
+    const runningN = stageSubagents.filter((a) => a.status === "running").length;
+    const failedN = stageSubagents.filter((a) => a.status === "failed").length;
+    const doneN = stageSubagents.filter((a) => a.status === "done").length;
+    const metaText =
+      runningN > 0
+        ? `${runningN}/${stageSubagents.length} running`
+        : failedN > 0
+          ? `${doneN} done, ${failedN} failed`
+          : `${doneN} done`;
+    const meta = el("span", "sub-accordion-meta", metaText);
+    const { btn, isOpen } = makeSubAccordionHeader(
+      `subagents:${stageId}`,
+      "orbit",
+      "Subagents",
+      meta,
+      false,
+      runningN > 0,
+    );
+    btn.dataset.testid = `accordion-subagents-${stageId}`;
+    wrap.appendChild(btn);
+
+    if (isOpen) {
+      const ul = el("ul", "sub-accordion-list");
+      for (const a of stageSubagents) {
+        const li = el("li", "sub-row is-subagent");
+        const head = el("div", "sub-row-head");
+        const dw = el("span", "sub-row-dot-wrap");
+        if (a.status === "done") {
+          const chk = svgIcon("check-sm", 10);
+          chk.style.color = "var(--tl-done)";
+          dw.appendChild(chk);
+        } else if (a.status === "failed") {
+          const errIc = svgIcon("warn", 10);
+          errIc.style.color = "var(--tl-error)";
+          dw.appendChild(errIc);
+        } else {
+          dw.appendChild(el("span", "sub-row-dot active"));
+        }
+        head.appendChild(dw);
+
+        const displayName = String(a.role || a.type || "Subagent").trim();
+        const titleEl = el("span", "sub-row-title", displayName);
+        titleEl.title = displayName;
+        head.appendChild(titleEl);
+
+        if (a.type && a.type !== "self" && a.type.toLowerCase() !== displayName.toLowerCase()) {
+          head.appendChild(el("span", "sub-row-badge", a.type));
+        }
+        if (a.workspace && a.workspace !== "inherit") {
+          head.appendChild(el("span", "sub-row-badge", a.workspace));
+        }
+
+        const timerEl = el("span", "sub-row-timer", formatElapsedText(a.startedAt, a.completedAt));
+        if (a.status === "running" && a.startedAt) {
+          timerEl.dataset.timerKind = "elapsed";
+          timerEl.dataset.startedAt = a.startedAt;
+        }
+        head.appendChild(timerEl);
+        appendAskButton(head, `What is ${displayName} finding?`, `Ask /btw about ${displayName}`);
+        li.appendChild(head);
+
+        const desc = String(a.task || "").trim();
+        if (desc && desc.toLowerCase() !== displayName.toLowerCase()) {
+          const descEl = el("div", "sub-row-desc", desc);
+          descEl.title = desc;
+          li.appendChild(descEl);
+        }
+        ul.appendChild(li);
+      }
+      wrap.appendChild(ul);
+    }
+
+    return wrap;
   }
 
   function appendAskButton(row, question, ariaLabel) {
@@ -1219,33 +1297,7 @@
     const segGrid = buildSubChecksBar(stage);
     if (segGrid) detail.appendChild(segGrid);
 
-    const staleSubs = subChecks.filter((c) => c.status === "stale");
-    if (staleSubs.length > 0) {
-      const callout = el("div", "subcheck-callout");
-      callout.dataset.testid = "build-stale-callout";
-      const msgRow = el("div", "subcheck-callout-msg");
-      const warnIc = svgIcon("warn", 12);
-      warnIc.classList.add("subcheck-callout-icon");
-      msgRow.append(warnIc, el("span", "", staleSubs.map((s) => s.detail).join(" ")));
-      callout.appendChild(msgRow);
-
-      const actionCmds = [];
-      if (staleSubs.some((s) => s.id === "clean")) actionCmds.push("/deslop", "/no-comments");
-      if (staleSubs.some((s) => s.id === "verify")) actionCmds.push("/astack-mode");
-      if (actionCmds.length > 0) {
-        const actionRow = el("div", "subcheck-callout-actions");
-        for (const cmd of actionCmds) {
-          const meta = lookupCommandMeta(snap, cmd);
-          const btn = el("button", "subcmd-pill stale-action");
-          btn.type = "button";
-          btn.appendChild(el("span", "", cmd));
-          wireCommandAction(btn, meta ? { ...meta, command: cmd } : cmd);
-          actionRow.appendChild(btn);
-        }
-        callout.appendChild(actionRow);
-      }
-      detail.appendChild(callout);
-    } else if (stage.status === "active" && stage.railState !== "running") {
+    if (stage.status === "active" && stage.railState !== "running") {
       const editsDone = subChecks.some((c) => c.id === "edits" && c.status === "done");
       const pendingSubs = subChecks.filter((c) => c.status === "pending" && c.id !== "edits" && !c.optional);
       if (editsDone && pendingSubs.length > 0) {
@@ -1276,11 +1328,10 @@
         detail.appendChild(callout);
       }
     }
-
     const accGroup = el("div", "accordion-group");
     const swarm = act.swarm || {};
     if (swarm.active || (swarm.members && swarm.members.length > 0)) {
-      const wrap = el("div", "");
+      const wrap = el("div", state.highlightTarget === "accordion-swarm" ? "subagents-section is-highlighted" : "");
       const meta = el("span", "sub-accordion-meta", `${swarm.workingCount || 0} of ${swarm.totalCount || 0} working`);
       const { btn, isOpen } = makeSubAccordionHeader("swarm", "swarm", "Swarm", meta);
       btn.dataset.testid = "accordion-swarm";
@@ -1305,53 +1356,9 @@
       accGroup.appendChild(wrap);
     }
 
-    const subagents = act.subagents || [];
-    if (subagents.length > 0) {
-      const wrap = el("div", "");
-      const runningN = act.runningSubagentsCount || 0;
-      const failedN = subagents.filter((a) => a.status === "failed").length;
-      const doneN = act.doneSubagentsCount ?? subagents.filter((a) => a.status === "done").length;
-      const metaText =
-        runningN > 0
-          ? `${runningN}/${subagents.length} running`
-          : failedN > 0
-            ? `${doneN} done, ${failedN} failed`
-            : `${doneN} done`;
-      const meta = el("span", "sub-accordion-meta", metaText);
-      const { btn, isOpen } = makeSubAccordionHeader("helpers", "orbit", "Subagents", meta);
-      btn.dataset.testid = "accordion-subagents";
-      wrap.appendChild(btn);
-      if (isOpen) {
-        const ul = el("ul", "sub-accordion-list");
-        for (const a of subagents) {
-          const li = el("li", "sub-row");
-          const dw = el("span", "sub-row-dot-wrap");
-          if (a.status === "done") {
-            const chk = svgIcon("check-sm", 10);
-            chk.style.color = "var(--tl-done)";
-            dw.appendChild(chk);
-          } else if (a.status === "failed") {
-            const errIc = svgIcon("warn", 10);
-            errIc.style.color = "var(--tl-error)";
-            dw.appendChild(errIc);
-          } else {
-            dw.appendChild(el("span", "sub-row-dot active"));
-          }
-          li.appendChild(dw);
-          li.appendChild(el("span", "sub-row-name", a.type));
-          li.appendChild(el("span", "sub-row-task", a.task));
-          const timerEl = el("span", "sub-row-timer", formatElapsedText(a.startedAt, a.completedAt));
-          if (a.status === "running" && a.startedAt) {
-            timerEl.dataset.timerKind = "elapsed";
-            timerEl.dataset.startedAt = a.startedAt;
-          }
-          li.appendChild(timerEl);
-          appendAskButton(li, `What is the ${a.type} subagent finding?`, `Ask /btw about the ${a.type} subagent`);
-          ul.appendChild(li);
-        }
-        wrap.appendChild(ul);
-      }
-      accGroup.appendChild(wrap);
+    const buildSubagentsEl = buildStageSubagentsSection("build", act);
+    if (buildSubagentsEl) {
+      accGroup.appendChild(buildSubagentsEl);
     }
 
     const goal = act.goal || {};
@@ -1519,6 +1526,12 @@
         prereq.dataset.testid = "review-prerequisite-note";
         detail.appendChild(prereq);
       }
+    }
+    const stageSubagentsEl = buildStageSubagentsSection(stage.id, act);
+    if (stageSubagentsEl) {
+      const accGroup = el("div", "accordion-group");
+      accGroup.appendChild(stageSubagentsEl);
+      detail.appendChild(accGroup);
     }
     detail.appendChild(buildCommandChips(stage.commands));
 
@@ -1718,6 +1731,50 @@
     return detail;
   }
 
+  function jumpToAgentsSection(snap) {
+    state.solo = null;
+    if (state.view !== "timeline") switchView("timeline");
+    if (state.panelMode !== "build") state.panelMode = "build";
+
+    const act = snap?.activity || {};
+    const subagents = act.subagents || [];
+    const swarmMembers = act.swarm?.members || [];
+    if (subagents.length === 0 && swarmMembers.length === 0) {
+      showToast("No subagents or swarm workers executed yet.");
+      renderTotalsStrip(state.snap);
+      return;
+    }
+
+    let targetTestId = null;
+    if (subagents.length > 0) {
+      const stages = snap?.stages || [];
+      const runningStage = stages.find((s) =>
+        subagents.some((a) => (a.stageId || "build") === s.id && a.status === "running"),
+      );
+      const latestStage = [...stages]
+        .reverse()
+        .find((s) => subagents.some((a) => (a.stageId || "build") === s.id));
+      const targetStageId = runningStage?.id || latestStage?.id || subagents[0]?.stageId || "build";
+      state.userToggled = true;
+      state.expanded.add(targetStageId);
+      state.subExpanded[`subagents:${targetStageId}`] = true;
+      targetTestId = `stage-subagents-${targetStageId}`;
+    } else {
+      state.userToggled = true;
+      state.expanded.add("build");
+      state.subExpanded.swarm = true;
+      targetTestId = "accordion-swarm";
+    }
+
+    state.highlightTarget = targetTestId;
+    render(state.snap);
+    state.highlightTarget = null;
+    const targetEl = typeof document.querySelector === "function"
+      ? document.querySelector(`[data-testid="${targetTestId}"]`)
+      : null;
+    targetEl?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+  }
+
   function renderTotalsStrip(snap) {
     const act = snap.activity || {};
 
@@ -1752,7 +1809,7 @@
         popMode: agentsWorking > 0 ? "active" : agentsTotal > 0 ? "done" : "",
         popDesc:
           agentsTotal > 0
-            ? `${agentsTotal} total executed (${agentsDone} done, ${agentsWorking} running). Click to inspect without opening Step 2.`
+            ? `${agentsTotal} total executed (${agentsDone} done, ${agentsWorking} running). Click to jump to its stage.`
             : "No subagents or swarm workers executed in this conversation yet.",
       },
       {
@@ -1802,7 +1859,7 @@
       chip.type = "button";
       chip.dataset.focus = f.key;
       chip.dataset.testid = `focus-chip-${f.key}`;
-      chip.setAttribute("aria-pressed", String(state.solo === f.key));
+      chip.setAttribute("aria-pressed", f.key === "agents" ? "false" : String(state.solo === f.key));
       if (f.icon === "dot") {
         const d = el("span", `focus-dot ${f.dotMode || ""}`.trim());
         chip.appendChild(d);
@@ -1816,6 +1873,10 @@
       attachStatusPopover(chip, f.popTitle, f.popStatus, f.popMode, f.popDesc);
       chip.addEventListener("click", () => {
         hideCommandPopover();
+        if (f.key === "agents") {
+          jumpToAgentsSection(state.snap);
+          return;
+        }
         state.solo = state.solo === f.key ? null : f.key;
         renderTotalsStrip(state.snap);
       });
@@ -1911,60 +1972,6 @@
             openArtifact(art, btn);
           });
           li.appendChild(btn);
-          ul.appendChild(li);
-        }
-        box.appendChild(ul);
-      }
-      container.replaceChildren(box);
-      container.classList.remove("hidden");
-      return;
-    }
-
-    if (state.solo === "agents") {
-      const box = el("div", "focus-drawer");
-      box.dataset.testid = "focus-drawer-agents";
-      const swarmMembers = act.swarm?.members || [];
-      const subagents = act.subagents || [];
-      if (swarmMembers.length === 0 && subagents.length === 0) {
-        box.appendChild(el("p", "focus-empty", "No subagents or swarm workers executed yet."));
-      } else {
-        const ul = el("ul", "sub-accordion-list focus-drawer-list");
-        for (const m of swarmMembers) {
-          const li = el("li", "sub-row");
-          const dw = el("span", "sub-row-dot-wrap");
-          const dotCls = m.role === "verifier" ? "sub-row-dot ring" : "sub-row-dot";
-          dw.appendChild(el("span", m.status === "working" ? `${dotCls} active` : dotCls));
-          li.appendChild(dw);
-          li.appendChild(el("span", "sub-row-name", m.name));
-          li.appendChild(el("span", "sub-row-task", m.task));
-          li.appendChild(el("span", m.status === "working" ? "sub-row-stat active" : "sub-row-stat", m.status));
-          appendAskButton(li, `What is ${m.name} working on right now?`, `Ask /btw about ${m.name}`);
-          ul.appendChild(li);
-        }
-        for (const a of subagents) {
-          const li = el("li", "sub-row");
-          const dw = el("span", "sub-row-dot-wrap");
-          if (a.status === "done") {
-            const chk = svgIcon("check-sm", 10);
-            chk.style.color = "var(--tl-done)";
-            dw.appendChild(chk);
-          } else if (a.status === "failed") {
-            const errIc = svgIcon("warn", 10);
-            errIc.style.color = "var(--tl-error)";
-            dw.appendChild(errIc);
-          } else {
-            dw.appendChild(el("span", "sub-row-dot active"));
-          }
-          li.appendChild(dw);
-          li.appendChild(el("span", "sub-row-name", a.type));
-          li.appendChild(el("span", "sub-row-task", a.task));
-          const timerEl = el("span", "sub-row-timer", formatElapsedText(a.startedAt, a.completedAt));
-          if (a.status === "running" && a.startedAt) {
-            timerEl.dataset.timerKind = "elapsed";
-            timerEl.dataset.startedAt = a.startedAt;
-          }
-          li.appendChild(timerEl);
-          appendAskButton(li, `What is the ${a.type} subagent finding?`, `Ask /btw about the ${a.type} subagent`);
           ul.appendChild(li);
         }
         box.appendChild(ul);
@@ -2174,14 +2181,14 @@
       instruction = snap.nextAction?.instruction || review.detail || "Remediation round cap reached.";
       cmdLabel = snap.nextAction?.command || "/pre-pr";
       cmdPrompt = snap.nextAction?.prompt || "/pre-pr";
-    } else if (build?.status === "stale" || review?.status === "stale") {
+    } else if (review?.status === "stale") {
       guided = true;
       tone = "is-yourturn";
       iconKind = "warn";
       badge = "Needs attention";
-      title = snap.nextAction?.title || "Re-verify on HEAD";
-      instruction = snap.nextAction?.instruction || snap.nextAction?.hint || "New edits landed. Re-verify on HEAD.";
-      cmdLabel = snap.nextAction?.command || "/astack-mode";
+      title = snap.nextAction?.title || "Re-run Pre-PR Check on updated HEAD";
+      instruction = snap.nextAction?.instruction || snap.nextAction?.hint || "New edits invalidated the PR check. Re-run /pre-pr.";
+      cmdLabel = snap.nextAction?.command || "/pre-pr";
       cmdPrompt = snap.nextAction?.prompt || cmdLabel;
     } else if (plan?.status === "waiting_gate") {
       guided = true;
@@ -2374,7 +2381,7 @@
     const stage = snap.stages?.find((s) => s.id === stageId);
     const act = snap.activity || {};
     if (stage?.status === "error") return { text: "escalated", cls: "warn" };
-    if (stage?.status === "stale") return { text: "re-verify", cls: "warn" };
+    if (stage?.status === "stale") return { text: "re-run", cls: "warn" };
     if (stage?.status === "waiting_gate") return { text: "review", cls: "warn" };
     if (
       stageId === "build" &&
@@ -2432,7 +2439,7 @@
     active: { word: "running", cls: "" },
     waiting_gate: { word: "review", cls: "warn" },
     error: { word: "escalated", cls: "warn" },
-    stale: { word: "re-verify", cls: "warn" },
+    stale: { word: "re-run", cls: "warn" },
     done: { word: "done", cls: "done" },
   };
 
@@ -3385,7 +3392,10 @@
         hideCommandPopover();
         state.userToggled = true;
         if (state.expanded.has(stage.id)) state.expanded.delete(stage.id);
-        else state.expanded.add(stage.id);
+        else {
+          state.expanded.add(stage.id);
+          if (item.key === "agents") state.subExpanded[`subagents:${stage.id}`] = true;
+        }
         render(state.snap);
       });
       row.appendChild(chip);
@@ -3658,11 +3668,8 @@
 
     const RISK_TITLES = ["Low risk", "Medium risk", "High risk", "Critical risk"];
     const FRESHNESS_DISPLAY = {
-      fresh: { label: "Verified", mode: "done", desc: "Tests or validation passed on the current git HEAD with no unverified edits." },
-      fresh_rebase_patch_id: { label: "Verified", mode: "done", desc: "Rebased commit matches previously verified patch-id on current HEAD." },
-      dirty_after_verify: { label: "Needs re-verify", mode: "stale", desc: "Files changed after the last verification run. Re-run tests on HEAD." },
-      stale_sha: { label: "Stale commit", mode: "stale", desc: "Receipts belong to an older git commit. Re-run verification on HEAD." },
-      missing_receipts: { label: "Unverified", mode: "", desc: "No passing verification receipt recorded for this commit yet." },
+      fresh: { label: "✓ Verified", mode: "done", desc: "Tests or validation passed on the current git HEAD with no unverified edits." },
+      fresh_rebase_patch_id: { label: "✓ Verified", mode: "done", desc: "Rebased commit matches previously verified patch-id on current HEAD." },
     };
 
     const rp = snap.trust?.riskPresentation || null;
@@ -3704,12 +3711,8 @@
         popDesc: descParts.join(" "),
       });
     }
-    if (snap.freshness) {
-      const fm = FRESHNESS_DISPLAY[snap.freshness] || {
-        label: snap.freshness,
-        mode: "",
-        desc: `Trust ledger freshness status: ${snap.freshness}.`,
-      };
+    if (snap.freshness && FRESHNESS_DISPLAY[snap.freshness]) {
+      const fm = FRESHNESS_DISPLAY[snap.freshness];
       metaParts.push({
         text: fm.label,
         cls: `meta-pill meta-fresh ${fm.mode}`.trim(),

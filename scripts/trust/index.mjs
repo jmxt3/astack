@@ -281,16 +281,18 @@ export function runHook(hookId) {
     case "secret-guard":
       runHookShell((event) => evaluateSecrets(event, { headless }), { hint: "pre" });
       return;
-    case "verify-reminder":
+    case "verify-reminder": {
+      const dirtyOnly = process.argv.includes("--dirty-only");
       runHookShell(
         (event) => {
-          const verify = evaluateVerifyReminder(event);
+          const verify = evaluateVerifyReminder(event, { dirtyOnly });
           if (verify.decision !== "allow") return verify;
           return evaluateStageHandoff(event);
         },
         { hint: "stop" },
       );
       return;
+    }
     case "evidence-gate":
       runHookShell((event) => evaluateEvidenceGate(event, { headless }), { hint: "pre" });
       return;
