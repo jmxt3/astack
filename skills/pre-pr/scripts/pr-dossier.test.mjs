@@ -520,32 +520,107 @@ test("validateProofManifest enforces schema and compilePrDossier GitHub format c
       { headSha },
     );
 
-    const tierC = compilePrDossier({
+    const unmappedFeatureDir = path.join(repo, ".agents", "skills", "verify-unmapped", "features");
+    fs.mkdirSync(unmappedFeatureDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(unmappedFeatureDir, "extra.md"),
+      "# Unmapped Feature\n\n## Sub-features\n\n- Unused check\n",
+      "utf8",
+    );
+
+    const defaultProof = compilePrDossier({
       cwd: repo,
       baseRef: "main",
       artifactDir,
       format: "github",
     });
-    assert.equal(tierC.evidence.statechartSource, "verification-lifecycle");
-    assert.equal(tierC.evidence.recentChecks.length, 2);
-    assert.equal(tierC.evidence.recentChecks[0].status, "PASS");
-    assert.equal(tierC.evidence.recentChecks[1].status, "FAIL");
-    assert.match(tierC.markdown, /<!-- astack:pr-proof:start -->/);
-    assert.match(tierC.markdown, /<!-- astack:proof-meta \{/);
-    assert.match(tierC.markdown, /```mermaid[\r\n]+stateDiagram-v2/);
-    assert.match(tierC.markdown, /`PASS`/);
-    assert.match(tierC.markdown, /`FAIL`/);
-    assert.match(tierC.markdown, /https:\/\/github\.com\/acme\/demo-app\/blob\//);
-    assert.doesNotMatch(tierC.markdown, /file:\/\/\//);
-    assert.doesNotMatch(tierC.markdown, /````carousel/);
-    assert.doesNotMatch(tierC.markdown, /[\u2013\u2014]/);
-    assert.equal(validatePrBodyContract(tierC.markdown).ok, true);
+    assert.equal(defaultProof.evidence.statechartSource, null);
+    assert.equal(defaultProof.evidence.recentChecks.length, 2);
+    assert.equal(defaultProof.evidence.recentChecks[0].status, "PASS");
+    assert.equal(defaultProof.evidence.recentChecks[1].status, "FAIL");
+    assert.match(defaultProof.markdown, /<!-- astack:pr-proof:start -->/);
+    assert.match(defaultProof.markdown, /<!-- astack:proof-meta \{/);
+    assert.doesNotMatch(defaultProof.markdown, /## Statechart/);
+    assert.doesNotMatch(defaultProof.markdown, /Unused check/);
+    assert.match(defaultProof.markdown, /`PASS`/);
+    assert.match(defaultProof.markdown, /`FAIL`/);
+    assert.match(defaultProof.markdown, /https:\/\/github\.com\/acme\/demo-app\/blob\//);
+    assert.doesNotMatch(defaultProof.markdown, /file:\/\/\//);
+    assert.doesNotMatch(defaultProof.markdown, /````carousel/);
+    assert.doesNotMatch(defaultProof.markdown, /[\u2013\u2014]/);
+    assert.equal(validatePrBodyContract(defaultProof.markdown).ok, true);
+
+    const repoStrict = makeRepo();
+    const strictArtifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-strict-art-"));
+    try {
+      fs.mkdirSync(path.join(repoStrict, ".agents"), { recursive: true });
+      fs.writeFileSync(
+        path.join(repoStrict, ".agents", "risk-policy.json"),
+        JSON.stringify({ schemaVersion: 1, prDescriptionContract: { requireStatechart: true } }),
+        "utf8",
+      );
+      execFileSync("git", ["add", ".agents/risk-policy.json"], { cwd: repoStrict, stdio: "ignore" });
+      execFileSync("git", ["commit", "-m", "enable strict statechart"], { cwd: repoStrict, stdio: "ignore" });
+      execFileSync("git", ["checkout", "-b", "feat/strict"], { cwd: repoStrict, stdio: "ignore" });
+      fs.writeFileSync(path.join(repoStrict, "README.md"), "# Strict\n", "utf8");
+      execFileSync("git", ["add", "README.md"], { cwd: repoStrict, stdio: "ignore" });
+      execFileSync("git", ["commit", "-m", "edit readme"], { cwd: repoStrict, stdio: "ignore" });
+
+      const tierC = compilePrDossier({
+        cwd: repoStrict,
+        baseRef: "main",
+        artifactDir: strictArtifactDir,
+        format: "github",
+      });
+      assert.equal(tierC.evidence.statechartSource, "verification-lifecycle");
+      assert.match(tierC.markdown, /```mermaid[\r\n]+stateDiagram-v2/);
+      assert.equal(validatePrBodyContract(tierC.markdown, { requireStatechart: true }).ok, true);
+
+      const strictBad = spawnSync(
+        process.execPath,
+        [cliPath, "--cwd", repoStrict, "--check-pr-body", "-", "--json"],
+        { input: "## Why\n\nPlain body\n", encoding: "utf8" },
+      );
+      assert.equal(strictBad.status, 1);
+      assert.ok(JSON.parse(strictBad.stdout).violations.some((v) => /stateDiagram-v2/.test(v)));
+
+      fs.writeFileSync(
+        path.join(repoStrict, ".agents", "risk-policy.json"),
+        JSON.stringify({ schemaVersion: 1, prDescriptionContract: { requireStatechart: false, requireProofTable: false } }),
+        "utf8",
+      );
+      execFileSync("git", ["add", ".agents/risk-policy.json"], { cwd: repoStrict, stdio: "ignore" });
+      execFileSync("git", ["commit", "-m", "attempt to weaken prDescriptionContract on PR branch"], {
+        cwd: repoStrict,
+        stdio: "ignore",
+      });
+
+      const baseEnforcedWithFlag = spawnSync(
+        process.execPath,
+        [cliPath, "--cwd", repoStrict, "--base", "main", "--check-pr-body", "-", "--json"],
+        { input: defaultProof.markdown, encoding: "utf8" },
+      );
+      assert.equal(baseEnforcedWithFlag.status, 1);
+      assert.ok(JSON.parse(baseEnforcedWithFlag.stdout).violations.some((v) => /stateDiagram-v2/.test(v)));
+
+      const baseEnforcedAuto = spawnSync(
+        process.execPath,
+        [cliPath, "--cwd", repoStrict, "--check-pr-body", "-", "--json"],
+        { input: defaultProof.markdown, encoding: "utf8" },
+      );
+      assert.equal(baseEnforcedAuto.status, 1);
+      assert.ok(JSON.parse(baseEnforcedAuto.stdout).violations.some((v) => /stateDiagram-v2/.test(v)));
+    } finally {
+      fs.rmSync(repoStrict, { recursive: true, force: true });
+      fs.rmSync(strictArtifactDir, { recursive: true, force: true });
+    }
 
     const eofFeatureDir = path.join(repo, ".agents", "skills", "verify-eof", "features");
     fs.mkdirSync(eofFeatureDir, { recursive: true });
+    fs.writeFileSync(path.join(eofFeatureDir, "README.md"), "# Index\n\nOverview doc.\n", "utf8");
     fs.writeFileSync(
       path.join(eofFeatureDir, "eof-only.md"),
-      "# EOF Feature\n\n## Sub-features\n\n- Alpha bullet\n- Beta bullet\n",
+      "# EOF Feature\n\n## Sub-features\n\n- Alpha bullet\n- **Beta** bullet\n",
       "utf8",
     );
     const tierB2Eof = compilePrDossier({
@@ -556,8 +631,10 @@ test("validateProofManifest enforces schema and compilePrDossier GitHub format c
       featureMapDir: eofFeatureDir,
     });
     assert.equal(tierB2Eof.evidence.statechartSource, "feature-map-coverage");
+    assert.doesNotMatch(tierB2Eof.markdown, /README_check/);
     assert.match(tierB2Eof.markdown, /Alpha bullet \[SKIP\]/);
     assert.match(tierB2Eof.markdown, /Beta bullet \[SKIP\]/);
+    assert.doesNotMatch(tierB2Eof.markdown, /\*\*Beta\*\*/);
 
     const featureDir = path.join(repo, ".agents", "skills", "verify-demo", "features");
     fs.mkdirSync(featureDir, { recursive: true });
@@ -739,14 +816,18 @@ test("validateProofManifest enforces schema and compilePrDossier GitHub format c
 
     const checkBad = spawnSync(
       process.execPath,
-      [cliPath, "--check-pr-body", "-", "--json"],
+      [cliPath, "--cwd", repo, "--check-pr-body", "-", "--json"],
       { input: "## Why\n\nPlain body with [local](file:///tmp/a.png)\n", encoding: "utf8" },
     );
     assert.equal(checkBad.status, 1);
     const badParsed = JSON.parse(checkBad.stdout);
     assert.equal(badParsed.ok, false);
     assert.ok(badParsed.violations.some((v) => /file:\/\/\//.test(v)));
-    assert.ok(badParsed.violations.some((v) => /stateDiagram-v2/.test(v)));
+    assert.equal(badParsed.violations.some((v) => /stateDiagram-v2/.test(v)), false);
+
+    const strictContractCheck = validatePrBodyContract("## Why\n\nPlain body\n", { requireStatechart: true });
+    assert.equal(strictContractCheck.ok, false);
+    assert.ok(strictContractCheck.violations.some((v) => /stateDiagram-v2/.test(v)));
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });

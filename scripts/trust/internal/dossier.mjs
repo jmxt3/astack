@@ -967,14 +967,16 @@ export function compilePrDossier({
   let statechart = null;
   let markdown;
   if (format === "github") {
+    const requireFallback = Boolean(policy?.prDescriptionContract?.requireStatechart);
     statechart = resolvePrStatechart({
       workspaceDir,
       evidence,
       proofManifest,
       statechartPath,
       featureMapDir,
+      requireFallback,
     });
-    evidence.statechartSource = statechart.source;
+    evidence.statechartSource = statechart?.source ?? null;
     const resolvedMergeBody = mergeBodyPath ? path.resolve(workspaceDir, mergeBodyPath) : null;
     const existingBody =
       resolvedMergeBody && fs.existsSync(resolvedMergeBody)
@@ -986,6 +988,7 @@ export function compilePrDossier({
       findingsDoc,
       proofManifest,
       statechart,
+      requireFallback,
       repoUrl,
       existingBody,
     });

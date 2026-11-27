@@ -46,7 +46,7 @@ const DEFAULT_REVIEW_MD = `# Repository Review Rules
 2. **No silent test weakening.** Never delete or loosen existing assertions to force a failing test suite green.
 3. **Preserve module boundaries.** Respect \`.agents/boundaries.json\` import zones and public entrypoints.
 4. **Tiered human sign-off.** Tier 1 through Tier 3 changes always require human review before merge.
-5. **PR statechart and proof table.** Every GitHub PR description must include a compiled \`stateDiagram-v2\` statechart and \`PASS\`/\`FAIL\`/\`SKIP\`/\`UNREACHABLE\` proof table from \`pr-dossier.mjs --format github\`.
+5. **PR verification proof.** Every GitHub PR description must include a compiled \`PASS\`/\`FAIL\`/\`SKIP\`/\`UNREACHABLE\` proof table from \`pr-dossier.mjs --format github\` (plus a \`stateDiagram-v2\` statechart when changing state machines, protocols, or formal verifiers).
 `;
 
 const DEFAULT_GLOSSARY_MD = `# Domain Glossary

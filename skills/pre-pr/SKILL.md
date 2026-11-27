@@ -20,7 +20,7 @@ node "<skill-dir>/scripts/pr-dossier.mjs" \
   --json
 ```
 
-For GitHub PR descriptions, pass `--format github` (with optional `--proof-manifest`, `--statechart`, `--feature-map`, `--repo-url`, and `--merge-body`) to emit a GitHub-safe `stateDiagram-v2` statechart, a `PASS`/`FAIL`/`SKIP`/`UNREACHABLE` verification table, and a single-line bot metadata comment inside `<!-- astack:pr-proof:start/end -->` markers. Validate any PR body file or stdin stream with `--check-pr-body <file|->`.
+For GitHub PR descriptions, pass `--format github` (with optional `--proof-manifest`, `--statechart`, `--feature-map`, `--repo-url`, and `--merge-body`) to emit a `PASS`/`FAIL`/`SKIP`/`UNREACHABLE` verification table and a single-line bot metadata comment inside `<!-- astack:pr-proof:start/end -->` markers, plus an earned `stateDiagram-v2` statechart when changing state machines, protocols, or formal verifiers. Validate any PR body file or stdin stream with `--check-pr-body <file|->`.
 
 If UI screenshots were captured outside `<artifact-dir>`, copy them into `<artifact-dir>` with `write_file` (`UserFacing: true`, `RequestFeedback: false`) so the user can drag-select regions and leave visual image comments directly inside Antigravity (`screenshots.md`).
 
