@@ -181,9 +181,12 @@ test("tracks /plan + /grill-me waiting gate and exposes safe implementation_plan
     const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(snap.setup.status, "ready");
     assert.equal(snap.stages[0].status, "waiting_gate");
-    assert.equal(snap.stages[0].commands[0].state, "done");
-    assert.equal(snap.stages[0].commands[1].command, "/grill-me");
-    assert.equal(snap.stages[0].commands[1].state, "done");
+    assert.deepEqual(
+      snap.stages[0].commands.map((c) => c.command),
+      ["/investigate", "/plan", "/grill-me"],
+    );
+    assert.equal(snap.stages[0].commands.find((c) => c.command === "/plan")?.state, "done");
+    assert.equal(snap.stages[0].commands.find((c) => c.command === "/grill-me")?.state, "done");
     assert.equal(snap.stages[0].artifact?.name, "implementation_plan.md");
     assert.match(snap.stages[0].artifact?.uri ?? "", /^file:\/\//);
     assert.equal(snap.nextAction.command, "Proceed");
@@ -299,12 +302,22 @@ test("tracks /interrogate, marks Build & Prove done on fresh verify, and flips s
     ]);
 
     const staleSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
-    assert.equal(staleSnap.stages[1].status, "stale");
-    assert.match(staleSnap.stages[1].subChecks[1].detail, /Re-run \/deslop or \/no-comments/);
-    assert.match(staleSnap.stages[1].subChecks[2].detail, /Re-run tests or validation/);
+    assert.equal(staleSnap.stages[1].status, "active");
+    assert.equal(staleSnap.stages[1].subChecks[0].status, "done");
+    assert.equal(staleSnap.stages[1].subChecks[1].status, "pending");
+    assert.equal(staleSnap.stages[1].subChecks[2].status, "pending");
     assert.equal(staleSnap.freshness, "dirty_after_verify");
-    assert.equal(staleSnap.liveState, "warn");
+    assert.equal(staleSnap.liveState, "ok");
+    assert.equal(staleSnap.liveLabel, "Live");
     assert.equal(staleSnap.nextAction.command, "/astack-mode");
+
+    writeText(path.join(brainDir, convId, "pr-review.md"), "# PR Review\n");
+    const reviewStaleSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(reviewStaleSnap.stages[2].status, "stale");
+    assert.equal(reviewStaleSnap.stages[2].railState, "stale");
+    assert.equal(reviewStaleSnap.liveState, "warn");
+    assert.equal(reviewStaleSnap.liveLabel, "Review");
+    assert.equal(reviewStaleSnap.nextAction.command, "/pre-pr");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -985,7 +998,7 @@ test("keeps Build & Prove pending during /plan with baseline lint checks and avo
     const planningSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(planningSnap.doneCount, 0);
     assert.equal(planningSnap.stages[0].status, "active");
-    assert.equal(planningSnap.stages[0].commands[0].state, "active");
+    assert.equal(planningSnap.stages[0].commands.find((c) => c.command === "/plan")?.state, "active");
     assert.equal(planningSnap.nextAction.stageId, "plan");
     assert.equal(planningSnap.nextAction.inProgress, true);
     assert.equal(planningSnap.stages[1].status, "pending");
@@ -1007,7 +1020,7 @@ test("keeps Build & Prove pending during /plan with baseline lint checks and avo
     const gateSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(gateSnap.doneCount, 0);
     assert.equal(gateSnap.stages[0].status, "waiting_gate");
-    assert.equal(gateSnap.stages[0].commands[0].state, "done");
+    assert.equal(gateSnap.stages[0].commands.find((c) => c.command === "/plan")?.state, "done");
     assert.equal(gateSnap.stages[1].status, "pending");
 
     const step3 = {
@@ -1050,6 +1063,7 @@ test("keeps Build & Prove pending during /plan with baseline lint checks and avo
 
     const firstEditSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(firstEditSnap.stages[1].status, "active", "Pre-plan lint receipt must not make first edit stale");
+    assert.notEqual(firstEditSnap.freshness, "dirty_after_verify");
     assert.equal(firstEditSnap.stages[1].subChecks[0].status, "done");
     assert.equal(firstEditSnap.stages[1].subChecks[2].status, "pending");
 
@@ -1127,7 +1141,7 @@ test("detects Antigravity metadata Slash Command chips even after text while ign
 
     const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(snap.stages[0].status, "active");
-    assert.equal(snap.stages[0].commands[0].state, "active");
+    assert.equal(snap.stages[0].commands.find((c) => c.command === "/plan")?.state, "active");
     assert.equal(snap.stages[2].status, "pending");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -1322,7 +1336,7 @@ test("does not mark clean stale when transcript whole-second cleanup matches sam
   }
 });
 
-test("reports Re-clean wording without blaming verification when only cleanup is stale before PR review", () => {
+test("resets Build clean sub-check neutrally when code is edited after cleanup without turning Build yellow", () => {
   const { root, brainDir, workspaceDir } = makeFixture("astack-tl-reclean-");
   const convId = "conv-reclean";
   try {
@@ -1372,14 +1386,12 @@ test("reports Re-clean wording without blaming verification when only cleanup is
     ]);
 
     const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
-    assert.equal(snap.stages[1].status, "stale");
-    assert.equal(snap.stages[1].subChecks.find((c) => c.id === "clean")?.status, "stale");
+    assert.equal(snap.stages[1].status, "active");
+    assert.equal(snap.stages[1].subChecks.find((c) => c.id === "clean")?.status, "pending");
     assert.equal(snap.stages[1].subChecks.find((c) => c.id === "verify")?.status, "done");
-    assert.equal(snap.liveLabel, "Re-clean");
-    assert.equal(snap.stages[1].collapsedSummary, "Code edited after cleanup.");
-    assert.match(snap.stages[1].detail, /Re-run \/deslop or \/no-comments/);
+    assert.equal(snap.liveState, "ok");
+    assert.equal(snap.liveLabel, "Live");
     assert.doesNotMatch(snap.stages[1].detail, /after verification/i);
-    assert.match(snap.nextAction.hint, /Code edited after cleanup/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -2247,8 +2259,9 @@ test("living rail models parallel work, skipped ahead, waiting on you, and all-d
         paths: ["src/a.js"],
       },
     ]);
-    const staleOnlySnap = evaluateTimelineSnapshot({ conversationId: convStaleOnly, brainDir, workspaceDir });
-    assert.equal(staleOnlySnap.stages[1].railState, "stale");
+    const editAfterTestSnap = evaluateTimelineSnapshot({ conversationId: convStaleOnly, brainDir, workspaceDir });
+    assert.equal(editAfterTestSnap.stages[1].railState, "queued");
+    assert.equal(editAfterTestSnap.stages[1].status, "active");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -2479,8 +2492,10 @@ test("buildRiskPresentation separates human governance gates, defect blocks, low
     });
     assert.equal(govGate.trust.riskPresentation?.mode, "human_gate");
     assert.equal(govGate.trust.riskPresentation?.tone, "warn");
-    assert.equal(govGate.trust.riskPresentation?.headerBadge, "Review gate · R 0.57");
-    assert.match(govGate.trust.riskPresentation?.headline ?? "", /Human review required/);
+    assert.equal(govGate.trust.riskPresentation?.scorePct, 57);
+    assert.equal(govGate.trust.riskPresentation?.headerBadge, "Review gate · Risk 57%");
+    assert.match(govGate.trust.riskPresentation?.headline ?? "", /Human review required · Risk 57%/);
+    assert.match(govGate.trust.riskPresentation?.nextHint ?? "", /PR dossier is ready/i);
     assert.equal(govGate.trust.riskPresentation?.whyItems[0]?.evidence, ".agents/skills/verify-app/features/auth.md");
     assert.equal(govGate.trust.riskPresentation?.rollbackCommand, "git revert 0123456");
 
@@ -2496,7 +2511,7 @@ test("buildRiskPresentation separates human governance gates, defect blocks, low
     });
     assert.equal(defectGate.trust.riskPresentation?.mode, "defect_blocked");
     assert.equal(defectGate.trust.riskPresentation?.tone, "err");
-    assert.match(defectGate.trust.riskPresentation?.headline ?? "", /Action needed/);
+    assert.match(defectGate.trust.riskPresentation?.headline ?? "", /Action needed · Risk 65%/);
 
     const mergedGate = makeCase("conv-merged", {
       merged: true,
@@ -2511,7 +2526,7 @@ test("buildRiskPresentation separates human governance gates, defect blocks, low
     });
     assert.equal(mergedGate.trust.riskPresentation?.mode, "resolved_merged");
     assert.equal(mergedGate.trust.riskPresentation?.tone, "done");
-    assert.equal(mergedGate.trust.riskPresentation?.headerBadge, "Merged · R 0.57");
+    assert.equal(mergedGate.trust.riskPresentation?.headerBadge, "Merged · Risk 57%");
     assert.equal(mergedGate.trust.riskPresentation?.headline, "Reviewed & merged (PR #61)");
 
     const lowGate = makeCase("conv-low", {
@@ -3396,6 +3411,751 @@ test("evaluateTimelineSnapshot caches transcript parsing without cross-call muta
     const afterChildDone = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(afterChildDone.activity.runningSubagentsCount, 0, "Child transcript completion must update parent snapshot");
     assert.equal(afterChildDone.activity.subagents[0].status, "done");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("keeps running background verify alive across 120s heartbeat and reconciles failed command receipts", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-270127c0-");
+  const convId = "conv-heartbeat-fail";
+  try {
+    const headSha = "084812aad9700881367458a5eccb2072a50b3686";
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T16:01:50Z",
+        content: "<USER_REQUEST>Fix build failure</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T16:09:05Z",
+        tool_calls: [{ name: "edit_file", args: { Path: "scripts/release-guard.test.js" } }],
+      },
+      {
+        step_index: 2,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T16:09:24Z",
+        tool_calls: [
+          {
+            name: "run_command",
+            args: {
+              CommandLine: "node --experimental-strip-types --test apps/desktop/scripts/release-guard.test.js; cargo clippy",
+              toolSummary: "Run script tests and Cargo checks",
+            },
+          },
+        ],
+      },
+      {
+        step_index: 3,
+        type: "GENERIC",
+        created_at: "2026-11-27T16:09:32Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-68\nTask Description: node --experimental-strip-types --test apps/desktop/scripts/release-guard.test.js; cargo clippy`,
+      },
+      {
+        step_index: 4,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-27T16:09:50Z",
+        content: `<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-27T16:09:46Z sender=${convId}/task-68 priority=MESSAGE_PRIORITY_HIGH content=Task id "${convId}/task-68" finished with result:\nCommand exited with code 1.\n</SYSTEM_MESSAGE>`,
+      },
+      {
+        step_index: 5,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T16:09:50Z",
+        tool_calls: [
+          { name: "edit_file", args: { Path: "scripts/release-guard.test.js" } },
+          {
+            name: "run_command",
+            args: {
+              CommandLine: "node --experimental-strip-types --test apps/desktop/scripts/release-guard.test.js; cargo clippy",
+              toolSummary: "Run all script tests and Cargo checks",
+            },
+          },
+        ],
+      },
+      {
+        step_index: 6,
+        type: "GENERIC",
+        created_at: "2026-11-27T16:09:57Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-74\nTask Description: node --experimental-strip-types --test apps/desktop/scripts/release-guard.test.js; cargo clippy`,
+      },
+      {
+        step_index: 7,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-27T16:12:30Z",
+        content: `<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-27T16:12:16Z sender=${convId}/task-74 priority=MESSAGE_PRIORITY_HIGH content=Background command is still running after 120s: node --experimental-strip-types --test apps/desktop/scripts/release-guard.test.js; cargo clippy\n</SYSTEM_MESSAGE>`,
+      },
+    ]);
+
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T16:09:08.000Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "other",
+        headSha,
+        ok: true,
+        summary: "edit_file scripts/release-guard.test.js",
+        paths: ["scripts/release-guard.test.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T16:09:46.375Z",
+        conversationId: convId,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --experimental-strip-types --test apps/desktop/scripts/release-guard.test.js; cargo clippy",
+        paths: [],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T16:10:04.994Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "other",
+        headSha,
+        ok: true,
+        summary: "edit_file scripts/release-guard.test.js",
+        paths: ["scripts/release-guard.test.js"],
+      },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    const task68 = snap.activity.backgroundJobs.items.find((j) => j.taskSlug === "task-68");
+    const task74 = snap.activity.backgroundJobs.items.find((j) => j.taskSlug === "task-74");
+    assert.equal(task68?.status, "failed");
+    assert.equal(task74?.status, "running", "120s still-running notification must not mark task-74 done");
+    assert.ok(snap.activity.liveStageIds.includes("build"));
+    assert.equal(snap.stages[1].railState, "running");
+    assert.equal(snap.stages[1].status, "active");
+    assert.notEqual(snap.freshness, "dirty_after_verify");
+    assert.equal(snap.liveState, "ok");
+    assert.equal(snap.liveLabel, "Live");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("routes read-only /investigate, /how, /why, diagnosis.md gate, diagnosis-to-plan, and Combined Gate without activating Build", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-inv-");
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+
+    const convInv = "conv-inv-running";
+    const childSelfId = "aaaa1111-1111-4111-8111-111111111111";
+    const childBrowserId = "bbbb2222-2222-4222-8222-222222222222";
+    writeTranscript(brainDir, convInv, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:00:00Z",
+        content: "<USER_REQUEST>/investigate why CI run failed</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:00:05Z",
+        tool_calls: [
+          { name: "read_file", args: { Path: "/plugin/skills/astack-mode/SKILL.md" } },
+          { name: "read_file", args: { Path: "/plugin/skills/control-cli/SKILL.md" } },
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "CI Log Analyst", Prompt: "Inspect GitHub Actions logs" } },
+          { name: "invoke_subagent", args: { TypeName: "browser", Role: "Repro Probe", Prompt: "Check dashboard error" } },
+          { name: "run_command", args: { CommandLine: "gh run view 123 --log-failed", toolSummary: "Fetch failed CI log" } },
+        ],
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        created_at: "2026-11-27T10:00:06Z",
+        content: `Spawned {"conversationId":"${childSelfId}"} and {"conversationId":"${childBrowserId}"}\ntask id: ${convInv}/task-1`,
+      },
+    ]);
+
+    const invRunning = evaluateTimelineSnapshot({ conversationId: convInv, brainDir, workspaceDir });
+    assert.equal(invRunning.stages[0].label, "Investigate & Plan");
+    assert.equal(invRunning.stages[0].status, "active");
+    assert.equal(invRunning.stages[0].railState, "running");
+    assert.equal(invRunning.stages[0].readOnlyActive, true);
+    assert.equal(invRunning.stages[0].subChecks[0].status, "run");
+    assert.equal(invRunning.stages[1].status, "pending", "Build & Prove must remain pending during read-only investigation");
+    assert.equal(invRunning.workflowMode, "investigation");
+    assert.equal(invRunning.workflowLabel, "Investigation");
+    assert.equal(invRunning.activity.subagents[0].stageId, "plan");
+    assert.equal(invRunning.activity.subagents[1].stageId, "plan");
+    assert.equal(invRunning.activity.backgroundJobs.items[0].stageId, "plan");
+    assert.notEqual(invRunning.stages[1].subChecks.find((c) => c.id === "verify")?.status, "done");
+
+    writeText(path.join(brainDir, convInv, "diagnosis.md"), "# Diagnosis\nOS shutdown killed runner.\n");
+    writeTranscript(brainDir, convInv, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:00:00Z",
+        content: "<USER_REQUEST>/investigate why CI run failed</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:01:00Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convInv, "diagnosis.md") } }],
+      },
+    ]);
+
+    const diagGate = evaluateTimelineSnapshot({ conversationId: convInv, brainDir, workspaceDir });
+    assert.equal(diagGate.stages[0].status, "waiting_gate");
+    assert.equal(diagGate.stages[0].waitingArtifact, "diagnosis");
+    assert.equal(diagGate.stages[0].subChecks[0].status, "done");
+    assert.equal(diagGate.stages[0].subChecks[1].status, "pending");
+    assert.equal(diagGate.stages[0].artifacts.some((a) => a.name === "diagnosis.md"), true);
+    assert.equal(diagGate.stages[1].artifacts.some((a) => a.name === "diagnosis.md"), false);
+    assert.equal(diagGate.stages[1].status, "pending");
+    assert.equal(diagGate.nextAction?.command, "/plan");
+
+    writeTranscript(brainDir, convInv, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:00:00Z",
+        content: "<USER_REQUEST>/investigate why CI run failed</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:01:00Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convInv, "diagnosis.md") } }],
+      },
+      {
+        step_index: 2,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:02:00Z",
+        content: "<USER_REQUEST>/plan write the fix plan</USER_REQUEST>",
+      },
+    ]);
+
+    const planningAfterDiag = evaluateTimelineSnapshot({ conversationId: convInv, brainDir, workspaceDir });
+    assert.equal(planningAfterDiag.stages[0].status, "active");
+    assert.equal(planningAfterDiag.stages[0].subChecks[0].status, "done");
+    assert.equal(planningAfterDiag.stages[0].subChecks[1].status, "run");
+
+    writeText(path.join(brainDir, convInv, "implementation_plan.md"), "# Plan\n## Root Cause\nShutdown.\n");
+    writeTranscript(brainDir, convInv, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:00:00Z",
+        content: "<USER_REQUEST>/investigate why CI run failed</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:01:00Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convInv, "diagnosis.md") } }],
+      },
+      {
+        step_index: 2,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:02:00Z",
+        content: "<USER_REQUEST>/plan write the fix plan</USER_REQUEST>",
+      },
+      {
+        step_index: 3,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:03:00Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convInv, "implementation_plan.md") } }],
+      },
+      {
+        step_index: 4,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:04:00Z",
+        content: "<USER_REQUEST>Proceeded with implementation_plan.md</USER_REQUEST>",
+      },
+    ]);
+
+    const planDoneSnap = evaluateTimelineSnapshot({ conversationId: convInv, brainDir, workspaceDir });
+    assert.equal(planDoneSnap.stages[0].status, "done");
+    assert.equal(planDoneSnap.stages[0].subChecks[0].status, "done");
+    assert.equal(planDoneSnap.stages[0].subChecks[1].status, "done");
+    assert.deepEqual(planDoneSnap.stages[0].artifacts.map((a) => a.name), ["diagnosis.md", "implementation_plan.md"]);
+    assert.equal(planDoneSnap.stages[1].status, "next");
+
+    const convReadOnly = "conv-how-done";
+    writeTranscript(brainDir, convReadOnly, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T11:00:00Z",
+        content: "<USER_REQUEST>/how does receipt freshness work?</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T11:00:30Z",
+        content: "Receipt freshness compares HEAD SHA against recorded receipts.",
+      },
+    ]);
+
+    const roDone = evaluateTimelineSnapshot({ conversationId: convReadOnly, brainDir, workspaceDir });
+    assert.equal(roDone.stages[0].status, "done");
+    assert.equal(roDone.stages[0].readOnlyComplete, true);
+    assert.equal(roDone.stages[0].subChecks[0].status, "done");
+    assert.equal(roDone.stages[0].subChecks[1].status, "optional");
+    assert.equal(roDone.stages[1].status, "pending");
+    assert.equal(roDone.workflowMode, "investigation");
+    assert.equal(roDone.nextAction, null);
+
+    const convCombined = "conv-combined-gate";
+    writeText(
+      path.join(brainDir, convCombined, "implementation_plan.md"),
+      "# Fix Plan\n\n## Root Cause & Empirical Evidence\nMissing guard.\n\n## Proposed Changes\nFix.\n",
+    );
+    writeTranscript(brainDir, convCombined, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T12:00:00Z",
+        content: "<USER_REQUEST>/astack-mode find root cause of X and fix it</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T12:01:00Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convCombined, "implementation_plan.md") } }],
+      },
+    ]);
+
+    const combinedSnap = evaluateTimelineSnapshot({ conversationId: convCombined, brainDir, workspaceDir });
+    assert.equal(combinedSnap.stages[0].status, "waiting_gate");
+    assert.equal(combinedSnap.stages[0].waitingArtifact, "plan");
+    assert.equal(combinedSnap.stages[0].combinedGate, true);
+    assert.equal(combinedSnap.stages[0].subChecks[0].status, "done");
+    assert.equal(combinedSnap.stages[1].status, "pending");
+
+    const convTeachPr = "conv-teach-pr";
+    writeTranscript(brainDir, convTeachPr, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T12:05:00Z",
+        content: "<USER_REQUEST>/teach https://github.com/org/repo/pull/42</USER_REQUEST>",
+      },
+    ]);
+    const teachPrSnap = evaluateTimelineSnapshot({ conversationId: convTeachPr, brainDir, workspaceDir });
+    assert.equal(teachPrSnap.panelDefaultMode, "review_pr");
+    assert.equal(teachPrSnap.colleagueReview.detected, true);
+    assert.ok(teachPrSnap.colleagueReview.detectedCommands.includes("/teach"));
+    assert.equal(teachPrSnap.colleagueReview.targetPrs[0]?.number, 42);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("provides deterministic next-step instructions, dynamic command prompts, and stage-aware Risk % for partial Build & Prove", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-guided-");
+  const headSha = "084812aad9700881367458a5eccb2072a50b3686";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+
+    const convPartial = "conv-partial-build";
+    const files = [
+      "apps/desktop/scripts/release.js",
+      "apps/desktop/scripts/windows-build-guard.ps1",
+      ".github/workflows/release.yml",
+      "apps/desktop/scripts/release-guard.test.js",
+      "apps/desktop/src-tauri/Cargo.toml",
+    ];
+    writeTranscript(brainDir, convPartial, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T16:00:00Z",
+        content: "<USER_REQUEST>Fix GitHub Actions release build</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T16:10:00Z",
+        content: "Fixed and verified.",
+      },
+    ]);
+    writeReceipt(brainDir, convPartial, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T16:05:00Z",
+        conversationId: convPartial,
+        kind: "file_write",
+        category: "governance",
+        headSha,
+        ok: true,
+        summary: "edit files",
+        paths: files,
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T16:09:00Z",
+        conversationId: convPartial,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+    ]);
+    writeText(
+      path.join(brainDir, convPartial, "astack-trust", "evidence.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha,
+        freshness: "fresh",
+        riskTier: 3,
+        riskLabel: "critical",
+        reviewRound: 0,
+        maxReviewRounds: 3,
+        roundState: "open",
+        riskAssessment: {
+          tier: 3,
+          score: 0.703,
+          residual: "blocked",
+          signals: [
+            { id: "touches_governance", weight: 0.55, evidence: ".github/workflows/release.yml" },
+            { id: "dependency_changed", weight: 0.25, evidence: "apps/desktop/src-tauri/Cargo.toml" },
+            { id: "new_path", weight: 0.12, evidence: "apps/desktop/scripts/release-guard.test.js, apps/desktop/scripts/windows-build-guard.ps1" },
+          ],
+          satisfied: [],
+          rollback: { kind: "revert", plan: "git revert 084812a" },
+        },
+      }),
+    );
+
+    const partialSnap = evaluateTimelineSnapshot({
+      conversationId: convPartial,
+      brainDir,
+      workspaceDir,
+      nowMs: Date.parse("2026-11-27T16:11:00Z"),
+    });
+    assert.equal(partialSnap.stages[1].status, "active");
+    assert.equal(partialSnap.stages[1].collapsedSummary, "Edits & verify done · Still needed: clean diff (/deslop).");
+    assert.match(partialSnap.stages[1].detail, /Still needed: clean the diff/);
+    assert.equal(partialSnap.nextAction?.stageId, "build");
+    assert.equal(partialSnap.nextAction?.command, "/deslop");
+    assert.match(partialSnap.nextAction?.title ?? "", /1 step left.*clean diff/i);
+    assert.match(partialSnap.nextAction?.instruction ?? "", /Risk 70% requires human review/i);
+    assert.deepEqual(partialSnap.nextAction?.remaining, ["Clean diff"]);
+    assert.match(partialSnap.nextAction?.prompt ?? "", /^\/deslop \/no-comments Clean the 5 changed files .*\/pre-pr on HEAD\.$/);
+    assert.equal(partialSnap.nextAction?.alternative?.command, "/pre-pr");
+    assert.equal(partialSnap.trust.riskPresentation?.headerBadge, "Review gate · Risk 70%");
+    assert.equal(partialSnap.trust.riskPresentation?.headline, "Human review required · Risk 70%");
+    assert.match(partialSnap.trust.riskPresentation?.nextHint ?? "", /Run \/pre-pr/i);
+    assert.doesNotMatch(partialSnap.trust.riskPresentation?.nextHint ?? "", /approve or merge/i);
+
+    const convDocVerify = "conv-doc-verify";
+    writeReceipt(brainDir, convDocVerify, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T15:59:00Z",
+        conversationId: convDocVerify,
+        kind: "file_write",
+        category: "docs",
+        headSha,
+        ok: true,
+        summary: "edit README.md",
+        paths: ["README.md"],
+      },
+    ]);
+    const docVerifySnap = evaluateTimelineSnapshot({
+      conversationId: convDocVerify,
+      brainDir,
+      workspaceDir,
+      nowMs: Date.parse("2026-11-27T16:10:00Z"),
+    });
+    assert.equal(docVerifySnap.stages[1].subChecks?.find((c) => c.id === "clean")?.optional, true);
+    assert.deepEqual(docVerifySnap.nextAction?.remaining, ["Verify on HEAD"]);
+    assert.doesNotMatch(docVerifySnap.nextAction?.prompt ?? "", /\/deslop/);
+
+    const convVerifyLeft = "conv-verify-left";
+    writeTranscript(brainDir, convVerifyLeft, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T16:00:00Z",
+        tool_calls: [{ name: "read_file", args: { Path: "/plugin/skills/deslop/SKILL.md" } }],
+      },
+    ]);
+    writeReceipt(brainDir, convVerifyLeft, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T15:59:00Z",
+        conversationId: convVerifyLeft,
+        kind: "file_write",
+        category: "ui",
+        headSha,
+        ok: true,
+        summary: "edit src/a.js",
+        paths: ["src/a.js"],
+      },
+    ]);
+    const verifyLeftSnap = evaluateTimelineSnapshot({
+      conversationId: convVerifyLeft,
+      brainDir,
+      workspaceDir,
+      nowMs: Date.parse("2026-11-27T16:10:00Z"),
+    });
+    assert.equal(verifyLeftSnap.stages[1].collapsedSummary, "Edits & clean done · Still needed: verify on HEAD.");
+    assert.equal(verifyLeftSnap.nextAction?.command, "/astack-mode");
+    assert.match(verifyLeftSnap.nextAction?.title ?? "", /1 step left.*verify on HEAD/i);
+    assert.match(verifyLeftSnap.nextAction?.prompt ?? "", /Verify the 1 changed file on HEAD/);
+
+    const convBothLeft = "conv-both-left";
+    writeReceipt(brainDir, convBothLeft, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T15:59:00Z",
+        conversationId: convBothLeft,
+        kind: "file_write",
+        category: "ui",
+        headSha,
+        ok: true,
+        summary: "edit src/a.js",
+        paths: ["src/a.js", "src/b.js"],
+      },
+    ]);
+    const bothLeftSnap = evaluateTimelineSnapshot({
+      conversationId: convBothLeft,
+      brainDir,
+      workspaceDir,
+      nowMs: Date.parse("2026-11-27T16:10:00Z"),
+    });
+    assert.equal(bothLeftSnap.stages[1].collapsedSummary, "Edits done · Still needed: clean diff & verify.");
+    assert.match(bothLeftSnap.nextAction?.title ?? "", /2 steps left.*clean & verify/i);
+    assert.match(bothLeftSnap.nextAction?.prompt ?? "", /Clean the 2 changed files with \/deslop and \/no-comments/);
+
+    const convReviewReady = "conv-review-ready";
+    writeTranscript(brainDir, convReviewReady, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T16:00:00Z",
+        tool_calls: [{ name: "read_file", args: { Path: "/plugin/skills/deslop/SKILL.md" } }],
+      },
+    ]);
+    writeReceipt(brainDir, convReviewReady, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T15:58:00Z",
+        conversationId: convReviewReady,
+        kind: "file_write",
+        category: "ui",
+        headSha,
+        ok: true,
+        summary: "edit files",
+        paths: ["src/a.js", "src/b.js", "src/c.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T16:01:00Z",
+        conversationId: convReviewReady,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+    ]);
+    const reviewReadySnap = evaluateTimelineSnapshot({
+      conversationId: convReviewReady,
+      brainDir,
+      workspaceDir,
+      nowMs: Date.parse("2026-11-27T16:10:00Z"),
+    });
+    assert.equal(reviewReadySnap.stages[2].status, "next");
+    assert.equal(reviewReadySnap.nextAction?.stageId, "review");
+    assert.equal(reviewReadySnap.nextAction?.command, "/pre-pr");
+    assert.equal(reviewReadySnap.nextAction?.alternative?.command, "/run-workflow");
+    assert.match(reviewReadySnap.nextAction?.alternative?.prompt ?? "", /Review the 3 changed files/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("enriches parallel self subagents with distinct roles, child live activity, unquoted tasks, and per-child durations", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-parallel-self-");
+  const convId = "conv-parallel-self";
+  const c1 = "aaaaaaaa-1111-4111-8111-111111111111";
+  const c2 = "bbbbbbbb-2222-4222-8222-222222222222";
+  const c3 = "cccccccc-3333-4333-8333-333333333333";
+  const sharedTruncatedPrompt =
+    '"You are an adversarial code reviewer running `/interrogate` inside an isolated `branch` workspace.\\n\\n## Setup\\n1. Read docs before `/pre-pr` runs.\n<truncated 1814 bytes>';
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeTranscript(brainDir, c1, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T17:59:41Z",
+        tool_calls: [{ name: "update_focus", args: { focus: "Analyzing timeline-engine state machine logic" } }],
+      },
+    ]);
+    writeTranscript(brainDir, c2, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T17:59:59Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: "node adv2_browser.mjs", toolSummary: "Running adv2_browser.mjs Chrome CDP check" } }],
+      },
+    ]);
+    writeTranscript(brainDir, c3, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T18:00:00Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: "node adv3_repros.mjs", toolSummary: "Running adversarial repro script" } }],
+      },
+    ]);
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T17:57:00Z",
+        content: "<USER_REQUEST>/interrogate check changes</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T17:58:07Z",
+        tool_calls: [
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "Timeline State Machine Adversary", Workspace: "branch", Prompt: sharedTruncatedPrompt } },
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "Timeline Frontend UI Adversary", Workspace: "branch", Prompt: sharedTruncatedPrompt } },
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "Contract & Regression Adversary", Workspace: "branch", Prompt: sharedTruncatedPrompt } },
+        ],
+      },
+      { step_index: 2, type: "GENERIC", status: "DONE", created_at: "2026-11-27T17:58:20Z", content: `{"conversationId":"${c1}"}` },
+      { step_index: 3, type: "GENERIC", status: "DONE", created_at: "2026-11-27T17:58:24Z", content: `{"conversationId":"${c2}"}` },
+      { step_index: 4, type: "GENERIC", status: "DONE", created_at: "2026-11-27T17:58:27Z", content: `{"conversationId":"${c3}"}` },
+    ]);
+
+    const runningSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    const runAgents = runningSnap.activity.subagents;
+    assert.equal(runAgents.length, 3);
+    assert.deepEqual(runAgents.map((a) => a.role), [
+      "Timeline State Machine Adversary",
+      "Timeline Frontend UI Adversary",
+      "Contract & Regression Adversary",
+    ]);
+    assert.deepEqual(runAgents.map((a) => a.workspace), ["branch", "branch", "branch"]);
+    assert.deepEqual(runAgents.map((a) => a.startedAt), [
+      "2026-11-27T17:59:41Z",
+      "2026-11-27T17:59:59Z",
+      "2026-11-27T18:00:00Z",
+    ]);
+    assert.deepEqual(runAgents.map((a) => a.task), [
+      "Analyzing timeline-engine state machine logic",
+      "Running adv2_browser.mjs Chrome CDP check",
+      "Running adversarial repro script",
+    ]);
+    for (const a of runAgents) {
+      assert.equal(a.task.startsWith('"'), false, "Task must not retain leading JSON quote");
+      assert.equal(a.stageId, "review");
+      assert.equal(a.status, "running");
+    }
+
+    writeTranscript(brainDir, c1, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T17:59:41Z", tool_calls: [{ name: "update_focus", args: { focus: "Analyzing" } }] },
+      { step_index: 1, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T18:09:37Z", content: "Sent the structured `/interrogate` adversarial review report (8 verified findings)." },
+    ]);
+    writeTranscript(brainDir, c2, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T17:59:59Z", tool_calls: [{ name: "run_command", args: { toolSummary: "Run CDP" } }] },
+      { step_index: 1, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T18:10:10Z", content: "Completed UI & CDP verification repros." },
+    ]);
+    writeTranscript(brainDir, c3, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T18:00:00Z", tool_calls: [{ name: "run_command", args: { toolSummary: "Run repro" } }] },
+      { step_index: 1, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T18:08:42Z", content: "Completed contract & regression repros." },
+    ]);
+    const c4 = "dddddddd-4444-4444-8444-444444444444";
+    writeTranscript(brainDir, c4, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T18:10:15Z", tool_calls: [{ name: "run_command", args: { toolSummary: "Run pr-verifier tests" } }] },
+      { step_index: 1, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T18:11:10Z", content: JSON.stringify({ schemaVersion: 1, verdict: "PASS" }) },
+    ]);
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T17:57:00Z",
+        content: "<USER_REQUEST>/interrogate check changes</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T17:58:07Z",
+        tool_calls: [
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "Timeline State Machine Adversary", Workspace: "branch", Prompt: sharedTruncatedPrompt } },
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "Timeline Frontend UI Adversary", Workspace: "branch", Prompt: sharedTruncatedPrompt } },
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "Contract & Regression Adversary", Workspace: "branch", Prompt: sharedTruncatedPrompt } },
+        ],
+      },
+      { step_index: 2, type: "GENERIC", status: "DONE", created_at: "2026-11-27T17:58:20Z", content: `{"conversationId":"${c1}"}` },
+      { step_index: 3, type: "GENERIC", status: "DONE", created_at: "2026-11-27T17:58:24Z", content: `{"conversationId":"${c2}"}` },
+      { step_index: 4, type: "GENERIC", status: "DONE", created_at: "2026-11-27T17:58:27Z", content: `{"conversationId":"${c3}"}` },
+      { step_index: 5, type: "SYSTEM_MESSAGE", status: "DONE", created_at: "2026-11-27T18:11:29Z", content: "All your subagents and background tasks have been stopped." },
+      {
+        step_index: 6,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T18:10:12Z",
+        tool_calls: [
+          { name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "Pre-PR Verifier", Workspace: "branch", Prompt: "Verify HEAD" } },
+        ],
+      },
+      { step_index: 7, type: "GENERIC", status: "DONE", created_at: "2026-11-27T18:10:13Z", content: `{"conversationId":"${c4}"}` },
+    ]);
+
+    const doneSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    const doneAgents = doneSnap.activity.subagents;
+    assert.deepEqual(doneAgents.map((a) => a.completedAt), [
+      "2026-11-27T18:09:37Z",
+      "2026-11-27T18:10:10Z",
+      "2026-11-27T18:08:42Z",
+      "2026-11-27T18:11:10Z",
+    ]);
+    assert.deepEqual(doneAgents.map((a) => a.task), [
+      "Sent the structured /interrogate adversarial review report (8 verified findings).",
+      "Completed UI & CDP verification repros.",
+      "Completed contract & regression repros.",
+      "Run pr-verifier tests",
+    ]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

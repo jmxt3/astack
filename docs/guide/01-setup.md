@@ -11,7 +11,7 @@ agy plugin install https://github.com/jmxt3/astack
 agy plugin list --json
 ```
 
-(To install from a local clone instead, run `agy plugin install ./astack` or `agy plugin install .`. On Windows, if updating while Antigravity is running fails with `Access is denied`, run `agy plugin uninstall astack` before reinstalling.) For workspace-level customization, you can also copy individual skills into `.agents/skills/`. AStack sets `disable-model-invocation: true` on `37` manual-only/principle skills so only `29` auto-invocable workflow skills sit in your prompt index, and never shadows any native command or built-in skill. See [Architecture & Swarm](../architecture-and-swarm.md) for how plugin skills route to Antigravity's 18 native slash commands (`/plan`, `/grill-me`, `/run-workflow`, `/boost`, `/swarm`, `/teamwork`, `/goal`, `/schedule`, `/automation`, `/browser`, `/mcp-app-development`, `/compact`).
+(To install from a local clone instead, run `agy plugin install ./astack` or `agy plugin install .`. On Windows, if updating while Antigravity is running fails with `Access is denied`, run `agy plugin uninstall astack` before reinstalling.) For workspace-level customization, you can also copy individual skills into `.agents/skills/`. AStack sets `disable-model-invocation: true` on `38` manual-only/principle skills so only `29` auto-invocable workflow skills sit in your prompt index, and never shadows any native command or built-in skill. See [Architecture & Swarm](../architecture-and-swarm.md) for how plugin skills route to Antigravity's 18 native slash commands (`/plan`, `/grill-me`, `/run-workflow`, `/boost`, `/swarm`, `/teamwork`, `/goal`, `/schedule`, `/automation`, `/browser`, `/mcp-app-development`, `/compact`).
 
 ## Works with any model & plan (zero config)
 
@@ -33,7 +33,7 @@ Inside an application repository, run:
 
 1. **Runtime verification skill ([`/create-verification-skill`](../../skills/create-verification-skill/SKILL.md))**: writes `.agents/skills/verify-<app>/` and a `features/` sitemap so agents drive and prove your app the way a user does, and verifies the skill once before handing it over. [Verify and ship](./06-verify-and-ship.md#create-a-project-verification-skill) covers it in depth. If you're new to astack, say yes: an agent that can check its own work keeps going until the check passes, instead of handing every result back to you to check by hand.
 2. **Formal verification skill ([`/create-formal-verification-skill`](../../skills/create-formal-verification-skill/SKILL.md))**: checks a critical invariant with TLA+ when your code has concurrency, retries, a state machine, or a parser where tests rarely reach the breaking case. [Verify and ship](./06-verify-and-ship.md#prove-a-property-with-a-formal-verification-skill) covers it.
-3. **Opt-in lifecycle hooks (`hooks.json`)**: review `astack-irreversible-guard` and `astack-verify-reminder`, which ship disabled (`"enabled": false`) by default.
+3. **Lifecycle hooks (`hooks.json`)**: `astack-verify-reminder --dirty-only` ships enabled by default to re-verify dirty post-edit code automatically, while safety gates like `astack-irreversible-guard` ship disabled (`"enabled": false`) until opted in.
 
 No chat restart is needed after `/setup-astack`.
 

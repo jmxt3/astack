@@ -725,6 +725,19 @@ export function renderGitHubPrProof({
     "",
   ];
 
+  if (evidence?.trustContext) {
+    const tc = evidence.trustContext;
+    const autoLabel = evidence.autoMergeEligible ? "Yes" : "No";
+    const autoReason = escapeMarkdownCell(
+      evidence.autoMerge?.reason ?? (evidence.autoMergeEligible ? "eligible" : "Human review required"),
+    );
+    const trustText =
+      tc.category === "governance"
+        ? `Agent trust for \`governance\` is \`L${tc.level}\` (\`T ${Number(tc.score ?? 0).toFixed(2)}\`, capped at \`L2\` forever). Auto-merge is \`${autoLabel}\` (${autoReason}).`
+        : `Agent trust for \`${tc.category}\` is \`L${tc.level}/L3\` (\`T ${Number(tc.score ?? 0).toFixed(2)}\`, ceiling \`L${tc.ceiling}\`, \`${tc.merges}/${tc.minMergesForL3}\` merges). Auto-merge is \`${autoLabel}\` (${autoReason}).`;
+    lines.push(trustText, "");
+  }
+
   if (manifestHeadMismatch) {
     lines.push(
       `> **Warning.** Attached \`proof-manifest.json\` records \`HEAD ${proofManifest.headSha.slice(0, 7)}\` instead of current \`HEAD ${shortHead}\`. Re-run verification before merging.`,

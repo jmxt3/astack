@@ -44,11 +44,12 @@ function makeTempGitRepo(prefix = "astack-hook-") {
   return tmp;
 }
 
-test("hooks.json uses split defaults (3 passive enabled, 7 blocking opt-in) and synced tool matchers", () => {
+test("hooks.json uses split defaults (3 passive + dirty-only verify-reminder enabled, 6 blocking opt-in) and synced tool matchers", () => {
   const cfg = JSON.parse(fs.readFileSync(hooksJsonPath, "utf8"));
   assert.equal(cfg["astack-receipt-ledger"]?.enabled, true);
   assert.equal(cfg["astack-session-context"]?.enabled, true);
   assert.equal(cfg["astack-pr-intent"]?.enabled, true);
+  assert.equal(cfg["astack-verify-reminder"]?.enabled, true);
   assert.ok(Array.isArray(cfg["astack-receipt-ledger"]?.PostToolUse));
   assert.ok(Array.isArray(cfg["astack-session-context"]?.SessionStart));
   assert.ok(Array.isArray(cfg["astack-pr-intent"]?.PreInvocation));
@@ -57,7 +58,6 @@ test("hooks.json uses split defaults (3 passive enabled, 7 blocking opt-in) and 
   for (const key of [
     "astack-irreversible-guard",
     "astack-secret-guard",
-    "astack-verify-reminder",
     "astack-evidence-gate",
     "astack-boundary-guard",
     "astack-round-limiter",
@@ -71,6 +71,7 @@ test("hooks.json uses split defaults (3 passive enabled, 7 blocking opt-in) and 
   assert.equal(cfg["astack-boundary-guard"].PreToolUse[0]?.matcher, TOOL_MATCHERS.fileWrite);
   assert.equal(cfg["astack-round-limiter"].PreToolUse[0]?.matcher, TOOL_MATCHERS.fileWrite);
   assert.equal(cfg["astack-verify-reminder"].Stop[0]?.type, "command");
+  assert.equal(cfg["astack-verify-reminder"].Stop[0]?.command, "node ./scripts/hooks/verify-reminder.mjs --dirty-only");
 });
 
 test("irreversible-guard allows safe commands and flags destructive/trunk commands", () => {
@@ -277,6 +278,133 @@ test("verify-reminder backs Stop hook with ledger freshness, executionNum cap, a
     );
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
+  }
+});
+
+test("verify-reminder --dirty-only auto-continues only on dirty_after_verify and stays silent otherwise", () => {
+  const tmp = makeTempGitRepo("astack-dirty-only-");
+  const nonRepo = fs.mkdtempSync(path.join(os.tmpdir(), "astack-dirty-nonrepo-"));
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-dirty-art-"));
+  const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: tmp, encoding: "utf8" }).trim();
+  const runDirtyStop = (payload, extraEnv = {}) =>
+    JSON.parse(
+      execFileSync(process.execPath, [stopScript, "--dirty-only"], {
+        input: JSON.stringify(payload),
+        encoding: "utf8",
+        env: { ...process.env, ...extraEnv },
+      }).trim(),
+    );
+
+  try {
+    assert.deepEqual(
+      runDirtyStop({
+        conversationId: "dirty-nonrepo",
+        workspacePaths: [nonRepo],
+        continuationActive: false,
+        terminationReason: "model_stop",
+        fullyIdle: true,
+      }),
+      { decision: "allow" },
+    );
+
+    fs.writeFileSync(path.join(tmp, "app.js"), "console.log(2);\n", "utf8");
+    recordReceipt(
+      { kind: "tool-command", conversationId: "dirty-1", command: "node --test", error: "", workspaceDir: tmp, artifactDir },
+      { headSha, now: "2026-11-27T10:00:00Z" },
+    );
+    recordReceipt(
+      { kind: "tool-write", conversationId: "dirty-1", tool: "edit_file", filePath: "app.js", workspaceDir: tmp, artifactDir },
+      { headSha, now: "2026-11-27T10:01:00Z" },
+    );
+
+    assert.deepEqual(
+      runDirtyStop({
+        conversationId: "dirty-1",
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        continuationActive: false,
+        terminationReason: "model_stop",
+        fullyIdle: true,
+      }),
+      { decision: "allow" },
+      "Pre-edit investigation test followed by first edit must not trigger --dirty-only",
+    );
+
+    assert.deepEqual(
+      runDirtyStop({
+        conversationId: "dirty-no-verify",
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        continuationActive: false,
+        terminationReason: "model_stop",
+        fullyIdle: true,
+      }),
+      { decision: "allow" },
+      "missing_receipts must not trigger --dirty-only",
+    );
+
+    recordReceipt(
+      { kind: "tool-command", conversationId: "dirty-1", command: "node --test", error: "", workspaceDir: tmp, artifactDir },
+      { headSha, now: "2026-11-27T10:02:00Z" },
+    );
+    recordReceipt(
+      { kind: "tool-write", conversationId: "dirty-1", tool: "edit_file", filePath: "app.js", workspaceDir: tmp, artifactDir },
+      { headSha, now: "2026-11-27T10:03:00Z" },
+    );
+
+    const autoContinue = runDirtyStop({
+      conversationId: "dirty-1",
+      workspacePaths: [tmp],
+      artifactDirectoryPath: artifactDir,
+      continuationActive: false,
+      terminationReason: "model_stop",
+      fullyIdle: true,
+      executionNum: 0,
+    });
+    assert.equal(autoContinue.decision, "continue");
+    assert.match(autoContinue.reason, /dirty_after_verify/);
+
+    assert.deepEqual(
+      runDirtyStop({
+        conversationId: "dirty-1",
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        continuationActive: false,
+        terminationReason: "model_stop",
+        fullyIdle: false,
+      }),
+      { decision: "allow" },
+    );
+    assert.deepEqual(
+      runDirtyStop(
+        {
+          conversationId: "dirty-1",
+          workspacePaths: [tmp],
+          artifactDirectoryPath: artifactDir,
+          continuationActive: false,
+          terminationReason: "model_stop",
+          fullyIdle: true,
+        },
+        { ASTACK_REQUIRE_VERIFY: "0" },
+      ),
+      { decision: "allow" },
+    );
+    assert.deepEqual(
+      runDirtyStop({
+        conversationId: "dirty-1",
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+        continuationActive: false,
+        terminationReason: "model_stop",
+        fullyIdle: true,
+        executionNum: 3,
+      }),
+      { decision: "allow" },
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(nonRepo, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });
   }
 });

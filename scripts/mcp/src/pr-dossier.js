@@ -154,6 +154,14 @@ function renderDossier(data, app) {
     }
     sigCard.appendChild(strip);
   }
+  if (vm.trustSummary?.line) {
+    const trustRow = domEl("div", "row");
+    trustRow.appendChild(domEl("span", "muted", vm.trustSummary.line));
+    sigCard.appendChild(trustRow);
+    if (vm.trustSummary.autoMergeReason) {
+      sigCard.appendChild(domEl("p", "empty", vm.trustSummary.autoMergeReason));
+    }
+  }
   shell.appendChild(sigCard);
 
   const read = vm.reading;

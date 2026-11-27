@@ -67,6 +67,12 @@
       "description": "Restate the ticket or goal read-only to catch misreads before coding.",
       "docsPath": "skills/in-your-own-words/SKILL.md"
     },
+    "/investigate": {
+      "kind": "skill",
+      "invocable": true,
+      "description": "Reproduce and isolate root cause read-only, then pause at diagnosis.md before planning.",
+      "docsPath": "skills/investigate/SKILL.md"
+    },
     "/sharpen": {
       "kind": "skill",
       "invocable": true,
@@ -553,10 +559,19 @@
       },
       {
         "id": "plan",
-        "title": "Plan",
-        "subtitle": "Understand, design, and align",
+        "title": "Investigate & Plan",
+        "subtitle": "Diagnose root cause, understand, and align",
         "icon": "doc",
         "examples": [
+          {
+            "id": "investigate-bug",
+            "label": "Investigate bug",
+            "kicker": "Investigate bug · /investigate",
+            "commands": ["/investigate"],
+            "prompt": "/investigate Reproduce why the build failed, rule out competing hypotheses read-only, and write diagnosis.md before planning any fix.",
+            "how": "Isolates root cause read-only and pauses at diagnosis.md before any plan or edits.",
+            "ownership": "You start"
+          },
           {
             "id": "plan-first",
             "label": "Plan first",
@@ -604,6 +619,7 @@
           }
         ],
         "commands": [
+          "/investigate",
           "/plan",
           "/grill-me",
           "/how",

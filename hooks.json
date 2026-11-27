@@ -65,11 +65,11 @@
     ]
   },
   "astack-verify-reminder": {
-    "enabled": false,
+    "enabled": true,
     "Stop": [
       {
         "type": "command",
-        "command": "node ./scripts/hooks/verify-reminder.mjs",
+        "command": "node ./scripts/hooks/verify-reminder.mjs --dirty-only",
         "timeout": 10
       }
     ]

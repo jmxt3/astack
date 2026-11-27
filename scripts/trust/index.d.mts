@@ -72,6 +72,37 @@ export interface ReceiptEntry {
 export interface EvidenceSnapshot {
   readonly headSha?: string | null;
   readonly generatedAt?: string | null;
+  readonly autoMergeEligible?: boolean;
+  readonly autoMerge?: {
+    readonly eligible?: boolean;
+    readonly mode?: string;
+    readonly label?: string;
+    readonly reason?: string;
+  } | null;
+  readonly trustContext?: {
+    readonly enrolled?: boolean;
+    readonly scopeKind?: string;
+    readonly category?: TrustCategory;
+    readonly categoryLabel?: string;
+    readonly level?: number;
+    readonly earnedLevel?: number;
+    readonly ceiling?: number;
+    readonly maxCeiling?: number;
+    readonly score?: number;
+    readonly brier?: number;
+    readonly clean?: number;
+    readonly edited?: number;
+    readonly reverted?: number;
+    readonly merges?: number;
+    readonly totalOutcomes?: number;
+    readonly beastOn?: boolean;
+    readonly promotionMode?: PromotionMode;
+    readonly frozen?: boolean;
+    readonly requiredMergeLevel?: number | null;
+    readonly minMergesForL3?: number;
+    readonly minScoreForL3?: number;
+    readonly mergesRemainingForL3?: number | null;
+  } | null;
   readonly riskAssessment?: {
     readonly headSha?: string | null;
     readonly category?: string | null;
@@ -315,6 +346,7 @@ export interface DossierViewModel {
     readonly residual: string;
     readonly primaryAction: { readonly id: string; readonly label: string };
   };
+  readonly trustSummary?: Record<string, unknown> | null;
   readonly intentStrip: {
     readonly declared: boolean;
     readonly goal: string | null;
