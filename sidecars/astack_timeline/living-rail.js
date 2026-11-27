@@ -49,6 +49,13 @@
       spark: dark ? [220, 235, 255] : accent,
       core: dark ? [15, 26, 43] : toRgb(ctx, v("--tl-card"), "#ffffff"),
       hand: toRgb(ctx, v("--tl-queued"), dark ? "#8fb6ee" : "#3b6fb6"),
+      beastOuter: dark ? [234, 88, 12] : [180, 83, 9],
+      beastAmber: dark ? [255, 162, 0] : [217, 119, 6],
+      beastYellow: dark ? [253, 224, 71] : [250, 204, 21],
+      beastCore: dark ? [255, 253, 224] : [254, 249, 195],
+      beastDisc: dark ? [26, 15, 5] : [255, 251, 235],
+      beastLine: dark ? [255, 176, 32] : [217, 119, 6],
+      beastSpark: dark ? [255, 243, 184] : [250, 204, 21],
     };
   }
 
@@ -64,16 +71,111 @@
     c.stroke();
   }
 
+  function drawFlameTongue(c, baseX, baseY, width, height, swayTop, swayMid) {
+    c.beginPath();
+    c.moveTo(baseX, baseY);
+    c.bezierCurveTo(
+      baseX - width * 1.15, baseY - height * 0.24,
+      baseX - width * 0.52 + swayMid, baseY - height * 0.68,
+      baseX + swayTop, baseY - height,
+    );
+    c.bezierCurveTo(
+      baseX + width * 0.52 + swayMid, baseY - height * 0.68,
+      baseX + width * 1.15, baseY - height * 0.24,
+      baseX, baseY,
+    );
+    c.closePath();
+    c.fill();
+  }
+
+  function drawBalancedFlame(c, x, y, t, K, opts) {
+    const scale = opts.scale ?? 1;
+    const alphaMul = opts.alpha ?? 1;
+    const isPilot = Boolean(opts.pilot);
+    const surgeRemain = isPilot ? 0 : (opts.surgeRemain ?? 0);
+    const hScale = scale * (1 + surgeRemain * 0.42);
+    const wScale = scale * (1 + surgeRemain * 0.16);
+    const phase = opts.phase ?? 0;
+
+    c.save();
+    c.globalCompositeOperation = K.blend;
+
+    const auraR = (isPilot ? 13 : 21) * wScale;
+    const aura = c.createRadialGradient(x, y - 3 * scale, 1, x, y - 3 * scale, auraR);
+    aura.addColorStop(0, rgba(K.beastYellow, (isPilot ? 0.36 : 0.55) * alphaMul));
+    aura.addColorStop(0.5, rgba(K.beastAmber, (isPilot ? 0.16 : 0.24) * alphaMul));
+    aura.addColorStop(1, rgba(K.beastOuter, 0));
+    c.fillStyle = aura;
+    disc(c, x, y - 3 * scale, auraR);
+
+    const sway1 = (Math.sin(t * 7.4 + phase) * 2.5 + Math.sin(t * 13.1 + phase) * 1.0) * scale;
+    const sway2 = (Math.cos(t * 8.9 + 1.2 + phase) * 2.1 + Math.sin(t * 15.7 + phase) * 0.8) * scale;
+    const breathe = 1 + Math.sin(t * 9.5 + phase) * 0.08 + Math.cos(t * 17.3 + phase) * 0.04;
+
+    const hOuter = 26 * hScale * breathe;
+    const gOuter = c.createLinearGradient(x, y + 2 * scale, x + sway1, y - hOuter);
+    gOuter.addColorStop(0, rgba(K.beastAmber, (K.dark ? 0.85 : 0.92) * alphaMul));
+    gOuter.addColorStop(0.55, rgba(K.beastOuter, (K.dark ? 0.64 : 0.78) * alphaMul));
+    gOuter.addColorStop(1, rgba(K.beastOuter, 0));
+    c.fillStyle = gOuter;
+    drawFlameTongue(c, x, y + 2 * scale, 10.2 * wScale, hOuter, sway1, sway1 * 0.45);
+
+    if (!isPilot) {
+      c.fillStyle = rgba(K.beastAmber, (K.dark ? 0.5 : 0.58) * alphaMul);
+      drawFlameTongue(c, x - 1.5, y + 2, 7.0 * wScale, 19.5 * hScale * (1 + Math.cos(t * 11) * 0.08), sway2 - 2.1, sway2 * 0.4);
+      drawFlameTongue(c, x + 1.5, y + 2, 6.6 * wScale, 18.0 * hScale * (1 + Math.sin(t * 12.2) * 0.08), -sway1 + 2.0, -sway1 * 0.35);
+    }
+
+    const hYellow = 22 * hScale * (1 + Math.sin(t * 11.3 + 0.6 + phase) * 0.07);
+    const gYellow = c.createLinearGradient(x, y + 1 * scale, x + sway2 * 0.7, y - hYellow);
+    gYellow.addColorStop(0, rgba(K.beastYellow, 0.98 * alphaMul));
+    gYellow.addColorStop(0.65, rgba(K.beastYellow, (K.dark ? 0.84 : 0.9) * alphaMul));
+    gYellow.addColorStop(1, rgba(K.beastAmber, 0.08 * alphaMul));
+    c.fillStyle = gYellow;
+    drawFlameTongue(c, x, y + 1 * scale, 8.0 * wScale, hYellow, sway2 * 0.75, sway1 * 0.3);
+
+    const hCore = 14 * hScale * (1 + Math.cos(t * 13.7 + phase) * 0.07);
+    const gCore = c.createLinearGradient(x, y + 1 * scale, x, y - hCore);
+    gCore.addColorStop(0, rgba(K.beastCore, alphaMul));
+    gCore.addColorStop(0.7, rgba(K.beastYellow, 0.9 * alphaMul));
+    gCore.addColorStop(1, rgba(K.beastYellow, 0));
+    c.fillStyle = gCore;
+    drawFlameTongue(c, x, y + 1 * scale, 5.0 * wScale, hCore, sway1 * 0.35, sway2 * 0.18);
+
+    const emberN = isPilot ? 7 : 20;
+    for (let j = 0; j < emberN; j++) {
+      const f = (t * (isPilot ? 0.85 : 1.15) + j / emberN + j * 0.037 + phase) % 1;
+      const py = y - 2 * scale - f * (27 * hScale);
+      const px = x + Math.sin(f * 8.5 + j * 1.9) * (3.4 * wScale) * (1 - f * 0.45);
+      const col = f < 0.3 ? K.beastCore : f < 0.72 ? K.beastYellow : K.beastAmber;
+      c.fillStyle = rgba(col, (1 - f) * (isPilot ? 0.55 : 0.68) * alphaMul);
+      disc(c, px, py, (2.2 * (1 - f) + 0.4) * wScale);
+    }
+
+    const sparkN = isPilot ? 2 : 5;
+    for (let s = 0; s < sparkN; s++) {
+      const sf = (t * 0.78 + s / sparkN + s * 0.17 + phase) % 1;
+      const sy = y - 15 * hScale - sf * (18 * hScale);
+      const sx = x + Math.sin(t * 4.5 + s * 2.7 + phase) * (5.0 * wScale);
+      const alpha = Math.sin(Math.PI * sf) * 0.95 * alphaMul;
+      c.fillStyle = rgba(sf < 0.45 ? K.beastCore : K.beastYellow, alpha);
+      disc(c, sx, sy, 1.25 * (1 - sf * 0.4) * Math.max(0.75, scale));
+    }
+
+    c.restore();
+  }
+
   function connectorKind(cur, next) {
     if (next.state === "running") return "flow";
     if (next.state === "yourturn") return "yourturn";
     if ((cur.state === "done" || cur.state === "skipped") && next.state === "done") return "done";
+    if (next.state === "pilot") return "pilot";
     if (next.state === "suggested" || next.state === "queued") return "dashed";
     if (next.state === "skipped") return "faint";
     return "idle";
   }
 
-  function drawConnector(c, cur, next, t, K) {
+  function drawConnector(c, cur, next, t, K, beastOn) {
     const a = cur.y + GAP;
     const b = next.y - GAP;
     if (b <= a) return;
@@ -84,19 +186,22 @@
     c.moveTo(X, a);
     c.lineTo(X, b);
     if (kind === "flow") {
-      c.strokeStyle = rgba(K.accent, 0.22);
+      const lineCol = beastOn ? K.beastLine : K.accent;
+      const sparkCol = beastOn ? K.beastSpark : K.spark;
+      c.strokeStyle = rgba(lineCol, beastOn ? 0.5 : 0.22);
       c.lineWidth = 2;
       c.stroke();
       c.globalCompositeOperation = K.blend;
       const len = b - a;
       const n = Math.max(3, Math.round(len / 10));
+      const speed = beastOn ? 46 : FLOW_SPEED;
       for (let j = 0; j < n; j++) {
-        const f = ((t * FLOW_SPEED) / len + j / n) % 1;
+        const f = ((t * speed) / len + j / n) % 1;
         const y = a + f * len;
         const al = Math.sin(Math.PI * f);
-        c.fillStyle = rgba(K.accent, 0.25 * al);
+        c.fillStyle = rgba(lineCol, (beastOn ? 0.36 : 0.25) * al);
         disc(c, X, y, 4);
-        c.fillStyle = rgba(K.spark, 0.9 * al);
+        c.fillStyle = rgba(sparkCol, (beastOn ? 0.95 : 0.9) * al);
         disc(c, X, y, 1.4);
       }
     } else if (kind === "yourturn") {
@@ -106,6 +211,14 @@
     } else if (kind === "done") {
       c.strokeStyle = rgba(K.done, 0.68);
       c.lineWidth = 2;
+      c.stroke();
+    } else if (beastOn && kind === "pilot") {
+      c.strokeStyle = rgba(K.beastLine, cur.state === "running" ? 0.52 : 0.34);
+      c.lineWidth = 2;
+      c.stroke();
+    } else if (beastOn && (kind === "dashed" || kind === "idle")) {
+      c.strokeStyle = rgba(K.beastLine, 0.2);
+      c.lineWidth = 1.6;
       c.stroke();
     } else if (kind === "dashed" || kind === "faint") {
       c.setLineDash([3, 4]);
@@ -118,6 +231,36 @@
       c.stroke();
     }
     c.restore();
+  }
+
+  function drawBeastRunning(c, node, t, K, surgeRemain) {
+    const y = node.y;
+    const n = Math.min(MAX_AGENTS, node.agents || 0);
+    const orbit = (front) => {
+      c.save();
+      c.globalCompositeOperation = K.blend;
+      for (let k = 0; k < n; k++) {
+        const angle = t * 2.0 + (k * TAU) / n;
+        if (Math.sin(angle) > 0 !== front) continue;
+        const ox = X + Math.cos(angle) * 15.5;
+        const oy = y + 2 + Math.sin(angle) * 4.5;
+        c.fillStyle = rgba(K.beastLine, 0.48);
+        disc(c, ox, oy, 3.6);
+        c.fillStyle = rgba(K.beastSpark, 0.98);
+        disc(c, ox, oy, 1.7);
+      }
+      c.restore();
+    };
+    orbit(false);
+    c.fillStyle = rgba(K.beastLine, 0.16);
+    disc(c, X, y, 14);
+    c.fillStyle = rgba(K.beastDisc, 1);
+    disc(c, X, y, 10.5);
+    c.strokeStyle = rgba(K.beastLine, 1);
+    c.lineWidth = 1.9;
+    ring(c, X, y, 10.5);
+    drawBalancedFlame(c, X, y + 3.5, t, K, { scale: 1, alpha: 1, phase: 0, surgeRemain });
+    orbit(true);
   }
 
   function drawRunning(c, node, t, K) {
@@ -176,7 +319,7 @@
     disc(c, X, y + 3.6, 1);
   }
 
-  function drawNode(c, node, t, K) {
+  function drawNode(c, node, idx, t, K, beastOn, surgeRemain) {
     const y = node.y;
     c.save();
     switch (node.state) {
@@ -197,8 +340,40 @@
         break;
       }
       case "running":
-        drawRunning(c, node, t, K);
+        if (beastOn) drawBeastRunning(c, node, t, K, surgeRemain);
+        else drawRunning(c, node, t, K);
         break;
+      case "pilot": {
+        const alpha = node.pilotAlpha ?? 1;
+        c.fillStyle = rgba(K.beastDisc, 1);
+        disc(c, X, y, 10);
+        c.setLineDash([3, 3]);
+        c.strokeStyle = rgba(K.beastLine, alpha >= 0.9 ? 0.68 : 0.44);
+        c.lineWidth = 1.6;
+        ring(c, X, y, 10);
+        c.setLineDash([]);
+        drawBalancedFlame(c, X, y + 3, t, K, {
+          pilot: true,
+          scale: node.pilotScale || 0.52,
+          alpha,
+          phase: idx * 1.7,
+        });
+        break;
+      }
+      case "lock": {
+        c.fillStyle = K.dark ? "#121214" : "#f4f4f5";
+        disc(c, X, y, 10);
+        c.strokeStyle = K.dark ? "#4a4a52" : "#a1a1aa";
+        c.lineWidth = 1.6;
+        ring(c, X, y, 10);
+        c.strokeStyle = K.dark ? "#d4d4da" : "#52525b";
+        c.lineWidth = 1.3;
+        c.strokeRect(X - 3.2, y - 0.4, 6.4, 4.6);
+        c.beginPath();
+        c.arc(X, y - 0.7, 2, Math.PI, 0);
+        c.stroke();
+        break;
+      }
       case "yourturn": {
         const k = (t % 2.8) / 2.8;
         const g = c.createRadialGradient(X, y, 0, X, y, 15);
@@ -271,6 +446,8 @@
       return {
         resize() {},
         setNodes() {},
+        setBeastMode() {},
+        triggerIgnition() {},
         setVisible() {},
         refreshTheme() {},
         destroy() {},
@@ -282,6 +459,8 @@
     const t0 = performance.now();
     let colors = readColors(ctx, canvas);
     let nodes = [];
+    let beastOn = false;
+    let ignitionUntil = 0;
     let cssH = 0;
     let dpr = 1;
     let raf = 0;
@@ -294,12 +473,12 @@
       if (!raf && visible) raf = requestAnimationFrame(frame);
     }
 
-    function draw(t) {
+    function draw(t, surgeRemain) {
       if (cssH <= 0) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, RAIL_W, cssH);
-      for (let i = 0; i < nodes.length - 1; i++) drawConnector(ctx, nodes[i], nodes[i + 1], t, colors);
-      for (const node of nodes) drawNode(ctx, node, t, colors);
+      for (let i = 0; i < nodes.length - 1; i++) drawConnector(ctx, nodes[i], nodes[i + 1], t, colors, beastOn);
+      for (let i = 0; i < nodes.length; i++) drawNode(ctx, nodes[i], i, t, colors, beastOn, surgeRemain);
     }
 
     function frame(now) {
@@ -308,9 +487,11 @@
       const live = isLive();
       if (!live && !dirty) return;
       const elapsed = Math.max(0, (now - t0) / 1000);
-      draw(elapsed * (reduced ? 0.25 : 1));
+      const t = reduced ? (beastOn ? 0 : elapsed * 0.25) : elapsed;
+      const surgeRemain = reduced ? 0 : Math.max(0, (ignitionUntil - now) / 720);
+      draw(t, surgeRemain);
       dirty = false;
-      if (live) schedule();
+      if (live && !(reduced && beastOn)) schedule();
     }
 
     const onSchemeChange = () => {
@@ -341,6 +522,19 @@
       },
       setNodes(next) {
         nodes = Array.isArray(next) ? next : [];
+        dirty = true;
+        schedule();
+      },
+      setBeastMode(on) {
+        const next = Boolean(on);
+        if (next === beastOn) return;
+        beastOn = next;
+        if (!beastOn) ignitionUntil = 0;
+        dirty = true;
+        schedule();
+      },
+      triggerIgnition() {
+        ignitionUntil = performance.now() + 720;
         dirty = true;
         schedule();
       },
