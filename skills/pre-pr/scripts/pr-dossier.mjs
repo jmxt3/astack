@@ -18,6 +18,7 @@ Options:
   --base <ref>             Base git ref (defaults to origin/main, main, or HEAD~1)
   --head <ref>             Head git ref (defaults to HEAD)
   --cwd <dir>              Repository working directory (defaults to cwd)
+  --data-dir <dir>         Optional trust plugin data directory override
   --artifact-dir <dir>     Conversation artifact directory for receipts & evidence.json
   --findings <path>        Optional path to pr-verifier findings.json
   --record-verifier        Append a verifier receipt from --findings before compiling evidence.json
@@ -39,6 +40,7 @@ function main() {
       base: { type: "string" },
       head: { type: "string", default: "HEAD" },
       cwd: { type: "string" },
+      "data-dir": { type: "string" },
       "artifact-dir": { type: "string" },
       findings: { type: "string" },
       "record-verifier": { type: "boolean", default: false },
@@ -119,6 +121,7 @@ function main() {
     featureMapDir: values["feature-map"] ?? null,
     repoUrl: values["repo-url"] ?? null,
     mergeBodyPath: values["merge-body"] ?? null,
+    dataDir: values["data-dir"] ?? null,
   });
 
   if (values.json) {

@@ -110,41 +110,41 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   assert.equal(one.level, 0);
   assert.equal(one.earnedLevel, 0);
 
-  const four = evaluateCategoryState({
+  const two = evaluateCategoryState({
     category: "ui",
-    entries: makeCleanEntries("ui", 4, baseStart),
+    entries: makeCleanEntries("ui", 2, baseStart),
     ceiling: 3,
     promotionMode: "auto",
-    nowMs: baseStart + 4 * 86400 * 1000,
+    nowMs: baseStart + 2 * 86400 * 1000,
   });
-  assert.equal(four.earnedLevel, 0);
-  const five = evaluateCategoryState({
+  assert.equal(two.earnedLevel, 0);
+  const three = evaluateCategoryState({
     category: "ui",
-    entries: makeCleanEntries("ui", 5, baseStart),
+    entries: makeCleanEntries("ui", 3, baseStart),
     ceiling: 3,
     promotionMode: "auto",
-    nowMs: baseStart + 5 * 86400 * 1000,
+    nowMs: baseStart + 3 * 86400 * 1000,
   });
-  assert.equal(five.earnedLevel, 1);
-  assert.ok(Math.abs(five.score - 0.4095) < 0.001);
+  assert.equal(three.earnedLevel, 1);
+  assert.ok(Math.abs(three.score - 0.4486) < 0.001);
 
-  const tenEntries = makeCleanEntries("ui", 10, baseStart);
-  const ten = evaluateCategoryState({
+  const sixEntries = makeCleanEntries("ui", 6, baseStart);
+  const six = evaluateCategoryState({
     category: "ui",
-    entries: tenEntries,
+    entries: sixEntries,
     ceiling: 3,
     promotionMode: "auto",
-    nowMs: baseStart + 10 * 86400 * 1000,
+    nowMs: baseStart + 6 * 86400 * 1000,
   });
-  assert.equal(ten.level, 2);
-  assert.ok(Math.abs(ten.score - 0.6513) < 0.001);
+  assert.equal(six.level, 2);
+  assert.ok(Math.abs(six.score - 0.696) < 0.001);
 
   const afterRevert = evaluateCategoryState({
     category: "ui",
     entries: [
-      ...tenEntries,
+      ...sixEntries,
       {
-        ts: new Date(baseStart + 11 * 86400 * 1000).toISOString(),
+        ts: new Date(baseStart + 7 * 86400 * 1000).toISOString(),
         category: "ui",
         outcome: "reverted",
         y: 0,
@@ -154,29 +154,38 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
     ],
     ceiling: 3,
     promotionMode: "auto",
-    nowMs: baseStart + 11 * 86400 * 1000,
+    nowMs: baseStart + 7 * 86400 * 1000,
   });
-  assert.ok(afterRevert.score < ten.score / 2 + 0.002);
+  assert.ok(afterRevert.score < six.score / 2 + 0.002);
   assert.equal(afterRevert.level, 1);
 
-  const twentyEntries = makeCleanEntries("ui", 20, baseStart);
-  const twentyOk = evaluateCategoryState({
+  const eleven = evaluateCategoryState({
     category: "ui",
-    entries: twentyEntries,
+    entries: makeCleanEntries("ui", 11, baseStart),
     ceiling: 3,
     promotionMode: "auto",
-    nowMs: baseStart + 20 * 86400 * 1000,
+    nowMs: baseStart + 11 * 86400 * 1000,
   });
-  assert.equal(twentyOk.level, 3);
-  assert.ok(twentyOk.score >= 0.85);
+  assert.equal(eleven.level, 2);
 
-  const badBrierEntries = twentyEntries.map((e) => ({ ...e, predictedR: 0.9 }));
+  const twelveEntries = makeCleanEntries("ui", 12, baseStart);
+  const twelveOk = evaluateCategoryState({
+    category: "ui",
+    entries: twelveEntries,
+    ceiling: 3,
+    promotionMode: "auto",
+    nowMs: baseStart + 12 * 86400 * 1000,
+  });
+  assert.equal(twelveOk.level, 3);
+  assert.ok(twelveOk.score >= 0.85);
+
+  const badBrierEntries = twelveEntries.map((e) => ({ ...e, predictedR: 0.9 }));
   const badBrier = evaluateCategoryState({
     category: "ui",
     entries: badBrierEntries,
     ceiling: 3,
     promotionMode: "auto",
-    nowMs: baseStart + 20 * 86400 * 1000,
+    nowMs: baseStart + 12 * 86400 * 1000,
   });
   assert.ok(badBrier.brier > 0.12);
   assert.equal(badBrier.level, 2);
@@ -184,9 +193,9 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   const missedAudit = evaluateCategoryState({
     category: "ui",
     entries: [
-      ...twentyEntries,
+      ...twelveEntries,
       {
-        ts: new Date(baseStart + 21 * 86400 * 1000).toISOString(),
+        ts: new Date(baseStart + 13 * 86400 * 1000).toISOString(),
         category: "ui",
         outcome: "clean",
         y: 1,
@@ -198,40 +207,40 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
     ],
     ceiling: 3,
     promotionMode: "auto",
-    nowMs: baseStart + 21 * 86400 * 1000,
+    nowMs: baseStart + 13 * 86400 * 1000,
   });
   assert.equal(missedAudit.missedAudit, true);
   assert.equal(missedAudit.level, 2);
 
   const decayed = evaluateCategoryState({
     category: "ui",
-    entries: twentyEntries,
+    entries: twelveEntries,
     ceiling: 3,
     promotionMode: "auto",
-    nowMs: baseStart + 85 * 86400 * 1000,
+    nowMs: baseStart + 77 * 86400 * 1000,
   });
   assert.ok(decayed.score < 0.75);
   assert.equal(decayed.level, 2);
 
   const reset = evaluateCategoryState({
     category: "ui",
-    entries: twentyEntries,
+    entries: twelveEntries,
     ceiling: 3,
     promotionMode: "auto",
     policyReset: true,
-    nowMs: baseStart + 20 * 86400 * 1000,
+    nowMs: baseStart + 12 * 86400 * 1000,
   });
   assert.ok(reset.score <= 0.4);
   assert.equal(reset.earnedLevel, 1);
 
   const gov = evaluateCategoryState({
     category: "governance",
-    entries: makeCleanEntries("governance", 25, baseStart),
+    entries: makeCleanEntries("governance", 15, baseStart),
     ceiling: 3,
     maxCeiling: 3,
     promotionMode: "auto",
     confirmedLevel: 0,
-    nowMs: baseStart + 25 * 86400 * 1000,
+    nowMs: baseStart + 15 * 86400 * 1000,
   });
   assert.equal(gov.ceiling, 2);
   assert.equal(gov.maxCeiling, 2);
@@ -263,9 +272,9 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
   const cappedRevert = evaluateCategoryState({
     category: "ui",
     entries: [
-      ...twentyEntries,
+      ...twelveEntries,
       {
-        ts: new Date(baseStart + 21 * 86400 * 1000).toISOString(),
+        ts: new Date(baseStart + 13 * 86400 * 1000).toISOString(),
         category: "ui",
         outcome: "reverted",
         y: 0,
@@ -275,7 +284,7 @@ test("trust math properties: EMA gain, instant demotion on y=0, idle decay, cate
     ],
     ceiling: 2,
     promotionMode: "auto",
-    nowMs: baseStart + 21 * 86400 * 1000,
+    nowMs: baseStart + 13 * 86400 * 1000,
   });
   assert.equal(cappedRevert.level, 1);
 

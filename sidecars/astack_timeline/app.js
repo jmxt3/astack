@@ -2700,17 +2700,38 @@
       const deltaSec = el("section", "dossier-section");
       const deltaHead = el("div", "dossier-section-head");
       deltaHead.appendChild(el("h2", "dossier-section-title", "Diff Signals & Test Integrity"));
+      const autoBadgeText = delta.flagged
+        ? "FLAGGED"
+        : ev.autoMergeEligible
+          ? ev.autoMerge?.mode === "earned_trust_l3"
+            ? "Auto-Merge L3"
+            : "Tier 0 Auto"
+          : "Human Review";
       deltaHead.appendChild(
         el(
           "span",
           `dossier-badge ${delta.flagged ? "err" : "done"}`,
-          delta.flagged ? "FLAGGED" : ev.autoMergeEligible ? "Tier 0 Auto" : "Human Review",
+          autoBadgeText,
         ),
       );
       deltaSec.appendChild(deltaHead);
       deltaSec.appendChild(
         el("p", "audit-detail", `Test assertions: +${delta.added} / -${delta.removed} (ratio ${delta.weakeningRatio})`),
       );
+      if (ev.trustContext) {
+        const tc = ev.trustContext;
+        const targetLabel = tc.category === "governance" ? "L2 cap" : "L3";
+        deltaSec.appendChild(
+          el(
+            "p",
+            "audit-detail",
+            `Agent Trust: ${tc.category} L${tc.level}/${targetLabel} (T ${Number(tc.score ?? 0).toFixed(2)}, ceiling L${tc.ceiling}, ${tc.merges}/${tc.minMergesForL3} merges)`,
+          ),
+        );
+      }
+      if (ev.autoMerge?.reason) {
+        deltaSec.appendChild(el("p", "audit-detail", ev.autoMerge.reason));
+      }
       const bar = el("div", "trust-ema-bar");
       const pct = Math.min(100, Math.round((Number(delta.weakeningRatio) || 0) * 100));
       const fill = el("div", `dossier-meter-fill ${delta.flagged ? "err" : pct > 10 ? "warn" : ""}`.trim());

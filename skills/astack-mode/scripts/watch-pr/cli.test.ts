@@ -397,7 +397,7 @@ describe("opt-in outcome recording (--record-outcome)", () => {
         )
       ).toBe(0);
 
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 2; i++) {
         recordOutcomeWithTrustSync({
           workspaceDir: dir,
           scope,
@@ -914,6 +914,64 @@ describe("opt-in outcome recording (--record-outcome)", () => {
       const finalLedger = readOutcomeLedger(scope.repoId, { dataDir });
       expect(finalLedger.chainValid).toBe(true);
       expect(finalLedger.entries.filter((e) => e.prNumber === 95)).toHaveLength(1);
+
+      const shaDefaultOn = "5".repeat(40);
+      const defaultReader = fakeReader({
+        facts: { state: "MERGED", mergedAt: "2026-07-26T04:00:00Z", headRefOid: shaDefaultOn },
+        reviews: [{ state: "APPROVED" }],
+        commitRollups: [{ oid: shaDefaultOn, state: "SUCCESS" }],
+      });
+      const defaultHarness = testRuntime(defaultReader);
+      expect(
+        await main(
+          [
+            "--owner", "my-org", "--repo", "my-repo", "--pr", "96",
+            "--status-only", "--cwd", dir, "--data-dir", dataDir, "--category", "docs",
+          ],
+          defaultHarness.runtime
+        )
+      ).toBe(0);
+      expect(defaultHarness.stderr).toEqual([]);
+      expect(
+        readOutcomeLedger(scope.repoId, { dataDir }).entries.filter((e) => e.prNumber === 96)
+      ).toHaveLength(1);
+
+      const shaOptOut = "6".repeat(40);
+      const optOutReader = fakeReader({
+        facts: { state: "MERGED", mergedAt: "2026-07-26T05:00:00Z", headRefOid: shaOptOut },
+        reviews: [{ state: "APPROVED" }],
+        commitRollups: [{ oid: shaOptOut, state: "SUCCESS" }],
+      });
+      expect(
+        await main(
+          [
+            "--owner", "my-org", "--repo", "my-repo", "--pr", "97",
+            "--status-only", "--no-record-outcome", "--cwd", dir, "--data-dir", dataDir, "--category", "docs",
+          ],
+          testRuntime(optOutReader).runtime
+        )
+      ).toBe(0);
+      expect(
+        readOutcomeLedger(scope.repoId, { dataDir }).entries.filter((e) => e.prNumber === 97)
+      ).toHaveLength(0);
+
+      const silentForeignHarness = testRuntime(cleanAfterPriorReader);
+      expect(
+        await main(
+          [
+            "--owner", "other-org", "--repo", "other-repo", "--pr", "98",
+            "--status-only", "--cwd", dir, "--data-dir", dataDir, "--category", "docs",
+          ],
+          silentForeignHarness.runtime
+        )
+      ).toBe(0);
+      expect(silentForeignHarness.stderr).toEqual([]);
+
+      const conflictHarness = testRuntime(fakeReader());
+      expect(
+        await main(["--record-outcome", "--no-record-outcome"], conflictHarness.runtime)
+      ).toBe(64);
+      expect(conflictHarness.stderr.join("")).toContain("cannot be used with option '--no-record-outcome'");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
       fs.rmSync(dataDir, { recursive: true, force: true });

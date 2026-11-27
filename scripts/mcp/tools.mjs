@@ -260,7 +260,7 @@ export const TOOL_DEFINITIONS = [
   },
 ];
 
-function handleCompilePrDossier(args = {}) {
+function handleCompilePrDossier(args = {}, context = {}) {
   const workspaceDir = path.resolve(args.cwd || process.cwd());
   const artifactDir = args.artifactDir || null;
   const result = compilePrDossier({
@@ -271,6 +271,7 @@ function handleCompilePrDossier(args = {}) {
     findingsPath: args.findingsPath || null,
     format: args.format || "antigravity",
     screenshots: Array.isArray(args.screenshots) ? args.screenshots : [],
+    dataDir: args.dataDir ?? context.dataDir ?? null,
   });
   const trustDir = resolveTrustDir({ workspaceDir, artifactDir });
   const findingsDoc = findFindingsDoc(workspaceDir, trustDir, args.findingsPath || null);
@@ -562,7 +563,7 @@ export function dispatchToolCall(name, args = {}, context = {}) {
     switch (name) {
       case "compile_pr_dossier":
       case "get_dossier_detail":
-        return handleCompilePrDossier(args);
+        return handleCompilePrDossier(args, context);
       case "audit_architecture":
         return handleAuditArchitecture(args);
       case "doctor_workspace":

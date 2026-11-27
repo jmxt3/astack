@@ -28,6 +28,7 @@ const CLOSED_DEDUPE_OUTCOMES: readonly TrustOutcome[] = ["human_override"];
 
 export interface OutcomeRecordingOptions {
   readonly enabled: boolean;
+  readonly explicit?: boolean;
   readonly cwd: string | null;
   readonly dataDir: string | null;
   readonly category: TrustCategory | null;
@@ -217,6 +218,11 @@ export async function recordVerdictOutcomes(args: {
   if (!args.options.enabled) return [];
   const targets = collectTerminalTargets(args.verdict);
   if (targets.length === 0) return [];
+  const warnSkipped = (message: string): void => {
+    if (args.options.explicit === true) {
+      args.stderr(message);
+    }
+  };
 
   let scope: ReturnType<typeof resolveWorkspaceScope>;
   let policy: Record<string, unknown>;
@@ -228,7 +234,7 @@ export async function recordVerdictOutcomes(args: {
     dataDir = args.options.dataDir ? path.resolve(args.options.dataDir) : null;
     scope = resolveWorkspaceScope(workspaceDir);
     if (scope.kind !== "enrolled_repo" || !scope.repoId) {
-      args.stderr(
+      warnSkipped(
         `watch-pr: skipped outcome recording (workspace scope is ${scope.kind})\n`
       );
       return [];
@@ -238,7 +244,7 @@ export async function recordVerdictOutcomes(args: {
     receipts = readMergedReceipts(trustDir);
     evidence = readEvidenceSnapshot(trustDir);
   } catch (error) {
-    args.stderr(
+    warnSkipped(
       `watch-pr: skipped outcome recording (${error instanceof Error ? error.message : String(error)})\n`
     );
     return [];
@@ -255,7 +261,7 @@ export async function recordVerdictOutcomes(args: {
         (originRepo.owner.toLowerCase() !== target.context.owner.toLowerCase() ||
           originRepo.repo.toLowerCase() !== target.context.repo.toLowerCase())
       ) {
-        args.stderr(
+        warnSkipped(
           `watch-pr: skipped outcome recording for PR #${target.context.number} (PR repo ${target.context.owner}/${target.context.repo} does not match local origin ${originRepo.owner}/${originRepo.repo})\n`
         );
         continue;

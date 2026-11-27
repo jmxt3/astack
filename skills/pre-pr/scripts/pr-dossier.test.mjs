@@ -6,9 +6,12 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  applyTrustSettingsAction,
   compilePrDossier,
   recordReceipt,
+  recordOutcomeWithTrustSync,
   recordVerifierReceipt,
+  resolveWorkspaceScope,
   validateFindingsDocument,
   validatePrBodyContract,
   validateProofManifest,
@@ -745,5 +748,175 @@ test("validateProofManifest enforces schema and compilePrDossier GitHub format c
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });
+  }
+});
+
+test("compilePrDossier reports Agent Trust level and unifies autoMergeEligible with Earned Trust L3 while keeping governance capped", () => {
+  const repo = makeRepo();
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-dossier-trust-art-"));
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-dossier-trust-data-"));
+  const trustDir = path.join(artifactDir, "astack-trust");
+  try {
+    fs.mkdirSync(path.join(repo, ".agents"), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo, ".agents", "risk-policy.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        autonomy: {
+          defaultCeiling: 2,
+          ceilings: { docs: 3, tests: 3, ui: 3, skills: 3, tooling: 3, core: 3, governance: 2 },
+        },
+      }, null, 2),
+      "utf8",
+    );
+    fs.mkdirSync(path.join(repo, "sidecars", "demo"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "sidecars", "demo", "app.js"), "export const x = 1;\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "enroll repo"], { cwd: repo, stdio: "ignore" });
+    const baseSha = execFileSync("git", ["rev-parse", "main"], { cwd: repo, encoding: "utf8" }).trim();
+    const scope = resolveWorkspaceScope(repo);
+    assert.equal(scope.kind, "enrolled_repo");
+
+    applyTrustSettingsAction({
+      repoId: scope.repoId,
+      action: { beastOn: true, promotionMode: "auto" },
+      dataDir,
+    });
+
+    execFileSync("git", ["checkout", "-b", "feat/ui-change"], { cwd: repo, stdio: "ignore" });
+    fs.writeFileSync(path.join(repo, "sidecars", "demo", "app.js"), "export const x = 2;\n", "utf8");
+    execFileSync("git", ["add", "sidecars/demo/app.js"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "ui update"], { cwd: repo, stdio: "ignore" });
+    const headUi = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+
+    recordReceipt(
+      { kind: "tool-command", conversationId: "u1", command: "node --test sidecars/demo/app.test.js", error: "", workspaceDir: repo },
+      { trustDir, headSha: headUi },
+    );
+    const findingsPath = path.join(trustDir, "findings.json");
+    fs.mkdirSync(trustDir, { recursive: true });
+    fs.writeFileSync(
+      findingsPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: headUi,
+        baseSha,
+        round: 1,
+        verdict: "PASS",
+        summary: "Verified UI change",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: [] },
+      }),
+      "utf8",
+    );
+    recordVerifierReceipt({ trustDir, headSha: headUi, verdict: "PASS", findingsPath });
+
+    const l0Dossier = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      findingsPath,
+      dataDir,
+    });
+    assert.equal(l0Dossier.evidence.autoMergeEligible, false);
+    assert.equal(l0Dossier.evidence.trustContext?.category, "ui");
+    assert.equal(l0Dossier.evidence.trustContext?.level, 0);
+    assert.match(l0Dossier.markdown, /\| Agent Trust \| `ui` `L0\/L3` \(T `0\.00`, ceiling `L2`, 0\/12 merges, Beast Mode On, auto promo\) \|/);
+    assert.match(l0Dossier.evidence.autoMerge?.reason ?? "", /earn L3 trust before delegating Merge/i);
+
+    for (let i = 0; i < 12; i++) {
+      recordOutcomeWithTrustSync({
+        workspaceDir: repo,
+        scope,
+        category: "ui",
+        outcome: "clean",
+        headSha: headUi,
+        predictedR: 0.05,
+        dataDir,
+      });
+    }
+    applyTrustSettingsAction({
+      repoId: scope.repoId,
+      action: { setCeiling: { category: "ui", ceiling: 3 } },
+      dataDir,
+    });
+
+    const l3Dossier = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      findingsPath,
+      dataDir,
+    });
+    assert.equal(l3Dossier.evidence.trustContext?.level, 3);
+    assert.equal(l3Dossier.evidence.autoMergeEligible, true);
+    assert.equal(l3Dossier.evidence.autoMerge?.mode, "earned_trust_l3");
+    assert.match(l3Dossier.markdown, /Yes \(Earned Trust L3 for ui, residual low\)/);
+    assert.match(l3Dossier.markdown, /\| Agent Trust \| `ui` `L3\/L3`/);
+
+    const l3Github = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      findingsPath,
+      dataDir,
+      format: "github",
+    });
+    assert.match(l3Github.markdown, /Agent trust for `ui` is `L3\/L3`/);
+    assert.match(l3Github.markdown, /Auto-merge is `Yes`/);
+    assert.equal(validatePrBodyContract(l3Github.markdown).ok, true);
+
+    for (let i = 0; i < 12; i++) {
+      recordOutcomeWithTrustSync({
+        workspaceDir: repo,
+        scope,
+        category: "governance",
+        outcome: "clean",
+        headSha: headUi,
+        predictedR: 0.05,
+        dataDir,
+      });
+    }
+    fs.writeFileSync(path.join(repo, "hooks.json"), "{}\n", "utf8");
+    execFileSync("git", ["add", "hooks.json"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "touch hooks"], { cwd: repo, stdio: "ignore" });
+    const headGov = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    recordReceipt(
+      { kind: "tool-command", conversationId: "u1", command: "node --test", error: "", workspaceDir: repo },
+      { trustDir, headSha: headGov },
+    );
+    fs.writeFileSync(
+      findingsPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: headGov,
+        baseSha,
+        round: 1,
+        verdict: "PASS",
+        summary: "Verified gov change",
+        findings: [],
+        dropped: [],
+        reviewMdCompliance: { checked: true, violations: [] },
+      }),
+      "utf8",
+    );
+    recordVerifierReceipt({ trustDir, headSha: headGov, verdict: "PASS", findingsPath });
+
+    const govDossier = compilePrDossier({
+      cwd: repo,
+      baseRef: "main",
+      artifactDir,
+      findingsPath,
+      dataDir,
+    });
+    assert.equal(govDossier.evidence.autoMergeEligible, false);
+    assert.equal(govDossier.evidence.trustContext?.category, "governance");
+    assert.match(govDossier.markdown, /capped at `L2` forever/);
+    assert.match(govDossier.evidence.autoMerge?.reason ?? "", /capped at L2 forever and never auto-merge/i);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
+    fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
