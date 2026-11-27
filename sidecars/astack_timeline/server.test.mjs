@@ -2644,3 +2644,60 @@ test("styles.css scopes 44px touch targets to coarse pointers and defines progre
   assert.match(cssText, /@media\s*\(max-width:\s*360px\)\s*\{[\s\S]*\.meta-sep\s*\{\s*display:\s*none;\s*\}/);
   assert.match(cssText, /@media\s*\(max-width:\s*280px\)\s*\{[\s\S]*#live-label\s*\{[\s\S]*\.living-rail\s*\{\s*left:\s*-6px;\s*\}/);
 });
+
+test("createTimelineServer ignores batched read_file fixture PR URLs and skips prStatusFetcher", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-srv-ghost-"));
+  const brainDir = path.join(root, "brain");
+  const workspaceDir = path.join(root, "repo");
+  const convId = "77777777-8888-9999-0000-111111111111";
+
+  writeText(path.join(workspaceDir, ".git", "HEAD"), "0123456789abcdef0123456789abcdef01234567\n");
+  writeText(
+    path.join(brainDir, convId, ".system_generated", "logs", "transcript.jsonl"),
+    [
+      JSON.stringify({
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T18:03:03Z",
+        tool_calls: [
+          { name: "update_steps", args: { steps: [] } },
+          { name: "call_mcp_tool", args: { ServerName: "astack_trust", ToolName: "declare_intent", Arguments: "{}" } },
+          { name: "read_file", args: { Path: "sidecars/astack_timeline/server.test.mjs", StartLine: 550, EndLine: 640 } },
+        ],
+      }),
+      JSON.stringify({ step_index: 1, type: "GENERIC", created_at: "2026-11-27T18:03:15Z", content: "OK" }),
+      JSON.stringify({ step_index: 2, type: "GENERIC", created_at: "2026-11-27T18:03:16Z", content: "Recorded Intent Card" }),
+      JSON.stringify({
+        step_index: 3,
+        type: "GENERIC",
+        created_at: "2026-11-27T18:03:16Z",
+        content:
+          "Showing lines 550-640 of 1974\nhttps://github.com/acme/demo/pull/21\nhttps://github.com/acme/demo/pull/99\n",
+      }),
+    ].join("\n") + "\n",
+  );
+
+  let fetchCalls = 0;
+  const srv = await createTimelineServer({
+    brainDir,
+    workspaceDir,
+    port: 0,
+    enableGhLookup: true,
+    prStatusFetcher: async () => {
+      fetchCalls += 1;
+      return new Map([
+        [21, { number: 21, title: "Real PR 21", state: "merged", url: "https://github.com/jmxt3/astack/pull/21" }],
+      ]);
+    },
+  });
+
+  try {
+    const snap = await (await fetch(`${srv.url}api/timeline?conversationId=${convId}`)).json();
+    assert.equal(snap.activity.prs.totalCount, 0);
+    assert.deepEqual(snap.activity.prs.items, []);
+    assert.equal(fetchCalls, 0);
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
