@@ -77,24 +77,161 @@ function isValidConversationId(convId, allowFixtureIds) {
   return (allowFixtureIds ? SAFE_ID_RE : STRICT_ID_RE).test(convId);
 }
 
-function fetchWorkspaceFromAgentApi(convId) {
+function extractWorkspaceDirFromMetadata(parsed) {
+  const meta = parsed?.response?.conversationMetadata?.metadata ?? parsed?.metadata ?? {};
+  const uri = meta?.workspaces?.[0]?.workspaceFolderAbsoluteUri ?? meta?.workspaceUris?.[0] ?? "";
+  if (!uri || typeof uri !== "string") return "";
+  try {
+    return uri.startsWith("file://") ? fileURLToPath(uri) : uri;
+  } catch {
+    return "";
+  }
+}
+
+function fetchConversationMetadataFromAgentApi(convId) {
   const exe = process.env.ANTIGRAVITY_AGENTAPI_EXE;
   const cmd = exe || "agentapi";
   const args = [...(exe ? ["agentapi"] : []), "get-conversation-metadata", convId];
   return new Promise((resolve) => {
     execFile(cmd, args, { encoding: "utf8", timeout: 4000 }, (err, stdout) => {
-      if (err) return resolve("");
+      if (err) {
+        return resolve({ ok: false, payload: null, workspaceDir: "", emptyWorkspace: false });
+      }
       try {
         const parsed = JSON.parse(stdout || "{}");
-        const meta = parsed?.response?.conversationMetadata?.metadata ?? parsed?.metadata ?? {};
-        const uri = meta?.workspaces?.[0]?.workspaceFolderAbsoluteUri ?? meta?.workspaceUris?.[0] ?? "";
-        if (!uri || typeof uri !== "string") return resolve("");
-        resolve(uri.startsWith("file://") ? fileURLToPath(uri) : uri);
+        if (parsed?.error) {
+          return resolve({ ok: false, payload: parsed, workspaceDir: "", emptyWorkspace: false });
+        }
+        const workspaceDir = extractWorkspaceDirFromMetadata(parsed);
+        return resolve({
+          ok: true,
+          payload: parsed,
+          workspaceDir,
+          emptyWorkspace: !workspaceDir,
+        });
       } catch {
-        resolve("");
+        return resolve({ ok: false, payload: null, workspaceDir: "", emptyWorkspace: false });
       }
     });
   });
+}
+
+function normalizeMetadataResult(res) {
+  if (typeof res === "string") {
+    const dir = res.trim();
+    return { ok: Boolean(dir), payload: null, workspaceDir: dir, emptyWorkspace: false };
+  }
+  if (!res || typeof res !== "object") {
+    return { ok: false, payload: null, workspaceDir: "", emptyWorkspace: false };
+  }
+  const workspaceDir =
+    typeof res.workspaceDir === "string"
+      ? res.workspaceDir
+      : extractWorkspaceDirFromMetadata(res.payload ?? res);
+  const ok = Boolean(res.ok || workspaceDir);
+  return {
+    ok,
+    payload: res.payload ?? null,
+    workspaceDir,
+    emptyWorkspace: ok && !workspaceDir,
+  };
+}
+
+function makeConversationMetadataResolver({
+  fetcher = fetchConversationMetadataFromAgentApi,
+  negativeTtlMs = 3000,
+  maxNegativeTtlMs = 30_000,
+  emptyWorkspaceTtlMs = 60_000,
+  maxEntries = 128,
+} = {}) {
+  const cache = new Map();
+  const getOrCreateEntry = (convId) => {
+    let entry = cache.get(convId);
+    if (!entry) {
+      if (cache.size >= maxEntries) {
+        const oldestKey = cache.keys().next().value;
+        if (oldestKey !== undefined) cache.delete(oldestKey);
+      }
+      entry = { workspaceDir: "", payload: null, emptyUntil: 0, negativeUntil: 0, failures: 0, pending: null };
+      cache.set(convId, entry);
+    }
+    return entry;
+  };
+  const markFailure = (entry) => {
+    entry.failures += 1;
+    const backoff = Math.min(maxNegativeTtlMs, negativeTtlMs * 2 ** (entry.failures - 1));
+    entry.negativeUntil = Date.now() + backoff;
+  };
+  const startPending = (convId, entry) => {
+    if (!entry.pending) {
+      entry.pending = Promise.resolve()
+        .then(() => fetcher(convId))
+        .then((res) => {
+          entry.pending = null;
+          const norm = normalizeMetadataResult(res);
+          if (norm.workspaceDir) {
+            entry.workspaceDir = norm.workspaceDir;
+            entry.payload = norm.payload;
+            entry.failures = 0;
+            entry.negativeUntil = 0;
+            entry.emptyUntil = 0;
+          } else if (norm.ok) {
+            entry.payload = norm.payload;
+            entry.failures = 0;
+            entry.negativeUntil = 0;
+            entry.emptyUntil = Date.now() + emptyWorkspaceTtlMs;
+          } else {
+            markFailure(entry);
+          }
+          return norm;
+        })
+        .catch(() => {
+          entry.pending = null;
+          markFailure(entry);
+          return { ok: false, payload: null, workspaceDir: "", emptyWorkspace: false };
+        });
+    }
+    return entry.pending;
+  };
+  return {
+    peek(convId) {
+      if (!convId) return null;
+      const entry = cache.get(convId);
+      if (!entry) return null;
+      const now = Date.now();
+      return {
+        workspaceDir: entry.workspaceDir,
+        payload: entry.payload,
+        hasEmptyCache: Boolean(entry.payload && now < entry.emptyUntil),
+        inBackoff: now < entry.negativeUntil,
+        pending: entry.pending,
+      };
+    },
+    resolvePending(convId) {
+      if (!convId) {
+        return Promise.resolve({ ok: false, payload: null, workspaceDir: "", emptyWorkspace: false });
+      }
+      const entry = getOrCreateEntry(convId);
+      return startPending(convId, entry);
+    },
+    async getMetadata(convId) {
+      if (!convId) {
+        return { ok: false, payload: null, workspaceDir: "", emptyWorkspace: false };
+      }
+      const entry = getOrCreateEntry(convId);
+      const now = Date.now();
+      if (entry.workspaceDir && entry.payload) {
+        return { ok: true, payload: entry.payload, workspaceDir: entry.workspaceDir, emptyWorkspace: false };
+      }
+      if (entry.payload && now < entry.emptyUntil) {
+        return { ok: true, payload: entry.payload, workspaceDir: "", emptyWorkspace: true };
+      }
+      if (!entry.pending && now < entry.negativeUntil) {
+        return { ok: false, payload: entry.payload, workspaceDir: "", emptyWorkspace: false };
+      }
+      return startPending(convId, entry);
+    },
+  };
 }
 
 function resolveWorkspaceUriInput(rawUri) {
@@ -124,61 +261,66 @@ function resolveWorkspaceUriInput(rawUri) {
 
 function makeWorkspaceResolver({
   explicitWorkspace = "",
-  fetcher = fetchWorkspaceFromAgentApi,
-  waitBudgetMs = 400,
+  fetcher = null,
+  metadataResolver = null,
+  waitBudgetMs = 250,
+  hasExplicitWaitBudget = false,
   negativeTtlMs = 3000,
+  emptyWorkspaceTtlMs = 60_000,
 } = {}) {
-  const cache = new Map();
+  const sharedMeta =
+    metadataResolver ||
+    makeConversationMetadataResolver({
+      ...(fetcher
+        ? {
+            fetcher: async (convId) => {
+              const dir = await fetcher(convId);
+              return { ok: Boolean(dir), payload: null, workspaceDir: dir || "", emptyWorkspace: false };
+            },
+          }
+        : {}),
+      negativeTtlMs,
+      emptyWorkspaceTtlMs,
+    });
   return async (convId, workspaceUri = "") => {
     if (explicitWorkspace) return path.resolve(explicitWorkspace);
     const fallbackDir = resolveWorkspaceUriInput(workspaceUri) || process.env.ANTIGRAVITY_WORKSPACE_DIR || "";
     if (convId) {
-      let entry = cache.get(convId);
-      if (!entry) {
-        entry = { dir: "", negativeUntil: 0, pending: null };
-        cache.set(convId, entry);
+      const peeked = sharedMeta.peek(convId);
+      if (peeked?.workspaceDir) return peeked.workspaceDir;
+      if (peeked && (peeked.hasEmptyCache || peeked.inBackoff) && !peeked.pending) {
+        return fallbackDir;
       }
-      if (entry.dir) return entry.dir;
-      if (!entry.pending && Date.now() >= entry.negativeUntil) {
-        entry.pending = Promise.resolve()
-          .then(() => fetcher(convId))
-          .then((dir) => {
-            entry.pending = null;
-            if (dir) {
-              entry.dir = dir;
-              entry.negativeUntil = 0;
-            } else {
-              entry.negativeUntil = Date.now() + negativeTtlMs;
-            }
-            return dir || "";
-          })
-          .catch(() => {
-            entry.pending = null;
-            entry.negativeUntil = Date.now() + negativeTtlMs;
-            return "";
-          });
+      const pending = peeked?.pending || sharedMeta.resolvePending(convId);
+      if (waitBudgetMs > 0 && (!fallbackDir || hasExplicitWaitBudget)) {
+        const res = await Promise.race([
+          pending,
+          new Promise((resolve) => setTimeout(() => resolve(null), waitBudgetMs)),
+        ]);
+        if (res?.workspaceDir) return res.workspaceDir;
       }
-      if (entry.pending) {
-        if (fallbackDir) {
-          if (waitBudgetMs > 0) {
-            const resolved = await Promise.race([
-              entry.pending,
-              new Promise((resolve) => setTimeout(() => resolve(""), waitBudgetMs)),
-            ]);
-            if (resolved) return resolved;
-          }
-          return fallbackDir;
-        }
-        const dir = await entry.pending;
-        if (dir) return dir;
-      }
+      return fallbackDir;
     }
     return fallbackDir;
   };
 }
 
+const staticAssetCache = new Map();
+let cachedCatalogScript = null;
+
 function readStaticAsset(asset) {
-  return fs.readFileSync(path.join(__dirname, ...asset.file.split("/")), "utf8");
+  const filePath = path.join(__dirname, ...asset.file.split("/"));
+  try {
+    const st = fs.statSync(filePath);
+    const key = `${st.mtimeMs}:${st.size}`;
+    const hit = staticAssetCache.get(filePath);
+    if (hit && hit.key === key) return hit.body;
+    const body = fs.readFileSync(filePath, "utf8");
+    staticAssetCache.set(filePath, { key, body });
+    return body;
+  } catch {
+    return fs.readFileSync(filePath, "utf8");
+  }
 }
 
 function buildStandalonePreloadScript(defaultConvId) {
@@ -215,11 +357,14 @@ function buildStandalonePreloadScript(defaultConvId) {
 }
 
 function buildCatalogScript() {
-  return `window.ASTACK_CATALOG = ${JSON.stringify({
-    delegateGuide: DELEGATE_GUIDE_DATA,
-    colleagueReviewGuide: COLLEAGUE_REVIEW_GUIDE,
-    commandDocs: COMMAND_DOCS,
-  })};\n`;
+  if (!cachedCatalogScript) {
+    cachedCatalogScript = `window.ASTACK_CATALOG = ${JSON.stringify({
+      delegateGuide: DELEGATE_GUIDE_DATA,
+      colleagueReviewGuide: COLLEAGUE_REVIEW_GUIDE,
+      commandDocs: COMMAND_DOCS,
+    })};\n`;
+  }
+  return cachedCatalogScript;
 }
 
 function fetchGhPrMeta(workspaceDir) {
@@ -260,7 +405,7 @@ function makePrStatusResolver({ enabled = true, fetcher = fetchGhPrMeta, ttlMs =
     const key = path.resolve(workspaceDir);
     const now = Date.now();
     const entry = cache.get(key) || { map: null, fetchedAt: 0, pending: null };
-    if (entry.map && now - entry.fetchedAt < ttlMs) {
+    if (entry.fetchedAt && now - entry.fetchedAt < ttlMs) {
       return entry.map;
     }
     if (!entry.pending) {
@@ -787,19 +932,27 @@ function writeJsonResponse(res, status, payload, isHead = false) {
   res.end(isHead ? "" : JSON.stringify(payload));
 }
 
-/**
- * Starts the standalone read-only HTTP server on `127.0.0.1` for browser tests and local preview.
- */
-export async function createTimelineServer(options = {}) {
+function createSidecarResponders(options = {}, defaultConvOverride = "") {
   const brainDir = resolveBrainDir(options.brainDir);
   const allowFixtureIds = Boolean(options.allowFixtureIds);
-  const defaultConvId = String(options.conversationId ?? process.env.ANTIGRAVITY_CONVERSATION_ID ?? "").trim();
-  const token = options.token ?? process.env.ANTIGRAVITY_SIDECAR_UI_TOKEN ?? "";
+  const defaultConversationId = String(defaultConvOverride || options.conversationId || "").trim();
+  const metadataResolver =
+    !options.workspaceFetcher
+      ? makeConversationMetadataResolver({
+          ...(options.metadataFetcher ? { fetcher: options.metadataFetcher } : {}),
+          ...(Number.isFinite(options.workspaceNegativeTtlMs) ? { negativeTtlMs: options.workspaceNegativeTtlMs } : {}),
+          ...(Number.isFinite(options.workspaceEmptyTtlMs) ? { emptyWorkspaceTtlMs: options.workspaceEmptyTtlMs } : {}),
+        })
+      : null;
   const workspaceResolver = makeWorkspaceResolver({
     explicitWorkspace: options.workspaceDir || "",
     ...(options.workspaceFetcher ? { fetcher: options.workspaceFetcher } : {}),
-    ...(Number.isFinite(options.workspaceWaitBudgetMs) ? { waitBudgetMs: options.workspaceWaitBudgetMs } : {}),
+    ...(metadataResolver ? { metadataResolver } : {}),
+    ...(Number.isFinite(options.workspaceWaitBudgetMs)
+      ? { waitBudgetMs: options.workspaceWaitBudgetMs, hasExplicitWaitBudget: true }
+      : {}),
     ...(Number.isFinite(options.workspaceNegativeTtlMs) ? { negativeTtlMs: options.workspaceNegativeTtlMs } : {}),
+    ...(Number.isFinite(options.workspaceEmptyTtlMs) ? { emptyWorkspaceTtlMs: options.workspaceEmptyTtlMs } : {}),
   });
   const prStatusResolver =
     options.prStatusResolver ||
@@ -810,14 +963,14 @@ export async function createTimelineServer(options = {}) {
   const dataDir = options.dataDir ? path.resolve(options.dataDir) : null;
   const respondTimeline = createTimelineResponder({
     brainDir,
-    defaultConversationId: defaultConvId,
+    defaultConversationId,
     allowFixtureIds,
     workspaceResolver,
     prStatusResolver,
     dataDir,
   });
   const respondTrustSettings = createTrustSettingsResponder({
-    defaultConversationId: defaultConvId,
+    defaultConversationId,
     allowFixtureIds,
     workspaceResolver,
     dataDir,
@@ -825,20 +978,45 @@ export async function createTimelineServer(options = {}) {
   });
   const respondArtifact = createArtifactResponder({
     brainDir,
-    defaultConversationId: defaultConvId,
+    defaultConversationId,
     allowFixtureIds,
   });
   const respondDossier = createDossierResponder({
     brainDir,
-    defaultConversationId: defaultConvId,
+    defaultConversationId,
     allowFixtureIds,
     workspaceResolver,
   });
   const respondArchAudit = createArchAuditResponder({
-    defaultConversationId: defaultConvId,
+    defaultConversationId,
     allowFixtureIds,
     workspaceResolver,
   });
+  return {
+    allowFixtureIds,
+    defaultConversationId,
+    metadataResolver,
+    respondTimeline,
+    respondTrustSettings,
+    respondArtifact,
+    respondDossier,
+    respondArchAudit,
+  };
+}
+
+/**
+ * Starts the standalone read-only HTTP server on `127.0.0.1` for browser tests and local preview.
+ */
+export async function createTimelineServer(options = {}) {
+  const defaultConvId = String(options.conversationId ?? process.env.ANTIGRAVITY_CONVERSATION_ID ?? "").trim();
+  const token = options.token ?? process.env.ANTIGRAVITY_SIDECAR_UI_TOKEN ?? "";
+  const {
+    respondTimeline,
+    respondTrustSettings,
+    respondArtifact,
+    respondDossier,
+    respondArchAudit,
+  } = createSidecarResponders(options, defaultConvId);
 
   const requestedPort = Number.isFinite(options.port) ? options.port : 0;
 
@@ -998,53 +1176,16 @@ export async function startTimelineSidecar(options = {}) {
     try {
       const { SidecarApp, Response } = options.sdk || (await import("sidecar_sdk"));
       const app = new SidecarApp();
-      const brainDir = resolveBrainDir(options.brainDir);
-      const workspaceResolver = makeWorkspaceResolver({
-        explicitWorkspace: options.workspaceDir || "",
-        ...(options.workspaceFetcher ? { fetcher: options.workspaceFetcher } : {}),
-        ...(Number.isFinite(options.workspaceWaitBudgetMs) ? { waitBudgetMs: options.workspaceWaitBudgetMs } : {}),
-        ...(Number.isFinite(options.workspaceNegativeTtlMs) ? { negativeTtlMs: options.workspaceNegativeTtlMs } : {}),
-      });
-      const defaultConversationId = String(app.config?.conversationId ?? options.conversationId ?? "");
-      const allowFixtureIds = Boolean(options.allowFixtureIds);
-      const prStatusResolver =
-        options.prStatusResolver ||
-        makePrStatusResolver({
-          enabled: options.enableGhLookup ?? !allowFixtureIds,
-          ...(options.prStatusFetcher ? { fetcher: options.prStatusFetcher } : {}),
-        });
-      const dataDir = options.dataDir ? path.resolve(options.dataDir) : null;
-      const respondTimeline = createTimelineResponder({
-        brainDir,
-        defaultConversationId,
+      const defaultConvOverride = String(app.config?.conversationId ?? options.conversationId ?? "");
+      const {
         allowFixtureIds,
-        workspaceResolver,
-        prStatusResolver,
-        dataDir,
-      });
-      const respondTrustSettings = createTrustSettingsResponder({
-        defaultConversationId,
-        allowFixtureIds,
-        workspaceResolver,
-        dataDir,
-        onMutation: () => respondTimeline.invalidate(),
-      });
-      const respondArtifact = createArtifactResponder({
-        brainDir,
-        defaultConversationId,
-        allowFixtureIds,
-      });
-      const respondDossier = createDossierResponder({
-        brainDir,
-        defaultConversationId,
-        allowFixtureIds,
-        workspaceResolver,
-      });
-      const respondArchAudit = createArchAuditResponder({
-        defaultConversationId,
-        allowFixtureIds,
-        workspaceResolver,
-      });
+        metadataResolver,
+        respondTimeline,
+        respondTrustSettings,
+        respondArtifact,
+        respondDossier,
+        respondArchAudit,
+      } = createSidecarResponders(options, defaultConvOverride);
 
       const rootAsset = STATIC_ASSETS.get("/");
       app.page("/", () => readStaticAsset(rootAsset));
@@ -1113,6 +1254,22 @@ export async function startTimelineSidecar(options = {}) {
       }, "POST");
 
       await app.run();
+      if (metadataResolver) {
+        app.api("/_sidecar/get-conversation-metadata", async (data) => {
+          const convId = String(data?.conversationId ?? "").trim();
+          if (!convId || !isValidConversationId(convId, allowFixtureIds)) {
+            return new Response(JSON.stringify({ error: "Invalid conversationId" }), {
+              status: 400,
+              contentType: "application/json; charset=utf-8",
+            });
+          }
+          const meta = await metadataResolver.getMetadata(convId);
+          return new Response(JSON.stringify(meta.payload ?? {}), {
+            status: 200,
+            contentType: "application/json; charset=utf-8",
+          });
+        }, "POST");
+      }
       return { mode: "sidecar_sdk", close: async () => {} };
     } catch (err) {
       if (err?.code !== "ERR_MODULE_NOT_FOUND") throw err;

@@ -2708,6 +2708,29 @@ h4.md-heading { font-size: 13px; }
   margin-top: 2px;
 }
 
+.timeline-loading {
+  list-style: none;
+  margin: 4px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--tl-card);
+  border: 1px solid var(--tl-line);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--tl-fg-muted);
+  font-size: 12px;
+}
+
+.timeline-loading-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tl-primary);
+  flex: none;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
 @media (hover: none) {
   .row-ask-btn { opacity: 1; }
 }
@@ -2730,7 +2753,7 @@ h4.md-heading { font-size: 13px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .spin, .pulse, .chip-active-dot { animation: none; }
+  .spin, .pulse, .chip-active-dot, .timeline-loading-dot { animation: none; }
   .chev, .chip, .meta-btn, .more-toggle, .step-btn, .subcmd-pill, .toast,
   .sub-accordion-btn, .delegate-menu-row, .row-ask-btn, .focus-chip,
   .guide-acc-btn, .guide-cmd-chip, .guide-cmd-drawer-btn, .pick-chip, .copy-inline-btn, .refresh-btn, .status-banner-action {

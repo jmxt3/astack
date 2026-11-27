@@ -3314,3 +3314,89 @@ test("detects colleague PR review intents (single, queue, stack) and keeps Build
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("evaluateTimelineSnapshot caches transcript parsing without cross-call mutation leaks and refreshes on transcript, task log, or child transcript updates", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-trcache-");
+  const convId = "conv-trcache";
+  const childConvId = "12121212-3434-4567-8901-232323232323";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeTranscript(brainDir, childConvId, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        status: "RUNNING",
+        created_at: "2026-11-26T05:00:02Z",
+        content: "",
+      },
+    ]);
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T05:00:00Z",
+        content: "<USER_REQUEST>/astack-mode run check</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T05:00:01Z",
+        tool_calls: [{ name: "invoke_subagent", args: { TypeName: "research", Role: "Scanner", Prompt: "Scan repo" } }],
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        status: "DONE",
+        created_at: "2026-11-26T05:00:01Z",
+        content: `{"conversationId":"${childConvId}"}`,
+      },
+      {
+        step_index: 3,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T05:00:02Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: "node --test", toolSummary: "Run tests" } }],
+      },
+      {
+        step_index: 4,
+        type: "GENERIC",
+        status: "DONE",
+        created_at: "2026-11-26T05:00:02Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-88`,
+      },
+    ]);
+
+    const first = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(first.activity.runningSubagentsCount, 1);
+    assert.equal(first.activity.backgroundJobs.count, 1);
+    assert.equal(first.activity.backgroundJobs.items[0].logFile, null);
+
+    first.activity.subagents[0].status = "mutated";
+    const second = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(second.activity.subagents[0].status, "running", "Cached transcript clones must isolate caller mutations");
+    assert.equal(second.etag, first.etag);
+
+    writeText(path.join(brainDir, convId, ".system_generated", "tasks", "task-88.log"), "ok\n");
+    writeText(path.join(brainDir, convId, ".system_generated", "tasks", "task-99.log"), "done\n");
+    const withTaskLog = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(withTaskLog.activity.backgroundJobs.count, 2, "Existing task-88 must attach logFile without duplicating");
+    assert.equal(withTaskLog.activity.backgroundJobs.items.find((j) => j.taskSlug === "task-88")?.logFile, "task-88.log");
+
+    writeTranscript(brainDir, childConvId, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T05:00:10Z",
+        content: "Finished scan",
+      },
+    ]);
+    const afterChildDone = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(afterChildDone.activity.runningSubagentsCount, 0, "Child transcript completion must update parent snapshot");
+    assert.equal(afterChildDone.activity.subagents[0].status, "done");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

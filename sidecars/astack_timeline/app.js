@@ -1,6 +1,7 @@
 (() => {
   const POLL_MS = 1800;
-  const POLL_TIMEOUT_MS = 12000;
+  const POLL_TIMEOUT_MS = 8000;
+  const LOADING_GRACE_MS = 180;
   const INITIAL_WS_WAIT_MS = 80;
   const DOCS_URL_PREFIX = "https://github.com/jmxt3/astack/";
   const PASTE_SHORTCUT = /mac/i.test(navigator.platform || navigator.userAgent || "") ? "Cmd+V" : "Ctrl+V";
@@ -12,6 +13,7 @@
     pollTimer: null,
     pollInFlight: false,
     pollAbort: null,
+    loadingTimer: null,
     trustActionSeq: 0,
     lastPollError: null,
     snap: null,
@@ -3344,8 +3346,42 @@
     container.replaceChildren(intro, groups);
   }
 
+  function clearLoadingTimer() {
+    if (state.loadingTimer) {
+      clearTimeout(state.loadingTimer);
+      state.loadingTimer = null;
+    }
+  }
+
+  function scheduleLoadingState() {
+    if (state.snap || state.loadingTimer) return;
+    state.loadingTimer = setTimeout(() => {
+      state.loadingTimer = null;
+      renderLoadingState();
+    }, LOADING_GRACE_MS);
+  }
+
+  function renderLoadingState() {
+    if (state.snap) return;
+    const live = document.getElementById("live");
+    const liveLabel = document.getElementById("live-label");
+    if (live) live.className = "live idle";
+    if (liveLabel) liveLabel.textContent = "Loading…";
+    const list = document.getElementById("timeline");
+    if (!list || list.children.length > 0) return;
+    const card = el("li", "timeline-loading");
+    card.dataset.testid = "timeline-loading";
+    card.setAttribute("role", "status");
+    const dot = el("span", "timeline-loading-dot");
+    dot.setAttribute("aria-hidden", "true");
+    card.appendChild(dot);
+    card.appendChild(el("span", "timeline-loading-text", "Loading AStack Timeline…"));
+    list.replaceChildren(card);
+  }
+
   function render(snap) {
     if (!snap) return;
+    clearLoadingTimer();
     syncPanelMode(snap);
     const progressEl = document.getElementById("progress");
     const WORKFLOW_MODE_COPY = {
@@ -3798,6 +3834,7 @@
   }
 
   function renderLoadFallback(title, detail) {
+    clearLoadingTimer();
     if (state.snap) return;
     const list = document.getElementById("timeline");
     if (!list) return;
@@ -3833,6 +3870,7 @@
     }
     const reqSeq = ++state.pollSeq;
     state.pollInFlight = true;
+    if (!state.snap) scheduleLoadingState();
     const convId = getConversationId(false);
     const ctrl = typeof AbortController === "function" ? new AbortController() : null;
     state.pollAbort = ctrl;
@@ -3872,9 +3910,17 @@
         if (state.snap) applyLiveStatus(state.snap);
         return;
       }
+      const prevSnap = state.snap;
+      const prevEtag = state.etag;
       state.etag = data.etag || "";
       state.snap = data;
-      render(data);
+      try {
+        render(data);
+      } catch (renderErr) {
+        state.snap = prevSnap;
+        state.etag = prevEtag;
+        throw renderErr;
+      }
     } catch (err) {
       if (reqSeq !== state.pollSeq) return;
       const live = document.getElementById("live");

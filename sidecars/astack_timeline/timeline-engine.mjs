@@ -14,6 +14,7 @@ import {
   readEvidenceSnapshot,
   readHeadShaFast,
   readMergedReceipts,
+  resolveBaseRef,
   resolveTrustDir,
   resolveWorkspaceScope,
 } from "../../scripts/trust/index.mjs";
@@ -462,8 +463,10 @@ function extractGhPrCreateTitle(cmd) {
 }
 
 const mergedPrCache = new Map();
-const WORKSPACE_POLICY_CACHE_TTL_MS = 5000;
+const WORKSPACE_POLICY_CACHE_TTL_MS = 300_000;
 const workspacePolicyCache = new Map();
+const MAX_TRANSCRIPT_CACHE_ENTRIES = 64;
+const transcriptCache = new Map();
 
 function readFileStatFingerprint(filePath) {
   try {
@@ -519,11 +522,23 @@ function resolveWorkspacePolicyCached(workspaceDir) {
   if (cached && now - cached.ts < WORKSPACE_POLICY_CACHE_TTL_MS) {
     return { workspaceScope: cached.workspaceScope, policyResult: cached.policyResult };
   }
-  const workspaceScope = resolveWorkspaceScope(workspaceDir);
+  let capturedBaseRef = null;
+  let capturedPolicyResult = null;
+  const workspaceScope = resolveWorkspaceScope(workspaceDir, {
+    policyLoader: (repoRoot, explicitBase) => {
+      const baseRef = resolveBaseRef(repoRoot, explicitBase);
+      capturedBaseRef = baseRef;
+      if (!baseRef) return { present: false, baseRef: null, error: null };
+      capturedPolicyResult = loadRiskPolicy(repoRoot, { baseRef });
+      return { present: capturedPolicyResult.present, baseRef, error: capturedPolicyResult.error ?? null };
+    },
+  });
   const policyResult =
-    workspaceScope.kind === "enrolled_repo"
-      ? loadRiskPolicy(workspaceDir, { baseRef: workspaceScope.baseRef })
-      : loadRiskPolicy(workspaceDir);
+    workspaceScope.kind === "enrolled_repo" && capturedPolicyResult && capturedBaseRef === workspaceScope.baseRef
+      ? capturedPolicyResult
+      : workspaceScope.kind === "enrolled_repo"
+        ? loadRiskPolicy(workspaceDir, { baseRef: workspaceScope.baseRef })
+        : loadRiskPolicy(workspaceDir);
   if (workspaceScope.kind !== "git_unregistered" || !policyResult.present) {
     if (workspacePolicyCache.size >= 32) {
       workspacePolicyCache.clear();
@@ -583,37 +598,6 @@ function classifySwarmRole(name, brief) {
   if (/\bverifier\b|@verifier/i.test(combined)) return "verifier";
   if (/\bmonitor\b|@monitor/i.test(combined)) return "monitor";
   return "worker";
-}
-
-function isChildTranscriptFinished(brainDir, childConvId) {
-  if (!brainDir || !childConvId) return null;
-  const childTranscript = path.join(brainDir, childConvId, ".system_generated", "logs", "transcript.jsonl");
-  if (!fs.existsSync(childTranscript)) return null;
-  try {
-    const lines = fs.readFileSync(childTranscript, "utf8").split(/\r?\n/);
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const raw = lines[i].trim();
-      if (!raw) continue;
-      let step;
-      try {
-        step = JSON.parse(raw);
-      } catch {
-        continue;
-      }
-      if (!step || typeof step !== "object") continue;
-      if (step.type === "PLANNER_RESPONSE") {
-        const hasTools = Array.isArray(step.tool_calls) && step.tool_calls.length > 0;
-        if (step.status === "DONE" && !hasTools) {
-          return step.created_at || true;
-        }
-        return false;
-      }
-      if (step.status === "RUNNING") return false;
-    }
-  } catch {
-    return null;
-  }
-  return null;
 }
 
 const EXTRA_ARTIFACT_SKIP = new Set([
@@ -765,8 +749,8 @@ function inferSubagentStageId(subType, roleText, promptText, hasWorkspaceWrite) 
   return "build";
 }
 
-function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir = "") {
-  const sig = {
+function makeEmptyTranscriptSignals() {
+  return {
     startedAt: null,
     childConvIds: new Set(),
     detected: new Set(),
@@ -805,7 +789,46 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
     changedFiles: new Set(),
     pr: null,
     prs: new Map(),
+    terminalDoneAt: null,
   };
+}
+
+function cloneTranscriptSignals(sig) {
+  return {
+    ...sig,
+    childConvIds: new Set(sig.childConvIds),
+    detected: new Set(sig.detected),
+    goal: { ...sig.goal },
+    boost: { ...sig.boost },
+    teamwork: { ...sig.teamwork },
+    swarm: {
+      ...sig.swarm,
+      members: sig.swarm.members.map((m) => ({ ...m })),
+      sparks: sig.swarm.sparks.map((s) => ({ ...s })),
+    },
+    subagents: sig.subagents.map((sa) => ({ ...sa })),
+    schedules: sig.schedules.map((s) => ({ ...s, prNumbers: Array.isArray(s.prNumbers) ? [...s.prNumbers] : [] })),
+    automations: sig.automations.map((a) => ({ ...a })),
+    workflow: { ...sig.workflow },
+    colleagueReview: {
+      commands: new Set(sig.colleagueReview.commands),
+      queueReview: sig.colleagueReview.queueReview,
+      stackReview: sig.colleagueReview.stackReview,
+      targetPrs: new Map([...sig.colleagueReview.targetPrs.entries()].map(([k, v]) => [k, { ...v }])),
+    },
+    mainTurn: { ...sig.mainTurn },
+    backgroundJobs: sig.backgroundJobs.map((j) => ({
+      ...j,
+      prNumbers: Array.isArray(j.prNumbers) ? [...j.prNumbers] : j.prNumbers,
+    })),
+    changedFiles: new Set(sig.changedFiles),
+    pr: sig.pr ? { ...sig.pr } : null,
+    prs: new Map([...sig.prs.entries()].map(([k, v]) => [k, { ...v }])),
+  };
+}
+
+function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir = "") {
+  const sig = makeEmptyTranscriptSignals();
   if (!transcriptPath || !fs.existsSync(transcriptPath)) return sig;
 
   const lines = fs.readFileSync(transcriptPath, "utf8").split(/\r?\n/);
@@ -832,6 +855,13 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
       continue;
     }
     if (!step || typeof step !== "object") continue;
+
+    if (step.type === "PLANNER_RESPONSE") {
+      const hasTools = Array.isArray(step.tool_calls) && step.tool_calls.length > 0;
+      sig.terminalDoneAt = step.status === "DONE" && !hasTools ? (step.created_at || true) : false;
+    } else if (step.status === "RUNNING") {
+      sig.terminalDoneAt = false;
+    }
 
     const order = Number.isFinite(step.step_index) ? step.step_index : i;
     const marker = makeMarker(step.created_at, order);
@@ -1555,43 +1585,85 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
     }
   }
 
-  if (brainConvDir) {
-    const tasksDir = path.join(brainConvDir, ".system_generated", "tasks");
-    try {
-      if (fs.existsSync(tasksDir)) {
-        const knownLogs = new Set([...bgJobByTaskId.values()].map((j) => j.logFile).filter(Boolean));
-        for (const entry of fs.readdirSync(tasksDir, { withFileTypes: true })) {
-          if (!entry.isFile() || !/^task-\d+\.log$/.test(entry.name) || knownLogs.has(entry.name)) continue;
-          const slug = entry.name.replace(/\.log$/, "");
-          const safeLog = resolveSafeTaskLogPath(brainConvDir, entry.name);
-          if (!safeLog) continue;
-          const mtime = fs.statSync(safeLog).mtime.toISOString();
-          bgJobByTaskId.set(slug, {
-            id: `bg-${bgJobByTaskId.size}`,
-            taskId: slug,
-            taskSlug: slug,
-            logFile: entry.name,
-            kind: "command",
-            stageId: "build",
-            title: slug,
-            summary: slug,
-            command: "",
-            startedAt: mtime,
-            completedAt: mtime,
-            status: "done",
-            isDaemon: false,
-            isCron: false,
-          });
-        }
-      }
-    } catch {
-    }
-  }
   sig.backgroundJobs = [...bgJobByTaskId.values()];
+  return sig;
+}
+
+function parseTranscriptCached(transcriptPath, brainConvDir, workspaceDir, brainDir = "") {
+  if (!transcriptPath) return makeEmptyTranscriptSignals();
+  let st;
+  try {
+    st = fs.statSync(transcriptPath, { bigint: true });
+  } catch {
+    return makeEmptyTranscriptSignals();
+  }
+  const cacheKey = `${transcriptPath}|${st.mtimeNs}:${st.ctimeNs}:${st.size}:${st.ino}|${workspaceDir}|${brainConvDir}|${brainDir}`;
+  const cached = transcriptCache.get(cacheKey);
+  if (cached) {
+    return cloneTranscriptSignals(cached);
+  }
+  const parsed = parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir);
+  if (transcriptCache.size >= MAX_TRANSCRIPT_CACHE_ENTRIES) {
+    const oldestKey = transcriptCache.keys().next().value;
+    if (oldestKey !== undefined) transcriptCache.delete(oldestKey);
+  }
+  transcriptCache.set(cacheKey, parsed);
+  return cloneTranscriptSignals(parsed);
+}
+
+function mergeUnreferencedTaskLogs(sig, brainConvDir) {
+  if (!brainConvDir) return;
+  const tasksDir = path.join(brainConvDir, ".system_generated", "tasks");
+  try {
+    if (!fs.existsSync(tasksDir)) return;
+    const knownLogs = new Set(sig.backgroundJobs.map((j) => j.logFile).filter(Boolean));
+    const bySlug = new Map(sig.backgroundJobs.map((j) => [j.taskSlug, j]));
+    for (const entry of fs.readdirSync(tasksDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !/^task-\d+\.log$/.test(entry.name) || knownLogs.has(entry.name)) continue;
+      const slug = entry.name.replace(/\.log$/, "");
+      const safeLog = resolveSafeTaskLogPath(brainConvDir, entry.name);
+      if (!safeLog) continue;
+      const existing = bySlug.get(slug);
+      if (existing) {
+        existing.logFile = entry.name;
+        knownLogs.add(entry.name);
+        continue;
+      }
+      const mtime = fs.statSync(safeLog).mtime.toISOString();
+      const job = {
+        id: `bg-${sig.backgroundJobs.length}`,
+        taskId: slug,
+        taskSlug: slug,
+        logFile: entry.name,
+        kind: "command",
+        stageId: "build",
+        title: slug,
+        summary: slug,
+        command: "",
+        startedAt: mtime,
+        completedAt: mtime,
+        status: "done",
+        isDaemon: false,
+        isCron: false,
+      };
+      sig.backgroundJobs.push(job);
+      bySlug.set(slug, job);
+      knownLogs.add(entry.name);
+    }
+  } catch {
+  }
+}
+
+function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir = "") {
+  const sig = parseTranscriptCached(transcriptPath, brainConvDir, workspaceDir, brainDir);
+  mergeUnreferencedTaskLogs(sig, brainConvDir);
 
   for (const sa of sig.subagents) {
     if (sa.status === "running" && sa.childConvId && brainDir) {
-      const doneRes = isChildTranscriptFinished(brainDir, sa.childConvId);
+      const childConvDir = path.join(brainDir, sa.childConvId);
+      const childTranscript = path.join(childConvDir, ".system_generated", "logs", "transcript.jsonl");
+      const childSig = parseTranscriptCached(childTranscript, childConvDir, workspaceDir, brainDir);
+      const doneRes = childSig.terminalDoneAt;
       if (doneRes) {
         sa.status = "done";
         sa.completedAt = typeof doneRes === "string" ? doneRes : sa.startedAt;

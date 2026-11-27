@@ -1741,3 +1741,234 @@ test("sidecar serves colleagueReviewGuide and toggles between Build (Pre-PR Chec
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("startTimelineSidecar overrides /_sidecar/get-conversation-metadata asynchronously, deduplicates with /api/timeline, bounds empty-fallback waits, and caches empty workspaces", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-meta-dedupe-"));
+  const brainDir = path.join(root, "brain");
+  const wsDir = path.join(root, "repo");
+  const convId = "99999999-aaaa-4bbb-8ccc-dddddddddddd";
+  const emptyConvId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  writeText(path.join(wsDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+  writeText(
+    path.join(brainDir, convId, ".system_generated", "logs", "transcript.jsonl"),
+    `${JSON.stringify({ step_index: 0, type: "USER_INPUT", content: "<USER_REQUEST>/plan ok</USER_REQUEST>" })}\n`,
+  );
+
+  let metaCalls = 0;
+  let releaseMeta = null;
+  const routes = [];
+  let ranServer = false;
+  class MockResponse {
+    constructor(body, opts = {}) {
+      this.body = body;
+      this.status = opts.status || 200;
+      this.contentType = opts.contentType || "text/plain";
+    }
+  }
+  class MockSidecarApp {
+    constructor() {
+      this.config = { conversationId: convId };
+    }
+    page() {}
+    api(routePath, handler, method) {
+      routes.push({ routePath, handler, method, afterRun: ranServer });
+    }
+    async run() {
+      ranServer = true;
+    }
+  }
+
+  try {
+    await startTimelineSidecar({
+      brainDir,
+      workspaceWaitBudgetMs: 25,
+      workspaceEmptyTtlMs: 60_000,
+      metadataFetcher: (id) => {
+        metaCalls += 1;
+        if (id === emptyConvId) {
+          return Promise.resolve({
+            ok: true,
+            payload: { response: { conversationMetadata: { metadata: { workspaces: [] } } } },
+            workspaceDir: "",
+            emptyWorkspace: true,
+          });
+        }
+        return new Promise((resolve) => {
+          releaseMeta = () =>
+            resolve({
+              ok: true,
+              payload: {
+                response: {
+                  conversationMetadata: {
+                    metadata: { projectId: "proj-1", workspaceUris: [pathToFileURL(wsDir).href] },
+                  },
+                },
+              },
+              workspaceDir: wsDir,
+              emptyWorkspace: false,
+            });
+        });
+      },
+      sdk: { SidecarApp: MockSidecarApp, Response: MockResponse },
+    });
+
+    const metaOverride = [...routes].reverse().find((r) => r.routePath === "/_sidecar/get-conversation-metadata");
+    const timelineRoute = routes.find((r) => r.routePath === "/api/timeline");
+    assert.equal(metaOverride?.afterRun, true, "/_sidecar/get-conversation-metadata must be overridden after app.run()");
+    assert.equal(metaOverride?.method, "POST");
+
+    const invalidMeta = await metaOverride.handler({ conversationId: "../bad" });
+    assert.equal(invalidMeta.status, 400);
+
+    const t0 = Date.now();
+    const metaPromise = metaOverride.handler({ conversationId: convId });
+    const tlBounded = await timelineRoute.handler({ conversationId: convId });
+    const boundedMs = Date.now() - t0;
+    assert.ok(boundedMs < 1000, `Empty-fallback timeline load must respect waitBudgetMs (got ${boundedMs}ms)`);
+    assert.equal(tlBounded.status, 200);
+    assert.equal(metaCalls, 1, "Concurrent metadata + timeline requests must share one metadata lookup");
+
+    releaseMeta();
+    const metaRes = await metaPromise;
+    assert.equal(metaRes.status, 200);
+    assert.equal(JSON.parse(metaRes.body).response.conversationMetadata.metadata.projectId, "proj-1");
+
+    const tlResolved = await timelineRoute.handler({ conversationId: convId });
+    assert.equal(JSON.parse(tlResolved.body).setup.status, "ready");
+    assert.equal(metaCalls, 1, "Cached metadata must serve subsequent timeline polls without re-spawning");
+
+    const callsBeforeEmpty = metaCalls;
+    await metaOverride.handler({ conversationId: emptyConvId });
+    await metaOverride.handler({ conversationId: emptyConvId });
+    await timelineRoute.handler({ conversationId: emptyConvId });
+    assert.equal(metaCalls, callsBeforeEmpty + 1, "Workspace-less conversations must cache empty workspaces across polls");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("app.js displays timeline-loading on slow first load and falls back cleanly if render throws", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-loading-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const appJs = await (await fetch(`${srv.url}app.js`)).text();
+
+    let resolveInitial = null;
+    const slowInit = createAppJsTestHarness({
+      appJs,
+      fetchImpl: () =>
+        new Promise((resolve) => {
+          resolveInitial = () =>
+            resolve({
+              ok: true,
+              status: 200,
+              json: async () => makeFakeSnapshot("etag-loaded"),
+            });
+        }),
+    });
+    await slowInit.advanceBy(250);
+    assert.ok(slowInit.byId.get("timeline").findByTestId("timeline-loading"), "Slow initial load must show loading card");
+    assert.equal(slowInit.byId.get("live-label").textContent, "Loading…");
+
+    resolveInitial();
+    await slowInit.flushMicrotasks();
+    assert.equal(slowInit.byId.get("timeline").findByTestId("timeline-loading"), null);
+    assert.equal(slowInit.byId.get("timeline").children.length, 4);
+    assert.equal(slowInit.byId.get("live-label").textContent, "Live");
+
+    const malformedHarness = createAppJsTestHarness({
+      appJs,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ etag: "bad", stages: null }),
+      }),
+    });
+    await malformedHarness.advanceBy(100);
+    assert.ok(
+      malformedHarness.byId.get("timeline").findByTestId("timeline-fallback"),
+      "Render exception on malformed payload must restore snap=null and show fallback card",
+    );
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("createTimelineServer negatively caches null and failing prStatusFetcher results inside TTL", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-pr-neg-"));
+  const brainDir = path.join(root, "brain");
+  const workspaceDir = path.join(root, "repo");
+  const convId = "66666666-7777-8888-9999-000000000001";
+
+  writeText(path.join(workspaceDir, ".git", "HEAD"), "0123456789abcdef0123456789abcdef01234567\n");
+  writeText(
+    path.join(brainDir, convId, ".system_generated", "logs", "transcript.jsonl"),
+    [
+      JSON.stringify({
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T12:00:00Z",
+        content: "check pr",
+      }),
+      JSON.stringify({
+        step_index: 1,
+        type: "GENERIC",
+        created_at: "2026-11-20T12:00:02Z",
+        content: "https://github.com/acme/demo/pull/99\n",
+      }),
+    ].join("\n") + "\n",
+  );
+
+  let nullFetchCalls = 0;
+  const nullSrv = await createTimelineServer({
+    brainDir,
+    workspaceDir,
+    port: 0,
+    enableGhLookup: true,
+    prStatusFetcher: async () => {
+      nullFetchCalls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      return null;
+    },
+  });
+
+  try {
+    const first = await (await fetch(`${nullSrv.url}api/timeline?conversationId=${convId}`)).json();
+    assert.equal(first.activity.prs.totalCount, 1);
+    assert.equal(nullFetchCalls, 1);
+
+    const t0 = Date.now();
+    const second = await (await fetch(`${nullSrv.url}api/timeline?conversationId=${convId}`)).json();
+    const elapsedMs = Date.now() - t0;
+    assert.equal(second.activity.prs.totalCount, 1);
+    assert.equal(nullFetchCalls, 1, "Null PR lookup result must be negatively cached inside TTL");
+    assert.ok(elapsedMs < 120, `Negatively cached PR poll should return promptly without blocking, took ${elapsedMs}ms`);
+  } finally {
+    await nullSrv.close();
+  }
+
+  let throwCalls = 0;
+  const errSrv = await createTimelineServer({
+    brainDir,
+    workspaceDir,
+    port: 0,
+    enableGhLookup: true,
+    prStatusFetcher: async () => {
+      throwCalls += 1;
+      throw new Error("gh unavailable");
+    },
+  });
+
+  try {
+    await (await fetch(`${errSrv.url}api/timeline?conversationId=${convId}`)).json();
+    await (await fetch(`${errSrv.url}api/timeline?conversationId=${convId}`)).json();
+    assert.equal(throwCalls, 1, "Failed PR lookup must be negatively cached inside TTL");
+  } finally {
+    await errSrv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
