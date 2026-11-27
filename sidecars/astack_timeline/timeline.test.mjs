@@ -4160,3 +4160,377 @@ test("enriches parallel self subagents with distinct roles, child live activity,
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("resets Stages 2-4, receipts, evidence, and counts on second /plan while archiving prior cycles and ignoring test/mixed-read PR URLs", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-cycles-");
+  const convId = "conv-multi-cycle";
+  const verifier1Id = "11112222-3333-4444-8555-666677778888";
+  const verifier2Id = "99998888-7777-4666-8555-444433332222";
+  const headSha1 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const headSha2 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha1}\n`);
+    writeText(path.join(brainDir, convId, "implementation_plan.md"), "# Plan 1\n");
+    writeText(path.join(brainDir, convId, "walkthrough.md"), "# Walkthrough 1\n");
+    writeText(path.join(brainDir, convId, "pr-review.md"), "# PR Review 1\n");
+    writeText(path.join(brainDir, convId, ".system_generated", "tasks", "task-10.log"), "done\n");
+    const task11Path = path.join(brainDir, convId, ".system_generated", "tasks", "task-11.log");
+    writeText(task11Path, "done\n");
+    const cycle1TaskTime = new Date("2026-11-27T10:02:10Z");
+    fs.utimesSync(task11Path, cycle1TaskTime, cycle1TaskTime);
+    writeTranscript(brainDir, verifier1Id, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T10:04:30Z", content: "PASS" },
+    ]);
+    writeTranscript(brainDir, verifier2Id, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T10:25:30Z", content: "PASS" },
+    ]);
+
+    const cycle1Entries = [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:00:00Z",
+        content: "<USER_REQUEST>/plan build feature 1</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:01:00Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convId, "implementation_plan.md") } }],
+      },
+      {
+        step_index: 2,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:01:30Z",
+        content: "<USER_REQUEST>Proceeded with implementation_plan.md</USER_REQUEST>",
+      },
+      {
+        step_index: 3,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:02:00Z",
+        tool_calls: [
+          { name: "update_focus", args: { focus: "Inspecting tests and running suite" } },
+          { name: "read_file", args: { Path: path.join(workspaceDir, "sidecars", "astack_timeline", "timeline.test.mjs") } },
+          { name: "run_command", args: { CommandLine: "node --test sidecars/astack_timeline/timeline.test.mjs", toolSummary: "Run timeline tests" } },
+        ],
+      },
+      {
+        step_index: 4,
+        type: "GENERIC",
+        created_at: "2026-11-27T10:02:01Z",
+        content: "OK",
+      },
+      {
+        step_index: 5,
+        type: "GENERIC",
+        created_at: "2026-11-27T10:02:02Z",
+        content: "fixture: https://github.com/acme/demo/pull/99\n",
+      },
+      {
+        step_index: 6,
+        type: "GENERIC",
+        created_at: "2026-11-27T10:02:03Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-10\nfixture: https://github.com/acme/demo/pull/99`,
+      },
+      {
+        step_index: 7,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-27T10:02:30Z",
+        content: `Task id "${convId}/task-10" finished with result: ok`,
+      },
+      {
+        step_index: 8,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:03:00Z",
+        tool_calls: [
+          { name: "edit_file", args: { Path: path.join(workspaceDir, "src", "feature.js") } },
+          { name: "read_file", args: { Path: "/plugin/skills/deslop/SKILL.md" } },
+          { name: "write_file", args: { Path: path.join(brainDir, convId, "walkthrough.md") } },
+          { name: "write_file", args: { Path: path.join(brainDir, convId, "pr-review.md") } },
+          { name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "Verifier", Prompt: "Verify cycle 1" } },
+        ],
+      },
+      {
+        step_index: 9,
+        type: "GENERIC",
+        created_at: "2026-11-27T10:03:05Z",
+        content: JSON.stringify({ conversationId: verifier1Id }),
+      },
+      {
+        step_index: 10,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:05:00Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: 'gh pr create --title "feat: cycle 1" --body "ok"' } }],
+      },
+      {
+        step_index: 11,
+        type: "GENERIC",
+        created_at: "2026-11-27T10:05:05Z",
+        content: "https://github.com/acme/real/pull/41\n",
+      },
+      {
+        step_index: 12,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:08:00Z",
+        content: "<USER_REQUEST>/why did statechart say skip?</USER_REQUEST>",
+      },
+      {
+        step_index: 13,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T10:08:20Z",
+        content: "Because conditions were skipped.",
+      },
+    ];
+
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T10:03:00Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "ui",
+        headSha: headSha1,
+        ok: true,
+        summary: "edit src/feature.js",
+        paths: ["src/feature.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T10:03:30Z",
+        conversationId: convId,
+        kind: "command",
+        category: "test",
+        headSha: headSha1,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+    ]);
+    writeText(
+      path.join(brainDir, convId, "astack-trust", "evidence.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: headSha1,
+        generatedAt: "2026-11-27T10:04:00Z",
+        freshness: "fresh",
+        riskTier: 1,
+        riskLabel: "medium",
+        reviewRound: 1,
+        maxReviewRounds: 3,
+        verifier: { verdict: "PASS" },
+      }),
+    );
+    writeTranscript(brainDir, convId, cycle1Entries);
+
+    const prMeta = new Map([
+      [41, { number: 41, title: "feat: cycle 1", state: "merged", url: "https://github.com/acme/real/pull/41" }],
+      [42, { number: 42, title: "feat: cycle 2", state: "open", url: "https://github.com/acme/real/pull/42" }],
+    ]);
+
+    const cycle1Done = evaluateTimelineSnapshot({
+      conversationId: convId,
+      brainDir,
+      workspaceDir,
+      prMetaByNumber: prMeta,
+    });
+    assert.deepEqual(cycle1Done.stages.map((s) => s.status), ["done", "done", "done", "done"]);
+    assert.equal(cycle1Done.cycles.currentNumber, 1, "Read-only /why after ship must not start Cycle 2");
+    assert.equal(cycle1Done.cycles.priorCount, 0);
+    assert.deepEqual(cycle1Done.activity.prs.items.map((p) => p.number), [41], "Mixed-batch read_file and node --test stdout must not leak PR #99");
+
+    const cycle2PlanOnly = [
+      ...cycle1Entries,
+      {
+        step_index: 14,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:15:00Z",
+        content: "<USER_REQUEST>/plan /astack-mode design follow-up fix</USER_REQUEST>",
+      },
+    ];
+    writeTranscript(brainDir, convId, cycle2PlanOnly);
+
+    const cycle2Active = evaluateTimelineSnapshot({
+      conversationId: convId,
+      brainDir,
+      workspaceDir,
+      prMetaByNumber: prMeta,
+      nowMs: Date.parse("2026-11-27T10:15:05Z"),
+    });
+    assert.equal(cycle2Active.cycles.currentNumber, 2);
+    assert.equal(cycle2Active.cycles.priorCount, 1);
+    assert.equal(cycle2Active.cycles.prior[0].outcome, "shipped");
+    assert.equal(cycle2Active.cycles.prior[0].shipped, true);
+    assert.equal(cycle2Active.cycles.prior[0].tasksCount, 1);
+    assert.deepEqual(cycle2Active.cycles.prior[0].prs.map((p) => `${p.number}:${p.state}`), ["41:merged"]);
+    assert.deepEqual(cycle2Active.stages.map((s) => s.status), ["active", "pending", "pending", "pending"]);
+    assert.deepEqual(cycle2Active.stages.map((s) => s.railState), ["running", "queued", "pending", "pending"]);
+    assert.deepEqual(cycle2Active.stages[1].subChecks.map((c) => c.status), ["pending", "pending", "pending"]);
+    assert.equal(cycle2Active.stages[1].stats.tasks.total, 0);
+    assert.equal(cycle2Active.stages[2].stats.agents.total, 0);
+    assert.equal(cycle2Active.stages[2].stats.artifacts.total, 0);
+    assert.equal(cycle2Active.stages[3].stats.prs.open, 0);
+    assert.equal(cycle2Active.stages[3].stats.prs.merged, 0);
+    assert.equal(cycle2Active.activity.prs.totalCount, 0);
+    assert.equal(cycle2Active.freshness, null);
+    assert.equal(cycle2Active.riskTier, null);
+    assert.equal(cycle2Active.workflowMode, "standard");
+
+    cycle2Active.cycles.prior[0].prs[0].state = "mutated";
+    const cycle2ReRead = evaluateTimelineSnapshot({
+      conversationId: convId,
+      brainDir,
+      workspaceDir,
+      prMetaByNumber: prMeta,
+      nowMs: Date.parse("2026-11-27T10:15:05Z"),
+    });
+    assert.equal(cycle2ReRead.cycles.prior[0].prs[0].state, "merged");
+
+    const cycle2PlanWritten = [
+      ...cycle2PlanOnly,
+      {
+        step_index: 15,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:16:00Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convId, "implementation_plan.md") } }],
+      },
+      {
+        step_index: 16,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T10:16:10Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convId, "implementation_plan.md") } }],
+      },
+    ];
+    writeTranscript(brainDir, convId, cycle2PlanWritten);
+    const cycle2Gate = evaluateTimelineSnapshot({
+      conversationId: convId,
+      brainDir,
+      workspaceDir,
+      prMetaByNumber: prMeta,
+    });
+    assert.equal(cycle2Gate.cycles.currentNumber, 2);
+    assert.equal(cycle2Gate.stages[0].status, "waiting_gate");
+    assert.equal(cycle2Gate.stages[1].railState, "queued");
+
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha2}\n`);
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T10:03:00Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "ui",
+        headSha: headSha1,
+        ok: true,
+        summary: "edit src/feature.js",
+        paths: ["src/feature.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T10:03:30Z",
+        conversationId: convId,
+        kind: "command",
+        category: "test",
+        headSha: headSha1,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T10:20:00Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "ui",
+        headSha: headSha2,
+        ok: true,
+        summary: "edit src/followup.js",
+        paths: ["src/followup.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T10:21:00Z",
+        conversationId: convId,
+        kind: "command",
+        category: "test",
+        headSha: headSha2,
+        ok: true,
+        summary: "node --test",
+        paths: [],
+      },
+    ]);
+    writeText(
+      path.join(brainDir, convId, "astack-trust", "evidence.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        headSha: headSha2,
+        generatedAt: "2026-11-27T10:25:00Z",
+        freshness: "fresh",
+        riskTier: 1,
+        riskLabel: "medium",
+        reviewRound: 1,
+        maxReviewRounds: 3,
+        verifier: { verdict: "PASS" },
+      }),
+    );
+    writeTranscript(brainDir, convId, [
+      ...cycle2PlanWritten,
+      {
+        step_index: 17,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:18:00Z",
+        content: "<USER_REQUEST>Proceeded with implementation_plan.md</USER_REQUEST>",
+      },
+      {
+        step_index: 18,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:20:00Z",
+        tool_calls: [
+          { name: "edit_file", args: { Path: path.join(workspaceDir, "src", "followup.js") } },
+          { name: "read_file", args: { Path: "/plugin/skills/deslop/SKILL.md" } },
+          { name: "write_file", args: { Path: path.join(brainDir, convId, "pr-review.md") } },
+          { name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "Verifier", Prompt: "Verify cycle 2" } },
+        ],
+      },
+      {
+        step_index: 19,
+        type: "GENERIC",
+        created_at: "2026-11-27T10:20:05Z",
+        content: JSON.stringify({ conversationId: verifier2Id }),
+      },
+      {
+        step_index: 20,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:26:00Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: 'gh pr create --title "feat: cycle 2" --body "ok"' } }],
+      },
+      {
+        step_index: 21,
+        type: "GENERIC",
+        created_at: "2026-11-27T10:26:05Z",
+        content: "https://github.com/acme/real/pull/42\n",
+      },
+    ]);
+
+    const cycle2Done = evaluateTimelineSnapshot({
+      conversationId: convId,
+      brainDir,
+      workspaceDir,
+      prMetaByNumber: prMeta,
+    });
+    assert.equal(cycle2Done.cycles.currentNumber, 2);
+    assert.equal(cycle2Done.cycles.priorCount, 1);
+    assert.deepEqual(cycle2Done.stages.map((s) => s.status), ["done", "done", "done", "done"]);
+    assert.deepEqual(cycle2Done.activity.prs.items.map((p) => p.number), [42]);
+    assert.deepEqual(cycle2Done.cycles.prior[0].prs.map((p) => p.number), [41]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

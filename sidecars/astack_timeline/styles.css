@@ -2974,6 +2974,112 @@ h4.md-heading { font-size: 13px; }
   animation: pulse 1.2s ease-in-out infinite;
 }
 
+.prior-cycles-wrap {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--tl-line);
+}
+
+.prior-cycles-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--tl-line);
+  border-radius: 6px;
+  background: var(--tl-fill);
+  color: var(--tl-fg-muted);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.prior-cycles-toggle:hover {
+  background: var(--tl-hover);
+  color: var(--tl-fg);
+}
+
+.prior-cycles-toggle[aria-expanded="true"] .chev {
+  transform: rotate(90deg);
+}
+
+.prior-cycles-check {
+  color: var(--tl-done);
+}
+
+.prior-cycles-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prior-cycle-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--tl-line);
+  background: var(--tl-card);
+}
+
+.prior-cycle-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.prior-cycle-num {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--tl-fg);
+}
+
+.prior-cycle-outcome {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--tl-line);
+  background: var(--tl-fill);
+  color: var(--tl-fg-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.prior-cycle-outcome.shipped {
+  border-color: color-mix(in srgb, var(--tl-done) 35%, transparent);
+  background: color-mix(in srgb, var(--tl-done) 12%, transparent);
+  color: var(--tl-done);
+}
+
+.prior-cycle-meta {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--tl-fg-faint);
+}
+
+.prior-cycle-prs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.prior-cycle-pr {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--tl-fg-muted);
+}
+
 @media (hover: none) {
   .row-ask-btn { opacity: 1; }
 }

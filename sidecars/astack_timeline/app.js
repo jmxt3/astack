@@ -39,6 +39,8 @@
     panelMode: "build",
     panelModeUserToggled: false,
     lastConversationId: "",
+    lastCycleNumber: 1,
+    priorCyclesExpanded: false,
     reviewPrExpandedIntent: null,
     reviewPrMoreOpen: false,
     expanded: new Set(),
@@ -2730,6 +2732,93 @@
     }
   }
 
+  function renderPriorCycles(snap) {
+    const wrap = document.getElementById("prior-cycles-wrap");
+    if (!wrap) return;
+    const prior = Array.isArray(snap?.cycles?.prior) ? snap.cycles.prior : [];
+    if (state.panelMode === "review_pr" || prior.length === 0) {
+      wrap.replaceChildren();
+      wrap.classList.add("hidden");
+      return;
+    }
+    wrap.classList.remove("hidden");
+
+    const latestPrior = prior[prior.length - 1];
+    const latestPrs = Array.isArray(latestPrior?.prs) ? latestPrior.prs : [];
+    const mergedPr = latestPrs.find((p) => p.state === "merged") || latestPrs[0] || null;
+    const summaryTail = mergedPr
+      ? `PR #${mergedPr.number} ${mergedPr.state || "open"}`
+      : latestPrior?.outcome || "completed";
+    const toggleLabel = prior.length === 1
+      ? `1 earlier cycle · ${summaryTail}`
+      : `${prior.length} earlier cycles · latest ${summaryTail}`;
+
+    const toggle = el("button", "prior-cycles-toggle");
+    toggle.type = "button";
+    toggle.dataset.testid = "prior-cycles-toggle";
+    toggle.setAttribute("aria-expanded", String(state.priorCyclesExpanded));
+    if (latestPrior?.shipped) {
+      const ic = svgIcon("check-sm", 11);
+      ic.classList.add("prior-cycles-check");
+      toggle.appendChild(ic);
+    }
+    toggle.appendChild(el("span", "prior-cycles-toggle-label", toggleLabel));
+    const chev = svgIcon("chevron", 12);
+    chev.classList.add("chev");
+    toggle.appendChild(chev);
+    toggle.addEventListener("click", () => {
+      state.priorCyclesExpanded = !state.priorCyclesExpanded;
+      renderPriorCycles(state.snap);
+    });
+
+    const nodes = [toggle];
+    if (state.priorCyclesExpanded) {
+      const ul = el("ul", "prior-cycles-list");
+      ul.dataset.testid = "prior-cycles-list";
+      for (const cyc of [...prior].reverse()) {
+        const li = el("li", "prior-cycle-row");
+        const head = el("div", "prior-cycle-head");
+        head.appendChild(el("span", "prior-cycle-num", `Cycle ${cyc.cycleNumber}`));
+        head.appendChild(el("span", `prior-cycle-outcome ${cyc.outcome || "built"}`, cyc.outcome || "completed"));
+        const metaParts = [];
+        if (cyc.agentsCount > 0) metaParts.push(`${cyc.agentsCount} ${cyc.agentsCount === 1 ? "agent" : "agents"}`);
+        if (cyc.tasksCount > 0) metaParts.push(`${cyc.tasksCount} ${cyc.tasksCount === 1 ? "task" : "tasks"}`);
+        if (metaParts.length > 0) {
+          head.appendChild(el("span", "prior-cycle-meta", metaParts.join(" · ")));
+        }
+        li.appendChild(head);
+
+        const prs = Array.isArray(cyc.prs) ? cyc.prs : [];
+        if (prs.length > 0) {
+          const prRow = el("div", "prior-cycle-prs");
+          for (const p of prs) {
+            const st = p.state || "open";
+            if (p.url) {
+              const link = el("a", "pr-link prior-cycle-pr");
+              link.href = p.url;
+              link.target = "_blank";
+              link.rel = "noopener noreferrer";
+              link.appendChild(svgIcon(st === "merged" ? "pr-merged" : "pr", 11));
+              link.appendChild(el("span", "pr-num", `#${p.number}`));
+              link.appendChild(el("span", `pr-badge ${st}`, st));
+              prRow.appendChild(link);
+            } else {
+              const tag = el("span", "prior-cycle-pr");
+              tag.appendChild(svgIcon(st === "merged" ? "pr-merged" : "pr", 11));
+              tag.appendChild(el("span", "pr-num", `#${p.number}`));
+              tag.appendChild(el("span", `pr-badge ${st}`, st));
+              prRow.appendChild(tag);
+            }
+          }
+          li.appendChild(prRow);
+        }
+        ul.appendChild(li);
+      }
+      nodes.push(ul);
+    }
+    wrap.replaceChildren(...nodes);
+  }
+
   function renderFooter(snap) {
     const footer = document.getElementById("panel-footer");
     if (!footer) return;
@@ -3830,6 +3919,8 @@
     const convKey = snap?.conversationId || "";
     if (convKey !== state.lastConversationId) {
       state.lastConversationId = convKey;
+      state.lastCycleNumber = snap?.cycles?.currentNumber || 1;
+      state.priorCyclesExpanded = false;
       state.panelModeUserToggled = false;
       state.reviewPrExpandedIntent = null;
       state.reviewPrMoreOpen = false;
@@ -4076,13 +4167,16 @@
         progressEl.className = "progress is-mode";
         state.progressPopover = { title: modeInfo.title, statusText: modeInfo.status, mode: "", desc: modeInfo.desc };
       } else {
-        progressEl.textContent = `${snap.doneCount} / ${snap.totalCount}`;
+        const cycleNum = snap.cycles?.currentNumber || 1;
+        progressEl.textContent = cycleNum > 1 ? `Cycle ${cycleNum} · ${snap.doneCount} / ${snap.totalCount}` : `${snap.doneCount} / ${snap.totalCount}`;
         progressEl.className = "progress";
         state.progressPopover = {
-          title: "Advisory Workflow Guide",
+          title: cycleNum > 1 ? `Cycle ${cycleNum} Workflow` : "Advisory Workflow Guide",
           statusText: `${snap.doneCount} / ${snap.totalCount}`,
           mode: "",
-          desc: "Stages are advisory guidelines, not mandatory gates. Enter at any stage or skip steps already completed.",
+          desc: cycleNum > 1
+            ? "Stages reset for this new plan while earlier completed cycles remain collapsed below."
+            : "Stages are advisory guidelines, not mandatory gates. Enter at any stage or skip steps already completed.",
         };
       }
       progressEl.tabIndex = 0;
@@ -4392,6 +4486,12 @@
     renderTotalsStrip(snap);
     renderStatusBanner(snap, isNonRepo);
 
+    const cycleNum = snap.cycles?.currentNumber || 1;
+    if (cycleNum > state.lastCycleNumber) {
+      state.userToggled = false;
+    }
+    state.lastCycleNumber = cycleNum;
+
     if (!state.userToggled) {
       state.expanded.clear();
       const focus =
@@ -4510,6 +4610,7 @@
       updateRail(snap);
     }
 
+    renderPriorCycles(snap);
     renderFooter(snap);
     if (state.view === "trust") {
       renderTrustView(snap);
