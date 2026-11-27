@@ -487,7 +487,7 @@ test("createTimelineServer reports nextAction.inProgress when /plan is active be
     const snap = await res.json();
     assert.equal(snap.doneCount, 0);
     assert.equal(snap.stages[0].status, "active");
-    assert.equal(snap.stages[0].commands[0].state, "active");
+    assert.equal(snap.stages[0].commands.find((c) => c.command === "/plan")?.state, "active");
     assert.equal(snap.stages[1].status, "pending");
     assert.equal(snap.nextAction.stageId, "plan");
     assert.equal(snap.nextAction.inProgress, true);
@@ -1969,6 +1969,64 @@ test("createTimelineServer negatively caches null and failing prStatusFetcher re
     assert.equal(throwCalls, 1, "Failed PR lookup must be negatively cached inside TTL");
   } finally {
     await errSrv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("createTimelineServer serves diagnosis.md via /api/artifact and renders 1. Investigate & Plan labels", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-diag-"));
+  const brainDir = path.join(root, "brain");
+  const workspaceDir = path.join(root, "repo");
+  const convId = "77777777-8888-4999-aaaa-bbbbbbbbbbbb";
+
+  writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+  writeText(path.join(brainDir, convId, "diagnosis.md"), "# Diagnosis\nRoot cause verified.\n");
+  writeText(
+    path.join(brainDir, convId, ".system_generated", "logs", "transcript.jsonl"),
+    [
+      JSON.stringify({
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T12:00:00Z",
+        content: "<USER_REQUEST>/investigate why CI failed</USER_REQUEST>",
+      }),
+      JSON.stringify({
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-20T12:00:10Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convId, "diagnosis.md") } }],
+      }),
+    ].join("\n") + "\n",
+  );
+
+  const srv = await createTimelineServer({ brainDir, workspaceDir, port: 0 });
+  try {
+    const [tlRes, artRes, appRes] = await Promise.all([
+      fetch(`${srv.url}api/timeline?conversationId=${convId}`),
+      fetch(`${srv.url}api/artifact?conversationId=${convId}&name=diagnosis.md`),
+      fetch(`${srv.url}app.js`),
+    ]);
+    assert.equal(tlRes.status, 200);
+    assert.equal(artRes.status, 200);
+    assert.equal(appRes.status, 200);
+
+    const snap = await tlRes.json();
+    assert.equal(snap.stages[0].label, "Investigate & Plan");
+    assert.equal(snap.stages[0].status, "waiting_gate");
+    assert.equal(snap.stages[0].waitingArtifact, "diagnosis");
+    assert.equal(snap.workflowMode, "investigation");
+    assert.equal(snap.workflowLabel, "Investigation");
+
+    const artJson = await artRes.json();
+    assert.equal(artJson.kind, "markdown");
+    assert.match(artJson.content, /Root cause verified/);
+
+    const appJs = await appRes.text();
+    assert.match(appJs, /Open Diagnosis/);
+    assert.match(appJs, /plan-readonly-pill/);
+  } finally {
+    await srv.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

@@ -13,7 +13,7 @@ Bundled AStack skills live at `../<name>/SKILL.md` relative to this file. Pass t
 At the start of any build, feature, bug-fix, or refactor run, display this flight rail with stage statuses (`running`, `done`, `skip: <reason>`, `waiting`) and advance automatically in order until the next `[HUMAN GATE]` (governed by `.agents/risk-policy.json` `humanGates`, defaulting to `planApproval: "nontrivial"` and `prReview: "always"`):
 
 ```text
-1. [AUTO]       Understand & Align       (/how, /why, base REVIEW.md, GLOSSARY.md)
+1. [AUTO]       Understand & Align       (/investigate, /how, /why, diagnosis.md, base REVIEW.md, GLOSSARY.md)
 2. [HUMAN GATE] Implementation Plan      (implementation_plan.md + Proceed; skipped on trivial fixes or /goal)
 3. [AUTO]       Build & Guard            (astack-agent / /swarm / /tdd, anti-rationalization, receipt hooks)
 4. [AUTO]       Clean & Harden           (/deslop, /no-comments via comment-sicko, re-verify tests)
@@ -31,6 +31,7 @@ Remaining triggers:
 
 - Your first message on a task -> tell the user, in your own words, their goal, the problem they are solving, and, if the task ships a change, the smallest change you expect to meet it. Do not wait for confirmation. If evidence rules out the asked change, show the evidence and stop. Restate the user's goal in each subagent or swarm brief, open each PR `## Why` with it, and open each final report with it (except a fully specified one-line edit).
 - Nontrivial change, architecture decision, or "are we sure?" -> read and run [`how`](../how/SKILL.md).
+- Unknown root cause, regression investigation, or `"find why X failed"` -> read and run [`investigate`](../investigate/SKILL.md) read-only before editing production files, stopping at `diagnosis.md` (investigate-only or uncertain/external cause) or the Combined Gate in `implementation_plan.md` (proven cause on mixed fix requests).
 - About to call `ask_question` on a "which approach", "how should I", or "what should this do" fork -> classify it first. If the answer can be observed by running code or checking behavior, timing, layout, or perf, it is not the human's to guess: sketch it via `playbooks/prototype.md` and let the empirical result decide. If the task is a read-only Investigation whose deliverable is a cited answer, answer from evidence without prototyping. Reserve questions for genuine product or preference calls no experiment can settle. Under full-autonomy mode, pick a sound default, act, report the choice and why, and note in plain words how to override it.
 - Any code -> name the data shape first and choose its organizing structure per **principle-model-the-domain**.
 - Code crossing a function boundary -> run [`architect`](../architect/SKILL.md) (parallel design exploration) before implementing.
@@ -152,8 +153,8 @@ An explicit slash command in the prompt wins over any inferred match. Stacked co
 
 Create a structured checklist whose first items mirror the matched playbook's steps verbatim (keep any skipped step visible as `skip: <reason>`). Open `playbooks/<title>.md` (kebab-case) and follow every step. Route large bespoke migrations to [`figure-it-out`](../figure-it-out/SKILL.md) and multi-day coordinator programs to `playbooks/orchestrate.md` (with native `/swarm`). Short follow-ups stay sticky on the active playbook until `"new task"` resets classification or an explicit slash command takes over. Prefer prompts shaped as goal plus empirical check over fixed skill chains.
 
-- **Investigation** (`playbooks/investigation.md`). Read-only architecture, provenance, or feasibility question.
-- **Bug fix** (`playbooks/bug-fix.md`). Reproduce first on the real surface, isolate root cause, fix, verify.
+- **Investigation** (`playbooks/investigation.md`). Read-only architecture, provenance, feasibility, or `/investigate` root-cause diagnosis (`diagnosis.md`).
+- **Bug fix** (`playbooks/bug-fix.md`). Reproduce and isolate read-only first, gate unknown causes at `implementation_plan.md` (Combined Gate) or `diagnosis.md`, then fix and verify.
 - **Perf issue** (`playbooks/perf-issue.md`). Measured latency/CPU/memory slowness fixed against an interleaved baseline (pairs cleanly with `/boost`).
 - **Hillclimb** (`playbooks/hillclimb.md`). Scientific iterative optimization with before/after measurements and TSV decision log.
 - **Runtime forensics** (`playbooks/runtime-forensics.md`). Live instrumentation diagnosis of leaks, spins, or UI glitches (deliverable: diagnosis).

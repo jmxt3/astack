@@ -31,6 +31,21 @@ export function classifySecurityMode(prompt) {
   return null;
 }
 
+export function classifyInvestigationMode(prompt) {
+  const text = prompt.trim();
+  const lower = text.toLowerCase();
+  if (/^\/investigate\b/i.test(text)) {
+    return /\b(?:and\s+fix|then\s+fix|fix\s+it|patch\s+it)\b/i.test(lower) ? "combined_gate" : "investigate_only";
+  }
+  const hasInvestigateCue = /\b(?:investigate|root cause|diagnose|why did .* fail|find out why|what broke)\b/i.test(lower);
+  if (!hasInvestigateCue) return null;
+  if (/\b(?:don'?t stop|run until done|\/goal)\b/i.test(lower)) return null;
+  if (/\b(?:and\s+fix|then\s+fix|then\s+plan(?:\s+the)?\s+fix|and\s+plan(?:\s+the)?\s+fix|fix\s+it|fix\s+the\s+bug|mitigate|patch\s+it)\b/i.test(lower)) {
+    return "combined_gate";
+  }
+  return "investigate_only";
+}
+
 export function classifyRoutingIntent(prompt, registry) {
   const text = prompt.trim();
   const explicit = text.match(/^\/(swarm|run-workflow|schedule|browser|automation|plugin|agy-customizations|generative_ui|antigravity-guide|plan|grill-me|learn|goal|boost|teamwork|btw)\b/i);
@@ -41,44 +56,46 @@ export function classifyRoutingIntent(prompt, registry) {
       command: cmd,
       mode: entry?.mode ?? "run",
       securityMode: classifySecurityMode(text),
+      investigationMode: classifyInvestigationMode(text),
     };
   }
 
   const lower = text.toLowerCase();
   const securityMode = classifySecurityMode(text);
+  const investigationMode = classifyInvestigationMode(text);
 
   if (/\b(interview me|grill me|ask me one question at a time|clarify requirements first)\b/.test(lower)) {
-    return { command: "/grill-me", mode: "contract", securityMode };
+    return { command: "/grill-me", mode: "contract", securityMode, investigationMode };
   }
   if (/\b(remember to|remember this rule|save this preference|turn this correction into a rule)\b/.test(lower)) {
-    return { command: "/learn", mode: "contract", securityMode };
+    return { command: "/learn", mode: "contract", securityMode, investigationMode };
   }
   if (/\b(every monday|every morning|automations tab|persistent background automation)\b/.test(lower)) {
-    return { command: "/automation", mode: "load", securityMode };
+    return { command: "/automation", mode: "load", securityMode, investigationMode };
   }
   if (/\b(in \d+ minutes|one-time timer|poll every|recurring check in this chat)\b/.test(lower)) {
-    return { command: "/schedule", mode: "run", securityMode };
+    return { command: "/schedule", mode: "run", securityMode, investigationMode };
   }
   if (/\b(keep going overnight|don't stop|overnight|run until done|fully autonomous)\b/.test(lower)) {
-    return { command: "/goal", mode: "recommend", securityMode };
+    return { command: "/goal", mode: "recommend", securityMode, investigationMode };
   }
   if (/\b(localhost:\d+|open in browser|check localhost|take ui screenshot|test live web page|renders at)\b/.test(lower)) {
-    return { command: "/browser", mode: "run", securityMode };
+    return { command: "/browser", mode: "run", securityMode, investigationMode };
   }
   if (/\b(pretooluse|posttooluse|hook|create a hook|configure mcp server|rule frontmatter)\b/.test(lower)) {
-    return { command: "/agy-customizations", mode: "load", securityMode };
+    return { command: "/agy-customizations", mode: "load", securityMode, investigationMode };
   }
   if (/\b(cli headless|antigravity cli flags|how do i use antigravity|antigravity official docs)\b/.test(lower)) {
-    return { command: "/antigravity-guide", mode: "load", securityMode };
+    return { command: "/antigravity-guide", mode: "load", securityMode, investigationMode };
   }
   if (/\b(every changed file|for each file|same task across many files|staged multi-agent pipeline)\b/.test(lower)) {
-    return { command: "/run-workflow", mode: "run", securityMode };
+    return { command: "/run-workflow", mode: "run", securityMode, investigationMode };
   }
   if (!PLAN_NOUN_CONTEXT.test(text) && /\b(plan the|write a plan|plan first|plan this|plan a \d|then plan|review before editing)\b/.test(lower)) {
-    return { command: "/plan", mode: "contract", securityMode };
+    return { command: "/plan", mode: "contract", securityMode, investigationMode };
   }
 
-  return { command: null, mode: "playbook", securityMode };
+  return { command: null, mode: "playbook", securityMode, investigationMode };
 }
 
 export function runEvalSuite({ rootDir = DEFAULT_ROOT_DIR } = {}) {
@@ -91,14 +108,21 @@ export function runEvalSuite({ rootDir = DEFAULT_ROOT_DIR } = {}) {
 
   for (const tc of fixtures.routingCases) {
     const actual = classifyRoutingIntent(tc.prompt, registry);
+    const expectedInvestigationMode = tc.expectedInvestigationMode ?? null;
     const pass =
       actual.command === tc.expectedCommand &&
       actual.mode === tc.expectedMode &&
-      actual.securityMode === tc.expectedSecurityMode;
+      actual.securityMode === tc.expectedSecurityMode &&
+      actual.investigationMode === expectedInvestigationMode;
     results.push({
       id: `routing:${tc.id}`,
       pass,
-      expected: { command: tc.expectedCommand, mode: tc.expectedMode, securityMode: tc.expectedSecurityMode },
+      expected: {
+        command: tc.expectedCommand,
+        mode: tc.expectedMode,
+        securityMode: tc.expectedSecurityMode,
+        investigationMode: expectedInvestigationMode,
+      },
       actual,
     });
   }

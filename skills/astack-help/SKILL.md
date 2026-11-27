@@ -58,6 +58,7 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 |---|---|
 | End-to-end engineering playbook & principles | [`/astack-mode`](../astack-mode/SKILL.md) |
 | Restate goal clearly before work | [`/in-your-own-words`](../in-your-own-words/SKILL.md) |
+| Diagnose root cause read-only before planning | [`/investigate`](../investigate/SKILL.md) |
 | Rewrite a prompt deeper before running | [`/sharpen`](../sharpen/SKILL.md) |
 | Trace how code works now | [`/how`](../how/SKILL.md) |
 | Trace why code or a number exists | [`/why`](../why/SKILL.md) |

@@ -1504,7 +1504,7 @@ export function evaluateStageContext(event, options = {}) {
         ? "3. Pre-PR Check (ready)"
         : changedFiles.length > 0
           ? "2. Build & Verify"
-          : "1. Plan & Intent";
+          : "1. Investigate & Plan";
 
     const riskAssessment = resolveEvidenceOrSessionAssessment({
       action: verifiedPass && fresh ? "merge" : "open_pr",
