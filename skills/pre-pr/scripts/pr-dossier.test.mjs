@@ -7,7 +7,9 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   applyTrustSettingsAction,
+  buildDossierViewModel,
   compilePrDossier,
+  recordIntentCard,
   recordReceipt,
   recordOutcomeWithTrustSync,
   recordVerifierReceipt,
@@ -745,6 +747,141 @@ test("validateProofManifest enforces schema and compilePrDossier GitHub format c
     assert.equal(badParsed.ok, false);
     assert.ok(badParsed.violations.some((v) => /file:\/\/\//.test(v)));
     assert.ok(badParsed.violations.some((v) => /stateDiagram-v2/.test(v)));
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(artifactDir, { recursive: true, force: true });
+  }
+});
+
+test("compilePrDossier populates intent and fileStats, and buildDossierViewModel covers all four decision modes", () => {
+  const repo = makeRepo();
+  const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "astack-vm-art-"));
+  const trustDir = path.join(artifactDir, "astack-trust");
+  try {
+    execFileSync("git", ["checkout", "-b", "feat/vm-check"], { cwd: repo, stdio: "ignore" });
+    fs.mkdirSync(path.join(repo, "scripts", "trust", "internal"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "scripts", "trust", "internal", "risk.mjs"), "export const x = 1;\n", "utf8");
+    fs.writeFileSync(path.join(repo, "README.md"), "# Updated\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "gov edit"], { cwd: repo, stdio: "ignore" });
+    const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    const baseSha = execFileSync("git", ["rev-parse", "main"], { cwd: repo, encoding: "utf8" }).trim();
+
+    recordIntentCard({
+      trustDir,
+      conversationId: "conv-1",
+      headSha,
+      card: {
+        goal: "Tighten risk scoring in trust core",
+        affectedGlobs: ["scripts/trust/**", "README.md"],
+        rollbackPlan: `git revert ${headSha.slice(0, 7)}`,
+        predictedRisk: "high",
+      },
+    });
+    recordReceipt(
+      { kind: "tool-command", conversationId: "conv-1", command: "node --test", error: "", workspaceDir: repo },
+      { trustDir, headSha },
+    );
+
+    const escalateFindings = {
+      schemaVersion: 1,
+      headSha,
+      baseSha,
+      round: 1,
+      verdict: "ESCALATE_HUMAN",
+      summary: "All changed files verified clean on HEAD; governance changes require human sign-off.",
+      findings: [],
+      dropped: [{ claim: "Check risk threshold", reason: "Confirmed safe against policy" }],
+      reviewMdCompliance: { checked: true, violations: [] },
+    };
+    const findingsPath = path.join(trustDir, "findings.json");
+    fs.writeFileSync(findingsPath, JSON.stringify(escalateFindings), "utf8");
+
+    const compiled = compilePrDossier({ cwd: repo, baseRef: "main", artifactDir, findingsPath });
+    assert.equal(compiled.evidence.intent.goal, "Tighten risk scoring in trust core");
+    assert.equal(compiled.evidence.intent.inScope, true);
+    assert.equal(compiled.evidence.assertionDelta.maxAllowedRatio, 0.25);
+    const coreCluster = compiled.evidence.clusters.find((c) => c.id === "core-domain");
+    assert.equal(coreCluster.fileStats["scripts/trust/internal/risk.mjs"].additions, 1);
+
+    const policyVm = buildDossierViewModel({
+      evidence: {
+        ...compiled.evidence,
+        assertionDelta: { added: 66, removed: 10, weakeningRatio: 0.132, maxAllowedRatio: 0.25, flagged: false, flaggedFiles: [] },
+      },
+      findingsDoc: compiled.findingsDoc,
+      prReviewUri: "file:///tmp/pr-review.md#L1",
+    });
+    assert.equal(policyVm.decision.mode, "policy_gate");
+    assert.equal(policyVm.decision.tone, "warn");
+    assert.equal(policyVm.assertionSummary.net, 56);
+    assert.equal(policyVm.assertionSummary.flagged, false);
+    assert.equal(policyVm.guardrails.find((g) => g.id === "test_integrity").tone, "ok");
+    assert.equal(policyVm.reading.reviewFirst[0].path, "scripts/trust/internal/risk.mjs");
+    assert.equal(policyVm.verifier.dropped.length, 1);
+    assert.equal(policyVm.actions.canOpenPrReview, true);
+    assert.match(policyVm.trustSummary?.line ?? "", /Agent Trust: governance/);
+
+    const defectVm = buildDossierViewModel({
+      evidence: {
+        ...compiled.evidence,
+        assertionDelta: {
+          added: 1,
+          removed: 10,
+          weakeningRatio: 0.909,
+          maxAllowedRatio: 0.25,
+          flagged: true,
+          flaggedFiles: ["tests/app.test.js"],
+        },
+      },
+      findingsDoc: {
+        ...escalateFindings,
+        verdict: "FAIL",
+        findings: [
+          {
+            id: "F-1",
+            severity: "important",
+            category: "test_weakening",
+            file: "tests/app.test.js",
+            line: 2,
+            claim: "Deleted assertions",
+            evidence: "10 assertions removed",
+            suggestedFix: "Restore assertions",
+          },
+        ],
+      },
+    });
+    assert.equal(defectVm.decision.mode, "defect_blocked");
+    assert.equal(defectVm.decision.tone, "err");
+    assert.equal(defectVm.actions.canFixImportant, true);
+
+    const staleVm = buildDossierViewModel({
+      evidence: {
+        ...compiled.evidence,
+        verifier: { ...compiled.evidence.verifier, stale: true, headSha: "0000000" },
+      },
+      findingsDoc: { ...escalateFindings, verdict: "PASS" },
+    });
+    assert.equal(staleVm.decision.mode, "stale_evidence");
+    assert.equal(staleVm.actions.needsRerun, true);
+
+    const cleanVm = buildDossierViewModel({
+      evidence: {
+        ...compiled.evidence,
+        riskTier: 0,
+        riskLabel: "low",
+        matchedRiskRules: [],
+        intent: null,
+        autoMergeEligible: true,
+        riskAssessment: { inherentScore: 0.05, score: 0.02, residual: "low", signals: [], rollback: { kind: "revert", plan: "git revert abc" } },
+      },
+      findingsDoc: { ...escalateFindings, verdict: "PASS" },
+    });
+    assert.equal(cleanVm.decision.mode, "ready_to_ship");
+    assert.equal(cleanVm.decision.tone, "ok");
+    assert.equal(cleanVm.intentStrip.declared, false);
+    assert.equal(cleanVm.guardrails.find((g) => g.id === "intent_scope").tone, "neutral");
+    assert.equal(cleanVm.guardrails.find((g) => g.id === "intent_scope").detail, "No Intent Card declared");
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });
