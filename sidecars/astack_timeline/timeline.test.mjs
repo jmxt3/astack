@@ -3636,3 +3636,161 @@ test("provides deterministic next-step instructions, dynamic command prompts, an
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("enriches parallel self subagents with distinct roles, child live activity, unquoted tasks, and per-child durations", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-parallel-self-");
+  const convId = "conv-parallel-self";
+  const c1 = "aaaaaaaa-1111-4111-8111-111111111111";
+  const c2 = "bbbbbbbb-2222-4222-8222-222222222222";
+  const c3 = "cccccccc-3333-4333-8333-333333333333";
+  const sharedTruncatedPrompt =
+    '"You are an adversarial code reviewer running `/interrogate` inside an isolated `branch` workspace.\\n\\n## Setup\\n1. Read docs before `/pre-pr` runs.\n<truncated 1814 bytes>';
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeTranscript(brainDir, c1, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T17:59:41Z",
+        tool_calls: [{ name: "update_focus", args: { focus: "Analyzing timeline-engine state machine logic" } }],
+      },
+    ]);
+    writeTranscript(brainDir, c2, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T17:59:59Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: "node adv2_browser.mjs", toolSummary: "Running adv2_browser.mjs Chrome CDP check" } }],
+      },
+    ]);
+    writeTranscript(brainDir, c3, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T18:00:00Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: "node adv3_repros.mjs", toolSummary: "Running adversarial repro script" } }],
+      },
+    ]);
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T17:57:00Z",
+        content: "<USER_REQUEST>/interrogate check changes</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T17:58:07Z",
+        tool_calls: [
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "Timeline State Machine Adversary", Workspace: "branch", Prompt: sharedTruncatedPrompt } },
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "Timeline Frontend UI Adversary", Workspace: "branch", Prompt: sharedTruncatedPrompt } },
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "Contract & Regression Adversary", Workspace: "branch", Prompt: sharedTruncatedPrompt } },
+        ],
+      },
+      { step_index: 2, type: "GENERIC", status: "DONE", created_at: "2026-11-27T17:58:20Z", content: `{"conversationId":"${c1}"}` },
+      { step_index: 3, type: "GENERIC", status: "DONE", created_at: "2026-11-27T17:58:24Z", content: `{"conversationId":"${c2}"}` },
+      { step_index: 4, type: "GENERIC", status: "DONE", created_at: "2026-11-27T17:58:27Z", content: `{"conversationId":"${c3}"}` },
+    ]);
+
+    const runningSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    const runAgents = runningSnap.activity.subagents;
+    assert.equal(runAgents.length, 3);
+    assert.deepEqual(runAgents.map((a) => a.role), [
+      "Timeline State Machine Adversary",
+      "Timeline Frontend UI Adversary",
+      "Contract & Regression Adversary",
+    ]);
+    assert.deepEqual(runAgents.map((a) => a.workspace), ["branch", "branch", "branch"]);
+    assert.deepEqual(runAgents.map((a) => a.startedAt), [
+      "2026-11-27T17:59:41Z",
+      "2026-11-27T17:59:59Z",
+      "2026-11-27T18:00:00Z",
+    ]);
+    assert.deepEqual(runAgents.map((a) => a.task), [
+      "Analyzing timeline-engine state machine logic",
+      "Running adv2_browser.mjs Chrome CDP check",
+      "Running adversarial repro script",
+    ]);
+    for (const a of runAgents) {
+      assert.equal(a.task.startsWith('"'), false, "Task must not retain leading JSON quote");
+      assert.equal(a.stageId, "review");
+      assert.equal(a.status, "running");
+    }
+
+    writeTranscript(brainDir, c1, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T17:59:41Z", tool_calls: [{ name: "update_focus", args: { focus: "Analyzing" } }] },
+      { step_index: 1, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T18:09:37Z", content: "Sent the structured `/interrogate` adversarial review report (8 verified findings)." },
+    ]);
+    writeTranscript(brainDir, c2, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T17:59:59Z", tool_calls: [{ name: "run_command", args: { toolSummary: "Run CDP" } }] },
+      { step_index: 1, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T18:10:10Z", content: "Completed UI & CDP verification repros." },
+    ]);
+    writeTranscript(brainDir, c3, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T18:00:00Z", tool_calls: [{ name: "run_command", args: { toolSummary: "Run repro" } }] },
+      { step_index: 1, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T18:08:42Z", content: "Completed contract & regression repros." },
+    ]);
+    const c4 = "dddddddd-4444-4444-8444-444444444444";
+    writeTranscript(brainDir, c4, [
+      { step_index: 0, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T18:10:15Z", tool_calls: [{ name: "run_command", args: { toolSummary: "Run pr-verifier tests" } }] },
+      { step_index: 1, type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-27T18:11:10Z", content: JSON.stringify({ schemaVersion: 1, verdict: "PASS" }) },
+    ]);
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T17:57:00Z",
+        content: "<USER_REQUEST>/interrogate check changes</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T17:58:07Z",
+        tool_calls: [
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "Timeline State Machine Adversary", Workspace: "branch", Prompt: sharedTruncatedPrompt } },
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "Timeline Frontend UI Adversary", Workspace: "branch", Prompt: sharedTruncatedPrompt } },
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "Contract & Regression Adversary", Workspace: "branch", Prompt: sharedTruncatedPrompt } },
+        ],
+      },
+      { step_index: 2, type: "GENERIC", status: "DONE", created_at: "2026-11-27T17:58:20Z", content: `{"conversationId":"${c1}"}` },
+      { step_index: 3, type: "GENERIC", status: "DONE", created_at: "2026-11-27T17:58:24Z", content: `{"conversationId":"${c2}"}` },
+      { step_index: 4, type: "GENERIC", status: "DONE", created_at: "2026-11-27T17:58:27Z", content: `{"conversationId":"${c3}"}` },
+      { step_index: 5, type: "SYSTEM_MESSAGE", status: "DONE", created_at: "2026-11-27T18:11:29Z", content: "All your subagents and background tasks have been stopped." },
+      {
+        step_index: 6,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T18:10:12Z",
+        tool_calls: [
+          { name: "invoke_subagent", args: { TypeName: "pr-verifier", Role: "Pre-PR Verifier", Workspace: "branch", Prompt: "Verify HEAD" } },
+        ],
+      },
+      { step_index: 7, type: "GENERIC", status: "DONE", created_at: "2026-11-27T18:10:13Z", content: `{"conversationId":"${c4}"}` },
+    ]);
+
+    const doneSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    const doneAgents = doneSnap.activity.subagents;
+    assert.deepEqual(doneAgents.map((a) => a.completedAt), [
+      "2026-11-27T18:09:37Z",
+      "2026-11-27T18:10:10Z",
+      "2026-11-27T18:08:42Z",
+      "2026-11-27T18:11:10Z",
+    ]);
+    assert.deepEqual(doneAgents.map((a) => a.task), [
+      "Sent the structured /interrogate adversarial review report (8 verified findings).",
+      "Completed UI & CDP verification repros.",
+      "Completed contract & regression repros.",
+      "Run pr-verifier tests",
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
