@@ -2574,3 +2574,20 @@ test("app.js Option B renders stage-scoped subagent roles without top duplicate 
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("styles.css scopes 44px touch targets to coarse pointers and defines progressive narrow-pane breakpoints", () => {
+  const cssText = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "styles.css"), "utf8");
+  assert.doesNotMatch(
+    cssText,
+    /@media\s*\(max-width:[^)]+\)\s*\{[^@]*min-height:\s*44px/,
+    "Width-based media queries must not inflate desktop side-pane controls to 44px",
+  );
+  assert.match(
+    cssText,
+    /@media\s*\(hover:\s*none\)\s*and\s*\(pointer:\s*coarse\)\s*\{[\s\S]*min-height:\s*44px/,
+    "Touch-target 44px sizing must be scoped to pure touch devices",
+  );
+  assert.match(cssText, /@media\s*\(max-width:\s*440px\)\s*\{[\s\S]*\.header-row\s*\{[\s\S]*display:\s*grid/);
+  assert.match(cssText, /@media\s*\(max-width:\s*360px\)\s*\{[\s\S]*\.meta-sep\s*\{\s*display:\s*none;\s*\}/);
+  assert.match(cssText, /@media\s*\(max-width:\s*280px\)\s*\{[\s\S]*#live-label\s*\{[\s\S]*\.living-rail\s*\{\s*left:\s*-6px;\s*\}/);
+});
