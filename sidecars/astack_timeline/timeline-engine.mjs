@@ -63,11 +63,11 @@ export const TIMELINE_STEPS = [
   {
     id: "plan",
     number: 1,
-    label: "Plan",
-    summary: "Optional written plan before editing code.",
+    label: "Investigate & Plan",
+    summary: "Investigate root cause or draft a plan before editing code.",
     gate: "GATE",
     primaryCommand: "/plan",
-    optionalCommands: ["/grill-me"],
+    optionalCommands: ["/investigate", "/grill-me"],
     pipelineStages: [STAGE_BY_ID.get("understand")?.id, STAGE_BY_ID.get("plan")?.id].filter(Boolean),
   },
   {
@@ -601,6 +601,7 @@ function classifySwarmRole(name, brief) {
 }
 
 const EXTRA_ARTIFACT_SKIP = new Set([
+  "diagnosis.md",
   "implementation_plan.md",
   "walkthrough.md",
   "pr-review.md",
@@ -718,7 +719,7 @@ function formatTrackedChangedFile(rawPath, workspaceDir) {
   return normalizePosix(rawPath);
 }
 
-function inferTaskStageId(text, { hasWorkspaceWrite = false } = {}) {
+function inferTaskStageId(text, { hasWorkspaceWrite = false, investigating = false } = {}) {
   const str = String(text ?? "");
   if (/\bwatch-pr\b|\bgh\s+pr\s+(?:create|merge|checks|view|edit|comment)\b|\bgit\s+push\b|\bbabysit\b/i.test(str)) {
     return "ship";
@@ -726,13 +727,17 @@ function inferTaskStageId(text, { hasWorkspaceWrite = false } = {}) {
   if (/\bpr-dossier\b|\bpre-pr\b|\bpr-verifier\b/i.test(str)) {
     return "review";
   }
-  if (!hasWorkspaceWrite && /\bplan\b|\bgrill-me\b/i.test(str)) {
+  if (
+    !hasWorkspaceWrite &&
+    (investigating ||
+      /\b(?:plan|grill-me|investigat|diagnos|root[- ]?cause|repro|gh\s+run|git\s+(?:log|blame|bisect)|forensic|trace|profile)\b/i.test(str))
+  ) {
     return "plan";
   }
   return "build";
 }
 
-function inferSubagentStageId(subType, roleText, promptText, hasWorkspaceWrite) {
+function inferSubagentStageId(subType, roleText, promptText, hasWorkspaceWrite, { investigating = false } = {}) {
   const combined = `${subType} ${roleText} ${promptText}`;
   if (subType === "pr-verifier" || /\bpr[- ]?verifier\b|\bpre[- ]?pr\b|\bpr[- ]?dossier\b/i.test(combined)) {
     return "review";
@@ -743,8 +748,15 @@ function inferSubagentStageId(subType, roleText, promptText, hasWorkspaceWrite) 
   ) {
     return "ship";
   }
-  if (subType === "research" && !hasWorkspaceWrite) {
-    return "plan";
+  if (!hasWorkspaceWrite) {
+    if (subType === "research") return "plan";
+    if (investigating && (subType === "self" || subType === "browser")) return "plan";
+    if (
+      subType === "self" &&
+      /\b(?:investigat|diagnos|root[- ]?cause|forensic|reproduc|triage|disproof|why|how|trace|log)\b/i.test(combined)
+    ) {
+      return "plan";
+    }
   }
   return "build";
 }
@@ -755,6 +767,11 @@ function makeEmptyTranscriptSignals() {
     childConvIds: new Set(),
     detected: new Set(),
     setupAt: null,
+    investigateCmdAt: null,
+    investigateReadAt: null,
+    diagnosisWrittenAt: null,
+    diagnosisApprovedAt: null,
+    diagnosisAckAt: null,
     grillMeAt: null,
     planCmdAt: null,
     planContractAt: null,
@@ -764,6 +781,7 @@ function makeEmptyTranscriptSignals() {
     approvalIntentAt: null,
     walkthroughWrittenAt: null,
     astackModeAt: null,
+    buildPlaybookAt: null,
     interrogateAt: null,
     cleanAt: null,
     verifyRunAt: null,
@@ -878,7 +896,10 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
       for (const cmd of cmds) {
         if (COMMAND_DOCS[cmd]) sig.detected.add(cmd);
         if (cmd === "/setup-astack") sig.setupAt = latestMarker(sig.setupAt, marker);
-        else if (cmd === "/grill-me") sig.grillMeAt = latestMarker(sig.grillMeAt, marker);
+        else if (cmd === "/investigate") sig.investigateCmdAt = latestMarker(sig.investigateCmdAt, marker);
+        else if (cmd === "/how" || cmd === "/why" || cmd === "/recall") {
+          sig.investigateReadAt = latestMarker(sig.investigateReadAt, marker);
+        } else if (cmd === "/grill-me") sig.grillMeAt = latestMarker(sig.grillMeAt, marker);
         else if (cmd === "/plan") sig.planCmdAt = latestMarker(sig.planCmdAt, marker);
         else if (cmd === "/astack-mode") sig.astackModeAt = latestMarker(sig.astackModeAt, marker);
         else if (cmd === "/interrogate") {
@@ -886,8 +907,12 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
           sig.colleagueReview.commands.add("/interrogate");
           matchedColleaguePrCmd = true;
         } else if (cmd === "/teach") {
-          sig.colleagueReview.commands.add("/teach");
-          matchedColleaguePrCmd = true;
+          if (/\b(?:pr|prs|pull|review)\b|#\d+|github\.com\/[^\s]+\/pull\/\d+/i.test(body)) {
+            sig.colleagueReview.commands.add("/teach");
+            matchedColleaguePrCmd = true;
+          } else {
+            sig.investigateReadAt = latestMarker(sig.investigateReadAt, marker);
+          }
         } else if (cmd === "/blast-radius") {
           sig.colleagueReview.commands.add("/blast-radius");
           matchedColleaguePrCmd = true;
@@ -974,9 +999,18 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
       if (/\bProceeded\s+with\b/i.test(body) || /^(?:approved|approve|proceed|do it|go ahead)\b/i.test(body)) {
         if (sig.planWrittenAt && isMarkerAfter(marker, sig.planWrittenAt)) {
           sig.planApprovedAt = latestMarker(sig.planApprovedAt, marker);
+        } else if (sig.diagnosisWrittenAt && isMarkerAfter(marker, sig.diagnosisWrittenAt)) {
+          sig.diagnosisApprovedAt = latestMarker(sig.diagnosisApprovedAt, marker);
         } else if (!sig.planWrittenAt) {
           sig.approvalIntentAt = latestMarker(sig.approvalIntentAt, marker);
         }
+      } else if (
+        sig.diagnosisWrittenAt &&
+        isMarkerAfter(marker, sig.diagnosisWrittenAt) &&
+        !/\b(?:fix|plan|implement|proceed|edit|change)\b/i.test(body) &&
+        /^(?:thanks|thank you|got it|makes sense|understood|no fix needed|close(?:d)?|that'?s all|all good|done)\b/i.test(body)
+      ) {
+        sig.diagnosisAckAt = latestMarker(sig.diagnosisAckAt, marker);
       }
       continue;
     }
@@ -1174,8 +1208,12 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
           const cmdText = toolMeta?.cmd || descLine || "";
           const candidateLog = /^task-\d+$/.test(taskSlug) ? `${taskSlug}.log` : null;
           const logFile = candidateLog && resolveSafeTaskLogPath(brainConvDir, candidateLog) ? candidateLog : null;
+          const investigating = Boolean(
+            (sig.investigateCmdAt || sig.investigateReadAt || sig.diagnosisWrittenAt) && !sig.latestWorkspaceWriteAt,
+          );
           const stageId = matchedSchedule?.stageId || inferTaskStageId(`${cmdText} ${title}`, {
             hasWorkspaceWrite: Boolean(sig.latestWorkspaceWriteAt),
+            investigating,
           });
           bgJobByTaskId.set(taskId, {
             id: `bg-${bgJobByTaskId.size}`,
@@ -1298,9 +1336,30 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
           else if (pbName === "babysit") sig.detected.add("/astack-mode babysit");
           else if (pbName === "release-and-postmortem") sig.detected.add("/astack-mode release-and-postmortem");
           else if (pbName === "worktree-cleanup") sig.detected.add("/astack-mode prune worktrees");
+          else if (
+            pbName === "investigation" ||
+            pbName === "runtime-forensics" ||
+            pbName === "trace-forensics" ||
+            pbName === "prototype" ||
+            pbName === "bug-fix"
+          ) {
+            sig.investigateReadAt = latestMarker(sig.investigateReadAt, marker);
+          } else if (
+            pbName === "feature" ||
+            pbName === "refactoring" ||
+            pbName === "perf-issue" ||
+            pbName === "hillclimb" ||
+            pbName === "visual-parity" ||
+            pbName === "safe-migration"
+          ) {
+            sig.buildPlaybookAt = latestMarker(sig.buildPlaybookAt, marker);
+          }
         }
         if (/\/skills\/setup-astack\/SKILL\.md$/i.test(p)) sig.setupAt = latestMarker(sig.setupAt, marker);
-        else if (/\/skills\/astack-mode\/references\/plan-contract\.md$/i.test(p)) sig.planContractAt = latestMarker(sig.planContractAt, marker);
+        else if (/\/skills\/investigate\/SKILL\.md$/i.test(p)) sig.investigateCmdAt = latestMarker(sig.investigateCmdAt, marker);
+        else if (/\/skills\/(?:how|why|teach|recall)\/SKILL\.md$/i.test(p)) {
+          sig.investigateReadAt = latestMarker(sig.investigateReadAt, marker);
+        } else if (/\/skills\/astack-mode\/references\/plan-contract\.md$/i.test(p)) sig.planContractAt = latestMarker(sig.planContractAt, marker);
         else if (/\/skills\/astack-mode\/SKILL\.md$/i.test(p)) sig.astackModeAt = latestMarker(sig.astackModeAt, marker);
         else if (/\/skills\/interrogate\/SKILL\.md$/i.test(p)) sig.interrogateAt = latestMarker(sig.interrogateAt, marker);
         else if (/\/skills\/(?:deslop|no-comments)\/SKILL\.md$/i.test(p)) sig.cleanAt = latestMarker(sig.cleanAt, marker);
@@ -1315,7 +1374,9 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
         }
       } else if (FILE_WRITE_TOOLS.has(name)) {
         const p = targetPathOf(args);
-        if (/\/implementation_plan\.md$/i.test(p)) {
+        if (/\/diagnosis\.md$/i.test(p)) {
+          sig.diagnosisWrittenAt = latestMarker(sig.diagnosisWrittenAt, marker);
+        } else if (/\/implementation_plan\.md$/i.test(p)) {
           sig.planWrittenAt = latestMarker(sig.planWrittenAt, marker);
         } else if (/\/walkthrough\.md$/i.test(p)) {
           sig.walkthroughWrittenAt = latestMarker(sig.walkthroughWrittenAt, marker);
@@ -1335,7 +1396,12 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
         const subType = unquoteArg(args.TypeName) || "self";
         const roleText = unquoteArg(args.Role);
         const promptText = unquoteArg(args.Prompt);
-        const stageId = inferSubagentStageId(subType, roleText, promptText, Boolean(sig.latestWorkspaceWriteAt));
+        const investigating = Boolean(
+          (sig.investigateCmdAt || sig.investigateReadAt || sig.diagnosisWrittenAt) && !sig.latestWorkspaceWriteAt,
+        );
+        const stageId = inferSubagentStageId(subType, roleText, promptText, Boolean(sig.latestWorkspaceWriteAt), {
+          investigating,
+        });
         const entry = {
           id: `sa-${sig.subagents.length}`,
           type: subType,
@@ -1439,10 +1505,16 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
           sig.workflow.stageId = "ship";
         } else if (/\breview|\bpr[- ]?verifier|\bdossier\b/i.test(wfText)) {
           sig.workflow.stageId = "review";
-        } else if (/\bplan\b|\bdesign\b|\barchitect\b/i.test(wfText) && !sig.latestWorkspaceWriteAt) {
+        } else if (/\bplan\b|\bdesign\b|\barchitect\b|\binvestigat|\bdiagnos/i.test(wfText) && !sig.latestWorkspaceWriteAt) {
           sig.workflow.stageId = "plan";
         } else {
-          sig.workflow.stageId = inferTaskStageId(wfText, { hasWorkspaceWrite: Boolean(sig.latestWorkspaceWriteAt) });
+          const investigating = Boolean(
+            (sig.investigateCmdAt || sig.investigateReadAt || sig.diagnosisWrittenAt) && !sig.latestWorkspaceWriteAt,
+          );
+          sig.workflow.stageId = inferTaskStageId(wfText, {
+            hasWorkspaceWrite: Boolean(sig.latestWorkspaceWriteAt),
+            investigating,
+          });
         }
         pendingWorkflowRun = true;
         const wfDesc = unquoteArg(args.Description || args.ScriptPath);
@@ -1579,8 +1651,10 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
       sig.reviewPrAt = latestMarker(sig.reviewPrAt, saMarker);
       sig.detected.add("pr-verifier");
     } else if (sa.type === "browser") {
-      sig.verifyRunAt = latestMarker(sig.verifyRunAt, saMarker);
-      sig.detected.add("/control-ui");
+      if (sa.stageId !== "plan") {
+        sig.verifyRunAt = latestMarker(sig.verifyRunAt, saMarker);
+        sig.detected.add("/control-ui");
+      }
       sig.detected.add("/browser");
     }
   }
@@ -1676,7 +1750,17 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
 
 function mergeChildTranscriptSignals(sig, brainDir, workspaceDir, parentConvId) {
   if (!brainDir || sig.childConvIds.size === 0) return sig;
-  const mergeKeys = ["cleanAt", "verifyRunAt", "latestCodeWriteAt", "latestWorkspaceWriteAt", "walkthroughWrittenAt"];
+  const mergeKeys = [
+    "investigateCmdAt",
+    "investigateReadAt",
+    "diagnosisWrittenAt",
+    "buildPlaybookAt",
+    "cleanAt",
+    "verifyRunAt",
+    "latestCodeWriteAt",
+    "latestWorkspaceWriteAt",
+    "walkthroughWrittenAt",
+  ];
   for (const childId of sig.childConvIds) {
     if (!childId || childId === parentConvId) continue;
     const childConvDir = path.join(brainDir, childId);
@@ -1794,15 +1878,36 @@ function buildSetupReadiness(setup, sig) {
   };
 }
 
+function planArtifactHasRootCause(brainConvDir, planArtifact) {
+  if (!brainConvDir || !planArtifact) return false;
+  try {
+    const filePath = path.join(brainConvDir, "implementation_plan.md");
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const buf = Buffer.alloc(4096);
+      const bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
+      return /^##\s+Root\s+Cause\b/im.test(buf.toString("utf8", 0, bytesRead));
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+}
+
 function buildPlanStage({
   hasConv,
   setupState,
   sig,
+  diagnosisArtifact,
+  diagnosisWrittenMarker,
   planArtifact,
   planWrittenMarker,
+  planHasRootCause,
   latestAnyWrite,
   planClearedByDownstream,
   downstreamProgressed,
+  planLive,
 }) {
   const editsAfterPlan = Boolean(planWrittenMarker && latestAnyWrite && isMarkerAfter(latestAnyWrite, planWrittenMarker));
   const diskPlanApproved = Boolean(!sig.planWrittenAt && planArtifact && sig.approvalIntentAt);
@@ -1813,46 +1918,193 @@ function buildPlanStage({
   );
   const planApproved = Boolean(explicitApproved || planClearedByDownstream);
   const grillMe = Boolean(sig.grillMeAt || (sig.planContractAt && sig.askQuestionAt));
-  const triggered = Boolean(sig.planCmdAt || sig.planContractAt || planWrittenMarker);
+  const investigateTriggered = Boolean(
+    sig.investigateCmdAt || sig.investigateReadAt || diagnosisWrittenMarker || planHasRootCause,
+  );
+  const diagnosisApproved = Boolean(
+    diagnosisWrittenMarker &&
+      ((sig.diagnosisApprovedAt && isMarkerAfter(sig.diagnosisApprovedAt, diagnosisWrittenMarker)) ||
+        (sig.planCmdAt && isMarkerAfter(sig.planCmdAt, diagnosisWrittenMarker)) ||
+        (planWrittenMarker && isMarkerAfter(planWrittenMarker, diagnosisWrittenMarker)) ||
+        (latestAnyWrite && isMarkerAfter(latestAnyWrite, diagnosisWrittenMarker)) ||
+        planClearedByDownstream),
+  );
+  const diagnosisAcked = Boolean(
+    diagnosisWrittenMarker &&
+      !diagnosisApproved &&
+      sig.diagnosisAckAt &&
+      isMarkerAfter(sig.diagnosisAckAt, diagnosisWrittenMarker),
+  );
+  const waitingOnDiagnosis = Boolean(
+    diagnosisWrittenMarker &&
+      !planWrittenMarker &&
+      !diagnosisApproved &&
+      !diagnosisAcked &&
+      !latestAnyWrite &&
+      !downstreamProgressed,
+  );
+  const planTriggered = Boolean(sig.planCmdAt || sig.planContractAt || planWrittenMarker || (diagnosisApproved && !latestAnyWrite));
+  const waitingOnPlan = Boolean(planWrittenMarker && !planApproved);
+  const combinedGate = Boolean(
+    planWrittenMarker && (planHasRootCause || sig.investigateCmdAt || sig.investigateReadAt || diagnosisWrittenMarker),
+  );
+  const investigateMovedToDirectEdits = Boolean(
+    investigateTriggered && latestAnyWrite && !planWrittenMarker && !sig.planCmdAt && !sig.planContractAt && !grillMe,
+  );
+  const readOnlyInvestigationDone = Boolean(
+    investigateTriggered &&
+      !planWrittenMarker &&
+      !sig.planCmdAt &&
+      !sig.planContractAt &&
+      !grillMe &&
+      !diagnosisApproved &&
+      !latestAnyWrite &&
+      !downstreamProgressed &&
+      !planLive &&
+      (diagnosisAcked || (!diagnosisWrittenMarker && Boolean(sig.terminalDoneAt))),
+  );
 
   let status = "pending";
   let skippedReason = null;
+  let waitingArtifact = null;
+  let readOnlyComplete = false;
   if (planWrittenMarker && planApproved) status = "done";
-  else if (planWrittenMarker) status = "waiting_gate";
-  else if ((Boolean(latestAnyWrite) || downstreamProgressed) && !triggered && !grillMe) {
+  else if (waitingOnPlan) {
+    status = "waiting_gate";
+    waitingArtifact = "plan";
+  } else if (waitingOnDiagnosis) {
+    status = "waiting_gate";
+    waitingArtifact = "diagnosis";
+  } else if (investigateMovedToDirectEdits) {
+    status = "done";
+  } else if (readOnlyInvestigationDone) {
+    status = "done";
+    readOnlyComplete = true;
+  } else if ((Boolean(latestAnyWrite) || downstreamProgressed) && !planTriggered && !grillMe && !investigateTriggered) {
     status = "skipped";
     skippedReason = downstreamProgressed && !latestAnyWrite ? "earlier" : "direct";
-  } else if (triggered || grillMe) status = "active";
+  } else if (investigateTriggered || planTriggered || grillMe) status = "active";
   else if (!hasConv) status = setupState.status === "ready" ? "next" : "pending";
   else if (setupState.status !== "needs_setup") status = "next";
 
-  const detail = status === "waiting_gate"
-    ? "implementation_plan.md staged. Review and click Proceed when ready, or continue directly."
-    : status === "done"
-      ? explicitApproved
-        ? "Plan approved and execution started."
-        : "Plan completed; work progressed to later stages."
-      : status === "skipped"
-        ? skippedReason === "earlier"
-          ? "Optional — started directly on an existing PR."
-          : "Skipped for direct edit flow."
-        : status === "active"
-          ? grillMe
-            ? "Clarifying requirements via /grill-me."
-            : "Planning in progress — drafting implementation_plan.md."
-          : "Optional written plan before editing code.";
+  const readOnlyActive = Boolean(
+    investigateTriggered && !latestAnyWrite && !planWrittenMarker && !downstreamProgressed && (status === "active" || waitingOnDiagnosis),
+  );
+
+  const investigateDone = Boolean(
+    investigateTriggered &&
+      (Boolean(diagnosisWrittenMarker) ||
+        Boolean(planWrittenMarker) ||
+        readOnlyInvestigationDone ||
+        investigateMovedToDirectEdits ||
+        planApproved),
+  );
+  const investigateSubStatus = investigateDone
+    ? "done"
+    : investigateTriggered && status === "active"
+      ? "run"
+      : planTriggered || grillMe || status === "done"
+        ? "optional"
+        : "pending";
+  const planSubStatus =
+    planWrittenMarker && planApproved
+      ? "done"
+      : waitingOnPlan
+        ? "pending"
+        : (planTriggered || grillMe) && status === "active"
+          ? "run"
+          : readOnlyInvestigationDone || investigateMovedToDirectEdits
+            ? "optional"
+            : "pending";
+
+  const subChecks = [
+    {
+      id: "investigate",
+      label: "investigate",
+      status: investigateSubStatus,
+      detail: investigateSubStatus === "done"
+        ? diagnosisWrittenMarker
+          ? "Root-cause diagnosis captured read-only."
+          : combinedGate
+            ? "Root cause investigated before staging the combined plan."
+            : "Read-only investigation completed."
+        : investigateSubStatus === "run"
+          ? "Investigating root cause and gathering empirical evidence read-only."
+          : investigateSubStatus === "optional"
+            ? "Skipped; moved directly to planning."
+            : "Optional read-only root-cause investigation before planning.",
+    },
+    {
+      id: "plan",
+      label: "plan",
+      status: planSubStatus,
+      detail: planSubStatus === "done"
+        ? "implementation_plan.md approved."
+        : waitingOnPlan
+          ? "implementation_plan.md staged for review."
+          : planSubStatus === "run"
+            ? "Drafting implementation_plan.md."
+            : planSubStatus === "optional"
+              ? "Optional after read-only investigation."
+              : "Optional written plan before editing code.",
+    },
+  ];
+
+  const detail = waitingOnDiagnosis
+    ? "diagnosis.md staged. Review findings before planning a fix or closing read-only."
+    : status === "waiting_gate"
+      ? combinedGate
+        ? "Combined diagnosis and implementation_plan.md staged. Review and click Proceed."
+        : "implementation_plan.md staged. Review and click Proceed when ready, or continue directly."
+      : status === "done"
+        ? readOnlyComplete
+          ? "Read-only investigation complete with zero repository edits."
+          : investigateMovedToDirectEdits
+            ? "Investigation completed; implementation edits started."
+            : explicitApproved
+              ? "Plan approved and execution started."
+              : "Plan completed; work progressed to later stages."
+        : status === "skipped"
+          ? skippedReason === "earlier"
+            ? "Optional — started directly on an existing PR."
+            : "Skipped for direct edit flow."
+          : status === "active"
+            ? grillMe
+              ? "Clarifying requirements via /grill-me."
+              : readOnlyActive
+                ? "Investigating read-only with zero production edits."
+                : "Planning in progress — drafting implementation_plan.md."
+            : "Investigate root cause or draft a plan before editing code.";
 
   return {
     ...TIMELINE_STEPS[0],
     status,
     ...(skippedReason ? { skippedReason } : {}),
+    waitingArtifact,
+    combinedGate,
+    readOnlyActive,
+    readOnlyComplete,
     commands: [
-      makeCommandItem("/plan", planWrittenMarker ? "done" : status === "active" ? "active" : status === "next" ? "next" : "pending"),
+      makeCommandItem(
+        "/investigate",
+        investigateSubStatus === "done" ? "done" : investigateTriggered && status === "active" && !planTriggered ? "active" : "pending",
+        true,
+      ),
+      makeCommandItem(
+        "/plan",
+        planWrittenMarker
+          ? "done"
+          : (planTriggered || grillMe) && status === "active"
+            ? "active"
+            : waitingOnDiagnosis || status === "next"
+              ? "next"
+              : "pending",
+      ),
       makeCommandItem("/grill-me", grillMe ? "done" : "pending", true),
     ],
-    subChecks: [],
+    subChecks,
     detail,
-    artifact: planArtifact,
+    artifact: planArtifact || diagnosisArtifact,
   };
 }
 
@@ -1868,7 +2120,7 @@ function summarizeBuildProgress(subChecks = []) {
 }
 
 function buildBuildStage({
-  planStatus,
+  planStage,
   sig,
   hasEdits,
   hasCodeEdits,
@@ -1882,8 +2134,10 @@ function buildBuildStage({
   walkthroughArtifact,
   shipped,
 }) {
+  const planStatus = planStage.status;
   const planningActive = (planStatus === "active" || planStatus === "waiting_gate") && !hasEdits;
-  const astackModeActive = !planningActive && Boolean(sig.astackModeAt || hasEdits);
+  const readOnlyInvestigationOnly = Boolean((planStage.readOnlyActive || planStage.readOnlyComplete) && !hasEdits && !sig.buildPlaybookAt);
+  const astackModeActive = !planningActive && !readOnlyInvestigationOnly && Boolean(sig.astackModeAt || hasEdits);
   const walkthroughComplete = Boolean(walkthroughArtifact);
   const hasBuildableWork = Boolean(hasEdits || walkthroughComplete || (reviewStarted && reviewFresh));
   const shippedWalkthroughDone = Boolean(walkthroughComplete && shipped && !hasEdits);
@@ -1897,7 +2151,7 @@ function buildBuildStage({
     else if (reviewStarted || shipped) {
       status = "skipped";
       skippedReason = "earlier";
-    } else if (planStatus === "done" || planStatus === "skipped") status = "next";
+    } else if ((planStatus === "done" && !planStage.readOnlyComplete) || planStatus === "skipped") status = "next";
   }
 
   const editsStatus = hasEdits ? "done" : "pending";
@@ -2162,13 +2416,28 @@ function selectNextAction(
     };
   }
   if (plan.status === "waiting_gate") {
+    if (plan.waitingArtifact === "diagnosis") {
+      return {
+        stageId: "plan",
+        stageLabel: "Investigate & Plan",
+        command: "/plan",
+        title: "Review root-cause diagnosis",
+        hint: "Review diagnosis.md, then run /plan to draft a fix or close read-only.",
+        instruction: "Review diagnosis.md, then run /plan to design a fix or close read-only if no code edit is needed.",
+        prompt: "/plan Draft implementation_plan.md from diagnosis.md.",
+      };
+    }
     return {
       stageId: "plan",
-      stageLabel: "Plan",
+      stageLabel: "Investigate & Plan",
       command: "Proceed",
-      title: "Approve implementation plan",
-      hint: "Review implementation_plan.md and click Proceed.",
-      instruction: "Review implementation_plan.md, then click Proceed in chat to start implementation.",
+      title: plan.combinedGate ? "Approve combined diagnosis and plan" : "Approve implementation plan",
+      hint: plan.combinedGate
+        ? "Review root cause and implementation_plan.md, then click Proceed."
+        : "Review implementation_plan.md and click Proceed.",
+      instruction: plan.combinedGate
+        ? "Review root cause evidence and implementation_plan.md, then click Proceed in chat to start implementation."
+        : "Review implementation_plan.md, then click Proceed in chat to start implementation.",
       prompt: "Proceed",
     };
   }
@@ -2187,6 +2456,9 @@ function selectNextAction(
         : "Pre-PR Check passed on HEAD. Inspect pr-review.md, then open the PR when ready.",
       prompt: "/astack-mode open the pr",
     };
+  }
+  if (plan.readOnlyComplete && build.status === "pending" && review.status === "pending" && ship.status === "pending") {
+    return null;
   }
   if (setupState.status === "needs_setup" && stepViews.every((s) => s.status === "pending")) {
     return {
@@ -2318,16 +2590,32 @@ function selectNextAction(
         inProgress: current.status === "active",
       };
     }
+    if (current.id === "plan" && current.readOnlyActive) {
+      return {
+        stageId: current.id,
+        stageLabel: current.label,
+        command: "/investigate",
+        title: "Continue read-only investigation",
+        hint: current.detail,
+        instruction: "Finish gathering root-cause evidence before planning or editing code.",
+        prompt: "/investigate",
+        inProgress: true,
+      };
+    }
     return {
       stageId: current.id,
       stageLabel: current.label,
       command: current.primaryCommand,
-      title: current.status === "active" ? "Continue planning" : "Start with a plan or direct build",
+      title: current.status === "active"
+        ? "Continue planning"
+        : current.id === "plan"
+          ? "Investigate, plan, or start direct build"
+          : "Start with a plan or direct build",
       hint: current.detail,
       instruction:
         current.status === "active"
           ? "Finish drafting implementation_plan.md before editing code."
-          : "Start read-only with /plan, or jump straight into /astack-mode.",
+          : "Investigate read-only with /investigate, draft a plan with /plan, or jump straight into /astack-mode.",
       prompt: current.primaryCommand,
       inProgress: current.status === "active",
     };
@@ -2432,11 +2720,26 @@ function buildStageStats(stage, {
   return { agents, prs, artifacts, tasks };
 }
 
-function buildStageArtifacts(stage, { planArtifact, walkthroughArtifact, reviewArtifact, brainConvDir, pr, prs, shipped }) {
+function buildStageArtifacts(stage, { diagnosisArtifact, planArtifact, walkthroughArtifact, reviewArtifact, brainConvDir, pr, prs, shipped }) {
   if (stage.id === "plan") {
-    if (!planArtifact) return [];
-    const badge = stage.status === "done" ? "approved" : stage.status === "waiting_gate" ? "review" : "";
-    return [{ id: "plan", key: "plan", name: planArtifact.name, label: "Implementation Plan", uri: planArtifact.uri, status: stage.status === "done" ? "done" : "updating", badge, kind: "file" }];
+    const out = [];
+    if (diagnosisArtifact) {
+      out.push({
+        id: "diagnosis",
+        key: "diagnosis",
+        name: diagnosisArtifact.name,
+        label: "Diagnosis",
+        uri: diagnosisArtifact.uri,
+        status: stage.waitingArtifact === "diagnosis" ? "updating" : "done",
+        badge: stage.waitingArtifact === "diagnosis" ? "review" : "done",
+        kind: "file",
+      });
+    }
+    if (planArtifact) {
+      const badge = stage.status === "done" ? "approved" : stage.status === "waiting_gate" ? "review" : "";
+      out.push({ id: "plan", key: "plan", name: planArtifact.name, label: "Implementation Plan", uri: planArtifact.uri, status: stage.status === "done" ? "done" : "updating", badge, kind: "file" });
+    }
+    return out;
   }
   if (stage.id === "build") {
     const out = [];
@@ -2489,13 +2792,22 @@ function buildStageCollapsedSummary(stage, pr, prs, shipped, { railState = null,
     return `${base.replace(/\.$/, "")} · ${liveAgents} ${noun}`;
   };
   if (stage.id === "plan") {
-    if (railState === "running") return withLiveAgents("Drafting implementation plan.");
-    if (stage.status === "done") return "Plan completed.";
-    if (stage.status === "waiting_gate") return "implementation_plan.md ready for review.";
+    if (railState === "running") {
+      return withLiveAgents(stage.readOnlyActive ? "Investigating read-only." : "Drafting implementation plan.");
+    }
+    if (stage.status === "done") {
+      return stage.readOnlyComplete ? "Investigation complete (read-only)." : "Plan completed.";
+    }
+    if (stage.status === "waiting_gate") {
+      if (stage.waitingArtifact === "diagnosis") return "diagnosis.md ready for review.";
+      return stage.combinedGate ? "Diagnosis and plan ready for review." : "implementation_plan.md ready for review.";
+    }
     if (stage.status === "skipped") {
       return stage.skippedReason === "earlier" ? "Not needed — started at PR review." : "Skipped for direct edit flow.";
     }
-    if (stage.status === "active") return withLiveAgents("Drafting implementation plan.");
+    if (stage.status === "active") {
+      return withLiveAgents(stage.readOnlyActive ? "Investigating read-only." : "Drafting implementation plan.");
+    }
     return withLiveAgents(stage.summary);
   }
   if (stage.id === "build") {
@@ -2755,6 +3067,16 @@ function buildActivitySnapshot({
   };
 }
 
+function resolveArtifactMarker(existingMarker, brainConvDir, fileName) {
+  if (existingMarker) return existingMarker;
+  try {
+    const mtime = fs.statSync(path.join(brainConvDir, fileName)).mtime.toISOString();
+    return makeMarker(mtime, 0);
+  } catch {
+    return makeMarker(null, 0);
+  }
+}
+
 /**
  * Projects workspace readiness, transcript signals, and trust ledger receipts into the 4-step AStack timeline.
  */
@@ -2789,29 +3111,21 @@ export function evaluateTimelineSnapshot({
     sig,
   );
 
+  const diagnosisArtifact = buildArtifactRef(brainConvDir, "diagnosis.md");
   const planArtifact = buildArtifactRef(brainConvDir, "implementation_plan.md");
   const reviewArtifact = buildArtifactRef(brainConvDir, "pr-review.md");
   const walkthroughArtifact = buildArtifactRef(brainConvDir, "walkthrough.md");
 
-  let planWrittenMarker = sig.planWrittenAt;
-  if (!planWrittenMarker && planArtifact) {
-    try {
-      const mtime = fs.statSync(path.join(brainConvDir, "implementation_plan.md")).mtime.toISOString();
-      planWrittenMarker = makeMarker(mtime, 0);
-    } catch {
-      planWrittenMarker = makeMarker(null, 0);
-    }
-  }
-
-  let walkthroughMarker = sig.walkthroughWrittenAt;
-  if (!walkthroughMarker && walkthroughArtifact) {
-    try {
-      const mtime = fs.statSync(path.join(brainConvDir, "walkthrough.md")).mtime.toISOString();
-      walkthroughMarker = makeMarker(mtime, 0);
-    } catch {
-      walkthroughMarker = makeMarker(null, 0);
-    }
-  }
+  const diagnosisWrittenMarker = diagnosisArtifact
+    ? resolveArtifactMarker(sig.diagnosisWrittenAt, brainConvDir, "diagnosis.md")
+    : sig.diagnosisWrittenAt;
+  const planHasRootCause = planArtifactHasRootCause(brainConvDir, planArtifact);
+  const planWrittenMarker = planArtifact
+    ? resolveArtifactMarker(sig.planWrittenAt, brainConvDir, "implementation_plan.md")
+    : sig.planWrittenAt;
+  const walkthroughMarker = walkthroughArtifact
+    ? resolveArtifactMarker(sig.walkthroughWrittenAt, brainConvDir, "walkthrough.md")
+    : sig.walkthroughWrittenAt;
 
   let latestCodeWrite = sig.latestCodeWriteAt;
   let latestAnyWrite = sig.latestWorkspaceWriteAt;
@@ -2909,14 +3223,18 @@ export function evaluateTimelineSnapshot({
     hasConv,
     setupState,
     sig,
+    diagnosisArtifact,
+    diagnosisWrittenMarker,
     planArtifact,
     planWrittenMarker,
+    planHasRootCause,
     latestAnyWrite,
     planClearedByDownstream,
     downstreamProgressed,
+    planLive: liveSet.has("plan"),
   });
   const buildStage = buildBuildStage({
-    planStatus: planStage.status,
+    planStage,
     sig,
     hasEdits,
     hasCodeEdits,
@@ -3050,6 +3368,8 @@ export function evaluateTimelineSnapshot({
   const suggestedStageId = resolveSuggestedStageId(nextAction, rawSteps, liveSet);
   const buildQueuedByPlan =
     Boolean(sig.astackModeAt) &&
+    !planStage.readOnlyActive &&
+    !planStage.readOnlyComplete &&
     (planStage.status === "active" || planStage.status === "waiting_gate") &&
     buildStage.status === "pending";
   const shipQueuedByEarlier =
@@ -3093,6 +3413,7 @@ export function evaluateTimelineSnapshot({
   const stepViews = rawSteps.map((stage) => {
     const railState = computeRailState(stage, liveSet, suggestedStageId, { buildQueuedByPlan, shipQueuedByEarlier });
     const artifacts = buildStageArtifacts(stage, {
+      diagnosisArtifact,
       planArtifact,
       walkthroughArtifact,
       reviewArtifact,
@@ -3157,6 +3478,9 @@ export function evaluateTimelineSnapshot({
   ) {
     workflowMode = "pr_review";
     workflowLabel = "Pre-PR check";
+  } else if (!shipped && !reviewStarted && !hasEdits && (planStage.readOnlyActive || planStage.readOnlyComplete)) {
+    workflowMode = "investigation";
+    workflowLabel = "Investigation";
   } else if (planStage.status === "skipped") {
     workflowMode = "direct_build";
     workflowLabel = "Direct flow";

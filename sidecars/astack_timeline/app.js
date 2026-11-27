@@ -1161,28 +1161,44 @@
     row.appendChild(askBtn);
   }
 
-  function buildBuildStageDetail(stage, snap) {
-    const detail = el("div", "detail");
-    const act = snap.activity || {};
-
-    const segGrid = el("div", "progress-segments");
+  function buildSubChecksBar(stage) {
+    const subChecks = stage.subChecks || [];
+    if (subChecks.length === 0) return null;
+    const segGrid = el("div", subChecks.length === 2 ? "progress-segments is-two" : "progress-segments");
     segGrid.setAttribute("role", "list");
     segGrid.setAttribute("aria-label", "Progress");
-    const subChecks = stage.subChecks || [];
     let activeAssigned = false;
     for (const sub of subChecks) {
       const seg = el("div", "progress-seg");
       seg.setAttribute("role", "listitem");
       let mode = sub.status;
-      if (mode === "pending" && stage.status === "active" && !activeAssigned) {
+      if (mode === "pending" && stage.status === "active" && !activeAssigned && stage.id !== "plan") {
         mode = "run";
         activeAssigned = true;
       }
       const bar = el("span", `progress-seg-bar ${mode}`);
       if (mode === "run") bar.classList.add("pulse");
       const title = sub.label.charAt(0).toUpperCase() + sub.label.slice(1);
-      const labelText = mode === "done" ? `✓ ${title}` : mode === "stale" ? `! ${title}` : mode === "run" ? `${title}…` : title;
-      const statusText = mode === "done" ? "Done" : mode === "stale" ? "Stale" : mode === "run" ? "Next up" : "Pending";
+      const labelText =
+        mode === "done"
+          ? `✓ ${title}`
+          : mode === "stale"
+            ? `! ${title}`
+            : mode === "run"
+              ? `${title}…`
+              : mode === "optional"
+                ? `${title} (opt)`
+                : title;
+      const statusText =
+        mode === "done"
+          ? "Done"
+          : mode === "stale"
+            ? "Stale"
+            : mode === "run"
+              ? "In progress"
+              : mode === "optional"
+                ? "Optional"
+                : "Pending";
       if (sub.detail) {
         seg.tabIndex = 0;
         attachStatusPopover(seg, title, statusText, mode, sub.detail);
@@ -1191,7 +1207,16 @@
       seg.appendChild(el("span", `progress-seg-label ${mode}`, labelText));
       segGrid.appendChild(seg);
     }
-    detail.appendChild(segGrid);
+    return segGrid;
+  }
+
+  function buildBuildStageDetail(stage, snap) {
+    const detail = el("div", "detail");
+    const act = snap.activity || {};
+
+    const subChecks = stage.subChecks || [];
+    const segGrid = buildSubChecksBar(stage);
+    if (segGrid) detail.appendChild(segGrid);
 
     const staleSubs = subChecks.filter((c) => c.status === "stale");
     if (staleSubs.length > 0) {
@@ -1472,6 +1497,15 @@
   function buildGenericStageDetail(stage, snap) {
     const detail = el("div", "detail");
     const act = snap.activity || {};
+    if (stage.id === "plan") {
+      const segGrid = buildSubChecksBar(stage);
+      if (segGrid) detail.appendChild(segGrid);
+      if (stage.readOnlyActive) {
+        const roBadge = el("span", "stage-readonly-pill", "Read-only");
+        roBadge.dataset.testid = "plan-readonly-pill";
+        detail.appendChild(roBadge);
+      }
+    }
     detail.appendChild(el("p", "detail-text", stage.detail));
     if (stage.id === "review" && stage.status === "pending") {
       const buildStage = (snap.stages || []).find((s) => s.id === "build");
@@ -2114,6 +2148,17 @@
       iconKind = "dot";
       badge = "Working";
       text = liveStage ? `${liveStage.label} · ${liveStage.collapsedSummary || liveStage.detail}` : "Agents running.";
+    } else if (
+      plan?.readOnlyComplete &&
+      !snap.nextAction &&
+      build?.status === "pending" &&
+      review?.status === "pending" &&
+      ship?.status === "pending"
+    ) {
+      tone = "is-done";
+      iconKind = "check";
+      badge = "Done";
+      text = plan.collapsedSummary || "Investigation complete (read-only).";
     } else if (ship?.status === "done" && !snap.nextAction) {
       tone = "is-done";
       iconKind = "check";
@@ -2142,12 +2187,31 @@
       tone = "is-yourturn";
       iconKind = "dot";
       badge = "Your turn";
-      title = snap.nextAction?.title || "Approve implementation plan";
-      instruction = snap.nextAction?.instruction || "Review implementation_plan.md, then click Proceed.";
-      cmdLabel = "Proceed";
-      cmdPrompt = snap.nextAction?.prompt || "Proceed";
-      if (plan.artifact) {
-        secondaryAction = { type: "artifact", label: "Open Plan", artifact: plan.artifact };
+      if (plan.waitingArtifact === "diagnosis") {
+        const diagArt = (plan.artifacts || []).find((a) => a.name === "diagnosis.md") || plan.artifact;
+        title = snap.nextAction?.title || "Review root-cause diagnosis";
+        instruction =
+          snap.nextAction?.instruction || "Review diagnosis.md, then run /plan to draft a fix or close read-only.";
+        cmdLabel = "/plan";
+        cmdPrompt = snap.nextAction?.prompt || "/plan";
+        if (diagArt) {
+          secondaryAction = { type: "artifact", label: "Open Diagnosis", artifact: diagArt };
+        }
+      } else {
+        const planArt = (plan.artifacts || []).find((a) => a.name === "implementation_plan.md") || plan.artifact;
+        title =
+          snap.nextAction?.title ||
+          (plan.combinedGate ? "Approve combined diagnosis and plan" : "Approve implementation plan");
+        instruction =
+          snap.nextAction?.instruction ||
+          (plan.combinedGate
+            ? "Review diagnosis and implementation plan, then click Proceed."
+            : "Review implementation_plan.md, then click Proceed.");
+        cmdLabel = "Proceed";
+        cmdPrompt = snap.nextAction?.prompt || "Proceed";
+        if (planArt) {
+          secondaryAction = { type: "artifact", label: "Open Plan", artifact: planArt };
+        }
       }
     } else if (review?.status === "waiting_gate") {
       guided = true;
@@ -3538,6 +3602,11 @@
     syncPanelMode(snap);
     const progressEl = document.getElementById("progress");
     const WORKFLOW_MODE_COPY = {
+      investigation: {
+        title: "Investigation",
+        status: "Read-only",
+        desc: "Isolating root cause or exploring read-only before planning any edits.",
+      },
       pr_iteration: {
         title: "PR Iteration",
         status: "Advisory",
