@@ -524,10 +524,12 @@ function resolveWorkspacePolicyCached(workspaceDir) {
     workspaceScope.kind === "enrolled_repo"
       ? loadRiskPolicy(workspaceDir, { baseRef: workspaceScope.baseRef })
       : loadRiskPolicy(workspaceDir);
-  if (workspacePolicyCache.size >= 32) {
-    workspacePolicyCache.clear();
+  if (workspaceScope.kind !== "git_unregistered" || !policyResult.present) {
+    if (workspacePolicyCache.size >= 32) {
+      workspacePolicyCache.clear();
+    }
+    workspacePolicyCache.set(fp, { ts: now, workspaceScope, policyResult });
   }
-  workspacePolicyCache.set(fp, { ts: now, workspaceScope, policyResult });
   return { workspaceScope, policyResult };
 }
 

@@ -13,6 +13,7 @@ import {
   isProtectedTrustStorePath,
   readOutcomeLedger,
   readTrustSettings,
+  resolvePluginDataDir,
   resolveWorkspaceScope,
   verifyLedgerChain,
 } from "../trust/index.mjs";
@@ -284,5 +285,54 @@ test("scripts/trust/cli.mjs and Timeline POST /api/trust/settings manage setting
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(brainDir, { recursive: true, force: true });
     fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("resolvePluginDataDir uses plugin_data default, derives from ANTIGRAVITY_EXECUTABLE_DATA_DIR, and protects both plugin_data and plugin-data", () => {
+  const savedEnv = {
+    ASTACK_PLUGIN_DATA: process.env.ASTACK_PLUGIN_DATA,
+    ANTIGRAVITY_PLUGIN_DATA: process.env.ANTIGRAVITY_PLUGIN_DATA,
+    PLUGIN_DATA: process.env.PLUGIN_DATA,
+    ANTIGRAVITY_EXECUTABLE_DATA_DIR: process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR,
+  };
+  try {
+    delete process.env.ASTACK_PLUGIN_DATA;
+    delete process.env.ANTIGRAVITY_PLUGIN_DATA;
+    delete process.env.PLUGIN_DATA;
+    delete process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR;
+
+    assert.equal(
+      resolvePluginDataDir(),
+      path.join(os.homedir(), ".gemini", "antigravity", "plugin_data", "astack"),
+    );
+
+    const root = path.join(os.tmpdir(), "astack-sidecar-root");
+    process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR = path.join(root, "sidecar_data", "astack", "astack_timeline", "data");
+    assert.equal(resolvePluginDataDir(), path.join(root, "plugin_data", "astack"));
+
+    process.env.ASTACK_PLUGIN_DATA = path.join(root, "explicit-env");
+    assert.equal(resolvePluginDataDir(), path.join(root, "explicit-env"));
+    assert.equal(resolvePluginDataDir({ dataDir: path.join(root, "explicit-opt") }), path.join(root, "explicit-opt"));
+
+    process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR = path.join(root, "custom_dir", "astack_timeline", "data");
+    delete process.env.ASTACK_PLUGIN_DATA;
+    assert.equal(
+      resolvePluginDataDir(),
+      path.join(os.homedir(), ".gemini", "antigravity", "plugin_data", "astack"),
+    );
+
+    assert.equal(
+      isProtectedTrustStorePath(path.join(os.homedir(), ".gemini", "antigravity", "plugin_data", "astack", "trust", "abc", "settings.json")),
+      true,
+    );
+    assert.equal(
+      isProtectedTrustStorePath(path.join(os.homedir(), ".gemini", "antigravity", "plugin-data", "astack", "trust", "abc", "settings.json")),
+      true,
+    );
+  } finally {
+    for (const [key, val] of Object.entries(savedEnv)) {
+      if (val === undefined) delete process.env[key];
+      else process.env[key] = val;
+    }
   }
 });

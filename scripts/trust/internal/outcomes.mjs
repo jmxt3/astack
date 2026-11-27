@@ -234,6 +234,25 @@ function renameWithRetrySync(tmpPath, targetPath) {
   throw lastErr;
 }
 
+function derivePluginDataDirFromSidecarEnv() {
+  const dataDir = process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR;
+  if (typeof dataDir !== "string" || !dataDir.trim() || dataDir.includes("${")) {
+    return "";
+  }
+  let current = path.resolve(dataDir.trim());
+  let child = "";
+  while (true) {
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    if (path.basename(current) === "sidecar_data" && child && child !== "sidecar_data") {
+      return path.join(parent, "plugin_data", child);
+    }
+    child = path.basename(current);
+    current = parent;
+  }
+  return "";
+}
+
 /**
  * Resolves the local `${PLUGIN_DATA}` root directory without network dependencies.
  */
@@ -243,11 +262,12 @@ export function resolvePluginDataDir(options = {}) {
     process.env.ASTACK_PLUGIN_DATA ||
     process.env.ANTIGRAVITY_PLUGIN_DATA ||
     process.env.PLUGIN_DATA ||
+    derivePluginDataDirFromSidecarEnv() ||
     "";
   if (typeof raw === "string" && raw.trim() && !raw.includes("${")) {
     return path.resolve(raw.trim());
   }
-  return path.join(os.homedir(), ".gemini", "antigravity", "plugin-data", "astack");
+  return path.join(os.homedir(), ".gemini", "antigravity", "plugin_data", "astack");
 }
 
 /**
@@ -295,12 +315,12 @@ export function isProtectedTrustStorePath(targetPath, options = {}) {
         return true;
       }
     }
-    if (/(?:^|\/)plugin-data\/astack\/trust(?:\/|$)/.test(target)) {
+    if (/(?:^|\/)plugin[-_]data\/astack\/trust(?:\/|$)/.test(target)) {
       return true;
     }
   }
   const rawPosix = raw.replace(/\\/g, "/").toLowerCase();
-  return /(?:^|\/)plugin-data\/astack\/trust(?:\/|$)/.test(rawPosix);
+  return /(?:^|\/)plugin[-_]data\/astack\/trust(?:\/|$)/.test(rawPosix);
 }
 
 function sha256Hex(text) {
