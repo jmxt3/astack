@@ -3021,10 +3021,18 @@ h4.md-heading { font-size: 13px; }
   .meta-sep { display: none; }
   .main { padding: 10px var(--tl-pad) 0; }
   .step { gap: 8px; }
-  .status-banner:not(.is-guided) {
+  .status-banner:not(.is-guided):not(.is-autopilot) {
     flex-wrap: wrap;
     gap: 5px 8px;
     padding: 6px 8px;
+  }
+  .beast-header-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 0;
+  }
+  .run-mode-switch {
+    margin-left: 0;
   }
   .status-banner.is-guided {
     padding: 7px 8px;
@@ -3100,7 +3108,8 @@ h4.md-heading { font-size: 13px; }
   .guide-acc-btn, .guide-cmd-chip, .guide-cmd-drawer-btn,
   .focus-chip, .guide-link-btn, .step-btn, .sub-accordion-btn, .delegate-menu-row,
   .pick-chip, .btw-submit, .copy-inline-btn, .back-btn, .refresh-btn, .artifact-raw-link, .meta-btn, .artifact-btn,
-  .chip, .row-ask-btn, .audit-file-btn, .dossier-cluster-sum, .risk-card-rollback-sum, .status-banner-action {
+  .chip, .row-ask-btn, .audit-file-btn, .dossier-cluster-sum, .risk-card-rollback-sum, .status-banner-action,
+  .run-mode-btn, .beast-wheel-btn {
     min-height: 44px;
     height: auto;
   }
@@ -3543,12 +3552,20 @@ h4.md-heading { font-size: 13px; }
 
 .status-banner.is-autopilot {
   flex-direction: column;
+  flex-wrap: nowrap;
   align-items: stretch;
   gap: 7px;
   padding: 9px 11px;
+  min-width: 0;
+  max-width: 100%;
   border-radius: 10px;
   background: linear-gradient(180deg, rgba(255, 140, 0, 0.13) 0%, rgba(255, 140, 0, 0.04) 100%);
   border-color: rgba(255, 165, 50, 0.55);
+}
+
+.status-banner.is-autopilot > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 :root:not([data-theme="dark"]) .status-banner.is-autopilot {
@@ -3795,12 +3812,6 @@ h4.md-heading { font-size: 13px; }
 @keyframes astk-beast-toast { 0% { opacity: 0; transform: translateY(-10px); } 8% { opacity: 1; transform: translateY(0); } 88% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-10px); } }
 @keyframes astk-beast-dot-pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 160, 40, 0.7); } 100% { box-shadow: 0 0 0 7px rgba(255, 160, 40, 0); } }
 @keyframes astk-beast-slide { from { background-position: 0 0; } to { background-position: 40px 0; } }
-
-@media (max-width: 480px) {
-  .run-mode-btn, .beast-wheel-btn {
-    min-height: 44px;
-  }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .beast-bloom, .beast-ring, .beast-sweep, .beast-ember, .beast-activation-toast,
