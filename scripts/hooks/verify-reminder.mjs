@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-/**
- * Stop hook checking AStack receipt freshness and git status (override off with ASTACK_REQUIRE_VERIFY=0).
- * Pass --dirty-only to continue automatically only when post-edit verification became dirty_after_verify.
- */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
