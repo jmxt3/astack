@@ -889,6 +889,13 @@ h4.md-heading { font-size: 13px; }
   line-height: 1.4;
 }
 
+.detail-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--tl-fg-faint);
+  line-height: 1.38;
+}
+
 .progress-segments {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -975,6 +982,15 @@ h4.md-heading { font-size: 13px; }
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.subcheck-callout.is-info {
+  border-color: color-mix(in srgb, var(--tl-primary) 30%, var(--tl-border));
+  background: color-mix(in srgb, var(--tl-primary) 6%, var(--tl-card));
+}
+
+.subcheck-callout.is-info .status-banner-dot {
+  background: var(--tl-primary);
 }
 
 .subcmd-pill.stale-action {
@@ -1209,22 +1225,22 @@ h4.md-heading { font-size: 13px; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 9px;
+  padding: 6px 9px;
   border-radius: 7px;
-  border: 1px dashed color-mix(in srgb, var(--tl-primary) 50%, transparent);
+  border: 1px dashed var(--tl-line);
 }
 
 .faster-workflow-text {
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
-  font-size: 11.5px;
+  font-size: 11px;
   line-height: 1.38;
-  color: var(--tl-fg);
+  color: var(--tl-fg-muted);
 }
 
 .faster-workflow-lead {
-  color: var(--tl-primary);
+  color: var(--tl-fg-muted);
   font-weight: 600;
 }
 
@@ -2184,6 +2200,27 @@ h4.md-heading { font-size: 13px; }
 .risk-card-why.is-done { color: var(--tl-done); }
 .risk-card-why.is-err { color: var(--tl-error); }
 
+.risk-card-rollback-details {
+  padding-top: 2px;
+}
+
+.risk-card-rollback-sum {
+  cursor: pointer;
+  font-size: 10.5px;
+  color: var(--tl-fg-faint);
+  user-select: none;
+}
+
+.risk-card-rollback-sum:hover {
+  color: var(--tl-fg-muted);
+}
+
+.risk-card-rb-note {
+  margin: 4px 0 2px;
+  font-size: 10.5px;
+  color: var(--tl-fg-faint);
+}
+
 .risk-card-rollback {
   display: flex;
   flex-wrap: wrap;
@@ -2302,6 +2339,9 @@ h4.md-heading { font-size: 13px; }
 
 .status-banner-action {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   height: 22px;
   padding: 0 8px;
   border-radius: 5px;
@@ -2322,6 +2362,103 @@ h4.md-heading { font-size: 13px; }
 .status-banner.is-yourturn .status-banner-action {
   border-color: color-mix(in srgb, var(--tl-warning) 42%, transparent);
   color: var(--tl-warning);
+}
+
+.status-banner.is-guided {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.status-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.status-banner-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tl-fg);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-banner-instruction {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--tl-fg-muted);
+}
+
+.status-banner-cmd-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--tl-line);
+  background: var(--tl-fill);
+}
+
+.status-banner-cmd {
+  flex: 1 1 180px;
+  min-width: 0;
+  font-family: var(--tl-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--tl-fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.status-banner-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  margin-left: auto;
+}
+
+.status-banner-action.is-primary {
+  border-color: color-mix(in srgb, var(--tl-primary) 42%, transparent);
+  background: color-mix(in srgb, var(--tl-primary) 14%, var(--tl-card));
+  color: var(--tl-primary);
+  font-weight: 600;
+}
+
+.status-banner-action.is-primary:hover {
+  background: color-mix(in srgb, var(--tl-primary) 22%, var(--tl-card));
+  border-color: color-mix(in srgb, var(--tl-primary) 62%, transparent);
+}
+
+.status-banner.is-yourturn .status-banner-action.is-primary {
+  border-color: color-mix(in srgb, var(--tl-warning) 48%, transparent);
+  background: color-mix(in srgb, var(--tl-warning) 14%, var(--tl-card));
+  color: var(--tl-warning);
+}
+
+.status-banner.is-yourturn .status-banner-action.is-primary:hover {
+  background: color-mix(in srgb, var(--tl-warning) 22%, var(--tl-card));
+  border-color: color-mix(in srgb, var(--tl-warning) 64%, transparent);
+}
+
+.status-banner-alt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--tl-fg-faint);
+}
+
+.status-banner-alt-label {
+  color: var(--tl-fg-faint);
 }
 
 .trust-cat-row {
@@ -2760,7 +2897,7 @@ h4.md-heading { font-size: 13px; }
   .guide-acc-btn, .guide-cmd-chip, .guide-cmd-drawer-btn,
   .focus-chip, .guide-link-btn, .step-btn, .sub-accordion-btn, .delegate-menu-row,
   .pick-chip, .btw-submit, .copy-inline-btn, .back-btn, .refresh-btn, .artifact-raw-link, .meta-btn, .artifact-btn,
-  .chip, .row-ask-btn, .audit-file-btn, .dossier-cluster-sum, .status-banner-action {
+  .chip, .row-ask-btn, .audit-file-btn, .dossier-cluster-sum, .risk-card-rollback-sum, .status-banner-action {
     min-height: 44px;
     height: auto;
   }
