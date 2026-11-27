@@ -1116,7 +1116,7 @@ function createAppJsTestHarness({
     "panel-mode-switcher", "mode-btn-build", "mode-btn-review",
     "progress", "live", "live-label", "meta-row", "setup-drawer", "beast-drawer",
     "promo-wrap", "promo-card", "setup-wrap", "setup-card", "focus-strip", "focus-artifacts",
-    "status-banner-wrap", "status-banner", "timeline-wrap", "living-rail", "timeline", "rail-announcer",
+    "status-banner-wrap", "status-banner", "timeline-wrap", "living-rail", "timeline", "prior-cycles-wrap", "rail-announcer",
     "colleague-review-panel",
     "btw-form", "askbar-icon", "astk-btw", "btw-submit", "panel-footer",
     "trust-view", "dossier-view", "audit-view", "delegate-view", "artifact-view", "cmd-popover", "toast",
@@ -2467,6 +2467,49 @@ test("app.js renders guided next-step command banner, Cleanup left label, collap
       staleGateBanner.findByTestId("status-banner-cmd")?.textContent,
       "/pre-pr Re-compile pr-review.md and run isolated pr-verifier on updated HEAD.",
     );
+
+    const indexHtmlRes = await fetch(`${srv.url}`);
+    const indexHtml = await indexHtmlRes.text();
+    assert.match(indexHtml, /id="prior-cycles-wrap"/);
+
+    currentSnap = {
+      ...currentSnap,
+      etag: "etag-cycle-2",
+      workflowMode: "standard",
+      workflowLabel: null,
+      doneCount: 0,
+      totalCount: 4,
+      cycles: {
+        currentNumber: 2,
+        priorCount: 1,
+        prior: [
+          {
+            cycleNumber: 1,
+            outcome: "shipped",
+            shipped: true,
+            agentsCount: 4,
+            tasksCount: 16,
+            prs: [{ number: 41, state: "merged", url: "https://github.com/jmxt3/astack/pull/41" }],
+          },
+        ],
+      },
+      stages: currentSnap.stages.map((s) =>
+        s.id === "plan"
+          ? { ...s, status: "active", railState: "running" }
+          : { ...s, status: "pending", railState: s.id === "build" ? "queued" : "pending" },
+      ),
+    };
+    await harness.advanceBy(2000);
+    assert.equal(harness.byId.get("progress").textContent, "Cycle 2 · 0 / 4");
+    const priorWrap = harness.byId.get("prior-cycles-wrap");
+    assert.equal(priorWrap.classList.contains("hidden"), false);
+    const priorToggle = priorWrap.findByTestId("prior-cycles-toggle");
+    assert.match(priorToggle.textContent, /1 earlier cycle · PR #41 merged/);
+    assert.equal(priorWrap.findByTestId("prior-cycles-list"), null);
+    priorToggle.click();
+    const priorList = priorWrap.findByTestId("prior-cycles-list");
+    assert.ok(priorList, "Clicking earlier cycles toggle must expand prior cycle history");
+    assert.match(priorList.textContent, /Cycle 1.*shipped.*4 agents · 16 tasks.*#41.*merged/);
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });
