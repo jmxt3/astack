@@ -76,7 +76,7 @@ const DEFAULT_PR_TEMPLATE_MD = `## Why
 <!-- Risk Tier (Tier 0..3), affected surfaces, and safety check. -->
 
 <!-- astack:pr-proof:start -->
-<!-- Replace with: node skills/review-pr/scripts/pr-dossier.mjs --format github --merge-body <body-file> --out <body-file> -->
+<!-- Replace with: node skills/pre-pr/scripts/pr-dossier.mjs --format github --merge-body <body-file> --out <body-file> -->
 <!-- astack:pr-proof:end -->
 `;
 

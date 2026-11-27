@@ -7,7 +7,7 @@
     "agentapi",
     "new-conversation",
     "--",
-    "In ${repo_dir}, list open pull requests via gh pr list, run /review-pr read-only for each PR needing attention, and summarize Risk Tiers, freshness, and blockers."
+    "In ${repo_dir}, list open pull requests via gh pr list, run /pre-pr read-only for each PR needing attention, and summarize Risk Tiers, freshness, and blockers."
   ],
   "arguments": [
     {

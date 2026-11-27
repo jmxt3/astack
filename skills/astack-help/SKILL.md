@@ -72,7 +72,7 @@ Default to `/astack-mode`, which invokes supporting skills automatically. Pick a
 | Race K candidates & graft best design | [`/arena`](../arena/SKILL.md) |
 | Lightweight N-way subagent fan-out | [`/fanout`](../fanout/SKILL.md) |
 | Multi-model adversarial diff review | [`/interrogate`](../interrogate/SKILL.md) |
-| Compile visual PR dossier and run isolated verifier | [`/review-pr`](../review-pr/SKILL.md) |
+| Compile Pre-PR proof dossier and run isolated verifier | [`/pre-pr`](../pre-pr/SKILL.md) |
 | Bug fix test-first on cheap local tests | [`/tdd`](../tdd/SKILL.md) |
 | Strict TypeScript patterns & types | [`/typescript-best-practices`](../typescript-best-practices/SKILL.md) |
 | Drive web/Electron UI via Chrome DevTools & `browser` | [`/control-ui`](../control-ui/SKILL.md) |
