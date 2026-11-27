@@ -3496,6 +3496,37 @@ test("ignores fixture PR URLs from batched read_file, out-of-order read_file, an
     const outOfOrderSnap = evaluateTimelineSnapshot({ conversationId: convOutOfOrder, brainDir, workspaceDir });
     assert.equal(outOfOrderSnap.activity.prs.totalCount, 1);
     assert.equal(outOfOrderSnap.activity.prs.items[0].number, 25);
+
+    const convCmdFirstLf = "conv-cmd-first-lf";
+    writeTranscript(brainDir, convCmdFirstLf, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T18:12:00Z",
+        tool_calls: [
+          { name: "read_file", args: { Path: "sidecars/astack_timeline/server.test.mjs", StartLine: 1850, EndLine: 1974 } },
+          { name: "run_command", args: { CommandLine: 'gh pr create --title "feat: lf-cmd-first" --body "ok"' } },
+        ],
+      },
+      {
+        step_index: 1,
+        type: "GENERIC",
+        created_at: "2026-11-27T18:12:01Z",
+        content:
+          "Created At: 2026-11-27T15:12:00-03:00\nCompleted At: 2026-11-27T15:12:01-03:00\nCommand exited with code 0\n\nCommand output:\nhttps://github.com/acme/demo/pull/27\n",
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        created_at: "2026-11-27T18:12:02Z",
+        content:
+          "Created At: 2026-11-27T15:12:00-03:00\nShowing lines 1850-1974 of 1974\n1921: https://github.com/acme/demo/pull/99\n",
+      },
+    ]);
+
+    const cmdFirstLfSnap = evaluateTimelineSnapshot({ conversationId: convCmdFirstLf, brainDir, workspaceDir });
+    assert.equal(cmdFirstLfSnap.activity.prs.totalCount, 1);
+    assert.equal(cmdFirstLfSnap.activity.prs.items[0].number, 27);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

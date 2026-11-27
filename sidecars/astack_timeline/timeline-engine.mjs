@@ -462,9 +462,9 @@ function isFileReadOutput(content) {
 function isCommandOutput(content) {
   const str = String(content ?? "");
   return (
-    /(?:^|\r\n)Command exited with code \d+/i.test(str) ||
-    /(?:^|\r\n)Command output:\r?\n/.test(str) ||
-    /(?:^|\r\n)Tool is running as a background task with task id:/i.test(str)
+    /(?:^|\r?\n)Command exited with code \d+/i.test(str) ||
+    /(?:^|\r?\n)Command output:\r?\n/.test(str) ||
+    /(?:^|\r?\n)Tool is running as a background task with task id:/i.test(str)
   );
 }
 
