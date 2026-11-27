@@ -581,6 +581,33 @@ test("validateProofManifest enforces schema and compilePrDossier GitHub format c
       );
       assert.equal(strictBad.status, 1);
       assert.ok(JSON.parse(strictBad.stdout).violations.some((v) => /stateDiagram-v2/.test(v)));
+
+      fs.writeFileSync(
+        path.join(repoStrict, ".agents", "risk-policy.json"),
+        JSON.stringify({ schemaVersion: 1, prDescriptionContract: { requireStatechart: false, requireProofTable: false } }),
+        "utf8",
+      );
+      execFileSync("git", ["add", ".agents/risk-policy.json"], { cwd: repoStrict, stdio: "ignore" });
+      execFileSync("git", ["commit", "-m", "attempt to weaken prDescriptionContract on PR branch"], {
+        cwd: repoStrict,
+        stdio: "ignore",
+      });
+
+      const baseEnforcedWithFlag = spawnSync(
+        process.execPath,
+        [cliPath, "--cwd", repoStrict, "--base", "main", "--check-pr-body", "-", "--json"],
+        { input: defaultProof.markdown, encoding: "utf8" },
+      );
+      assert.equal(baseEnforcedWithFlag.status, 1);
+      assert.ok(JSON.parse(baseEnforcedWithFlag.stdout).violations.some((v) => /stateDiagram-v2/.test(v)));
+
+      const baseEnforcedAuto = spawnSync(
+        process.execPath,
+        [cliPath, "--cwd", repoStrict, "--check-pr-body", "-", "--json"],
+        { input: defaultProof.markdown, encoding: "utf8" },
+      );
+      assert.equal(baseEnforcedAuto.status, 1);
+      assert.ok(JSON.parse(baseEnforcedAuto.stdout).violations.some((v) => /stateDiagram-v2/.test(v)));
     } finally {
       fs.rmSync(repoStrict, { recursive: true, force: true });
       fs.rmSync(strictArtifactDir, { recursive: true, force: true });

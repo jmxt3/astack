@@ -672,6 +672,27 @@ test("pr-intent PreInvocation injects PR proof workflow once per prompt and igno
 
     const second = runHook(prIntentScript, prPayload);
     assert.deepEqual(second, {});
+
+    const trustDir = path.join(artifactDir, "astack-trust");
+    fs.mkdirSync(trustDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(trustDir, "proof-manifest.json"),
+      JSON.stringify({ schemaVersion: 1, checks: [{ id: "demo-1", featureId: "demo", status: "pass" }] }),
+      "utf8",
+    );
+    const withManifest = runHook(
+      prIntentScript,
+      JSON.stringify({
+        conversationId: "c-intent-manifest",
+        hookEventName: "PreInvocation",
+        invocationNum: 1,
+        lastUserInput: "okay, open a PR",
+        workspacePaths: [tmp],
+        artifactDirectoryPath: artifactDir,
+      }),
+    );
+    assert.ok(Array.isArray(withManifest.injectSteps));
+    assert.match(withManifest.injectSteps[0].ephemeralMessage, /--feature-map "\.agents\/skills\/verify-demo\/features"/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });

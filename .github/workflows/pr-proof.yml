@@ -15,6 +15,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Fetch base branch policy ref
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git fetch --no-tags --depth=1 origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
@@ -22,13 +27,18 @@ jobs:
 
       - name: Validate PR verification proof contract
         env:
+          BASE_REF: ${{ github.base_ref }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           node -e '
             import("node:child_process").then(({ spawnSync }) => {
+              const args = ["skills/pre-pr/scripts/pr-dossier.mjs", "--check-pr-body", "-"];
+              if (process.env.BASE_REF) {
+                args.push("--base", `origin/${process.env.BASE_REF}`);
+              }
               const res = spawnSync(
                 process.execPath,
-                ["skills/pre-pr/scripts/pr-dossier.mjs", "--check-pr-body", "-"],
+                args,
                 { input: process.env.PR_BODY ?? "", stdio: ["pipe", "inherit", "inherit"] }
               );
               process.exit(res.status ?? 1);

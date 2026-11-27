@@ -564,7 +564,7 @@ export function resolvePrStatechart({
     };
   }
 
-  const featuresDir = resolveFeaturesDir(rootDir, featureMapDir, proofManifest, evidence);
+  const featuresDir = resolveFeaturesDir(rootDir, featureMapDir, proofManifest);
   const featureEntries = readFeatureMapEntries(featuresDir);
   const coveredSet = new Set(proofManifest?.featureMap?.coveredFeatures ?? []);
 

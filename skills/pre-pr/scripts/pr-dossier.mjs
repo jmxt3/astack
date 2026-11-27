@@ -8,6 +8,7 @@ import {
   loadRiskPolicy,
   readHeadShaFast,
   recordVerifierReceipt,
+  resolveBaseRef,
   resolveTrustDir,
   validateFindingsDocument,
   validatePrBodyContract,
@@ -71,7 +72,8 @@ function main() {
       target === "-"
         ? fs.readFileSync(0, "utf8")
         : fs.readFileSync(path.resolve(baseDir, target), "utf8");
-    const { policy } = loadRiskPolicy(baseDir);
+    const baseRef = resolveBaseRef(baseDir, values.base);
+    const { policy } = loadRiskPolicy(baseDir, { baseRef });
     const check = validatePrBodyContract(rawBody, policy?.prDescriptionContract);
     if (values.json) {
       process.stdout.write(`${JSON.stringify(check, null, 2)}\n`);
