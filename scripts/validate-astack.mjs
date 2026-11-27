@@ -840,7 +840,13 @@ export function validateAStack(rootDir = DEFAULT_ROOT_DIR, { withAgy = false } =
       };
       for (const [hookName, def] of Object.entries(hooksCfg)) {
         if (!def || typeof def !== "object") continue;
-        if (def.enabled === true) enabledPassiveHooks++;
+        const isPassive =
+          (Array.isArray(def.PostToolUse) ||
+            Array.isArray(def.SessionStart) ||
+            Array.isArray(def.PreInvocation)) &&
+          !Array.isArray(def.PreToolUse) &&
+          !Array.isArray(def.Stop);
+        if (def.enabled === true && isPassive) enabledPassiveHooks++;
         const spec = expectedMatchers[hookName];
         if (spec) {
           const entry = Array.isArray(def[spec.event]) ? def[spec.event][0] : null;

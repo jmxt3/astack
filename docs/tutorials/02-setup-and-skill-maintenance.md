@@ -35,13 +35,13 @@ Suppose your team merges PRs into `orders-api` every day, and the repository doe
 
    **Visible result.** Running `git ls-files .agents/skills/verify-orders-api` lists the committed verification skill and feature map. Every teammate and future branch now shares those checks without running `/setup-astack` again.
 
-5. Optionally run workspace health diagnostics (`--doctor`) and decide whether to enable [hooks.json](../../hooks.json) safety guards (`astack-secret-guard` for accidental `.env`/key writes, `astack-irreversible-guard` for destructive shell commands, and `astack-verify-reminder` on stop).
+5. Optionally run workspace health diagnostics (`--doctor`) and decide whether to enable [hooks.json](../../hooks.json) safety guards (`astack-secret-guard` for accidental `.env`/key writes, and `astack-irreversible-guard` for destructive shell commands; `astack-verify-reminder --dirty-only` ships enabled by default).
 
    ```bash
    node skills/setup-astack/scripts/setup-banner.mjs --doctor --cwd .
    ```
 
-   **Visible result.** `--doctor` checks Node `>= 22.6.0`, `verify-*` skill freshness against recent commits, opt-in hook status (`0/3` by default), `astack-models.md` overrides, and stale git worktrees read-only with zero changes to your repository.
+   **Visible result.** `--doctor` checks Node `>= 22.6.0`, `verify-*` skill freshness against recent commits, lifecycle hook status (`4/10` enabled by default), `astack-models.md` overrides, and stale git worktrees read-only with zero changes to your repository.
 
 ## Repair drifted verification steps with /maintain-verification-skill
 

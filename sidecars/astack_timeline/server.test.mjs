@@ -502,13 +502,15 @@ test("createTimelineServer reports nextAction.inProgress when /plan is active be
     assert.doesNotMatch(appJs, /snap\.branch !== snap\.workspaceName/);
     assert.match(appJs, /timeline-risk-badge/);
     assert.match(appJs, /timeline-freshness/);
-    assert.match(appJs, /build-stale-callout/);
+    assert.doesNotMatch(appJs, /build-stale-callout/);
+    assert.doesNotMatch(appJs, /Needs re-verify/);
     assert.match(appJs, /Critical risk/);
     assert.doesNotMatch(appJs, /focus-drawer-agents/);
     assert.match(appJs, /stage-subagents-/);
     assert.match(appJs, /focus-drawer-prs/);
     assert.match(appJs, /focus-drawer-tasks/);
     assert.match(cssText, /\.living-rail\s*\{[^}]*top:\s*-32px/);
+    assert.doesNotMatch(cssText, /\.subcmd-pill\.stale-action/);
     assert.match(cssText, /\.pr-badge\.merged/);
   } finally {
     await srv.close();
@@ -2216,17 +2218,17 @@ test("app.js renders guided next-step command banner, Cleanup left label, collap
       ...currentSnap,
       etag: "etag-stale-and-gate",
       nextAction: {
-        stageId: "build",
-        stageLabel: "Build & Prove",
-        command: "/astack-mode",
-        title: "Re-verify edits on HEAD",
-        instruction: "New edits landed after verification. Re-clean and re-verify on HEAD before Pre-PR Check.",
-        prompt: "/astack-mode Re-clean and re-verify the 5 changed files on HEAD.",
+        stageId: "review",
+        stageLabel: "Pre-PR Check",
+        command: "/pre-pr",
+        title: "Re-run Pre-PR Check on updated HEAD",
+        instruction: "New edits invalidated the previous PR dossier. Re-compile pr-review.md and run pr-verifier on HEAD.",
+        prompt: "/pre-pr Re-compile pr-review.md and run isolated pr-verifier on updated HEAD.",
       },
       stages: currentSnap.stages.map((s) =>
         s.id === "plan"
           ? { ...s, status: "waiting_gate", railState: "yourturn" }
-          : s.id === "build"
+          : s.id === "review"
             ? { ...s, status: "stale", railState: "stale" }
             : s,
       ),
@@ -2237,7 +2239,7 @@ test("app.js renders guided next-step command banner, Cleanup left label, collap
     assert.doesNotMatch(staleGateBanner.textContent, /Your turn/);
     assert.equal(
       staleGateBanner.findByTestId("status-banner-cmd")?.textContent,
-      "/astack-mode Re-clean and re-verify the 5 changed files on HEAD.",
+      "/pre-pr Re-compile pr-review.md and run isolated pr-verifier on updated HEAD.",
     );
   } finally {
     await srv.close();

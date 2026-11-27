@@ -841,3 +841,47 @@ test("classifyCommandCategory ignores balanced Unicode curly-quoted print payloa
   assert.equal(classifyCommandCategory("true && Write-Output \u201c; vitest \u201d"), "other");
   assert.equal(classifyCommandCategory("Write-Output \u201cok\u201d && vitest"), "test");
 });
+
+test("parseHookPayload marks non-zero command payloads failed and computeFreshness supports requirePostEditVerify", () => {
+  const nonZeroEv = parseHookPayload(
+    {
+      toolCall: { name: "run_command", args: { CommandLine: "node --test" } },
+      exitCode: 1,
+    },
+    "post",
+  );
+  assert.equal(nonZeroEv.error, "exit_code_1");
+
+  const textFailEv = parseHookPayload(
+    {
+      toolCall: { name: "run_command", args: { CommandLine: "node --test" } },
+      tool_response: "Command exited with code 2.\n",
+    },
+    "post",
+  );
+  assert.equal(textFailEv.error, "non_zero_exit");
+
+  const head = "c".repeat(40);
+  const receipts = [
+    {
+      kind: "command",
+      category: "lint",
+      headSha: head,
+      ok: true,
+      ts: "2026-11-27T10:00:00Z",
+    },
+    {
+      kind: "file_write",
+      category: "other",
+      headSha: head,
+      ok: true,
+      ts: "2026-11-27T10:01:00Z",
+      paths: ["src/app.js"],
+    },
+  ];
+  assert.equal(computeFreshness({ receipts, headSha: head }), "dirty_after_verify");
+  assert.equal(
+    computeFreshness({ receipts, headSha: head, requirePostEditVerify: true }),
+    "missing_receipts",
+  );
+});

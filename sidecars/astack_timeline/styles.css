@@ -240,12 +240,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   background: color-mix(in srgb, var(--tl-done) 10%, transparent);
 }
 
-.meta-fresh.stale {
-  color: var(--tl-warning);
-  border-color: color-mix(in srgb, var(--tl-warning) 35%, transparent);
-  background: color-mix(in srgb, var(--tl-warning) 11%, transparent);
-}
-
 .meta-btn {
   display: inline-flex;
   align-items: center;
@@ -992,13 +986,6 @@ h4.md-heading { font-size: 13px; }
 .subcheck-callout.is-info .status-banner-dot {
   background: var(--tl-primary);
 }
-
-.subcmd-pill.stale-action {
-  border-color: color-mix(in srgb, var(--tl-warning) 38%, transparent);
-  background: color-mix(in srgb, var(--tl-warning) 10%, transparent);
-  color: var(--tl-fg);
-}
-
 .accordion-group {
   display: flex;
   flex-direction: column;
