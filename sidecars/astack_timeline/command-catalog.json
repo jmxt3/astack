@@ -199,25 +199,25 @@
       "description": "Restate the last agent message in plain human language with no jargon.",
       "docsPath": "skills/bro/SKILL.md"
     },
-    "/review-pr": {
+    "/pre-pr": {
       "kind": "skill",
       "invocable": true,
       "description": "Compile pr-review.md and run an isolated verifier pass before opening a PR.",
-      "docsPath": "skills/review-pr/SKILL.md"
+      "docsPath": "skills/pre-pr/SKILL.md"
     },
     "pr-dossier.mjs": {
       "kind": "script",
       "invocable": false,
-      "backingPath": "skills/review-pr/scripts/pr-dossier.mjs",
-      "invokedBy": "/review-pr",
+      "backingPath": "skills/pre-pr/scripts/pr-dossier.mjs",
+      "invokedBy": "/pre-pr",
       "description": "Compile Risk Tier 0-3 blast radius, receipts, and pr-review.md.",
-      "docsPath": "skills/review-pr/SKILL.md"
+      "docsPath": "skills/pre-pr/SKILL.md"
     },
     "pr-verifier": {
       "kind": "agent",
       "invocable": false,
       "backingPath": "agents/pr-verifier.md",
-      "invokedBy": "/review-pr",
+      "invokedBy": "/pre-pr",
       "description": "Run isolated fresh-context verification against base-branch REVIEW.md.",
       "docsPath": "agents/pr-verifier.md"
     },
@@ -689,17 +689,17 @@
       },
       {
         "id": "review",
-        "title": "PR Review",
-        "subtitle": "Prove safety and catch real bugs",
+        "title": "Pre-PR Check",
+        "subtitle": "Verify your branch before opening a PR",
         "icon": "pr",
         "examples": [
           {
-            "id": "review-pr",
-            "label": "PR proof gate",
-            "kicker": "PR proof gate · /review-pr",
-            "commands": ["/review-pr", "pr-dossier.mjs", "pr-verifier"],
-            "prompt": "/review-pr Compile pr-review.md with blast-radius tier and receipts, then run isolated pr-verifier against REVIEW.md.",
-            "how": "Compiles the review dossier and runs a fresh-context verifier before opening a PR.",
+            "id": "pre-pr",
+            "label": "Pre-PR proof gate",
+            "kicker": "Pre-PR proof gate · /pre-pr",
+            "commands": ["/pre-pr", "pr-dossier.mjs", "pr-verifier"],
+            "prompt": "/pre-pr Compile pr-review.md with blast-radius tier and receipts, then run isolated pr-verifier against REVIEW.md.",
+            "how": "Compiles the proof dossier and runs a fresh-context verifier before opening a PR.",
             "ownership": "AStack runs"
           },
           {
@@ -710,24 +710,6 @@
             "prompt": "/run-workflow Review the changed files on this branch in parallel, one reviewer per file, then run pr-verifier once on HEAD and log a one-line verdict per file.",
             "how": "AStack runs it when many files or packages share the same staged pass.",
             "ownership": "AStack runs"
-          },
-          {
-            "id": "interrogate",
-            "label": "Skeptical audit",
-            "kicker": "Skeptical audit · /interrogate",
-            "commands": ["/interrogate"],
-            "prompt": "/interrogate Review this branch skeptically for real bugs and regressions. Keep only live-reproduced findings.",
-            "how": "Challenges assumptions adversarially and filters out style noise.",
-            "ownership": "You start"
-          },
-          {
-            "id": "fanout",
-            "label": "Batch of PRs",
-            "kicker": "Batch of PRs · /fanout",
-            "commands": ["/fanout"],
-            "prompt": "/fanout Review PR #231, #232, and #235 in isolated branch workspaces, run affected tests, and return one consolidated report.",
-            "how": "Runs parallel subagent checks without spinning up a swarm board.",
-            "ownership": "You start"
           },
           {
             "id": "blast-radius",
@@ -749,13 +731,64 @@
           }
         ],
         "commands": [
-          "/review-pr",
+          "/pre-pr",
           "/run-workflow",
-          "/interrogate",
-          "/fanout",
           "/blast-radius",
           "/security-audit",
           "/audit-architecture"
+        ]
+      },
+      {
+        "id": "colleague-pr",
+        "title": "Review a Colleague's PR",
+        "subtitle": "Audit someone else's open PR",
+        "icon": "pr",
+        "examples": [
+          {
+            "id": "interrogate",
+            "label": "Hunt bugs (default)",
+            "kicker": "Hunt bugs · /interrogate",
+            "commands": ["/interrogate"],
+            "prompt": "/interrogate Review this branch skeptically for real bugs and regressions. Keep only live-reproduced findings.",
+            "how": "Challenges assumptions adversarially and filters out style noise.",
+            "ownership": "You start"
+          },
+          {
+            "id": "teach",
+            "label": "Understand large PR",
+            "kicker": "Understand large PR · /teach",
+            "commands": ["/teach"],
+            "prompt": "/teach Explain what this PR changes and whether it preserves prior invariants.",
+            "how": "Combines /how and /why so you understand the change before reviewing line by line.",
+            "ownership": "You start"
+          },
+          {
+            "id": "fanout",
+            "label": "Queue of 2 to 9 PRs",
+            "kicker": "Queue of 2 to 9 PRs · /fanout",
+            "commands": ["/fanout"],
+            "prompt": "/fanout Review PR #231, #232, and #235 in isolated branch workspaces, run affected tests, and return one consolidated report.",
+            "how": "Runs parallel subagent checks without spinning up a swarm board.",
+            "ownership": "You start"
+          },
+          {
+            "id": "swarm-stack",
+            "label": "Stacked PRs",
+            "kicker": "Stacked PRs · /swarm",
+            "commands": ["/swarm"],
+            "prompt": "/swarm Review stacked PRs #240, #241, and #242 with one reviewer per PR in branch workspaces plus an independent @verifier.",
+            "how": "Coordinates reviewers across dependent PRs with independent bug reproduction.",
+            "ownership": "You start"
+          }
+        ],
+        "commands": [
+          "/interrogate",
+          "/teach",
+          "/blast-radius",
+          "/fanout",
+          "/run-workflow",
+          "/swarm",
+          "/security-audit"
         ]
       },
       {
@@ -908,6 +941,87 @@
         "icon": "clock",
         "summary": "Check back on something later",
         "prompt": "/schedule in 30 minutes re-run node --run test and tell me if anything regressed."
+      }
+    ]
+  },
+  "colleagueReviewGuide": {
+    "intents": [
+      {
+        "id": "single",
+        "title": "Review one PR",
+        "subtitle": "Default for most daily reviews",
+        "defaultOpen": true,
+        "steps": [
+          {
+            "step": 1,
+            "title": "Understand first",
+            "condition": "Only if large or unfamiliar",
+            "badge": "Optional",
+            "command": "/teach",
+            "prompt": "/teach me what PR #123 changes and whether it preserves prior invariants."
+          },
+          {
+            "step": 2,
+            "title": "Hunt real bugs",
+            "condition": "Recommended default",
+            "badge": "Default",
+            "command": "/interrogate",
+            "prompt": "/interrogate this branch against origin/main skeptically. Don't change anything. Keep only live-reproduced bugs."
+          },
+          {
+            "step": 3,
+            "title": "Check downstream impact",
+            "condition": "Only if shared helper, API, or schema",
+            "badge": "Optional",
+            "command": "/blast-radius",
+            "prompt": "/blast-radius Prove downstream callers, wire formats, and persisted state stay safe on this branch."
+          }
+        ],
+        "moreChecks": [
+          {
+            "title": "Security check",
+            "condition": "Only if auth, secrets, or untrusted input",
+            "command": "/security-audit",
+            "prompt": "/security-audit Review trust boundaries, input validation, and auth paths touched by this PR."
+          }
+        ]
+      },
+      {
+        "id": "queue",
+        "title": "Triage a queue of PRs",
+        "subtitle": "Multiple independent PRs",
+        "defaultOpen": false,
+        "steps": [
+          {
+            "title": "2 to 9 PRs",
+            "condition": "Run /interrogate only on PRs flagged ISSUES",
+            "badge": "2-9 PRs",
+            "command": "/fanout",
+            "prompt": "/fanout Review PR #231, #232, and #235 in isolated branch workspaces, run affected tests, and return one consolidated report."
+          },
+          {
+            "title": "10 or more PRs",
+            "condition": "Parallel Python pipeline with one ranked verdict per PR",
+            "badge": "10+ PRs",
+            "command": "/run-workflow",
+            "prompt": "/run-workflow List open PRs requesting my review, check out each in parallel temp worktrees, run tests and boundary checks, and return one ranked line per PR."
+          }
+        ]
+      },
+      {
+        "id": "stack",
+        "title": "Review a PR stack",
+        "subtitle": "Dependent PRs with shared contracts",
+        "defaultOpen": false,
+        "steps": [
+          {
+            "title": "Stacked PRs (#A -> #B -> #C)",
+            "condition": "One reviewer per PR plus independent @verifier",
+            "badge": "Stack",
+            "command": "/swarm",
+            "prompt": "/swarm Review stacked PRs #240, #241, and #242 with one reviewer per PR in branch workspaces plus an independent @verifier that reruns every candidate bug."
+          }
+        ]
       }
     ]
   }

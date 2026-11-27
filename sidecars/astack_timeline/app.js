@@ -34,6 +34,11 @@
     guideSelectedExampleByStage: {},
     setupDrawerOpen: false,
     beastDrawerOpen: false,
+    panelMode: "build",
+    panelModeUserToggled: false,
+    lastConversationId: "",
+    reviewPrExpandedIntent: null,
+    reviewPrMoreOpen: false,
     expanded: new Set(),
     moreExpanded: new Set(),
     subExpanded: { swarm: false, helpers: false, goal: false, more: false },
@@ -2014,7 +2019,15 @@
     let text = "";
     let action = null;
 
-    if (liveIds.length > 0) {
+    if (state.panelMode === "review_pr" && snap.colleagueReview?.detected) {
+      tone = snap.colleagueReview.running ? "is-running" : "is-done";
+      iconKind = snap.colleagueReview.running ? "dot" : "check";
+      badge = snap.colleagueReview.running ? "Working" : "Reviewing";
+      const cmds = snap.colleagueReview.detectedCommands || [];
+      text = cmds.length > 0
+        ? `Colleague PR review active (${cmds.join(", ")}).`
+        : "Colleague PR review mode active.";
+    } else if (liveIds.length > 0) {
       const liveStage = stages.find((s) => liveIds.includes(s.id));
       tone = "is-running";
       iconKind = "dot";
@@ -2025,7 +2038,7 @@
       iconKind = "warn";
       badge = "Needs attention";
       text = review.detail || "Remediation round cap reached.";
-      action = { type: "copy", label: "/review-pr", command: "/review-pr" };
+      action = { type: "copy", label: "/pre-pr", command: "/pre-pr" };
     } else if (plan?.status === "waiting_gate") {
       tone = "is-yourturn";
       iconKind = "dot";
@@ -2172,7 +2185,7 @@
     "/browser": (act) =>
       (act.subagents || []).some((a) => a.type === "browser" && a.status === "running") ? "in use" : "",
     "/run-workflow": (act) =>
-      act.workflow?.active ? "running" : act.workflow?.suggestedReview ? "for PR Review" : "",
+      act.workflow?.active ? "running" : act.workflow?.suggestedReview ? "for Pre-PR Check" : "",
     "/boost": (act) => (act.boost?.active ? "active" : ""),
     "/goal": (act) => (act.goal?.active ? "active" : ""),
     "/teamwork": (act) => (act.teamwork?.active ? "active" : ""),
@@ -2677,7 +2690,7 @@
         retryBtn.addEventListener("click", () => loadDossierView());
         acts.appendChild(retryBtn);
       }
-      acts.appendChild(buildCopyActionPill("/review-pr", "/review-pr"));
+      acts.appendChild(buildCopyActionPill("/pre-pr", "/pre-pr"));
       sec.appendChild(acts);
       body.appendChild(sec);
     } else if (ev) {
@@ -2776,7 +2789,7 @@
       body.appendChild(fSec);
 
       const acts = el("div", "dossier-actions");
-      acts.appendChild(buildCopyActionPill("/review-pr", "/review-pr"));
+      acts.appendChild(buildCopyActionPill("/pre-pr", "/pre-pr"));
       if (allFindings.some((f) => f.severity === "important")) {
         acts.appendChild(
           buildCopyActionPill(
@@ -3160,19 +3173,191 @@
     return row;
   }
 
+  function syncPanelMode(snap) {
+    const convKey = snap?.conversationId || "";
+    if (convKey !== state.lastConversationId) {
+      state.lastConversationId = convKey;
+      state.panelModeUserToggled = false;
+      state.reviewPrExpandedIntent = null;
+      state.reviewPrMoreOpen = false;
+    }
+    if (!state.panelModeUserToggled) {
+      state.panelMode = snap?.panelDefaultMode === "review_pr" ? "review_pr" : "build";
+    }
+    const buildBtn = document.getElementById("mode-btn-build");
+    const reviewBtn = document.getElementById("mode-btn-review");
+    if (buildBtn) buildBtn.setAttribute("aria-pressed", String(state.panelMode === "build"));
+    if (reviewBtn) reviewBtn.setAttribute("aria-pressed", String(state.panelMode === "review_pr"));
+  }
+
+  function renderColleagueReviewStep(step, snap, detectedSet, idx, isNumbered) {
+    const card = el("div", detectedSet.has(step.command) ? "cr-step-card is-active" : "cr-step-card");
+    card.dataset.testid = `cr-step-${step.command.replace(/[^a-z0-9_-]/gi, "")}-${idx}`;
+
+    const head = el("div", "cr-step-head");
+    const titleText = isNumbered && step.step ? `${step.step}. ${step.title}` : step.title;
+    head.appendChild(el("span", "cr-step-title", titleText));
+    if (step.badge) {
+      const badgeCls = step.badge === "Default" ? "cr-badge is-default" : "cr-badge";
+      head.appendChild(el("span", badgeCls, step.badge));
+    }
+    if (detectedSet.has(step.command)) {
+      head.appendChild(el("span", "cr-badge is-ran", "Ran"));
+    }
+    card.appendChild(head);
+
+    if (step.condition) {
+      card.appendChild(el("p", "cr-step-cond", step.condition));
+    }
+
+    const actions = el("div", "cr-step-actions");
+    actions.appendChild(buildGuideCommandChip(step.command, snap));
+    const copyBtn = el("button", "copy-inline-btn");
+    copyBtn.type = "button";
+    copyBtn.setAttribute("aria-label", `Copy ${step.command} prompt`);
+    copyBtn.appendChild(svgIcon("copy", 11));
+    copyBtn.appendChild(el("span", "", "Copy prompt"));
+    copyBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      copyCommand({ command: step.command, copyText: step.prompt }, copyBtn, true);
+    });
+    actions.appendChild(copyBtn);
+    card.appendChild(actions);
+
+    if (step.prompt) {
+      card.appendChild(el("p", "cr-step-prompt", step.prompt));
+    }
+    return card;
+  }
+
+  function renderColleagueReviewPanel(snap) {
+    const container = document.getElementById("colleague-review-panel");
+    if (!container) return;
+    const intents = Array.isArray(window.ASTACK_CATALOG?.colleagueReviewGuide?.intents)
+      ? window.ASTACK_CATALOG.colleagueReviewGuide.intents
+      : [];
+    const cr = snap?.colleagueReview || {};
+    const detectedSet = new Set(Array.isArray(cr.detectedCommands) ? cr.detectedCommands : []);
+    const activeIntentId = cr.activeIntent || intents.find((i) => i.defaultOpen)?.id || intents[0]?.id || "single";
+    const expandedId = state.reviewPrExpandedIntent || activeIntentId;
+
+    const intro = el("div", "cr-intro");
+    const introTop = el("div", "cr-intro-top");
+    const introCopy = el("div", "cr-intro-copy");
+    introCopy.appendChild(el("div", "cr-intro-title", "Review a Colleague's PR"));
+    introCopy.appendChild(el("p", "cr-intro-sub", "Pick the workflow matching your review scope. Authoring stages are hidden."));
+    introTop.appendChild(introCopy);
+
+    if (snap?.hasConversation && snap?.workspace) {
+      const dossierBtn = el("button", "subcmd-pill is-sans", "PR Dossier");
+      dossierBtn.type = "button";
+      dossierBtn.dataset.testid = "cr-open-dossier";
+      dossierBtn.addEventListener("click", () => switchView("dossier"));
+      introTop.appendChild(dossierBtn);
+    }
+    intro.appendChild(introTop);
+
+    const targetPrs = Array.isArray(cr.targetPrs) ? cr.targetPrs : [];
+    if (targetPrs.length > 0) {
+      const prRow = el("div", "cr-pr-row");
+      for (const item of targetPrs.slice(0, 5)) {
+        const label = `PR #${item.number}${item.state ? ` · ${item.state}` : ""}`;
+        if (item.url) {
+          const a = el("a", "meta-pill cr-pr-link", label);
+          a.href = item.url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          prRow.appendChild(a);
+        } else {
+          prRow.appendChild(el("span", "meta-pill", label));
+        }
+      }
+      intro.appendChild(prRow);
+    }
+
+    const groups = el("div", "cr-intent-groups");
+    for (const intent of intents) {
+      const isOpen = expandedId === intent.id;
+      const isDetected = cr.activeIntent === intent.id;
+      const sec = el("section", isDetected ? "guide-stage-group is-context" : "guide-stage-group");
+      sec.dataset.testid = `cr-intent-section-${intent.id}`;
+
+      const btn = el("button", "guide-acc-btn");
+      btn.type = "button";
+      btn.dataset.testid = `cr-intent-${intent.id}`;
+      btn.setAttribute("aria-expanded", String(isOpen));
+      btn.addEventListener("click", () => {
+        state.reviewPrExpandedIntent = intent.id;
+        renderColleagueReviewPanel(state.snap);
+      });
+
+      const copyWrap = el("span", "guide-acc-copy");
+      copyWrap.appendChild(el("span", "guide-acc-title", intent.title));
+      copyWrap.appendChild(el("span", "guide-acc-sub", intent.subtitle));
+      btn.appendChild(copyWrap);
+
+      if (isDetected) {
+        btn.appendChild(el("span", "guide-live-badge active", cr.running ? "running" : "active"));
+      }
+      const chev = svgIcon("chevron", 13);
+      chev.classList.add("chev");
+      btn.appendChild(chev);
+      sec.appendChild(btn);
+
+      if (isOpen) {
+        const body = el("div", "cr-intent-body");
+        body.dataset.testid = `cr-intent-body-${intent.id}`;
+        const steps = Array.isArray(intent.steps) ? intent.steps : [];
+        steps.forEach((step, idx) => {
+          body.appendChild(renderColleagueReviewStep(step, snap, detectedSet, idx, intent.id === "single"));
+        });
+
+        const moreChecks = Array.isArray(intent.moreChecks) ? intent.moreChecks : [];
+        if (moreChecks.length > 0) {
+          const moreWrap = el("div", "more-section");
+          const moreBtn = el("button", "more-toggle");
+          moreBtn.type = "button";
+          moreBtn.dataset.testid = "cr-more-toggle";
+          moreBtn.setAttribute("aria-expanded", String(state.reviewPrMoreOpen));
+          const mChev = svgIcon("chevron", 11);
+          mChev.classList.add("chev");
+          moreBtn.appendChild(mChev);
+          moreBtn.appendChild(el("span", "", `More checks (${moreChecks.length})`));
+          moreBtn.addEventListener("click", () => {
+            state.reviewPrMoreOpen = !state.reviewPrMoreOpen;
+            renderColleagueReviewPanel(state.snap);
+          });
+          moreWrap.appendChild(moreBtn);
+          if (state.reviewPrMoreOpen) {
+            moreChecks.forEach((chk, idx) => {
+              moreWrap.appendChild(renderColleagueReviewStep(chk, snap, detectedSet, idx, false));
+            });
+          }
+          body.appendChild(moreWrap);
+        }
+        sec.appendChild(body);
+      }
+
+      groups.appendChild(sec);
+    }
+
+    container.replaceChildren(intro, groups);
+  }
+
   function render(snap) {
     if (!snap) return;
+    syncPanelMode(snap);
     const progressEl = document.getElementById("progress");
     const WORKFLOW_MODE_COPY = {
       pr_iteration: {
         title: "PR Iteration",
         status: "Advisory",
-        desc: "Iterating on an existing PR. Earlier stages are optional—jump straight to Build, PR Review, or Ship.",
+        desc: "Iterating on an existing PR. Earlier stages are optional. Jump straight to Build, Pre-PR Check, or Ship.",
       },
       pr_review: {
-        title: "PR Review",
+        title: "Pre-PR Check",
         status: "Advisory",
-        desc: "Reviewing an existing PR. Plan and Build are optional when work was completed earlier.",
+        desc: "Checking an existing branch before opening or updating a PR. Plan and Build are optional when work was completed earlier.",
       },
       direct_build: {
         title: "Direct Flow",
@@ -3182,7 +3367,16 @@
     };
     const modeInfo = WORKFLOW_MODE_COPY[snap.workflowMode];
     if (progressEl) {
-      if (snap.workflowLabel && modeInfo) {
+      if (state.panelMode === "review_pr") {
+        progressEl.textContent = "Review PR";
+        progressEl.className = "progress is-mode";
+        state.progressPopover = {
+          title: "Colleague PR Review",
+          statusText: "Dedicated",
+          mode: "",
+          desc: "Focused workflows for reviewing someone else's open PR without authoring stages.",
+        };
+      } else if (snap.workflowLabel && modeInfo) {
         progressEl.textContent = snap.workflowLabel;
         progressEl.className = "progress is-mode";
         state.progressPopover = { title: modeInfo.title, statusText: modeInfo.status, mode: "", desc: modeInfo.desc };
@@ -3489,83 +3683,96 @@
     }
 
     const list = document.getElementById("timeline");
-    list.replaceChildren();
-    list.classList.toggle("is-dimmed", isNonRepo);
-    railWrap?.classList.toggle("is-dimmed", isNonRepo);
-    const liveIds = snap.activity?.liveStageIds || [];
+    const tlWrapEl = document.getElementById("timeline-wrap") || railWrap;
+    const crPanel = document.getElementById("colleague-review-panel");
+    if (state.panelMode === "review_pr") {
+      tlWrapEl?.classList.add("hidden");
+      crPanel?.classList.remove("hidden");
+      renderColleagueReviewPanel(snap);
+      rail?.setVisible(false);
+    } else {
+      crPanel?.classList.add("hidden");
+      tlWrapEl?.classList.remove("hidden");
+      rail?.setVisible(!document.hidden && state.view === "timeline");
 
-    snap.stages.forEach((stage, idx) => {
-      const isLast = idx === snap.stages.length - 1;
-      const isExpanded = state.expanded.has(stage.id);
-      const rs = stage.railState || "pending";
-      const stLabel = stageStatusLabel(stage, snap.stages);
-      const liveAgents = snap.activity?.liveAgentsByStage?.[stage.id] ?? 0;
+      list.replaceChildren();
+      list.classList.toggle("is-dimmed", isNonRepo);
+      railWrap?.classList.toggle("is-dimmed", isNonRepo);
+      const liveIds = snap.activity?.liveStageIds || [];
 
-      const li = el("li", `step ${rs}`);
-      li.dataset.testid = `timeline-step-${stage.id}`;
-      if (
-        rs === "running" ||
-        (liveIds.length === 0 && (rs === "yourturn" || rs === "suggested"))
-      ) {
-        li.setAttribute("aria-current", "step");
-      }
+      snap.stages.forEach((stage, idx) => {
+        const isLast = idx === snap.stages.length - 1;
+        const isExpanded = state.expanded.has(stage.id);
+        const rs = stage.railState || "pending";
+        const stLabel = stageStatusLabel(stage, snap.stages);
+        const liveAgents = snap.activity?.liveAgentsByStage?.[stage.id] ?? 0;
 
-      const railEl = el("div", "rail");
-      const node = el("span", `node ${rs}`);
-      node.dataset.railNode = "1";
-      node.setAttribute("role", "img");
-      node.setAttribute("aria-label", railNodeAriaLabel(stage, stLabel, liveAgents));
-      railEl.appendChild(node);
-      if (!isLast) {
-        const stem = el("span", "stem");
-        stem.setAttribute("aria-hidden", "true");
-        railEl.appendChild(stem);
-      }
-      li.appendChild(railEl);
+        const li = el("li", `step ${rs}`);
+        li.dataset.testid = `timeline-step-${stage.id}`;
+        if (
+          rs === "running" ||
+          (liveIds.length === 0 && (rs === "yourturn" || rs === "suggested"))
+        ) {
+          li.setAttribute("aria-current", "step");
+        }
 
-      const body = el("div", "step-body");
-      const stepBtn = el("button", "step-btn");
-      stepBtn.type = "button";
-      stepBtn.setAttribute("aria-expanded", String(isExpanded));
-      stepBtn.addEventListener("click", () => {
-        state.userToggled = true;
-        if (state.expanded.has(stage.id)) state.expanded.delete(stage.id);
-        else state.expanded.add(stage.id);
-        render(state.snap);
+        const railEl = el("div", "rail");
+        const node = el("span", `node ${rs}`);
+        node.dataset.railNode = "1";
+        node.setAttribute("role", "img");
+        node.setAttribute("aria-label", railNodeAriaLabel(stage, stLabel, liveAgents));
+        railEl.appendChild(node);
+        if (!isLast) {
+          const stem = el("span", "stem");
+          stem.setAttribute("aria-hidden", "true");
+          railEl.appendChild(stem);
+        }
+        li.appendChild(railEl);
+
+        const body = el("div", "step-body");
+        const stepBtn = el("button", "step-btn");
+        stepBtn.type = "button";
+        stepBtn.setAttribute("aria-expanded", String(isExpanded));
+        stepBtn.addEventListener("click", () => {
+          state.userToggled = true;
+          if (state.expanded.has(stage.id)) state.expanded.delete(stage.id);
+          else state.expanded.add(stage.id);
+          render(state.snap);
+        });
+
+        stepBtn.appendChild(el("span", "step-title", `${stage.number}. ${stage.label}`));
+        if (stLabel) {
+          stepBtn.appendChild(el("span", `status-text ${stLabel.cls}`, stLabel.text));
+        } else if (stage.id === "plan" && rs === "pending") {
+          stepBtn.appendChild(el("span", "status-text muted", "Optional"));
+        }
+        const chev = svgIcon("chevron", 14);
+        chev.classList.add("chev");
+        stepBtn.appendChild(chev);
+        body.appendChild(stepBtn);
+
+        const summaryText = isExpanded ? stage.summary : stage.collapsedSummary || stage.summary;
+        if (summaryText) {
+          body.appendChild(el("p", "stage-summary", summaryText));
+        }
+
+        const statsRow = buildStageStatsRow(stage);
+        if (statsRow) {
+          body.appendChild(statsRow);
+        }
+
+        if (isExpanded) {
+          body.appendChild(
+            stage.id === "build" ? buildBuildStageDetail(stage, snap) : buildGenericStageDetail(stage, snap),
+          );
+        }
+
+        li.appendChild(body);
+        list.appendChild(li);
       });
 
-      stepBtn.appendChild(el("span", "step-title", `${stage.number}. ${stage.label}`));
-      if (stLabel) {
-        stepBtn.appendChild(el("span", `status-text ${stLabel.cls}`, stLabel.text));
-      } else if (stage.id === "plan" && rs === "pending") {
-        stepBtn.appendChild(el("span", "status-text muted", "Optional"));
-      }
-      const chev = svgIcon("chevron", 14);
-      chev.classList.add("chev");
-      stepBtn.appendChild(chev);
-      body.appendChild(stepBtn);
-
-      const summaryText = isExpanded ? stage.summary : stage.collapsedSummary || stage.summary;
-      if (summaryText) {
-        body.appendChild(el("p", "stage-summary", summaryText));
-      }
-
-      const statsRow = buildStageStatsRow(stage);
-      if (statsRow) {
-        body.appendChild(statsRow);
-      }
-
-      if (isExpanded) {
-        body.appendChild(
-          stage.id === "build" ? buildBuildStageDetail(stage, snap) : buildGenericStageDetail(stage, snap),
-        );
-      }
-
-      li.appendChild(body);
-      list.appendChild(li);
-    });
-
-    updateRail(snap);
+      updateRail(snap);
+    }
 
     renderFooter(snap);
     if (state.view === "trust") {
@@ -3733,7 +3940,7 @@
   document.fonts?.ready?.then(layoutRail);
   if (railWrap && typeof IntersectionObserver === "function") {
     new IntersectionObserver(([entry]) => {
-      rail?.setVisible(Boolean(entry?.isIntersecting) && state.view === "timeline" && !document.hidden);
+      rail?.setVisible(Boolean(entry?.isIntersecting) && state.view === "timeline" && state.panelMode === "build" && !document.hidden);
     }).observe(railWrap);
   }
   new MutationObserver(() => rail?.refreshTheme()).observe(document.documentElement, {
@@ -3759,6 +3966,21 @@
       const payload = `/btw ${cleanQ}`;
       if (input) input.value = "";
       copyCommand({ command: "/btw", copyText: payload }, btwSubmit);
+    });
+  }
+
+  const modeBuildBtn = document.getElementById("mode-btn-build");
+  const modeReviewBtn = document.getElementById("mode-btn-review");
+  for (const [btn, mode] of [[modeBuildBtn, "build"], [modeReviewBtn, "review_pr"]]) {
+    btn?.addEventListener("click", () => {
+      state.panelMode = mode;
+      state.panelModeUserToggled = true;
+      if (state.snap) {
+        render(state.snap);
+      } else {
+        modeBuildBtn?.setAttribute("aria-pressed", String(mode === "build"));
+        modeReviewBtn?.setAttribute("aria-pressed", String(mode === "review_pr"));
+      }
     });
   }
 

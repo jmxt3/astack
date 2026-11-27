@@ -509,6 +509,18 @@ function checkTimelineCatalog(rootDir, { validSkillNames, nativeCommandSet }, er
     checkSlashText(`delegateMenu.${item.id}`, item.command);
     checkSlashText(`delegateMenu.${item.id}.prompt`, item.prompt);
   }
+  for (const intent of catalog.colleagueReviewGuide?.intents ?? []) {
+    for (const step of [...(intent.steps ?? []), ...(intent.moreChecks ?? [])]) {
+      if (!commands[step.command]) {
+        errors.push({
+          file: catalogRel,
+          message: `colleagueReviewGuide.${intent.id} references unknown command ${step.command}`,
+        });
+      }
+      checkSlashText(`colleagueReviewGuide.${intent.id}.${step.command}`, step.command);
+      checkSlashText(`colleagueReviewGuide.${intent.id}.${step.command}.prompt`, step.prompt);
+    }
+  }
 }
 
 function checkDocCountClaims(rootDir, counts, errors) {

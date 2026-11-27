@@ -42,6 +42,7 @@ export function loadCommandCatalog(catalogPath = DEFAULT_CATALOG_PATH) {
     commandDocs,
     stageCatalog,
     delegateGuide: raw.delegateGuide ?? { stages: [], delegateMenu: [] },
+    colleagueReviewGuide: raw.colleagueReviewGuide ?? { intents: [] },
   };
 }
 
@@ -51,3 +52,4 @@ export const GITHUB_DOCS_BASE = loaded.githubDocsBase;
 export const COMMAND_DOCS = loaded.commandDocs;
 export const STAGE_COMMAND_CATALOG = loaded.stageCatalog;
 export const DELEGATE_GUIDE_DATA = loaded.delegateGuide;
+export const COLLEAGUE_REVIEW_GUIDE = loaded.colleagueReviewGuide;

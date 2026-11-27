@@ -86,10 +86,10 @@ export const TIMELINE_STEPS = [
   {
     id: "review",
     number: 3,
-    label: "PR Review",
-    summary: "Compile PR proof and run isolated verification.",
+    label: "Pre-PR Check",
+    summary: "Verify HEAD independently and compile PR proof.",
     gate: "GATE",
-    primaryCommand: "/review-pr",
+    primaryCommand: "/pre-pr",
     optionalCommands: [],
     pipelineStages: [STAGE_BY_ID.get("pr-review")?.id].filter(Boolean),
   },
@@ -739,7 +739,7 @@ function inferTaskStageId(text, { hasWorkspaceWrite = false } = {}) {
   if (/\bwatch-pr\b|\bgh\s+pr\s+(?:create|merge|checks|view|edit|comment)\b|\bgit\s+push\b|\bbabysit\b/i.test(str)) {
     return "ship";
   }
-  if (/\bpr-dossier\b|\breview-pr\b|\bpr-verifier\b/i.test(str)) {
+  if (/\bpr-dossier\b|\bpre-pr\b|\bpr-verifier\b/i.test(str)) {
     return "review";
   }
   if (!hasWorkspaceWrite && /\bplan\b|\bgrill-me\b/i.test(str)) {
@@ -750,7 +750,7 @@ function inferTaskStageId(text, { hasWorkspaceWrite = false } = {}) {
 
 function inferSubagentStageId(subType, roleText, promptText, hasWorkspaceWrite) {
   const combined = `${subType} ${roleText} ${promptText}`;
-  if (subType === "pr-verifier" || /\bpr[- ]?verifier\b|\breview[- ]?pr\b|\bpr[- ]?dossier\b/i.test(combined)) {
+  if (subType === "pr-verifier" || /\bpr[- ]?verifier\b|\bpre[- ]?pr\b|\bpr[- ]?dossier\b/i.test(combined)) {
     return "review";
   }
   if (
@@ -798,6 +798,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
     schedules: [],
     automations: [],
     workflow: { active: false, runsCount: 0, stageId: null },
+    colleagueReview: { commands: new Set(), queueReview: false, stackReview: false, targetPrs: new Map() },
     mainTurn: { active: false, waitingOnUser: false, lastActivityMs: 0 },
     backgroundJobs: [],
     sideQuestionsCount: 0,
@@ -843,14 +844,39 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
       const rawContent = String(step.content ?? "");
       const cmds = extractInvokedSlashCommands(rawContent);
       const body = extractRequestBody(rawContent).trim();
+      let matchedColleaguePrCmd = false;
       for (const cmd of cmds) {
         if (COMMAND_DOCS[cmd]) sig.detected.add(cmd);
         if (cmd === "/setup-astack") sig.setupAt = latestMarker(sig.setupAt, marker);
         else if (cmd === "/grill-me") sig.grillMeAt = latestMarker(sig.grillMeAt, marker);
         else if (cmd === "/plan") sig.planCmdAt = latestMarker(sig.planCmdAt, marker);
         else if (cmd === "/astack-mode") sig.astackModeAt = latestMarker(sig.astackModeAt, marker);
-        else if (cmd === "/interrogate") sig.interrogateAt = latestMarker(sig.interrogateAt, marker);
-        else if (cmd === "/review-pr") sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
+        else if (cmd === "/interrogate") {
+          sig.interrogateAt = latestMarker(sig.interrogateAt, marker);
+          sig.colleagueReview.commands.add("/interrogate");
+          matchedColleaguePrCmd = true;
+        } else if (cmd === "/teach") {
+          sig.colleagueReview.commands.add("/teach");
+          matchedColleaguePrCmd = true;
+        } else if (cmd === "/blast-radius") {
+          sig.colleagueReview.commands.add("/blast-radius");
+          matchedColleaguePrCmd = true;
+        } else if (cmd === "/security-audit") {
+          sig.colleagueReview.commands.add("/security-audit");
+          matchedColleaguePrCmd = true;
+        } else if (cmd === "/fanout" && /\b(?:pr|prs|pull|review)\b|#\d+/i.test(body)) {
+          sig.colleagueReview.commands.add("/fanout");
+          sig.colleagueReview.queueReview = true;
+          matchedColleaguePrCmd = true;
+        } else if (cmd === "/run-workflow" && /\b(?:pr|prs|pull|review)\b|#\d+/i.test(body)) {
+          sig.colleagueReview.commands.add("/run-workflow");
+          sig.colleagueReview.queueReview = true;
+          matchedColleaguePrCmd = true;
+        } else if (cmd === "/swarm" && /\b(?:pr|prs|pull|review|stack)\b|#\d+/i.test(body)) {
+          sig.colleagueReview.commands.add("/swarm");
+          sig.colleagueReview.stackReview = true;
+          matchedColleaguePrCmd = true;
+        } else if (cmd === "/pre-pr") sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
         else if (cmd === "/boost") {
           sig.boost.detected = true;
           sig.boost.active = true;
@@ -868,6 +894,17 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
             stageId: inferTaskStageId(autoLabel, { hasWorkspaceWrite: Boolean(sig.latestWorkspaceWriteAt) }),
             active: true,
           });
+        }
+      }
+      if (matchedColleaguePrCmd) {
+        for (const prRef of extractPrReferences(body, { urlsOnly: true })) {
+          upsertPrEntry(sig.colleagueReview.targetPrs, prRef, { ts: marker.ts });
+        }
+        for (const m of body.matchAll(/(?:\bPR\s*#?|#)(\d+)\b/gi)) {
+          const num = Number.parseInt(m[1], 10);
+          if (Number.isFinite(num) && num > 0 && !sig.colleagueReview.targetPrs.has(num)) {
+            upsertPrEntry(sig.colleagueReview.targetPrs, { number: num, url: null }, { ts: marker.ts });
+          }
         }
       }
       const isQuestionBody = /\?\s*$/.test(body);
@@ -1239,7 +1276,7 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
         else if (/\/skills\/(?:deslop|no-comments)\/SKILL\.md$/i.test(p)) sig.cleanAt = latestMarker(sig.cleanAt, marker);
         else if (/\/skills\/(?:control-ui|control-cli)\/SKILL\.md$/i.test(p) || /\/\.agents\/skills\/verify-[^/]+\/SKILL\.md$/i.test(p)) {
           sig.astackModeAt = latestMarker(sig.astackModeAt, marker);
-        } else if (/\/skills\/review-pr\/SKILL\.md$/i.test(p)) {
+        } else if (/\/skills\/pre-pr\/SKILL\.md$/i.test(p)) {
           sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
         } else if (/\/skills\/astack-mode\/playbooks\/opening-a-pr\.md$/i.test(p)) {
           sig.openPrAt = latestMarker(sig.openPrAt, marker);
@@ -1587,6 +1624,14 @@ function mergeChildTranscriptSignals(sig, brainDir, workspaceDir, parentConvId) 
     for (const childPr of childSig.prs.values()) {
       upsertPrEntry(sig.prs, childPr);
     }
+    for (const cmd of childSig.colleagueReview?.commands ?? []) {
+      sig.colleagueReview.commands.add(cmd);
+    }
+    if (childSig.colleagueReview?.queueReview) sig.colleagueReview.queueReview = true;
+    if (childSig.colleagueReview?.stackReview) sig.colleagueReview.stackReview = true;
+    for (const childTargetPr of childSig.colleagueReview?.targetPrs?.values() ?? []) {
+      upsertPrEntry(sig.colleagueReview.targetPrs, childTargetPr);
+    }
   }
   return sig;
 }
@@ -1882,13 +1927,13 @@ function buildReviewStage({
   const detail = roundState === "escalated"
     ? `Remediation hit ${reviewRound}/${maxReviewRounds} round cap. Human decision required.`
     : status === "stale"
-      ? "New changes invalidated prior PR evidence. Re-run /review-pr."
+      ? "New changes invalidated prior PR evidence. Re-run /pre-pr."
       : status === "waiting_gate"
         ? `Risk Tier ${evidence?.riskTier ?? 1} (${evidence?.riskLabel ?? "medium"}) · pr-verifier ${verdict ?? "pending"} (${reviewRound}/${maxReviewRounds}). Ready for your visual review.`
         : status === "done"
           ? reviewArtifact || reviewPass
-            ? `PR review passed (Tier ${evidence?.riskTier ?? 1}).`
-            : "PR review ran before push."
+            ? `Pre-PR check passed (Tier ${evidence?.riskTier ?? 1}).`
+            : "Pre-PR check ran before push."
           : status === "skipped"
             ? "Skipped — moved directly to Ship."
             : "Compile pr-review.md and run isolated pr-verifier.";
@@ -1899,7 +1944,7 @@ function buildReviewStage({
     ...(skippedReason ? { skippedReason } : {}),
     commands: [
       makeCommandItem(
-        "/review-pr",
+        "/pre-pr",
         status === "done" || status === "waiting_gate"
           ? "done"
           : status === "stale" || status === "error"
@@ -1945,7 +1990,7 @@ function buildShipStage({ reviewStatus, shipped, shipLive, openPrRequested = fal
 function selectNextAction(stepViews, setupState) {
   const [plan, build, review, ship] = stepViews;
   if (review.status === "error") {
-    return { stageId: "review", stageLabel: "PR Review", command: "/review-pr", hint: review.detail };
+    return { stageId: "review", stageLabel: "Pre-PR Check", command: "/pre-pr", hint: review.detail };
   }
   if (build.status === "stale") {
     const onlyClean =
@@ -1961,7 +2006,7 @@ function selectNextAction(stepViews, setupState) {
     };
   }
   if (review.status === "stale") {
-    return { stageId: "review", stageLabel: "PR Review", command: "/review-pr", hint: "Re-run PR dossier on updated HEAD." };
+    return { stageId: "review", stageLabel: "Pre-PR Check", command: "/pre-pr", hint: "Re-run PR dossier on updated HEAD." };
   }
   if (plan.status === "waiting_gate") {
     return { stageId: "plan", stageLabel: "Plan", command: "Proceed", hint: "Review implementation_plan.md and click Proceed." };
@@ -2166,10 +2211,10 @@ function buildStageCollapsedSummary(stage, pr, prs, shipped, { railState = null,
     if (railState === "running") {
       return liveAgents > 0 ? withLiveAgents("pr-verifier checking HEAD.") : "Compiling PR dossier and verifying HEAD.";
     }
-    if (stage.status === "stale") return "Your latest edits came after the last review.";
+    if (stage.status === "stale") return "Your latest edits came after the last Pre-PR check.";
     if (stage.status === "waiting_gate") return "Ready for your visual review.";
     if (stage.status === "error") return stage.detail;
-    if (stage.status === "done") return "PR review passed.";
+    if (stage.status === "done") return "Pre-PR check passed.";
     if (stage.status === "skipped") return "Skipped — moved directly to Ship.";
     return stage.summary;
   }
@@ -2773,7 +2818,7 @@ export function evaluateTimelineSnapshot({
     (buildStage.status === "skipped" || buildStage.status === "pending")
   ) {
     workflowMode = "pr_review";
-    workflowLabel = "PR review";
+    workflowLabel = "Pre-PR check";
   } else if (planStage.status === "skipped") {
     workflowMode = "direct_build";
     workflowLabel = "Direct flow";
@@ -2846,6 +2891,48 @@ export function evaluateTimelineSnapshot({
     riskPresentation: buildRiskPresentation(riskAssessment, { prItems, reviewStage }),
   };
 
+  const colleagueCommands = [...(sig.colleagueReview?.commands ?? [])];
+  const colleagueReviewDetected = Boolean(
+    hasConv &&
+      colleagueCommands.length > 0 &&
+      !hasEdits &&
+      !shipped &&
+      !sig.planCmdAt &&
+      !sig.planWrittenAt &&
+      !sig.reviewPrAt &&
+      !sig.astackModeAt,
+  );
+  const colleagueActiveIntent = !colleagueReviewDetected
+    ? null
+    : sig.colleagueReview.stackReview || (sig.swarm.active && sig.colleagueReview.commands.has("/swarm"))
+      ? "stack"
+      : sig.colleagueReview.queueReview
+        ? "queue"
+        : "single";
+  const colleagueTargetPrs = [...(sig.colleagueReview?.targetPrs?.values() ?? [])]
+    .map((item) => {
+      const live = prMetaByNumber instanceof Map ? prMetaByNumber.get(item.number) : prMetaByNumber?.[item.number];
+      const liveState = typeof live?.state === "string" ? live.state.toLowerCase() : null;
+      return {
+        ...item,
+        url: live?.url || item.url || null,
+        title: live?.title ? summarizeText(live.title, 80) : item.title || null,
+        state: liveState || item.state || "open",
+      };
+    })
+    .sort((a, b) => b.number - a.number);
+  const colleagueReview = {
+    detected: colleagueReviewDetected,
+    activeIntent: colleagueActiveIntent,
+    detectedCommands: colleagueCommands,
+    running: Boolean(
+      colleagueReviewDetected &&
+        (effectiveLiveInfo.liveStageIds.length > 0 || mainTurnFresh || sig.swarm.active || sig.workflow.active),
+    ),
+    targetPrs: colleagueTargetPrs.length > 0 ? colleagueTargetPrs : prItems,
+  };
+  const panelDefaultMode = colleagueReview.detected ? "review_pr" : "build";
+
   const snapshot = {
     conversationId: conversationId || null,
     hasConversation: hasConv,
@@ -2865,6 +2952,8 @@ export function evaluateTimelineSnapshot({
     maxReviewRounds,
     workflowMode,
     workflowLabel,
+    panelDefaultMode,
+    colleagueReview,
     doneCount: stepViews.filter((s) => s.status === "done" || s.status === "skipped").length,
     totalCount: stepViews.length,
     liveState,

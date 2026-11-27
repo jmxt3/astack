@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { DELEGATE_GUIDE_DATA, GITHUB_DOCS_BASE } from "./command-catalog.mjs";
+import { COLLEAGUE_REVIEW_GUIDE, DELEGATE_GUIDE_DATA, GITHUB_DOCS_BASE } from "./command-catalog.mjs";
 import { COMMAND_DOCS, evaluateTimelineSnapshot, resolveSafeArtifactUri, TIMELINE_STEPS } from "./timeline-engine.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -38,8 +38,9 @@ test("TIMELINE_STEPS defines 4 concise per-conversation stages without internal 
   assert.equal(TIMELINE_STEPS.length, 4);
   assert.deepEqual(
     TIMELINE_STEPS.map((s) => s.primaryCommand),
-    ["/plan", "/astack-mode", "/review-pr", "/astack-mode open the pr"],
+    ["/plan", "/astack-mode", "/pre-pr", "/astack-mode open the pr"],
   );
+  assert.equal(TIMELINE_STEPS[2].label, "Pre-PR Check");
   for (const step of TIMELINE_STEPS) {
     assert.ok(typeof step.summary === "string" && step.summary.trim().length > 0, `Missing summary for ${step.id}`);
   }
@@ -203,7 +204,7 @@ test("ignores casual prose mentions of slash commands inside user questions", ()
         source: "USER_EXPLICIT",
         type: "USER_INPUT",
         created_at: "2026-11-20T10:00:00Z",
-        content: "<USER_REQUEST>Should we run /review-pr or /interrogate before /deslop?</USER_REQUEST>",
+        content: "<USER_REQUEST>Should we run /pre-pr or /interrogate before /deslop?</USER_REQUEST>",
       },
     ]);
 
@@ -280,7 +281,7 @@ test("tracks /interrogate, marks Build & Prove done on fresh verify, and flips s
     assert.equal(cleanSnap.stages[1].commands[1].command, "/interrogate");
     assert.equal(cleanSnap.stages[1].commands[1].state, "done");
     assert.equal(cleanSnap.stages[2].status, "next");
-    assert.equal(cleanSnap.nextAction.command, "/review-pr");
+    assert.equal(cleanSnap.nextAction.command, "/pre-pr");
 
     writeReceipt(brainDir, convId, [
       ...baseReceipts,
@@ -309,7 +310,7 @@ test("tracks /interrogate, marks Build & Prove done on fresh verify, and flips s
   }
 });
 
-test("surfaces PR Review waiting gate, Risk Tier, and escalated error state from evidence.json", () => {
+test("surfaces Pre-PR Check waiting gate, Risk Tier, and escalated error state from evidence.json", () => {
   const { root, brainDir, workspaceDir } = makeFixture();
   const convId = "conv-review";
   try {
@@ -600,7 +601,11 @@ test("COMMAND_DOCS and DELEGATE_GUIDE_DATA cover all native delegate commands wi
 
   assert.deepEqual(
     DELEGATE_GUIDE_DATA.stages.map((s) => s.id),
-    ["setup", "plan", "build", "review", "ship", "anytime"],
+    ["setup", "plan", "build", "review", "colleague-pr", "ship", "anytime"],
+  );
+  assert.deepEqual(
+    COLLEAGUE_REVIEW_GUIDE.intents.map((i) => i.id),
+    ["single", "queue", "stack"],
   );
   const anytimeStage = DELEGATE_GUIDE_DATA.stages.find((s) => s.id === "anytime");
   const compactExample = anytimeStage?.examples.find((ex) => ex.id === "compact");
@@ -1111,7 +1116,7 @@ test("detects Antigravity metadata Slash Command chips even after text while ign
         type: "USER_INPUT",
         created_at: "2026-11-20T10:00:00Z",
         content: [
-          "<USER_REQUEST>@README.md please use /plan and do not run /review-pr yet</USER_REQUEST>",
+          "<USER_REQUEST>@README.md please use /plan and do not run /pre-pr yet</USER_REQUEST>",
           "<ADDITIONAL_METADATA>",
           "/plan is a [Slash Command]:",
           "<PLAN>Plan instructions</PLAN>",
@@ -1215,7 +1220,7 @@ test("ignores workspace repository skill/playbook source reads in parent and chi
         type: "PLANNER_RESPONSE",
         created_at: "2026-11-20T10:00:10Z",
         tool_calls: [
-          { name: "read_file", args: { Path: path.join(workspaceDir, "skills", "review-pr", "SKILL.md") } },
+          { name: "read_file", args: { Path: path.join(workspaceDir, "skills", "pre-pr", "SKILL.md") } },
           { name: "read_file", args: { Path: path.join(workspaceDir, "skills", "setup-astack", "SKILL.md") } },
           { name: "read_file", args: { Path: path.join(workspaceDir, "skills", "astack-mode", "playbooks", "babysit.md") } },
           { name: "read_file", args: { Path: path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md") } },
@@ -1685,7 +1690,7 @@ test("clears Plan gate and unmutes Build & Prove when downstream walkthrough, PR
     assert.deepEqual(
       snap.stages.map((s) => s.status),
       ["done", "done", "done", "done"],
-      "Downstream walkthrough + verify + push must clear stale Plan gate, complete Build & Prove, and stop PR Review from spinning",
+      "Downstream walkthrough + verify + push must clear stale Plan gate, complete Build & Prove, and stop Pre-PR Check from spinning",
     );
     assert.equal(snap.workflowMode, "pr_iteration");
     assert.equal(snap.workflowLabel, "PR iteration");
@@ -1701,7 +1706,7 @@ test("clears Plan gate and unmutes Build & Prove when downstream walkthrough, PR
   }
 });
 
-test("marks Plan and Build as Earlier in standalone PR review sessions and keeps post-ship re-review active", () => {
+test("marks Plan and Build as Earlier in standalone Pre-PR Check sessions and keeps post-ship re-check active", () => {
   const { root, brainDir, workspaceDir } = makeFixture("astack-tl-pr-only-");
   const convId = "conv-pr-review-only";
   try {
@@ -1712,7 +1717,7 @@ test("marks Plan and Build as Earlier in standalone PR review sessions and keeps
         source: "USER_EXPLICIT",
         type: "USER_INPUT",
         created_at: "2026-11-22T11:00:00Z",
-        content: "<USER_REQUEST>/review-pr check https://github.com/acme/demo/pull/237</USER_REQUEST>",
+        content: "<USER_REQUEST>/pre-pr check https://github.com/acme/demo/pull/237</USER_REQUEST>",
       },
     ]);
 
@@ -1723,7 +1728,8 @@ test("marks Plan and Build as Earlier in standalone PR review sessions and keeps
     assert.equal(reviewOnly.stages[1].skippedReason, "earlier");
     assert.equal(reviewOnly.stages[2].status, "active");
     assert.equal(reviewOnly.workflowMode, "pr_review");
-    assert.equal(reviewOnly.workflowLabel, "PR review");
+    assert.equal(reviewOnly.workflowLabel, "Pre-PR check");
+    assert.equal(reviewOnly.panelDefaultMode, "build");
 
     writeTranscript(brainDir, convId, [
       {
@@ -1737,11 +1743,11 @@ test("marks Plan and Build as Earlier in standalone PR review sessions and keeps
         source: "USER_EXPLICIT",
         type: "USER_INPUT",
         created_at: "2026-11-22T11:05:00Z",
-        content: "<USER_REQUEST>/review-pr re-verify after latest fix</USER_REQUEST>",
+        content: "<USER_REQUEST>/pre-pr re-verify after latest fix</USER_REQUEST>",
       },
     ]);
     const postShipReview = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
-    assert.equal(postShipReview.stages[2].status, "active", "Re-running /review-pr after push must remain active");
+    assert.equal(postShipReview.stages[2].status, "active", "Re-running /pre-pr after push must remain active");
     assert.equal(postShipReview.workflowMode, "pr_iteration");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -2552,7 +2558,7 @@ test("ignores manage_subagents(list) echoes, catches non-'subagent' spawn errors
         source: "USER_EXPLICIT",
         type: "USER_INPUT",
         created_at: "2026-11-25T02:49:00Z",
-        content: "<USER_REQUEST>/review-pr</USER_REQUEST>",
+        content: "<USER_REQUEST>/pre-pr</USER_REQUEST>",
       },
       {
         step_index: 1,
@@ -2921,7 +2927,7 @@ test("main-agent active turns light up running blue flame across stages and hold
     const compoundNow = Date.parse("2026-11-26T03:03:50Z");
     const compoundSnap = evaluateTimelineSnapshot({ conversationId: convCompound, brainDir, workspaceDir, nowMs: compoundNow });
     assert.equal(compoundSnap.stages[1].railState, "running");
-    assert.equal(compoundSnap.stages[2].status, "pending", "Compound open-PR prompt must not prematurely skip PR Review while Build is active");
+    assert.equal(compoundSnap.stages[2].status, "pending", "Compound open-PR prompt must not prematurely skip Pre-PR Check while Build is active");
     assert.equal(compoundSnap.stages[3].railState, "queued", "Ship should be queued behind Build & Review");
     assert.equal(compoundSnap.nextAction?.stageId, "build");
     assert.deepEqual(compoundSnap.activity.liveStageIds, ["build"]);
@@ -2934,7 +2940,7 @@ test("main-agent active turns light up running blue flame across stages and hold
         source: "USER_EXPLICIT",
         type: "USER_INPUT",
         created_at: "2026-11-26T03:04:00Z",
-        content: "<USER_REQUEST>/review-pr check branch</USER_REQUEST>",
+        content: "<USER_REQUEST>/pre-pr check branch</USER_REQUEST>",
       },
       {
         step_index: 1,
@@ -3222,6 +3228,88 @@ test("running background command keeps an active build stage running while waiti
     assert.equal(snap.stages[1].status, "active");
     assert.equal(snap.stages[1].railState, "running");
     assert.deepEqual(snap.activity.liveStageIds, ["build"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("detects colleague PR review intents (single, queue, stack) and keeps Build mode when workspace edits or /pre-pr exist", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-colleague-");
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+
+    const convSingle = "conv-colleague-single";
+    writeTranscript(brainDir, convSingle, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T04:00:00Z",
+        content: "<USER_REQUEST>/interrogate https://github.com/acme/demo/pull/301 skeptically</USER_REQUEST>",
+      },
+    ]);
+    const singleSnap = evaluateTimelineSnapshot({ conversationId: convSingle, brainDir, workspaceDir });
+    assert.equal(singleSnap.panelDefaultMode, "review_pr");
+    assert.equal(singleSnap.colleagueReview.detected, true);
+    assert.equal(singleSnap.colleagueReview.activeIntent, "single");
+    assert.deepEqual(singleSnap.colleagueReview.detectedCommands, ["/interrogate"]);
+    assert.equal(singleSnap.colleagueReview.targetPrs[0]?.number, 301);
+    assert.equal(singleSnap.colleagueReview.targetPrs[0]?.url, "https://github.com/acme/demo/pull/301");
+
+    const convQueue = "conv-colleague-queue";
+    writeTranscript(brainDir, convQueue, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T04:05:00Z",
+        content: "<USER_REQUEST>/fanout Review PR #231, #232, and #235 in isolated branch workspaces</USER_REQUEST>",
+      },
+    ]);
+    const queueSnap = evaluateTimelineSnapshot({ conversationId: convQueue, brainDir, workspaceDir });
+    assert.equal(queueSnap.panelDefaultMode, "review_pr");
+    assert.equal(queueSnap.colleagueReview.activeIntent, "queue");
+    assert.ok(queueSnap.colleagueReview.detectedCommands.includes("/fanout"));
+    assert.deepEqual(
+      queueSnap.colleagueReview.targetPrs.map((p) => p.number),
+      [235, 232, 231],
+    );
+
+    const convStack = "conv-colleague-stack";
+    writeTranscript(brainDir, convStack, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T04:10:00Z",
+        content: "<USER_REQUEST>/swarm Review stacked PRs #240, #241, and #242 with @verifier</USER_REQUEST>",
+      },
+    ]);
+    const stackSnap = evaluateTimelineSnapshot({ conversationId: convStack, brainDir, workspaceDir });
+    assert.equal(stackSnap.panelDefaultMode, "review_pr");
+    assert.equal(stackSnap.colleagueReview.activeIntent, "stack");
+    assert.ok(stackSnap.colleagueReview.detectedCommands.includes("/swarm"));
+
+    const convEdited = "conv-colleague-edited";
+    writeTranscript(brainDir, convEdited, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-26T04:15:00Z",
+        content: "<USER_REQUEST>/interrogate check branch</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-26T04:15:10Z",
+        tool_calls: [{ name: "edit_file", args: { Path: path.join(workspaceDir, "src", "app.js") } }],
+      },
+    ]);
+    const editedSnap = evaluateTimelineSnapshot({ conversationId: convEdited, brainDir, workspaceDir });
+    assert.equal(editedSnap.panelDefaultMode, "build");
+    assert.equal(editedSnap.colleagueReview.detected, false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
