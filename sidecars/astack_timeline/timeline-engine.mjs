@@ -410,7 +410,77 @@ function parseStringArrayArg(val) {
   return [];
 }
 
-function extractPrReferences(text, { urlsOnly = false } = {}) {
+function parseGitHubRepoFromUrl(rawUrl) {
+  const str = String(rawUrl ?? "").trim();
+  if (!str) return null;
+  const m =
+    str.match(/^(?:https?:\/\/|ssh:\/\/(?:[^@/\s]+@)?)github\.com\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:[/?#].*)?$/i) ||
+    str.match(/^(?:[^@:\s]+@)?github\.com:([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:[/?#].*)?$/i);
+  if (!m) return null;
+  return `${m[1].toLowerCase()}/${m[2].toLowerCase()}`;
+}
+
+function isAllowedGitHubPrUrl(url, allowedRepos) {
+  if (!url || !allowedRepos || allowedRepos.size === 0) return true;
+  const slug = parseGitHubRepoFromUrl(url);
+  return Boolean(slug && allowedRepos.has(slug));
+}
+
+function resolveMatchingLivePrMeta(item, prMetaByNumber) {
+  const rawLive = prMetaByNumber instanceof Map ? prMetaByNumber.get(item.number) : prMetaByNumber?.[item.number];
+  if (!rawLive) return null;
+  const itemRepo = parseGitHubRepoFromUrl(item.url);
+  const liveRepo = parseGitHubRepoFromUrl(rawLive.url);
+  if (itemRepo && liveRepo && itemRepo !== liveRepo) return null;
+  return rawLive;
+}
+
+const PR_CAPABLE_MCP_TOOL_RE =
+  /^(?:mcp_[a-z0-9_-]+_)?(?:create_pull_request|update_pull_request|merge_pull_request|pull_request_read|get_pull_request|add_reply_to_pull_request_comment|pull_request_review_write|update_pull_request_branch)$/i;
+
+function isPrCapableMcpTool(toolName) {
+  return PR_CAPABLE_MCP_TOOL_RE.test(String(toolName ?? "").trim());
+}
+
+function isPrCapableCommand(cmd) {
+  const str = String(cmd ?? "");
+  if (!str) return false;
+  return (
+    /(?:^|[;&|\r\n]\s*)gh\s+pr\s+(?:create|view|edit|checks|merge|ready|reopen|close|comment|review|status|diff|list)\b/im.test(str) ||
+    /(?:^|[;&|\r\n]\s*)gh\s+api\b[^\r\n]*\/pulls\b/im.test(str) ||
+    /(?:^|[;&|\r\n]\s*)git\s+(?:-C\s+(?:"[^"]+"|'[^']+'|\S+)\s+)?push\b/im.test(str) ||
+    /(?:^|[;&|\r\n]\s*)(?:(?:node|npx|tsx)\s+(?:(?!--test\b)[^\r\n;&|])*)?watch-pr(?:\.mjs)?\b/im.test(str) ||
+    /(?:^|[;&|\r\n]\s*)(?:node\s+(?:(?!--test\b)[^\r\n;&|])*)?pr-dossier(?:\.mjs)?\b/im.test(str)
+  );
+}
+
+function isFileReadOutput(content) {
+  const header = String(content ?? "").split(/\r?\nCommand output:\r?\n/)[0];
+  return /(?:^|\r?\n)Showing lines \d+-\d+ of \d+\b/.test(header);
+}
+
+function isCommandOutput(content) {
+  const str = String(content ?? "");
+  return (
+    /(?:^|\r\n)Command exited with code \d+/i.test(str) ||
+    /(?:^|\r\n)Command output:\r?\n/.test(str) ||
+    /(?:^|\r\n)Tool is running as a background task with task id:/i.test(str)
+  );
+}
+
+function dequeueMatchingTool(pendingToolQueue, content) {
+  if (pendingToolQueue.length === 0) return null;
+  if (isFileReadOutput(content)) {
+    const idx = pendingToolQueue.findIndex((t) => t.kind === "file_read");
+    if (idx >= 0) return pendingToolQueue.splice(idx, 1)[0];
+  } else if (isCommandOutput(content)) {
+    const idx = pendingToolQueue.findIndex((t) => t.kind === "command");
+    if (idx >= 0) return pendingToolQueue.splice(idx, 1)[0];
+  }
+  return pendingToolQueue.shift();
+}
+
+function extractPrReferences(text, { urlsOnly = false, allowedRepos = null } = {}) {
   const str = String(text ?? "");
   const out = [];
   const seen = new Set();
@@ -422,6 +492,7 @@ function extractPrReferences(text, { urlsOnly = false } = {}) {
     out.push({ number, url, ...extra });
   };
   for (const m of str.matchAll(/https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/(\d+)\b/gi)) {
+    if (!isAllowedGitHubPrUrl(m[0], allowedRepos)) continue;
     pushRef(Number.parseInt(m[1], 10), m[0]);
   }
   if (!urlsOnly) {
@@ -463,6 +534,41 @@ function extractGhPrCreateTitle(cmd) {
 }
 
 const mergedPrCache = new Map();
+const workspaceReposCache = new Map();
+
+function readWorkspaceGitHubReposFast(workspaceDir) {
+  if (!workspaceDir) return new Set();
+  const locs = findGitLocationsFast(workspaceDir);
+  if (!locs?.commonGitDir) return new Set();
+  const configPath = path.join(locs.commonGitDir, "config");
+  const fp = readFileStatFingerprint(configPath);
+  const cacheKey = `${configPath}|${fp}`;
+  const cached = workspaceReposCache.get(cacheKey);
+  if (cached) return cached;
+  const repos = new Set();
+  try {
+    const raw = fs.readFileSync(configPath, "utf8");
+    let inRemote = false;
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith(";")) continue;
+      if (trimmed.startsWith("[")) {
+        inRemote = /^\[remote\s+"[^"]+"\]$/i.test(trimmed);
+        continue;
+      }
+      if (!inRemote) continue;
+      const urlMatch = trimmed.match(/^url\s*=\s*(.+)$/i);
+      if (urlMatch) {
+        const slug = parseGitHubRepoFromUrl(urlMatch[1]);
+        if (slug) repos.add(slug);
+      }
+    }
+  } catch {
+  }
+  if (workspaceReposCache.size > 32) workspaceReposCache.clear();
+  workspaceReposCache.set(cacheKey, repos);
+  return repos;
+}
 const WORKSPACE_POLICY_CACHE_TTL_MS = 300_000;
 const workspacePolicyCache = new Map();
 const MAX_TRANSCRIPT_CACHE_ENTRIES = 64;
@@ -827,9 +933,10 @@ function cloneTranscriptSignals(sig) {
   };
 }
 
-function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir = "") {
+function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir = "", allowedRepos = null) {
   const sig = makeEmptyTranscriptSignals();
   if (!transcriptPath || !fs.existsSync(transcriptPath)) return sig;
+  const scopedRepos = allowedRepos ?? readWorkspaceGitHubReposFast(workspaceDir);
 
   const lines = fs.readFileSync(transcriptPath, "utf8").split(/\r?\n/);
   const pendingTestCmds = new Map();
@@ -844,6 +951,7 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
   let pendingWorkflowRun = false;
   let pendingPrTitle = null;
   let lastToolNames = new Set();
+  let turnHasPrCapableTool = false;
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i].trim();
@@ -1068,10 +1176,14 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
       sig.mainTurn.active = true;
       sig.mainTurn.waitingOnUser = false;
       if (marker.tsMs) sig.mainTurn.lastActivityMs = Math.max(sig.mainTurn.lastActivityMs, marker.tsMs);
-      const shiftedTool = pendingToolQueue.length > 0 ? pendingToolQueue.shift() : null;
-      const onlyFileReads = lastToolNames.size > 0 && [...lastToolNames].every((t) => FILE_READ_TOOLS.has(t));
-      if (!onlyFileReads) {
-        for (const prRef of extractPrReferences(step.content, { urlsOnly: true })) {
+      const shiftedTool = dequeueMatchingTool(pendingToolQueue, step.content);
+      const isStepError = step.status === "ERROR" || /Encountered error in step execution:/i.test(step.content);
+      const canExtractPrFromGeneric =
+        !isStepError &&
+        !isFileReadOutput(step.content) &&
+        (lastToolNames.size === 0 || (turnHasPrCapableTool && (shiftedTool ? Boolean(shiftedTool.prCapable) : true)));
+      if (canExtractPrFromGeneric) {
+        for (const prRef of extractPrReferences(step.content, { urlsOnly: true, allowedRepos: scopedRepos })) {
           upsertPrEntry(sig.prs, prRef, { ts: marker.ts, title: pendingPrTitle });
           if (pendingPrTitle) pendingPrTitle = null;
         }
@@ -1081,7 +1193,6 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
         (shiftedTool?.kind === "manage_subagents" && shiftedTool.action === "list") ||
         /\bYou have \d+ active subagent\(s\):/i.test(step.content);
       const cids = [...step.content.matchAll(/"conversationId"\s*:\s*"([0-9a-f-]{8,})"/gi)].map((m) => m[1]);
-      const isStepError = step.status === "ERROR" || /Encountered error in step execution:/i.test(step.content);
 
       if (cids.length > 0) {
         for (const cid of cids) {
@@ -1256,64 +1367,69 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
         sig.goal.completed = true;
       }
       const proseOnly = step.content.replace(/```[\s\S]*?```/g, " ");
-      for (const prRef of extractPrReferences(proseOnly, { urlsOnly: true })) {
+      for (const prRef of extractPrReferences(proseOnly, { urlsOnly: true, allowedRepos: scopedRepos })) {
         upsertPrEntry(sig.prs, prRef, { ts: marker.ts });
       }
     }
 
     if (!Array.isArray(step.tool_calls)) {
       lastToolNames = new Set();
+      turnHasPrCapableTool = false;
       pendingToolQueue = [];
       continue;
     }
     lastToolNames = new Set(step.tool_calls.map((tc) => String(tc?.name ?? "")).filter(Boolean));
+    turnHasPrCapableTool = false;
     pendingToolQueue = [];
 
     for (const tc of step.tool_calls) {
       const name = String(tc?.name ?? "");
       const args = tc?.args && typeof tc.args === "object" ? tc.args : {};
-      let queuedMeta = { kind: "other" };
+      let queuedMeta = { kind: "other", prCapable: false };
 
       if (FILE_READ_TOOLS.has(name)) {
+        queuedMeta = { kind: "file_read", prCapable: false, ts: marker.ts };
         const p = targetPathOf(args);
-        if (isWorkspaceSourceSkillPath(p, workspaceDir)) continue;
-        const skillRead = p.match(/\/skills\/([a-z0-9-]+)\/SKILL\.md$/i);
-        if (skillRead) {
-          const slug = `/${skillRead[1].toLowerCase()}`;
-          if (COMMAND_DOCS[slug]) sig.detected.add(slug);
-          if (slug === "/automation" && sig.automations.length === 0) {
-            sig.automations.push({
-              id: "auto-0",
-              label: "App automation",
-              cadence: "recurring",
-              stageId: "build",
-              active: true,
-            });
+        if (!isWorkspaceSourceSkillPath(p, workspaceDir)) {
+          const skillRead = p.match(/\/skills\/([a-z0-9-]+)\/SKILL\.md$/i);
+          if (skillRead) {
+            const slug = `/${skillRead[1].toLowerCase()}`;
+            if (COMMAND_DOCS[slug]) sig.detected.add(slug);
+            if (slug === "/automation" && sig.automations.length === 0) {
+              sig.automations.push({
+                id: "auto-0",
+                label: "App automation",
+                cadence: "recurring",
+                stageId: "build",
+                active: true,
+              });
+            }
+          }
+          const pbRead = p.match(/\/skills\/astack-mode\/playbooks\/([a-z0-9-]+)\.md$/i);
+          if (pbRead) {
+            const pbName = pbRead[1].toLowerCase();
+            if (pbName === "shipping") sig.detected.add("/astack-mode land the stack");
+            else if (pbName === "babysit") sig.detected.add("/astack-mode babysit");
+            else if (pbName === "release-and-postmortem") sig.detected.add("/astack-mode release-and-postmortem");
+            else if (pbName === "worktree-cleanup") sig.detected.add("/astack-mode prune worktrees");
+          }
+          if (/\/skills\/setup-astack\/SKILL\.md$/i.test(p)) sig.setupAt = latestMarker(sig.setupAt, marker);
+          else if (/\/skills\/astack-mode\/references\/plan-contract\.md$/i.test(p)) sig.planContractAt = latestMarker(sig.planContractAt, marker);
+          else if (/\/skills\/astack-mode\/SKILL\.md$/i.test(p)) sig.astackModeAt = latestMarker(sig.astackModeAt, marker);
+          else if (/\/skills\/interrogate\/SKILL\.md$/i.test(p)) sig.interrogateAt = latestMarker(sig.interrogateAt, marker);
+          else if (/\/skills\/(?:deslop|no-comments)\/SKILL\.md$/i.test(p)) sig.cleanAt = latestMarker(sig.cleanAt, marker);
+          else if (/\/skills\/(?:control-ui|control-cli)\/SKILL\.md$/i.test(p) || /\/\.agents\/skills\/verify-[^/]+\/SKILL\.md$/i.test(p)) {
+            sig.astackModeAt = latestMarker(sig.astackModeAt, marker);
+          } else if (/\/skills\/pre-pr\/SKILL\.md$/i.test(p)) {
+            sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
+          } else if (/\/skills\/astack-mode\/playbooks\/opening-a-pr\.md$/i.test(p)) {
+            sig.openPrAt = latestMarker(sig.openPrAt, marker);
+          } else if (/\/skills\/astack-mode\/playbooks\/babysit\.md$/i.test(p)) {
+            sig.babysitAt = latestMarker(sig.babysitAt, marker);
           }
         }
-        const pbRead = p.match(/\/skills\/astack-mode\/playbooks\/([a-z0-9-]+)\.md$/i);
-        if (pbRead) {
-          const pbName = pbRead[1].toLowerCase();
-          if (pbName === "shipping") sig.detected.add("/astack-mode land the stack");
-          else if (pbName === "babysit") sig.detected.add("/astack-mode babysit");
-          else if (pbName === "release-and-postmortem") sig.detected.add("/astack-mode release-and-postmortem");
-          else if (pbName === "worktree-cleanup") sig.detected.add("/astack-mode prune worktrees");
-        }
-        if (/\/skills\/setup-astack\/SKILL\.md$/i.test(p)) sig.setupAt = latestMarker(sig.setupAt, marker);
-        else if (/\/skills\/astack-mode\/references\/plan-contract\.md$/i.test(p)) sig.planContractAt = latestMarker(sig.planContractAt, marker);
-        else if (/\/skills\/astack-mode\/SKILL\.md$/i.test(p)) sig.astackModeAt = latestMarker(sig.astackModeAt, marker);
-        else if (/\/skills\/interrogate\/SKILL\.md$/i.test(p)) sig.interrogateAt = latestMarker(sig.interrogateAt, marker);
-        else if (/\/skills\/(?:deslop|no-comments)\/SKILL\.md$/i.test(p)) sig.cleanAt = latestMarker(sig.cleanAt, marker);
-        else if (/\/skills\/(?:control-ui|control-cli)\/SKILL\.md$/i.test(p) || /\/\.agents\/skills\/verify-[^/]+\/SKILL\.md$/i.test(p)) {
-          sig.astackModeAt = latestMarker(sig.astackModeAt, marker);
-        } else if (/\/skills\/pre-pr\/SKILL\.md$/i.test(p)) {
-          sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
-        } else if (/\/skills\/astack-mode\/playbooks\/opening-a-pr\.md$/i.test(p)) {
-          sig.openPrAt = latestMarker(sig.openPrAt, marker);
-        } else if (/\/skills\/astack-mode\/playbooks\/babysit\.md$/i.test(p)) {
-          sig.babysitAt = latestMarker(sig.babysitAt, marker);
-        }
       } else if (FILE_WRITE_TOOLS.has(name)) {
+        queuedMeta = { kind: "file_write", prCapable: false, ts: marker.ts };
         const p = targetPathOf(args);
         if (/\/implementation_plan\.md$/i.test(p)) {
           sig.planWrittenAt = latestMarker(sig.planWrittenAt, marker);
@@ -1462,7 +1578,7 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
         const isDaemon = parseBoolArg(args.IsDaemon);
         const rawTimerCond = unquoteArg(args.TimerCondition).trim();
         const timerCondition = rawTimerCond && rawTimerCond.toLowerCase() !== "never" ? rawTimerCond : null;
-        const prRefs = extractPrReferences(promptText);
+        const prRefs = extractPrReferences(promptText, { allowedRepos: scopedRepos });
         for (const prRef of prRefs) upsertPrEntry(sig.prs, prRef, { ts: marker.ts });
         const prRef = prRefs[0] ?? null;
         const prNumbers = prRefs.map((r) => r.number);
@@ -1518,18 +1634,23 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
       } else if (name === "run_command") {
         const cmd = unquoteArg(args.CommandLine || args.commandLine || args.command);
         const cmdSummary = unquoteArg(args.toolSummary || args.Description);
+        const prCapable = isPrCapableCommand(cmd);
+        if (prCapable) turnHasPrCapableTool = true;
         queuedMeta = {
           kind: "command",
           title: cmdSummary ? summarizeText(cmdSummary, 72) : summarizeText(cmd, 64),
           cmd,
+          prCapable,
           isDaemon: parseBoolArg(args.IsDaemon),
           isCron: false,
           ts: marker.ts,
         };
         const createdTitle = extractGhPrCreateTitle(cmd);
         if (createdTitle) pendingPrTitle = createdTitle;
-        for (const prRef of extractPrReferences(cmd)) {
-          upsertPrEntry(sig.prs, prRef, { ts: marker.ts });
+        if (prCapable) {
+          for (const prRef of extractPrReferences(cmd, { allowedRepos: scopedRepos })) {
+            upsertPrEntry(sig.prs, prRef, { ts: marker.ts });
+          }
         }
         if (/\bsetup-banner\.mjs\b/i.test(cmd)) sig.setupAt = latestMarker(sig.setupAt, marker);
         if (/\barch-audit\.mjs\b/i.test(cmd)) {
@@ -1554,15 +1675,25 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
         }
       } else if (name === "call_mcp_tool") {
         const mcpTool = unquoteArg(args.ToolName);
+        const prCapable = isPrCapableMcpTool(mcpTool);
+        if (prCapable) turnHasPrCapableTool = true;
+        queuedMeta = { kind: "mcp", mcpTool, prCapable, ts: marker.ts };
         if (mcpTool === "create_pull_request") {
           sig.pushOrPrAt = latestMarker(sig.pushOrPrAt, marker);
         } else if (mcpTool === "compile_pr_dossier") {
           sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
           sig.detected.add("pr-dossier.mjs");
         }
-      } else if (name === "mcp_astack_trust_compile_pr_dossier") {
-        sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
-        sig.detected.add("pr-dossier.mjs");
+      } else if (name.startsWith("mcp_")) {
+        const prCapable = isPrCapableMcpTool(name);
+        if (prCapable) turnHasPrCapableTool = true;
+        queuedMeta = { kind: "mcp", mcpTool: name, prCapable, ts: marker.ts };
+        if (/(?:^|_)create_pull_request$/i.test(name)) {
+          sig.pushOrPrAt = latestMarker(sig.pushOrPrAt, marker);
+        } else if (name === "mcp_astack_trust_compile_pr_dossier") {
+          sig.reviewPrAt = latestMarker(sig.reviewPrAt, marker);
+          sig.detected.add("pr-dossier.mjs");
+        }
       }
       pendingToolQueue.push(queuedMeta);
     }
@@ -1597,12 +1728,14 @@ function parseTranscriptCached(transcriptPath, brainConvDir, workspaceDir, brain
   } catch {
     return makeEmptyTranscriptSignals();
   }
-  const cacheKey = `${transcriptPath}|${st.mtimeNs}:${st.ctimeNs}:${st.size}:${st.ino}|${workspaceDir}|${brainConvDir}|${brainDir}`;
+  const allowedRepos = readWorkspaceGitHubReposFast(workspaceDir);
+  const reposKey = [...allowedRepos].sort().join(",");
+  const cacheKey = `${transcriptPath}|${st.mtimeNs}:${st.ctimeNs}:${st.size}:${st.ino}|${workspaceDir}|${brainConvDir}|${brainDir}|${reposKey}`;
   const cached = transcriptCache.get(cacheKey);
   if (cached) {
     return cloneTranscriptSignals(cached);
   }
-  const parsed = parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir);
+  const parsed = parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir, allowedRepos);
   if (transcriptCache.size >= MAX_TRANSCRIPT_CACHE_ENTRIES) {
     const oldestKey = transcriptCache.keys().next().value;
     if (oldestKey !== undefined) transcriptCache.delete(oldestKey);
@@ -2565,6 +2698,7 @@ export function evaluateTimelineSnapshot({
   let hasVerifyReceipt = false;
   let receiptPush = false;
   let receiptPushMarker = null;
+  const allowedRepos = readWorkspaceGitHubReposFast(workspaceDir);
 
   for (const r of receipts) {
     const m = makeMarker(r.ts, Number.MAX_SAFE_INTEGER);
@@ -2583,7 +2717,11 @@ export function evaluateTimelineSnapshot({
       hasVerifyReceipt = true;
       if (r.ok) latestReceiptVerify = latestMarker(latestReceiptVerify, m);
     } else if (r.kind === "command" && r.ok) {
-      for (const prRef of extractPrReferences(r.summary)) {
+      const prRefs = extractPrReferences(r.summary, {
+        urlsOnly: !isPrCapableCommand(r.summary),
+        allowedRepos,
+      });
+      for (const prRef of prRefs) {
         upsertPrEntry(sig.prs, prRef, { ts: r.ts });
       }
       if (/\b(?:gh\s+pr\s+create|git\s+push)\b/i.test(r.summary)) {
@@ -2689,7 +2827,7 @@ export function evaluateTimelineSnapshot({
   });
   const mergedPrNumbers = sig.prs.size > 0 ? readMergedPrNumbersFast(workspaceDir) : new Set();
   const prItems = [...sig.prs.values()].map((item) => {
-    const live = prMetaByNumber instanceof Map ? prMetaByNumber.get(item.number) : prMetaByNumber?.[item.number];
+    const live = resolveMatchingLivePrMeta(item, prMetaByNumber);
     const liveState = typeof live?.state === "string" ? live.state.toLowerCase() : null;
     const state =
       liveState === "merged" || liveState === "open" || liveState === "closed"
@@ -2983,7 +3121,7 @@ export function evaluateTimelineSnapshot({
         : "single";
   const colleagueTargetPrs = [...(sig.colleagueReview?.targetPrs?.values() ?? [])]
     .map((item) => {
-      const live = prMetaByNumber instanceof Map ? prMetaByNumber.get(item.number) : prMetaByNumber?.[item.number];
+      const live = resolveMatchingLivePrMeta(item, prMetaByNumber);
       const liveState = typeof live?.state === "string" ? live.state.toLowerCase() : null;
       return {
         ...item,
