@@ -3595,12 +3595,12 @@ h4.md-heading { font-size: 13px; }
 
 @media (max-width: 480px) {
   .run-mode-btn, .beast-wheel-btn {
-    min-height: 36px;
+    min-height: 44px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .beast-bloom, .beast-ring, .beast-sweep, .beast-ember,
+  .beast-bloom, .beast-ring, .beast-sweep, .beast-ember, .beast-activation-toast,
   .mf-t, .mf-glow, .mp, .beast-lick, .beast-spin,
   .beast-seg.is-run, .focus-dot.is-beast-pulse {
     animation: none !important;

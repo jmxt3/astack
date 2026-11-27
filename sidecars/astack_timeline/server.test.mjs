@@ -1510,7 +1510,7 @@ function findButtonByText(rootNode, text) {
   return null;
 }
 
-test("app.js Beast toggle updates UI immediately, recovers polling after failed POST during in-flight poll, and ignores out-of-order responses", async () => {
+test("app.js Beast toggle recovers polling after failed POST during in-flight poll and toggles Beast drawer", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-beast-ui-"));
   const brainDir = path.join(root, "brain");
   fs.mkdirSync(brainDir, { recursive: true });
@@ -1755,13 +1755,25 @@ test("app.js mounts Beast B Corner Glow, one-shot ignition + toast, Autopilot ca
     assert.ok(harness.byId.get("status-banner").textContent.includes("Autopilot"), "Running Beast must show Autopilot card");
     assert.equal(harness.byId.get("astk-btw").placeholder, "Nudge the agents without stopping them");
 
-    // Take the wheel returns to Manual and removes all Beast-only DOM nodes
+    // Open Beast drawer before turning Beast off to verify F-02 cleanup
+    harness.byId.get("meta-row").findByTestId("timeline-beast-toggle").click();
+    assert.equal(harness.byId.get("beast-drawer").classList.contains("hidden"), false);
+    assert.equal(harness.byId.get("meta-row").findByTestId("timeline-beast-toggle").getAttribute("aria-expanded"), "true");
+
+    // Take the wheel returns to Manual, closes Beast drawer, restores banner testid, and removes Beast-only DOM nodes
     harness.byId.get("beast-banner-slot").findByTestId("beast-take-wheel").click();
     await harness.flushMicrotasks();
     assert.equal(harness.byId.get("timeline-view").classList.contains("is-beast"), false);
     assert.equal(harness.byId.get("beast-glow-slot").children.length, 0);
     assert.equal(harness.byId.get("beast-banner-slot").children.length, 0);
     assert.equal(harness.byId.get("beast-toast-slot").children.length, 0);
+    assert.equal(harness.byId.get("beast-drawer").classList.contains("hidden"), true, "Turning Beast off must close #beast-drawer");
+    assert.equal(
+      harness.byId.get("meta-row").findByTestId("timeline-beast-toggle").getAttribute("aria-expanded"),
+      null,
+      "Inactive Beast toggle must omit aria-expanded",
+    );
+    assert.equal(harness.byId.get("status-banner").dataset.testid, "timeline-status-banner");
     assert.equal(harness.byId.get("astk-btw").placeholder, "Ask a side question without interrupting the agents");
     assert.ok(harness.byId.get("status-banner").textContent.includes("You start each step"));
 
@@ -1876,6 +1888,18 @@ test("living-rail.js draws Beast Mode flames, pilot flames, and lock nodes and s
     const idleCount = rafCalls;
     queuedCb(1032);
     assert.equal(rafCalls, idleCount, "Idle Beast rail with no running stage must sleep with zero extra RAF");
+
+    // Reduced-motion Beast rail must render one static frame and stop scheduling RAF loops
+    const reducedRail = sandbox.createLivingRail(fakeCanvas, { reducedMotion: true });
+    reducedRail.resize(260);
+    reducedRail.setBeastMode(true);
+    reducedRail.setNodes([
+      { state: "done", agents: 0, y: 30 },
+      { state: "running", agents: 2, y: 100 },
+    ]);
+    const rmCount = rafCalls;
+    queuedCb(1048);
+    assert.equal(rafCalls, rmCount, "Reduced-motion Beast rail must stop RAF looping after static frame");
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });

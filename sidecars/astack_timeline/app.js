@@ -489,6 +489,10 @@
       if (actionSeq !== state.trustActionSeq) return;
       showToast("Could not update trust settings");
       if (!state.pollInFlight) scheduleNextPoll();
+    } finally {
+      if (actionSeq === state.trustActionSeq) {
+        state.beast.pendingOn = false;
+      }
     }
   }
 
@@ -3588,7 +3592,7 @@
       document.getElementById("back-from-artifact")?.focus();
     } else {
       renderFooter(state.snap);
-      rail?.setVisible(!document.hidden);
+      rail?.setVisible(!document.hidden && state.panelMode === "build");
       layoutRail();
       if (restoreFocus) {
         if (prevView === "artifact" && state.artifactReturnEl && document.contains(state.artifactReturnEl)) {
@@ -4148,6 +4152,9 @@
       if (snap.trust?.enrolled) {
         const activeCat = snap.trust.activeCatState;
         const beastOn = Boolean(snap.trust.beastOn);
+        if (!beastOn) {
+          state.beastDrawerOpen = false;
+        }
         const rmGroup = el("div", "run-mode-switch");
         rmGroup.setAttribute("role", "group");
         rmGroup.setAttribute("aria-label", "Run mode");
@@ -4167,7 +4174,9 @@
         beastToggle.type = "button";
         beastToggle.dataset.testid = "timeline-beast-toggle";
         beastToggle.setAttribute("aria-pressed", String(beastOn));
-        beastToggle.setAttribute("aria-expanded", String(state.beastDrawerOpen));
+        if (beastOn) {
+          beastToggle.setAttribute("aria-expanded", String(state.beastDrawerOpen));
+        }
         const flameIc = svgIcon(beastOn ? "flame-solid" : "flame-outline", 12);
         if (beastOn) flameIc.classList.add("beast-lick");
         beastToggle.appendChild(flameIc);
@@ -4756,9 +4765,10 @@
     poll();
   }
   setInterval(tickTimers, 1000);
+  document.getElementById("timeline-view")?.classList.toggle("is-paused", Boolean(document.hidden));
   document.addEventListener("visibilitychange", () => {
     document.getElementById("timeline-view")?.classList.toggle("is-paused", Boolean(document.hidden));
-    rail?.setVisible(!document.hidden && state.view === "timeline");
+    rail?.setVisible(!document.hidden && state.view === "timeline" && state.panelMode === "build");
     if (!document.hidden) {
       poll();
       tickTimers();
