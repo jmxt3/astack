@@ -192,6 +192,33 @@ function isVerifyReceipt(receipt) {
   return receipt.kind === "verifier" || (receipt.kind === "command" && VERIFY_CATEGORIES.has(receipt.category));
 }
 
+function isFailedTranscriptVerifyReceipt(receipt, failedVerifyCmds = []) {
+  if (!receipt || receipt.kind !== "command" || !receipt.ok || !isVerifyReceipt(receipt)) {
+    return false;
+  }
+  if (!Array.isArray(failedVerifyCmds) || failedVerifyCmds.length === 0) return false;
+  const rMs = Date.parse(receipt.ts || "");
+  if (!Number.isFinite(rMs)) return false;
+  const summaryNorm = String(receipt.summary ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+  for (const failed of failedVerifyCmds) {
+    const startMs = Number(failed.startMs);
+    const endMs = Number(failed.endMs);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) continue;
+    if (rMs < startMs - 5000 || rMs > endMs + 5000) continue;
+    const prefixNorm = String(failed.cmdPrefix ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (!prefixNorm) {
+      if (Math.abs(rMs - endMs) <= 2000) return true;
+      continue;
+    }
+    const probe = prefixNorm.slice(0, Math.min(24, prefixNorm.length));
+    const sumProbe = summaryNorm.slice(0, Math.min(24, summaryNorm.length));
+    if ((probe && summaryNorm.startsWith(probe)) || (sumProbe && prefixNorm.startsWith(sumProbe))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Resolves a regular file inside `brainConvDir` to a canonical `file://` URI, rejecting traversal or external symlinks.
  */
@@ -785,6 +812,7 @@ function makeEmptyTranscriptSignals() {
     colleagueReview: { commands: new Set(), queueReview: false, stackReview: false, targetPrs: new Map() },
     mainTurn: { active: false, waitingOnUser: false, lastActivityMs: 0 },
     backgroundJobs: [],
+    failedVerifyCmds: [],
     sideQuestionsCount: 0,
     changedFiles: new Set(),
     pr: null,
@@ -821,6 +849,7 @@ function cloneTranscriptSignals(sig) {
       ...j,
       prNumbers: Array.isArray(j.prNumbers) ? [...j.prNumbers] : j.prNumbers,
     })),
+    failedVerifyCmds: (sig.failedVerifyCmds || []).map((f) => ({ ...f })),
     changedFiles: new Set(sig.changedFiles),
     pr: sig.pr ? { ...sig.pr } : null,
     prs: new Map([...sig.prs.entries()].map(([k, v]) => [k, { ...v }])),
@@ -1037,13 +1066,34 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
         if (bgJobByTaskId.has(sender)) {
           const job = bgJobByTaskId.get(sender);
           if (job && job.status === "running") {
-            const failed = /Command exited with code [1-9]/i.test(step.content);
-            if (failed) {
-              job.status = "failed";
-              job.completedAt = marker.ts;
-            } else if (/finished with result:/i.test(step.content) || !job.isCron) {
-              job.status = "done";
-              job.completedAt = marker.ts;
+            const isStillRunning = /still running after/i.test(step.content);
+            if (!isStillRunning) {
+              const failed = /Command exited with code [1-9]/i.test(step.content);
+              const cancelled = /was\s+cancell?ed/i.test(step.content);
+              if (failed) {
+                job.status = "failed";
+                job.completedAt = marker.ts;
+                const cmdText = String(job.command || job.title || "").trim();
+                const cat = classifyCommandCategory(cmdText);
+                if (VERIFY_CATEGORIES.has(cat)) {
+                  const startMs = Date.parse(job.startedAt || "") || marker.tsMs;
+                  sig.failedVerifyCmds.push({
+                    startMs,
+                    endMs: marker.tsMs || startMs,
+                    cmdPrefix: cmdText.slice(0, 60),
+                  });
+                }
+              } else if (cancelled) {
+                job.status = "stopped";
+                job.completedAt = marker.ts;
+              } else if (/finished with result:/i.test(step.content)) {
+                job.status = "done";
+                job.completedAt = marker.ts;
+                const cat = classifyCommandCategory(String(job.command || job.title || ""));
+                if (cat === "test" || cat === "verify") {
+                  sig.verifyRunAt = latestMarker(sig.verifyRunAt, marker);
+                }
+              }
             }
           }
         }
@@ -1219,10 +1269,21 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
         sig.workflow.active = false;
         pendingWorkflowRun = false;
       }
-      for (const [cmdOrder, cmdMarker] of pendingTestCmds.entries()) {
+      for (const [cmdOrder, cmdEntry] of pendingTestCmds.entries()) {
         if (order > cmdOrder && order <= cmdOrder + 4) {
-          const failed = step.status === "ERROR" || /Command exited with code [1-9]/i.test(step.content);
-          if (!failed) sig.verifyRunAt = latestMarker(sig.verifyRunAt, cmdMarker);
+          const isBackgrounded = /Tool is running as a background task/i.test(step.content);
+          if (!isBackgrounded) {
+            const failed = step.status === "ERROR" || /Command exited with code [1-9]/i.test(step.content);
+            if (failed) {
+              sig.failedVerifyCmds.push({
+                startMs: cmdEntry.marker.tsMs || marker.tsMs,
+                endMs: marker.tsMs || cmdEntry.marker.tsMs,
+                cmdPrefix: String(cmdEntry.cmd || "").trim().slice(0, 60),
+              });
+            } else {
+              sig.verifyRunAt = latestMarker(sig.verifyRunAt, cmdEntry.marker);
+            }
+          }
           pendingTestCmds.delete(cmdOrder);
           break;
         }
@@ -1550,7 +1611,7 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
         if (/\b(?:gh\s+pr\s+create|git\s+push)\b/i.test(cmd)) sig.pushOrPrAt = latestMarker(sig.pushOrPrAt, marker);
         const category = classifyCommandCategory(cmd);
         if (category === "test" || category === "verify") {
-          pendingTestCmds.set(order, marker);
+          pendingTestCmds.set(order, { marker, cmd });
         }
       } else if (name === "call_mcp_tool") {
         const mcpTool = unquoteArg(args.ToolName);
@@ -1703,6 +1764,9 @@ function mergeChildTranscriptSignals(sig, brainDir, workspaceDir, parentConvId) 
     if (childSig.colleagueReview?.stackReview) sig.colleagueReview.stackReview = true;
     for (const childTargetPr of childSig.colleagueReview?.targetPrs?.values() ?? []) {
       upsertPrEntry(sig.colleagueReview.targetPrs, childTargetPr);
+    }
+    for (const failedCmd of childSig.failedVerifyCmds ?? []) {
+      sig.failedVerifyCmds.push({ ...failedCmd });
     }
   }
   return sig;
@@ -1865,7 +1929,6 @@ function buildBuildStage({
   cleanFresh,
   verifyDone,
   verifyFresh,
-  buildStale,
   reviewStarted,
   reviewFresh,
   walkthroughArtifact,
@@ -1879,8 +1942,7 @@ function buildBuildStage({
   let status = "pending";
   let skippedReason = null;
   if (!planningActive) {
-    if (buildStale) status = "stale";
-    else if (verifyFresh && hasBuildableWork && (!hasCodeEdits || cleanFresh || walkthroughComplete || (reviewStarted && reviewFresh))) status = "done";
+    if (verifyFresh && hasBuildableWork && (!hasCodeEdits || cleanFresh || walkthroughComplete || (reviewStarted && reviewFresh))) status = "done";
     else if (shippedWalkthroughDone) status = "done";
     else if (astackModeActive || Boolean(sig.interrogateAt) || cleanDone || (verifyDone && hasEdits)) status = "active";
     else if (reviewStarted || shipped) {
@@ -1890,8 +1952,8 @@ function buildBuildStage({
   }
 
   const editsStatus = hasEdits ? "done" : "pending";
-  const cleanStatus = !planningActive && cleanDone ? (cleanFresh ? "done" : "stale") : "pending";
-  const verifyStatus = !planningActive && hasBuildableWork && verifyFresh ? "done" : buildStale ? "stale" : "pending";
+  const cleanStatus = !planningActive && cleanDone && cleanFresh ? "done" : "pending";
+  const verifyStatus = !planningActive && hasBuildableWork && verifyFresh ? "done" : "pending";
   const subChecks = [
     {
       id: "edits",
@@ -1909,11 +1971,9 @@ function buildBuildStage({
       status: cleanStatus,
       detail: cleanStatus === "done"
         ? "Cleanup (/deslop or /no-comments) ran after the latest code edit."
-        : cleanStatus === "stale"
-          ? "New code edits landed after cleanup. Re-run /deslop or /no-comments."
-          : hasCodeEdits
-            ? "Waiting for /deslop or /no-comments on your code diff."
-            : "Optional for doc-only changes; runs /deslop or /no-comments on code diffs.",
+        : hasCodeEdits
+          ? "Waiting for /deslop or /no-comments on your code diff."
+          : "Optional for doc-only changes; runs /deslop or /no-comments on code diffs.",
     },
     {
       id: "verify",
@@ -1921,31 +1981,24 @@ function buildBuildStage({
       status: verifyStatus,
       detail: verifyStatus === "done"
         ? "Tests, build, or validation passed after the latest edit."
-        : verifyStatus === "stale"
-          ? "New edits landed after verification. Re-run tests or validation."
-          : "Waiting for tests, lint, build, or live verification after edits.",
+        : "Waiting for tests, lint, build, or live verification after edits.",
     },
   ];
-  const onlyCleanStale = cleanStatus === "stale" && verifyStatus === "done";
-  const detail = status === "stale"
-    ? onlyCleanStale
-      ? "New code edits landed after cleanup. Re-run /deslop or /no-comments."
-      : "New edits landed after verification. Re-run tests or validation before PR review."
-    : status === "done"
-      ? hasCodeEdits && cleanFresh
-        ? "Code edits cleaned and verified on HEAD."
-        : hasEdits && !hasCodeEdits
-          ? "Documentation edits verified on HEAD."
-          : shippedWalkthroughDone && !verifyFresh
-            ? "Walkthrough recorded and PR already shipped."
-            : walkthroughComplete
-              ? "Edits verified on HEAD with walkthrough recorded."
-              : "Changes verified on HEAD for PR review."
-      : status === "skipped"
-        ? "Optional — reviewing or iterating on an existing PR."
-        : status === "active"
-          ? "Running build, cleanup, and live verification."
-          : "Run /astack-mode with your goal and done check.";
+  const detail = status === "done"
+    ? hasCodeEdits && cleanFresh
+      ? "Code edits cleaned and verified on HEAD."
+      : hasEdits && !hasCodeEdits
+        ? "Documentation edits verified on HEAD."
+        : shippedWalkthroughDone && !verifyFresh
+          ? "Walkthrough recorded and PR already shipped."
+          : walkthroughComplete
+            ? "Edits verified on HEAD with walkthrough recorded."
+            : "Changes verified on HEAD for PR review."
+    : status === "skipped"
+      ? "Optional — reviewing or iterating on an existing PR."
+      : status === "active"
+        ? "Running build, cleanup, and live verification."
+        : "Run /astack-mode with your goal and done check.";
 
   return {
     ...TIMELINE_STEPS[1],
@@ -1954,7 +2007,7 @@ function buildBuildStage({
     commands: [
       makeCommandItem(
         "/astack-mode",
-        status === "done" ? "done" : status === "stale" ? "stale" : astackModeActive ? "active" : status === "next" ? "next" : "pending",
+        status === "done" ? "done" : astackModeActive ? "active" : status === "next" ? "next" : "pending",
       ),
       makeCommandItem("/interrogate", sig.interrogateAt ? "done" : "pending", true),
     ],
@@ -2063,19 +2116,6 @@ function selectNextAction(stepViews, setupState) {
   const [plan, build, review, ship] = stepViews;
   if (review.status === "error") {
     return { stageId: "review", stageLabel: "Pre-PR Check", command: "/pre-pr", hint: review.detail };
-  }
-  if (build.status === "stale") {
-    const onlyClean =
-      build.subChecks?.some((c) => c.id === "clean" && c.status === "stale") &&
-      build.subChecks?.some((c) => c.id === "verify" && c.status === "done");
-    return {
-      stageId: "build",
-      stageLabel: "Build & Prove",
-      command: "/astack-mode",
-      hint: onlyClean
-        ? "Code edited after cleanup. Re-run /deslop or /no-comments."
-        : "Edits landed after verify. Re-clean and re-verify on HEAD.",
-    };
   }
   if (review.status === "stale") {
     return { stageId: "review", stageLabel: "Pre-PR Check", command: "/pre-pr", hint: "Re-run PR dossier on updated HEAD." };
@@ -2269,12 +2309,6 @@ function buildStageCollapsedSummary(stage, pr, prs, shipped, { railState = null,
   }
   if (stage.id === "build") {
     if (railState === "running") return withLiveAgents("Running build, cleanup, and verification.");
-    if (stage.status === "stale") {
-      const onlyClean =
-        stage.subChecks?.some((c) => c.id === "clean" && c.status === "stale") &&
-        stage.subChecks?.some((c) => c.id === "verify" && c.status === "done");
-      return onlyClean ? "Code edited after cleanup." : "New edits landed after verification.";
-    }
     if (stage.status === "done") return "Cleaned and verified on HEAD.";
     if (stage.status === "skipped") return "Completed earlier or not needed for this flow.";
     return stage.summary;
@@ -2566,7 +2600,9 @@ export function evaluateTimelineSnapshot({
   let receiptPush = false;
   let receiptPushMarker = null;
 
-  for (const r of receipts) {
+  const effectiveReceipts = receipts.filter((r) => !isFailedTranscriptVerifyReceipt(r, sig.failedVerifyCmds));
+
+  for (const r of effectiveReceipts) {
     const m = makeMarker(r.ts, Number.MAX_SAFE_INTEGER);
     if (r.kind === "file_write") {
       const workspacePaths = Array.isArray(r.paths)
@@ -2598,8 +2634,13 @@ export function evaluateTimelineSnapshot({
 
   const hasEdits = Boolean(hadReceiptWrite || latestAnyWrite);
   const hasCodeEdits = Boolean(latestCodeWrite);
-  const receiptFreshness = receipts.length > 0
-    ? computeFreshness({ receipts, headSha: setup.headSha, priorEvidence: evidence })
+  const receiptFreshness = effectiveReceipts.length > 0
+    ? computeFreshness({
+        receipts: effectiveReceipts,
+        headSha: setup.headSha,
+        priorEvidence: evidence,
+        requirePostEditVerify: hasEdits,
+      })
     : evidence?.freshness ?? "missing_receipts";
 
   const effectiveCleanAt = latestMarker(sig.cleanAt, latestReceiptClean);
@@ -2622,9 +2663,7 @@ export function evaluateTimelineSnapshot({
   const reviewPassFresh = Boolean(
     reviewFresh && (evidence?.verifier?.verdict === "PASS" || evidence?.verifier?.verdict === "PASS_WITH_NOTES"),
   );
-  const cleanStale = Boolean(cleanDone && !cleanFresh && !(verifyFresh && reviewPassFresh && !staleFromReceipts));
-  const effectiveCleanFresh = cleanDone && !cleanStale;
-  const buildStale = staleFromReceipts || cleanStale || Boolean(sig.verifyRunAt && hasPostEditVerify && !verifyFresh && hasCodeEdits);
+  const effectiveCleanFresh = cleanDone && (cleanFresh || Boolean(verifyFresh && reviewPassFresh && !staleFromReceipts));
   const shipped = Boolean(sig.pushOrPrAt || receiptPush);
   const latestPushMarker = latestMarker(sig.pushOrPrAt, receiptPushMarker);
   const latestDownstreamMarker = latestMarker(latestMarker(walkthroughMarker, sig.reviewPrAt), latestPushMarker);
@@ -2667,7 +2706,6 @@ export function evaluateTimelineSnapshot({
     cleanFresh: effectiveCleanFresh,
     verifyDone,
     verifyFresh,
-    buildStale,
     reviewStarted,
     reviewFresh,
     walkthroughArtifact,
@@ -2862,12 +2900,6 @@ export function evaluateTimelineSnapshot({
     shipped,
   });
 
-  const onlyBuildCleanStale =
-    buildStage.status === "stale" &&
-    reviewStage.status !== "stale" &&
-    Boolean(buildStage.subChecks?.some((c) => c.id === "clean" && c.status === "stale")) &&
-    Boolean(buildStage.subChecks?.some((c) => c.id === "verify" && c.status === "done"));
-
   let workflowMode = "standard";
   let workflowLabel = null;
   if (!hasConv) {
@@ -2875,7 +2907,6 @@ export function evaluateTimelineSnapshot({
   } else if (
     shipped &&
     (buildStage.status === "active" ||
-      buildStage.status === "stale" ||
       reviewStage.status === "active" ||
       reviewStage.status === "stale" ||
       reviewStage.status === "error" ||
@@ -2901,10 +2932,7 @@ export function evaluateTimelineSnapshot({
   if (reviewStage.status === "error") {
     liveState = "error";
     liveLabel = "Escalated";
-  } else if (buildStage.status === "stale" || reviewStage.status === "stale") {
-    liveState = "warn";
-    liveLabel = onlyBuildCleanStale ? "Re-clean" : "Stale";
-  } else if (planStage.status === "waiting_gate" || reviewStage.status === "waiting_gate") {
+  } else if (planStage.status === "waiting_gate" || reviewStage.status === "waiting_gate" || reviewStage.status === "stale") {
     liveState = "warn";
     liveLabel = "Review";
   }

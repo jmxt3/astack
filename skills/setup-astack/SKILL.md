@@ -23,7 +23,7 @@ Pass `--doctor` (and optionally `--json`) anytime to inspect Node version, `veri
 This prints the `ASTACK` ASCII initiation banner and inspects the workspace read-only for:
 
 1. `.agents/skills/verify-*/SKILL.md` (runtime Control Glass verification) and formal TLA+ verification skills or `*.tla` specs.
-2. [`hooks.json`](../../hooks.json) at the plugin root (enables 3 passive observe-only hooks and keeps 6 blocking gates `"enabled": false` by default).
+2. [`hooks.json`](../../hooks.json) at the plugin root (enables 3 passive observe-only hooks plus `astack-verify-reminder --dirty-only` by default and keeps 6 opt-in blocking gates `"enabled": false`).
 3. Any existing `~/.gemini/config/rules/astack-models.md` or `.agents/rules/astack-models.md` rule on this machine or repo.
 
 ## 2. Display the ASCII Banner & Collect Repo Choices
@@ -64,7 +64,7 @@ Then ask concisely with `ask_question` (pass unnumbered options without adding a
 
 - If the user selected `/create-verification-skill`, `/maintain-verification-skill`, or `/create-formal-verification-skill`, invoke that skill immediately (no chat restart required).
 - If the user selected `Scaffold repo trust policies`, run `node "<skill-dir>/scripts/init-repo-policy.mjs" --cwd . --json` and summarize created vs skipped files.
-- If the user selected `Review split lifecycle hooks`, explain that [`hooks.json`](../../hooks.json) enables three passive observe-only hooks (`astack-receipt-ledger`, `astack-session-context`, `astack-pr-intent`) by default while keeping all six blocking gates `"enabled": false` until opted in via `hooks.json` or `/hooks`. Open plugin details anytime in the Antigravity App via [astack](customization://astack).
+- If the user selected `Review split lifecycle hooks`, explain that [`hooks.json`](../../hooks.json) enables three passive observe-only hooks (`astack-receipt-ledger`, `astack-session-context`, `astack-pr-intent`) plus `astack-verify-reminder --dirty-only` by default while keeping the remaining six blocking gates `"enabled": false` until opted in via `hooks.json` or `/hooks`. Open plugin details anytime in the Antigravity App via [astack](customization://astack).
 - If the user chose to remove/reset an existing `astack-models.md` (and confirmed the change), remove or update it cleanly as requested.
 - Close with quick next-step commands:
   - `/astack-mode <task>`: classify task into a playbook and orchestrate rigor end-to-end

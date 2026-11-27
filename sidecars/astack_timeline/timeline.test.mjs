@@ -299,12 +299,22 @@ test("tracks /interrogate, marks Build & Prove done on fresh verify, and flips s
     ]);
 
     const staleSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
-    assert.equal(staleSnap.stages[1].status, "stale");
-    assert.match(staleSnap.stages[1].subChecks[1].detail, /Re-run \/deslop or \/no-comments/);
-    assert.match(staleSnap.stages[1].subChecks[2].detail, /Re-run tests or validation/);
+    assert.equal(staleSnap.stages[1].status, "active");
+    assert.equal(staleSnap.stages[1].subChecks[0].status, "done");
+    assert.equal(staleSnap.stages[1].subChecks[1].status, "pending");
+    assert.equal(staleSnap.stages[1].subChecks[2].status, "pending");
     assert.equal(staleSnap.freshness, "dirty_after_verify");
-    assert.equal(staleSnap.liveState, "warn");
+    assert.equal(staleSnap.liveState, "ok");
+    assert.equal(staleSnap.liveLabel, "Live");
     assert.equal(staleSnap.nextAction.command, "/astack-mode");
+
+    writeText(path.join(brainDir, convId, "pr-review.md"), "# PR Review\n");
+    const reviewStaleSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    assert.equal(reviewStaleSnap.stages[2].status, "stale");
+    assert.equal(reviewStaleSnap.stages[2].railState, "stale");
+    assert.equal(reviewStaleSnap.liveState, "warn");
+    assert.equal(reviewStaleSnap.liveLabel, "Review");
+    assert.equal(reviewStaleSnap.nextAction.command, "/pre-pr");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -1050,6 +1060,7 @@ test("keeps Build & Prove pending during /plan with baseline lint checks and avo
 
     const firstEditSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(firstEditSnap.stages[1].status, "active", "Pre-plan lint receipt must not make first edit stale");
+    assert.notEqual(firstEditSnap.freshness, "dirty_after_verify");
     assert.equal(firstEditSnap.stages[1].subChecks[0].status, "done");
     assert.equal(firstEditSnap.stages[1].subChecks[2].status, "pending");
 
@@ -1322,7 +1333,7 @@ test("does not mark clean stale when transcript whole-second cleanup matches sam
   }
 });
 
-test("reports Re-clean wording without blaming verification when only cleanup is stale before PR review", () => {
+test("resets Build clean sub-check neutrally when code is edited after cleanup without turning Build yellow", () => {
   const { root, brainDir, workspaceDir } = makeFixture("astack-tl-reclean-");
   const convId = "conv-reclean";
   try {
@@ -1372,14 +1383,12 @@ test("reports Re-clean wording without blaming verification when only cleanup is
     ]);
 
     const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
-    assert.equal(snap.stages[1].status, "stale");
-    assert.equal(snap.stages[1].subChecks.find((c) => c.id === "clean")?.status, "stale");
+    assert.equal(snap.stages[1].status, "active");
+    assert.equal(snap.stages[1].subChecks.find((c) => c.id === "clean")?.status, "pending");
     assert.equal(snap.stages[1].subChecks.find((c) => c.id === "verify")?.status, "done");
-    assert.equal(snap.liveLabel, "Re-clean");
-    assert.equal(snap.stages[1].collapsedSummary, "Code edited after cleanup.");
-    assert.match(snap.stages[1].detail, /Re-run \/deslop or \/no-comments/);
+    assert.equal(snap.liveState, "ok");
+    assert.equal(snap.liveLabel, "Live");
     assert.doesNotMatch(snap.stages[1].detail, /after verification/i);
-    assert.match(snap.nextAction.hint, /Code edited after cleanup/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -2247,8 +2256,9 @@ test("living rail models parallel work, skipped ahead, waiting on you, and all-d
         paths: ["src/a.js"],
       },
     ]);
-    const staleOnlySnap = evaluateTimelineSnapshot({ conversationId: convStaleOnly, brainDir, workspaceDir });
-    assert.equal(staleOnlySnap.stages[1].railState, "stale");
+    const editAfterTestSnap = evaluateTimelineSnapshot({ conversationId: convStaleOnly, brainDir, workspaceDir });
+    assert.equal(editAfterTestSnap.stages[1].railState, "queued");
+    assert.equal(editAfterTestSnap.stages[1].status, "active");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -3396,6 +3406,135 @@ test("evaluateTimelineSnapshot caches transcript parsing without cross-call muta
     const afterChildDone = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(afterChildDone.activity.runningSubagentsCount, 0, "Child transcript completion must update parent snapshot");
     assert.equal(afterChildDone.activity.subagents[0].status, "done");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("keeps running background verify alive across 120s heartbeat and reconciles failed command receipts", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-270127c0-");
+  const convId = "conv-heartbeat-fail";
+  try {
+    const headSha = "084812aad9700881367458a5eccb2072a50b3686";
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+    writeText(path.join(workspaceDir, ".git", "HEAD"), `${headSha}\n`);
+
+    writeTranscript(brainDir, convId, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T16:01:50Z",
+        content: "<USER_REQUEST>Fix build failure</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T16:09:05Z",
+        tool_calls: [{ name: "edit_file", args: { Path: "scripts/release-guard.test.js" } }],
+      },
+      {
+        step_index: 2,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T16:09:24Z",
+        tool_calls: [
+          {
+            name: "run_command",
+            args: {
+              CommandLine: "node --experimental-strip-types --test apps/desktop/scripts/release-guard.test.js; cargo clippy",
+              toolSummary: "Run script tests and Cargo checks",
+            },
+          },
+        ],
+      },
+      {
+        step_index: 3,
+        type: "GENERIC",
+        created_at: "2026-11-27T16:09:32Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-68\nTask Description: node --experimental-strip-types --test apps/desktop/scripts/release-guard.test.js; cargo clippy`,
+      },
+      {
+        step_index: 4,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-27T16:09:50Z",
+        content: `<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-27T16:09:46Z sender=${convId}/task-68 priority=MESSAGE_PRIORITY_HIGH content=Task id "${convId}/task-68" finished with result:\nCommand exited with code 1.\n</SYSTEM_MESSAGE>`,
+      },
+      {
+        step_index: 5,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T16:09:50Z",
+        tool_calls: [
+          { name: "edit_file", args: { Path: "scripts/release-guard.test.js" } },
+          {
+            name: "run_command",
+            args: {
+              CommandLine: "node --experimental-strip-types --test apps/desktop/scripts/release-guard.test.js; cargo clippy",
+              toolSummary: "Run all script tests and Cargo checks",
+            },
+          },
+        ],
+      },
+      {
+        step_index: 6,
+        type: "GENERIC",
+        created_at: "2026-11-27T16:09:57Z",
+        content: `Tool is running as a background task with task id: ${convId}/task-74\nTask Description: node --experimental-strip-types --test apps/desktop/scripts/release-guard.test.js; cargo clippy`,
+      },
+      {
+        step_index: 7,
+        type: "SYSTEM_MESSAGE",
+        created_at: "2026-11-27T16:12:30Z",
+        content: `<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-27T16:12:16Z sender=${convId}/task-74 priority=MESSAGE_PRIORITY_HIGH content=Background command is still running after 120s: node --experimental-strip-types --test apps/desktop/scripts/release-guard.test.js; cargo clippy\n</SYSTEM_MESSAGE>`,
+      },
+    ]);
+
+    writeReceipt(brainDir, convId, [
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T16:09:08.000Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "other",
+        headSha,
+        ok: true,
+        summary: "edit_file scripts/release-guard.test.js",
+        paths: ["scripts/release-guard.test.js"],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T16:09:46.375Z",
+        conversationId: convId,
+        kind: "command",
+        category: "test",
+        headSha,
+        ok: true,
+        summary: "node --experimental-strip-types --test apps/desktop/scripts/release-guard.test.js; cargo clippy",
+        paths: [],
+      },
+      {
+        schemaVersion: 1,
+        ts: "2026-11-27T16:10:04.994Z",
+        conversationId: convId,
+        kind: "file_write",
+        category: "other",
+        headSha,
+        ok: true,
+        summary: "edit_file scripts/release-guard.test.js",
+        paths: ["scripts/release-guard.test.js"],
+      },
+    ]);
+
+    const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
+    const task68 = snap.activity.backgroundJobs.items.find((j) => j.taskSlug === "task-68");
+    const task74 = snap.activity.backgroundJobs.items.find((j) => j.taskSlug === "task-74");
+    assert.equal(task68?.status, "failed");
+    assert.equal(task74?.status, "running", "120s still-running notification must not mark task-74 done");
+    assert.ok(snap.activity.liveStageIds.includes("build"));
+    assert.equal(snap.stages[1].railState, "running");
+    assert.equal(snap.stages[1].status, "active");
+    assert.notEqual(snap.freshness, "dirty_after_verify");
+    assert.equal(snap.liveState, "ok");
+    assert.equal(snap.liveLabel, "Live");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

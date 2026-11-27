@@ -502,12 +502,14 @@ test("createTimelineServer reports nextAction.inProgress when /plan is active be
     assert.doesNotMatch(appJs, /snap\.branch !== snap\.workspaceName/);
     assert.match(appJs, /timeline-risk-badge/);
     assert.match(appJs, /timeline-freshness/);
-    assert.match(appJs, /build-stale-callout/);
+    assert.doesNotMatch(appJs, /build-stale-callout/);
+    assert.doesNotMatch(appJs, /Needs re-verify/);
     assert.match(appJs, /Critical risk/);
     assert.match(appJs, /focus-drawer-agents/);
     assert.match(appJs, /focus-drawer-prs/);
     assert.match(appJs, /focus-drawer-tasks/);
     assert.match(cssText, /\.living-rail\s*\{[^}]*top:\s*-32px/);
+    assert.doesNotMatch(cssText, /\.subcheck-callout/);
     assert.match(cssText, /\.pr-badge\.merged/);
   } finally {
     await srv.close();

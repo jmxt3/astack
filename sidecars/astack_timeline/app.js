@@ -1077,12 +1077,6 @@
     if (rs === "done") return { text: "Done", cls: "done" };
     if (rs === "yourturn") return { text: "Your turn", cls: "yourturn" };
     if (rs === "stale") {
-      if (stage?.id === "build") {
-        const cleanStale = stage.subChecks?.some((c) => c.id === "clean" && c.status === "stale");
-        const verifyStale = stage.subChecks?.some((c) => c.id === "verify" && c.status === "stale");
-        if (cleanStale && !verifyStale) return { text: "Re-clean", cls: "stale" };
-        if (verifyStale) return { text: "Re-verify", cls: "stale" };
-      }
       return { text: "Needs re-run", cls: "stale" };
     }
     if (rs === "error") return { text: "Escalated", cls: "error" };
@@ -1172,34 +1166,6 @@
       segGrid.appendChild(seg);
     }
     detail.appendChild(segGrid);
-
-    const staleSubs = subChecks.filter((c) => c.status === "stale");
-    if (staleSubs.length > 0) {
-      const callout = el("div", "subcheck-callout");
-      callout.dataset.testid = "build-stale-callout";
-      const msgRow = el("div", "subcheck-callout-msg");
-      const warnIc = svgIcon("warn", 12);
-      warnIc.classList.add("subcheck-callout-icon");
-      msgRow.append(warnIc, el("span", "", staleSubs.map((s) => s.detail).join(" ")));
-      callout.appendChild(msgRow);
-
-      const actionCmds = [];
-      if (staleSubs.some((s) => s.id === "clean")) actionCmds.push("/deslop", "/no-comments");
-      if (staleSubs.some((s) => s.id === "verify")) actionCmds.push("/astack-mode");
-      if (actionCmds.length > 0) {
-        const actionRow = el("div", "subcheck-callout-actions");
-        for (const cmd of actionCmds) {
-          const meta = lookupCommandMeta(snap, cmd);
-          const btn = el("button", "subcmd-pill stale-action");
-          btn.type = "button";
-          btn.appendChild(el("span", "", cmd));
-          wireCommandAction(btn, meta ? { ...meta, command: cmd } : cmd);
-          actionRow.appendChild(btn);
-        }
-        callout.appendChild(actionRow);
-      }
-      detail.appendChild(callout);
-    }
 
     const accGroup = el("div", "accordion-group");
     const swarm = act.swarm || {};
@@ -2057,15 +2023,15 @@
       action = review.artifact
         ? { type: "artifact", label: "Open Dossier", artifact: review.artifact }
         : { type: "view", label: "Open Dossier", view: "dossier" };
-    } else if (build?.status === "stale" || review?.status === "stale") {
+    } else if (review?.status === "stale") {
       tone = "is-yourturn";
       iconKind = "warn";
       badge = "Needs attention";
-      text = snap.nextAction?.hint || "New edits landed. Re-verify on HEAD.";
+      text = snap.nextAction?.hint || "New edits invalidated the PR check. Re-run /pre-pr.";
       action = {
         type: "copy",
-        label: snap.nextAction?.command || "/astack-mode",
-        command: snap.nextAction?.command || "/astack-mode",
+        label: snap.nextAction?.command || "/pre-pr",
+        command: snap.nextAction?.command || "/pre-pr",
       };
     } else if (ship?.status === "done" && !snap.nextAction) {
       tone = "is-done";
@@ -2156,7 +2122,7 @@
     const stage = snap.stages?.find((s) => s.id === stageId);
     const act = snap.activity || {};
     if (stage?.status === "error") return { text: "escalated", cls: "warn" };
-    if (stage?.status === "stale") return { text: "re-verify", cls: "warn" };
+    if (stage?.status === "stale") return { text: "re-run", cls: "warn" };
     if (stage?.status === "waiting_gate") return { text: "review", cls: "warn" };
     if (
       stageId === "build" &&
@@ -2214,7 +2180,7 @@
     active: { word: "running", cls: "" },
     waiting_gate: { word: "review", cls: "warn" },
     error: { word: "escalated", cls: "warn" },
-    stale: { word: "re-verify", cls: "warn" },
+    stale: { word: "re-run", cls: "warn" },
     done: { word: "done", cls: "done" },
   };
 
@@ -3432,11 +3398,8 @@
 
     const RISK_TITLES = ["Low risk", "Medium risk", "High risk", "Critical risk"];
     const FRESHNESS_DISPLAY = {
-      fresh: { label: "Verified", mode: "done", desc: "Tests or validation passed on the current git HEAD with no unverified edits." },
-      fresh_rebase_patch_id: { label: "Verified", mode: "done", desc: "Rebased commit matches previously verified patch-id on current HEAD." },
-      dirty_after_verify: { label: "Needs re-verify", mode: "stale", desc: "Files changed after the last verification run. Re-run tests on HEAD." },
-      stale_sha: { label: "Stale commit", mode: "stale", desc: "Receipts belong to an older git commit. Re-run verification on HEAD." },
-      missing_receipts: { label: "Unverified", mode: "", desc: "No passing verification receipt recorded for this commit yet." },
+      fresh: { label: "✓ Verified", mode: "done", desc: "Tests or validation passed on the current git HEAD with no unverified edits." },
+      fresh_rebase_patch_id: { label: "✓ Verified", mode: "done", desc: "Rebased commit matches previously verified patch-id on current HEAD." },
     };
 
     const rp = snap.trust?.riskPresentation || null;
@@ -3477,12 +3440,8 @@
         popDesc: descParts.join(" "),
       });
     }
-    if (snap.freshness) {
-      const fm = FRESHNESS_DISPLAY[snap.freshness] || {
-        label: snap.freshness,
-        mode: "",
-        desc: `Trust ledger freshness status: ${snap.freshness}.`,
-      };
+    if (snap.freshness && FRESHNESS_DISPLAY[snap.freshness]) {
+      const fm = FRESHNESS_DISPLAY[snap.freshness];
       metaParts.push({
         text: fm.label,
         cls: `meta-pill meta-fresh ${fm.mode}`.trim(),
