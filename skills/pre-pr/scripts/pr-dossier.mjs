@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
   compilePrDossier,
+  loadRiskPolicy,
   readHeadShaFast,
   recordVerifierReceipt,
   resolveTrustDir,
@@ -70,7 +71,8 @@ function main() {
       target === "-"
         ? fs.readFileSync(0, "utf8")
         : fs.readFileSync(path.resolve(baseDir, target), "utf8");
-    const check = validatePrBodyContract(rawBody);
+    const { policy } = loadRiskPolicy(baseDir);
+    const check = validatePrBodyContract(rawBody, policy?.prDescriptionContract);
     if (values.json) {
       process.stdout.write(`${JSON.stringify(check, null, 2)}\n`);
     } else if (check.ok) {

@@ -1176,13 +1176,13 @@ export function evaluatePrIntent(event, options = {}) {
     (trustDir && fs.existsSync(path.join(trustDir, "proof-manifest.json"))) ||
       (fallbackTrustDir && fs.existsSync(path.join(fallbackTrustDir, "proof-manifest.json"))),
   );
-  const featureDir = discoverVerifyFeaturesDir(workspaceDir);
+  const featureDir = hasManifest ? discoverVerifyFeaturesDir(workspaceDir) : null;
 
   const artifactFlag = event.artifactDir ? ` --artifact-dir "${event.artifactDir}"` : "";
   const featureFlag = featureDir ? ` --feature-map "${featureDir}"` : "";
   const manifestStatus = hasManifest
     ? "Detected `proof-manifest.json` in trust directory."
-    : "No `proof-manifest.json` detected; compiler will synthesize from Feature Map or HEAD verification receipts.";
+    : "No `proof-manifest.json` detected; compiler will emit the Verification Proof table from HEAD receipts (pass `--statechart <path>` only when changing a state machine, protocol, or formal verifier).";
 
   const ephemeralMessage = [
     `AStack PR proof workflow triggered (HEAD \`${(headSha ?? "none").slice(0, 7)}\`, freshness \`${freshness}\`).`,

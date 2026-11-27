@@ -150,7 +150,7 @@ function resolveGitHubRepoUrl(workspaceDir, explicitRepoUrl) {
   }
 }
 
-function resolveFeaturesDir(workspaceDir, explicitFeatureMapDir, proofManifest, evidence) {
+function resolveFeaturesDir(workspaceDir, explicitFeatureMapDir, proofManifest) {
   const candidate = explicitFeatureMapDir || proofManifest?.featureMap?.skillDir || null;
   if (candidate) {
     const abs = path.isAbsolute(candidate) ? candidate : path.resolve(workspaceDir, candidate);
@@ -163,7 +163,7 @@ function resolveFeaturesDir(workspaceDir, explicitFeatureMapDir, proofManifest, 
     proofManifest?.featureMap?.coveredFeatures?.length ||
       proofManifest?.checks?.some((c) => Boolean(c.featureId)),
   );
-  if ((evidence?.riskTier ?? 1) < 1 && !hasMappedChecks) {
+  if (!hasMappedChecks) {
     return null;
   }
   const skillsDir = path.join(workspaceDir, ".agents", "skills");
@@ -176,7 +176,7 @@ function resolveFeaturesDir(workspaceDir, explicitFeatureMapDir, proofManifest, 
   for (const name of dirs) {
     const featDir = path.join(skillsDir, name, "features");
     if (!fs.existsSync(featDir) || !fs.statSync(featDir).isDirectory()) continue;
-    const hasMd = fs.readdirSync(featDir).some((f) => f.endsWith(".md"));
+    const hasMd = fs.readdirSync(featDir).some((f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md");
     if (hasMd) return featDir;
   }
   return null;
@@ -186,7 +186,7 @@ function readFeatureMapEntries(featuresDir) {
   if (!featuresDir || !fs.existsSync(featuresDir)) return [];
   const files = fs
     .readdirSync(featuresDir, { withFileTypes: true })
-    .filter((d) => d.isFile() && d.name.endsWith(".md"))
+    .filter((d) => d.isFile() && d.name.endsWith(".md") && d.name.toLowerCase() !== "readme.md")
     .map((d) => d.name)
     .sort();
 
@@ -208,6 +208,8 @@ function readFeatureMapEntries(featuresDir) {
           const clean = bullet[1]
             .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
             .replace(/`([^`]+)`/g, "$1")
+            .replace(/\*\*([^*]+)\*\*/g, "$1")
+            .replace(/__([^_]+)__/g, "$1")
             .trim();
           if (clean) subFeatures.push(clean);
         }
@@ -466,6 +468,7 @@ export function resolvePrStatechart({
   proofManifest = null,
   statechartPath = null,
   featureMapDir = null,
+  requireFallback = false,
 } = {}) {
   const rootDir = path.resolve(workspaceDir);
   if (statechartPath) {
@@ -673,24 +676,27 @@ export function resolvePrStatechart({
     };
   }
 
-  return buildLifecycleStatechart(evidence);
+  return requireFallback ? buildLifecycleStatechart(evidence) : null;
 }
 
 /**
- * Renders an idempotent GitHub PR proof block (Statechart, PASS/FAIL/SKIP/UNREACHABLE table, and bot metadata).
+ * Renders an idempotent GitHub PR proof block (optional Statechart, PASS/FAIL/SKIP/UNREACHABLE table, and bot metadata).
  */
 export function renderGitHubPrProof({
   workspaceDir = process.cwd(),
   evidence = {},
   findingsDoc = null,
   proofManifest = null,
-  statechart = null,
+  statechart = undefined,
+  requireFallback = false,
   repoUrl = null,
   existingBody = null,
 } = {}) {
   const rootDir = path.resolve(workspaceDir);
   const resolvedStatechart =
-    statechart ?? resolvePrStatechart({ workspaceDir: rootDir, evidence, proofManifest });
+    statechart === undefined
+      ? resolvePrStatechart({ workspaceDir: rootDir, evidence, proofManifest, requireFallback })
+      : statechart;
   const { rows, counts, manifestHeadMismatch } = collectUnifiedProofRows({
     evidence,
     proofManifest,
@@ -703,7 +709,7 @@ export function renderGitHubPrProof({
     headSha: shortHead,
     freshness: evidence?.freshness ?? "missing_receipts",
     riskTier: evidence?.riskTier ?? 1,
-    statechartSource: resolvedStatechart.source,
+    statechartSource: resolvedStatechart?.source ?? null,
     counts,
   };
 
@@ -711,19 +717,25 @@ export function renderGitHubPrProof({
     PROOF_START_MARKER,
     `<!-- astack:proof-meta ${JSON.stringify(meta)} -->`,
     "",
-    "## Statechart",
-    "",
-    `Provenance is \`${resolvedStatechart.source}\` on \`HEAD ${shortHead}\`.`,
-    "",
-    "```mermaid",
-    resolvedStatechart.mermaid,
-    "```",
-    "",
+  ];
+  if (resolvedStatechart) {
+    lines.push(
+      "## Statechart",
+      "",
+      `Provenance is \`${resolvedStatechart.source}\` on \`HEAD ${shortHead}\`.`,
+      "",
+      "```mermaid",
+      resolvedStatechart.mermaid,
+      "```",
+      "",
+    );
+  }
+  lines.push(
     "## Verification Proof",
     "",
     `Summary on \`HEAD ${shortHead}\` (\`${evidence?.freshness ?? "missing_receipts"}\`, Risk Tier ${evidence?.riskTier ?? 1} ${evidence?.riskLabel ?? "medium"}). PASS ${counts.pass}, FAIL ${counts.fail}, SKIP ${counts.skip}, UNREACHABLE ${counts.unreachable}.`,
     "",
-  ];
+  );
 
   if (evidence?.trustContext) {
     const tc = evidence.trustContext;
@@ -837,7 +849,7 @@ export function renderGitHubPrProof({
  */
 export function validatePrBodyContract(
   bodyText,
-  { requireStatechart = true, requireProofTable = true, forbidLocalLinks = true } = {},
+  { requireStatechart = false, requireProofTable = true, forbidLocalLinks = true } = {},
 ) {
   const violations = [];
   if (typeof bodyText !== "string" || !bodyText.trim()) {

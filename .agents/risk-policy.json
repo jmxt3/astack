@@ -29,7 +29,7 @@
   },
   "prDescriptionContract": {
     "enabled": false,
-    "requireStatechart": true,
+    "requireStatechart": false,
     "requireProofTable": true,
     "forbidLocalLinks": true
   },

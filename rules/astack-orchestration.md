@@ -2,7 +2,7 @@
 trigger: model_decision
 description: >-
   Routing guidance when the user asks for rigorous engineering workflows,
-  opening or updating pull requests with statecharts and verification proof,
+  opening or updating pull requests with verification proof and conditional statecharts,
   AStack playbooks, empirical verification harnesses ("Control Glass"),
   or choosing between Subagents, /boost, /swarm, and /teamwork.
 ---

@@ -39,7 +39,7 @@ export const DEFAULT_RISK_POLICY = {
   },
   prDescriptionContract: {
     enabled: false,
-    requireStatechart: true,
+    requireStatechart: false,
     requireProofTable: true,
     forbidLocalLinks: true,
   },

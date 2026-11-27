@@ -646,6 +646,13 @@ test("pr-intent PreInvocation injects PR proof workflow once per prompt and igno
     );
     assert.deepEqual(nonPr, {});
 
+    fs.mkdirSync(path.join(tmp, ".agents", "skills", "verify-demo", "features"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, ".agents", "skills", "verify-demo", "features", "demo.md"),
+      "# Demo Feature\n\n## Sub-features\n\n- Demo step\n",
+      "utf8",
+    );
+
     const prPayload = JSON.stringify({
       conversationId: "c-intent",
       hookEventName: "PreInvocation",
@@ -661,6 +668,7 @@ test("pr-intent PreInvocation injects PR proof workflow once per prompt and igno
     assert.equal(first.injectSteps[0].systemMessage, undefined);
     assert.match(injected, /pr-dossier\.mjs --format github/);
     assert.match(injected, /--artifact-dir/);
+    assert.doesNotMatch(injected, /--feature-map/);
 
     const second = runHook(prIntentScript, prPayload);
     assert.deepEqual(second, {});
