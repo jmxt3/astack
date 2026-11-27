@@ -3400,3 +3400,211 @@ test("evaluateTimelineSnapshot caches transcript parsing without cross-call muta
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("ignores fixture PR URLs from batched read_file, out-of-order read_file, and non-PR run_command outputs", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-tl-ghost-pr-");
+  try {
+    const convBatched = "conv-batched-read";
+    writeTranscript(brainDir, convBatched, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T18:00:00Z",
+        content: "<USER_REQUEST>/astack-mode check timeline</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T18:03:03Z",
+        tool_calls: [
+          { name: "update_steps", args: { steps: [] } },
+          { name: "call_mcp_tool", args: { ServerName: "astack_trust", ToolName: "declare_intent", Arguments: "{}" } },
+          { name: "read_file", args: { Path: "sidecars/astack_timeline/server.test.mjs", StartLine: 550, EndLine: 640 } },
+          { name: "read_file", args: { Path: "sidecars/astack_timeline/server.test.mjs", StartLine: 1850, EndLine: 1974 } },
+        ],
+      },
+      { step_index: 2, type: "GENERIC", created_at: "2026-11-27T18:03:15Z", content: "OK" },
+      { step_index: 3, type: "GENERIC", created_at: "2026-11-27T18:03:16Z", content: "Recorded Intent Card" },
+      {
+        step_index: 4,
+        type: "GENERIC",
+        created_at: "2026-11-27T18:03:16Z",
+        content:
+          "Created At: 2026-11-27T15:03:16-03:00\nShowing lines 550-640 of 1974\n553: https://github.com/acme/demo/pull/21\n554: https://github.com/acme/demo/pull/22\n",
+      },
+      {
+        step_index: 5,
+        type: "GENERIC",
+        created_at: "2026-11-27T18:03:16Z",
+        content:
+          "Created At: 2026-11-27T15:03:16-03:00\nShowing lines 1850-1974 of 1974\n1921: https://github.com/acme/demo/pull/99\n",
+      },
+      {
+        step_index: 6,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T18:04:00Z",
+        tool_calls: [
+          { name: "run_command", args: { CommandLine: "node --run test:sidecar" } },
+          { name: "run_command", args: { CommandLine: "git grep pull/99" } },
+        ],
+      },
+      {
+        step_index: 7,
+        type: "GENERIC",
+        created_at: "2026-11-27T18:04:02Z",
+        content: "Command exited with code 0\n\nCommand output:\nhttps://github.com/acme/demo/pull/99\n",
+      },
+      {
+        step_index: 8,
+        type: "GENERIC",
+        created_at: "2026-11-27T18:04:03Z",
+        content: "Command exited with code 0\n\nCommand output:\nsidecars/astack_timeline/server.test.mjs:1921: https://github.com/acme/demo/pull/99\n",
+      },
+    ]);
+
+    const batchedSnap = evaluateTimelineSnapshot({ conversationId: convBatched, brainDir, workspaceDir });
+    assert.equal(batchedSnap.activity.prs.totalCount, 0);
+    assert.deepEqual(batchedSnap.activity.prs.items, []);
+
+    const convOutOfOrder = "conv-out-of-order";
+    writeTranscript(brainDir, convOutOfOrder, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T18:10:00Z",
+        tool_calls: [
+          { name: "run_command", args: { CommandLine: 'gh pr create --title "feat: real" --body "ok"' } },
+          { name: "read_file", args: { Path: "sidecars/astack_timeline/server.test.mjs", StartLine: 1850, EndLine: 1974 } },
+        ],
+      },
+      {
+        step_index: 1,
+        type: "GENERIC",
+        created_at: "2026-11-27T18:10:01Z",
+        content:
+          "Created At: 2026-11-27T15:10:01-03:00\nShowing lines 1850-1974 of 1974\n1921: https://github.com/acme/demo/pull/99\n",
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        created_at: "2026-11-27T18:10:02Z",
+        content: "Command exited with code 0\n\nCommand output:\nhttps://github.com/acme/demo/pull/25\n",
+      },
+    ]);
+
+    const outOfOrderSnap = evaluateTimelineSnapshot({ conversationId: convOutOfOrder, brainDir, workspaceDir });
+    assert.equal(outOfOrderSnap.activity.prs.totalCount, 1);
+    assert.equal(outOfOrderSnap.activity.prs.items[0].number, 25);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("scopes workspace PR URLs to GitHub remotes including linked worktrees, guards cross-repo prMetaByNumber hydration, and preserves colleagueReview external PRs", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-remote-scope-"));
+  const brainDir = path.join(root, "brain");
+  const mainRepoDir = path.join(root, "main-repo");
+  const mainGitDir = path.join(mainRepoDir, ".git");
+  const worktreeDir = path.join(root, "wt-fix");
+  const worktreeGitDir = path.join(mainGitDir, "worktrees", "wt-fix");
+  const nonGitDir = path.join(root, "non-git");
+  try {
+    fs.mkdirSync(brainDir, { recursive: true });
+    fs.mkdirSync(nonGitDir, { recursive: true });
+    writeText(path.join(mainGitDir, "HEAD"), "ref: refs/heads/main\n");
+    writeText(
+      path.join(mainGitDir, "config"),
+      '[remote "origin"]\n\turl = https://github.com/jmxt3/astack.git\n[remote "upstream"]\n\turl = git@github.com:org-upstream/astack.git\n',
+    );
+    writeText(path.join(worktreeGitDir, "HEAD"), "ref: refs/heads/fix\n");
+    writeText(path.join(worktreeGitDir, "commondir"), "../..\n");
+    writeText(path.join(worktreeDir, ".git"), `gitdir: ${worktreeGitDir}\n`);
+
+    const convScoped = "conv-scoped-wt";
+    writeTranscript(brainDir, convScoped, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T18:20:00Z",
+        content: "Ignore fixture https://github.com/acme/demo/pull/99 in prose.",
+        tool_calls: [{ name: "run_command", args: { CommandLine: 'gh pr create --title "feat: scoped" --body "ok"' } }],
+      },
+      {
+        step_index: 1,
+        type: "GENERIC",
+        created_at: "2026-11-27T18:20:02Z",
+        content:
+          "Command exited with code 0\n\nCommand output:\nhttps://github.com/acme/demo/pull/21\nhttps://github.com/jmxt3/astack/pull/25\nhttps://github.com/org-upstream/astack/pull/26\n",
+      },
+    ]);
+
+    const scopedSnap = evaluateTimelineSnapshot({ conversationId: convScoped, brainDir, workspaceDir: worktreeDir });
+    assert.deepEqual(
+      scopedSnap.activity.prs.items.map((p) => p.number),
+      [26, 25],
+    );
+
+    writeText(
+      path.join(mainGitDir, "config"),
+      '[remote "origin"]\n\turl = https://github.com/jmxt3/astack.git\n[remote "upstream"]\n\turl = git@github.com:org-upstream/astack.git\n[remote "demo"]\n\turl = https://github.com/acme/demo.git\n',
+    );
+    const updatedRemoteSnap = evaluateTimelineSnapshot({
+      conversationId: convScoped,
+      brainDir,
+      workspaceDir: worktreeDir,
+    });
+    assert.deepEqual(
+      updatedRemoteSnap.activity.prs.items.map((p) => p.number),
+      [99, 26, 25, 21],
+      "Changing remote config must invalidate cached transcript parse",
+    );
+
+    const convCrossHydrate = "conv-cross-hydrate";
+    writeTranscript(brainDir, convCrossHydrate, [
+      {
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T18:25:00Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: 'gh pr create --title "demo" --body "ok"' } }],
+      },
+      {
+        step_index: 1,
+        type: "GENERIC",
+        created_at: "2026-11-27T18:25:02Z",
+        content: "https://github.com/acme/demo/pull/21\n",
+      },
+    ]);
+    const prMetaByNumber = new Map([
+      [21, { number: 21, title: "Real AStack PR 21", state: "merged", url: "https://github.com/jmxt3/astack/pull/21" }],
+    ]);
+    const crossHydrateSnap = evaluateTimelineSnapshot({
+      conversationId: convCrossHydrate,
+      brainDir,
+      workspaceDir: nonGitDir,
+      prMetaByNumber,
+    });
+    assert.equal(crossHydrateSnap.activity.prs.items[0].url, "https://github.com/acme/demo/pull/21");
+    assert.equal(crossHydrateSnap.activity.prs.items[0].state, "open");
+    assert.equal(crossHydrateSnap.activity.prs.items[0].title, "demo");
+
+    const convColleague = "conv-colleague-ext";
+    writeTranscript(brainDir, convColleague, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T18:30:00Z",
+        content: "<USER_REQUEST>/interrogate https://github.com/other/repo/pull/301</USER_REQUEST>",
+      },
+    ]);
+    const colleagueSnap = evaluateTimelineSnapshot({
+      conversationId: convColleague,
+      brainDir,
+      workspaceDir: worktreeDir,
+    });
+    assert.equal(colleagueSnap.colleagueReview.targetPrs[0]?.url, "https://github.com/other/repo/pull/301");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
