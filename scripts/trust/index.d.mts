@@ -292,6 +292,65 @@ export function evaluateDecisionTable(args?: {
   readonly viaLegacyShim: boolean;
 };
 
+export interface DossierViewModel {
+  readonly header: {
+    readonly riskTier: number;
+    readonly riskLabel: string;
+    readonly freshness: string;
+    readonly freshnessTone: "ok" | "warn" | "err";
+    readonly shortHead: string;
+    readonly reviewRound: number;
+    readonly maxReviewRounds: number;
+    readonly roundState: string;
+  };
+  readonly decision: {
+    readonly mode: "defect_blocked" | "stale_evidence" | "ready_to_ship" | "policy_gate";
+    readonly tone: "ok" | "warn" | "err";
+    readonly badge: string;
+    readonly headline: string;
+    readonly why: string;
+    readonly next: string;
+    readonly inherentScore: number;
+    readonly residualScore: number;
+    readonly residual: string;
+    readonly primaryAction: { readonly id: string; readonly label: string };
+  };
+  readonly intentStrip: {
+    readonly declared: boolean;
+    readonly goal: string | null;
+    readonly inScope: boolean | null;
+    readonly driftedCount: number;
+    readonly rollbackPlan: string;
+  };
+  readonly assertionSummary: {
+    readonly added: number;
+    readonly removed: number;
+    readonly net: number;
+    readonly weakeningRatio: number;
+    readonly maxAllowedRatio: number;
+    readonly flagged: boolean;
+    readonly flaggedFiles: readonly { readonly path: string; readonly line: number; readonly uri: string | null }[];
+  };
+  readonly signals: readonly Record<string, unknown>[];
+  readonly guardrails: readonly Record<string, unknown>[];
+  readonly reading: {
+    readonly totalFiles: number;
+    readonly totalAdditions: number;
+    readonly totalDeletions: number;
+    readonly reviewFirst: readonly Record<string, unknown>[];
+    readonly remainingClusters: readonly Record<string, unknown>[];
+    readonly remainingFileCount: number;
+  };
+  readonly verifier: Record<string, unknown>;
+  readonly actions: Record<string, unknown>;
+}
+
+export function buildDossierViewModel(args: {
+  readonly evidence: Record<string, unknown>;
+  readonly findingsDoc?: Record<string, unknown> | null;
+  readonly prReviewUri?: string | null;
+}): DossierViewModel | null;
+
 export function writeEvidenceSnapshotAtomic(
   trustDir: string,
   snapshot: Record<string, unknown>

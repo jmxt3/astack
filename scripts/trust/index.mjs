@@ -56,6 +56,7 @@ import {
   resolveGitDirs,
 } from "./internal/workspace-scope.mjs";
 import {
+  buildDossierViewModel,
   classifyRiskTier,
   clusterChangedFiles,
   compilePrDossier,
@@ -160,6 +161,7 @@ export {
   applyTrustSettingsAction,
   assessChange,
   bucketFromScore,
+  buildDossierViewModel,
   classifyActionClass,
   classifyCommandCategory,
   classifyDominantCategory,

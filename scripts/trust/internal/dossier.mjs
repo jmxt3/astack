@@ -21,7 +21,7 @@ import {
 } from "./policy.mjs";
 import { assessChange } from "./risk.mjs";
 import { resolveResidual } from "./mitigation.mjs";
-import { readIntentCard } from "./intent.mjs";
+import { evaluateIntentScope, readIntentCard } from "./intent.mjs";
 import {
   renderGitHubPrProof,
   resolvePrStatechart,
@@ -154,6 +154,12 @@ export function clusterChangedFiles(fileEntries) {
       additions: items.reduce((s, i) => s + i.additions, 0),
       deletions: items.reduce((s, i) => s + i.deletions, 0),
       firstLines: Object.fromEntries(items.map((i) => [i.file, i.firstLine ?? 1])),
+      fileStats: Object.fromEntries(
+        items.map((i) => [
+          i.file,
+          { additions: i.additions, deletions: i.deletions, firstLine: i.firstLine ?? 1 },
+        ]),
+      ),
     });
   }
   return out;
@@ -518,10 +524,11 @@ export function compilePrDossier({
     treeDirty: dirtyNonTrustFiles.some((rel) => !/\.md$/i.test(rel)),
   });
 
-  const assertionDelta = computeAssertionDelta(
-    diffText,
-    policy.maxAssertionWeakeningRatio ?? 0.25,
-  );
+  const maxAllowedRatio = policy.maxAssertionWeakeningRatio ?? 0.25;
+  const assertionDelta = {
+    ...computeAssertionDelta(diffText, maxAllowedRatio),
+    maxAllowedRatio,
+  };
   const risk = classifyRiskTier(fileEntries.map((f) => f.file), policy);
   const { boundaries } = loadBoundaries(workspaceDir);
   const clusters = clusterChangedFiles(fileEntries);
@@ -699,6 +706,19 @@ export function compilePrDossier({
     proofManifest,
     intent: intentCard,
   });
+  const intentScope = intentCard
+    ? evaluateIntentScope(intentCard, fileEntries.map((f) => f.file))
+    : null;
+  const intentSummary = intentCard
+    ? {
+        goal: intentCard.goal,
+        affectedGlobs: intentCard.affectedGlobs,
+        rollbackPlan: intentCard.rollbackPlan,
+        predictedRisk: intentCard.predictedRisk ?? null,
+        inScope: Boolean(intentScope?.inScope),
+        driftedFiles: intentScope?.driftedFiles ?? [],
+      }
+    : null;
   const evidence = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
@@ -711,6 +731,7 @@ export function compilePrDossier({
     riskLabel,
     matchedRiskRules: risk.matchedRules,
     riskAssessment,
+    intent: intentSummary,
     autoMergeEligible,
     reviewRound,
     maxReviewRounds,
@@ -784,5 +805,570 @@ export function compilePrDossier({
     evidencePath,
     outPath: writtenOutPath,
     statechart,
+  };
+}
+
+const DEFECT_SIGNAL_IDS = new Set([
+  "test_regression",
+  "deletes_assertions",
+  "bundled_sidecar_permissions",
+  "scope_drift",
+  "cross_zone_import",
+]);
+const GATE_SIGNAL_IDS = new Set(["touches_governance"]);
+
+function pluralFilesLabel(count) {
+  return `${count} ${count === 1 ? "file" : "files"}`;
+}
+
+function freshnessToneFor(freshness) {
+  if (freshness === "fresh" || freshness === "fresh_rebase_patch_id") return "ok";
+  if (freshness === "missing_receipts") return "warn";
+  return "err";
+}
+
+function buildFileMetaLookup(evidence, findingsDoc) {
+  const tierByFile = new Map();
+  for (const rule of evidence?.matchedRiskRules ?? []) {
+    const t = Number(rule?.tier ?? 0);
+    for (const rel of rule?.files ?? []) {
+      const prev = tierByFile.get(rel) ?? -1;
+      if (t > prev) tierByFile.set(rel, t);
+    }
+  }
+
+  const linkByFile = new Map();
+  for (const cl of evidence?.clusters ?? []) {
+    for (const link of cl?.fileLinks ?? []) {
+      if (link?.path) linkByFile.set(link.path, link);
+    }
+  }
+
+  const signalsByFile = new Map();
+  const addFileSignal = (rel, sigId) => {
+    if (!rel || !sigId) return;
+    const list = signalsByFile.get(rel) ?? [];
+    if (!list.includes(sigId)) list.push(sigId);
+    signalsByFile.set(rel, list);
+  };
+
+  for (const rel of evidence?.assertionDelta?.flaggedFiles ?? []) {
+    addFileSignal(rel, "deletes_assertions");
+  }
+  for (const rel of evidence?.intent?.driftedFiles ?? []) {
+    addFileSignal(rel, "scope_drift");
+  }
+  for (const f of findingsDoc?.findings ?? []) {
+    if (f?.severity === "important" && f?.file) {
+      addFileSignal(f.file, "verifier_important");
+    }
+  }
+
+  const allPaths = new Set([
+    ...tierByFile.keys(),
+    ...linkByFile.keys(),
+    ...(evidence?.clusters ?? []).flatMap((c) => c?.files ?? []),
+  ]);
+  for (const sig of evidence?.riskAssessment?.signals ?? []) {
+    const evText = String(sig?.evidence ?? "");
+    for (const rel of allPaths) {
+      if (evText.includes(rel)) {
+        addFileSignal(rel, sig.id);
+      }
+    }
+  }
+
+  return { tierByFile, linkByFile, signalsByFile, allPaths };
+}
+
+function resolveDecisionMode({
+  hasDefect,
+  verifierStale,
+  isFresh,
+  readyToShip,
+}) {
+  if (hasDefect) {
+    return { mode: "defect_blocked", tone: "err", badge: "DEFECT BLOCKED" };
+  }
+  if (verifierStale || !isFresh) {
+    return { mode: "stale_evidence", tone: "warn", badge: "STALE PROOF" };
+  }
+  if (readyToShip) {
+    return { mode: "ready_to_ship", tone: "ok", badge: "READY TO SHIP" };
+  }
+  return { mode: "policy_gate", tone: "warn", badge: "POLICY GATE" };
+}
+
+function buildGuardrailRows({
+  evidence,
+  findingsDoc,
+  isFresh,
+  verifierStale,
+  importantCount,
+  reviewViolationCount,
+  signals,
+  assertionSummary,
+}) {
+  const basePolicy = evidence?.baseReviewPolicy ?? {};
+  const reviewModified = Boolean(basePolicy.modifiedInPr);
+  const policyModified = Boolean(basePolicy.riskPolicyModifiedInPr);
+  const boundarySig = signals.find((s) => s.id === "cross_zone_import");
+  const sidecarSig = signals.find((s) => s.id === "bundled_sidecar_permissions");
+  const intent = evidence?.intent ?? null;
+
+  const reviewMdRow = reviewModified
+    ? { id: "review_md", label: "Base REVIEW.md", tone: "err", status: "FAIL", detail: "REVIEW.md modified in PR" }
+    : reviewViolationCount > 0
+      ? {
+          id: "review_md",
+          label: "Base REVIEW.md",
+          tone: "err",
+          status: "FAIL",
+          detail: `${reviewViolationCount} invariant violation(s)`,
+        }
+      : {
+          id: "review_md",
+          label: "Base REVIEW.md",
+          tone: "ok",
+          status: "OK",
+          detail: findingsDoc?.reviewMdCompliance?.checked
+            ? "Unchanged and checked (0 violations)"
+            : basePolicy.present
+              ? "Unchanged on base"
+              : "Not configured on base",
+        };
+
+  const riskPolicyRow = policyModified
+    ? {
+        id: "risk_policy",
+        label: "Risk policy",
+        tone: "err",
+        status: "FAIL",
+        detail: ".agents/risk-policy.json modified in PR",
+      }
+    : {
+        id: "risk_policy",
+        label: "Risk policy",
+        tone: "ok",
+        status: "OK",
+        detail: ".agents/risk-policy.json unchanged",
+      };
+
+  const capPct = Math.round((assertionSummary.maxAllowedRatio ?? 0.25) * 100);
+  const ratioPct = Math.round((assertionSummary.weakeningRatio ?? 0) * 100);
+  const testIntegrityRow = assertionSummary.flagged
+    ? {
+        id: "test_integrity",
+        label: "Test integrity",
+        tone: "err",
+        status: "FAIL",
+        detail: `+${assertionSummary.added}/-${assertionSummary.removed} (ratio ${ratioPct}% > ${capPct}% cap)`,
+      }
+    : {
+        id: "test_integrity",
+        label: "Test integrity",
+        tone: "ok",
+        status: "OK",
+        detail: `+${assertionSummary.added}/-${assertionSummary.removed} (net ${assertionSummary.net >= 0 ? "+" : ""}${assertionSummary.net})`,
+      };
+
+  const intentScopeRow = !intent
+    ? {
+        id: "intent_scope",
+        label: "Intent scope",
+        tone: "neutral",
+        status: "INFO",
+        detail: "No Intent Card declared",
+      }
+    : intent.inScope
+      ? {
+          id: "intent_scope",
+          label: "Intent scope",
+          tone: "ok",
+          status: "OK",
+          detail: "All changed files inside declared globs",
+        }
+      : {
+          id: "intent_scope",
+          label: "Intent scope",
+          tone: "err",
+          status: "FAIL",
+          detail: `${pluralFilesLabel(intent.driftedFiles?.length ?? 0)} outside declared globs`,
+        };
+
+  const boundariesRow =
+    boundarySig || sidecarSig
+      ? {
+          id: "trust_boundaries",
+          label: "Trust boundaries",
+          tone: "err",
+          status: "FAIL",
+          detail: boundarySig?.evidence || sidecarSig?.evidence || "Boundary violation detected",
+        }
+      : {
+          id: "trust_boundaries",
+          label: "Trust boundaries",
+          tone: "ok",
+          status: "OK",
+          detail: "0 cross-zone imports, 0 sidecar permission keys",
+        };
+
+  const freshnessRow = verifierStale
+    ? {
+        id: "freshness",
+        label: "Proof freshness",
+        tone: "warn",
+        status: "WARN",
+        detail: "pr-verifier report is behind current HEAD",
+      }
+    : isFresh
+      ? {
+          id: "freshness",
+          label: "Proof freshness",
+          tone: "ok",
+          status: "OK",
+          detail: importantCount > 0 ? "Receipts match HEAD (findings open)" : "Receipts match HEAD",
+        }
+      : {
+          id: "freshness",
+          label: "Proof freshness",
+          tone: "warn",
+          status: "WARN",
+          detail: `Freshness ${evidence?.freshness ?? "stale"}`,
+        };
+
+  return [
+    reviewMdRow,
+    riskPolicyRow,
+    testIntegrityRow,
+    intentScopeRow,
+    boundariesRow,
+    freshnessRow,
+  ];
+}
+
+/**
+ * Builds the Option A view model consumed by both the MCP inline PR Dossier card and the Timeline sidecar view.
+ */
+export function buildDossierViewModel({
+  evidence,
+  findingsDoc = null,
+  prReviewUri = null,
+} = {}) {
+  if (!evidence) return null;
+
+  const freshness = evidence.freshness ?? "missing_receipts";
+  const isFresh = freshness === "fresh" || freshness === "fresh_rebase_patch_id";
+  const shortHead = evidence.headSha ? String(evidence.headSha).slice(0, 7) : "none";
+  const riskTier = Number(evidence.riskTier ?? 1);
+  const riskLabel = evidence.riskLabel ?? "medium";
+  const ra = evidence.riskAssessment ?? null;
+  const rawSignals = Array.isArray(ra?.signals) ? ra.signals : [];
+  const verifierStale = Boolean(evidence.verifier?.stale);
+  const allFindings = Array.isArray(findingsDoc?.findings) ? findingsDoc.findings : [];
+  const importantCount = findingsDoc
+    ? allFindings.filter((f) => f.severity === "important").length
+    : Number(evidence.verifier?.importantCount ?? 0);
+  const nitCount = findingsDoc ? allFindings.filter((f) => f.severity === "nit").length : 0;
+  const preExistingCount = findingsDoc
+    ? allFindings.filter((f) => f.severity === "pre_existing").length
+    : 0;
+  const reviewViolations = findingsDoc?.reviewMdCompliance?.violations ?? [];
+  const reviewViolationCount = findingsDoc
+    ? reviewViolations.length
+    : Number(evidence.verifier?.reviewViolationCount ?? 0);
+  const delta = evidence.assertionDelta ?? {};
+  const added = Number(delta.added ?? 0);
+  const removed = Number(delta.removed ?? 0);
+  const basePolicy = evidence.baseReviewPolicy ?? {};
+
+  const hasDefect = Boolean(
+    importantCount > 0 ||
+      findingsDoc?.verdict === "FAIL" ||
+      reviewViolationCount > 0 ||
+      basePolicy.modifiedInPr ||
+      basePolicy.riskPolicyModifiedInPr ||
+      delta.flagged ||
+      rawSignals.some((s) => DEFECT_SIGNAL_IDS.has(s.id)),
+  );
+  const readyToShip = Boolean(
+    !hasDefect &&
+      !verifierStale &&
+      isFresh &&
+      (evidence.autoMergeEligible === true ||
+        (riskTier === 0 &&
+          findingsDoc &&
+          (findingsDoc.verdict === "PASS" || findingsDoc.verdict === "PASS_WITH_NOTES") &&
+          (!ra || ra.residual === "low"))),
+  );
+
+  const decBase = resolveDecisionMode({
+    hasDefect,
+    verifierStale,
+    isFresh,
+    readyToShip,
+  });
+
+  const { tierByFile, linkByFile, signalsByFile } = buildFileMetaLookup(evidence, findingsDoc);
+
+  const signals = rawSignals.map((sig) => {
+    const tone = DEFECT_SIGNAL_IDS.has(sig.id)
+      ? "err"
+      : GATE_SIGNAL_IDS.has(sig.id)
+        ? "warn"
+        : "neutral";
+    const badge = tone === "err" ? "FAIL" : tone === "warn" ? "GATE" : "INFO";
+    const evText = String(sig.evidence ?? "");
+    let matchedLink = null;
+    for (const [rel, link] of linkByFile.entries()) {
+      if (evText.includes(rel)) {
+        matchedLink = link;
+        break;
+      }
+    }
+    return {
+      id: sig.id,
+      tone,
+      badge,
+      weight: Number(sig.weight ?? 0),
+      evidence: evText,
+      file: matchedLink?.path ?? null,
+      line: matchedLink?.line ?? null,
+      uri: matchedLink?.uri ?? null,
+    };
+  });
+
+  const assertionSummary = {
+    added,
+    removed,
+    net: added - removed,
+    weakeningRatio: Number(delta.weakeningRatio ?? 0),
+    maxAllowedRatio: Number(delta.maxAllowedRatio ?? 0.25),
+    flagged: Boolean(delta.flagged),
+    flaggedFiles: (delta.flaggedFiles ?? []).map((rel) => {
+      const link = linkByFile.get(rel);
+      return {
+        path: rel,
+        line: link?.line ?? 1,
+        uri: link?.uri ?? null,
+      };
+    }),
+  };
+
+  const guardrails = buildGuardrailRows({
+    evidence,
+    findingsDoc,
+    isFresh,
+    verifierStale,
+    importantCount,
+    reviewViolationCount,
+    signals,
+    assertionSummary,
+  });
+
+  const clusters = Array.isArray(evidence.clusters) ? evidence.clusters : [];
+  let totalFiles = 0;
+  let totalAdditions = 0;
+  let totalDeletions = 0;
+  const reviewFirst = [];
+  const remainingClusters = [];
+
+  for (const cl of clusters) {
+    const files = Array.isArray(cl.files) ? cl.files : [];
+    totalFiles += files.length;
+    totalAdditions += Number(cl.additions ?? 0);
+    totalDeletions += Number(cl.deletions ?? 0);
+
+    const restFiles = [];
+    for (const rel of files) {
+      const link = linkByFile.get(rel);
+      const stat = cl.fileStats?.[rel] ?? {};
+      const item = {
+        path: rel,
+        line: link?.line ?? cl.firstLines?.[rel] ?? stat.firstLine ?? 1,
+        uri: link?.uri ?? null,
+        additions: Number(link?.additions ?? stat.additions ?? 0),
+        deletions: Number(link?.deletions ?? stat.deletions ?? 0),
+        tier: tierByFile.has(rel) ? tierByFile.get(rel) : Math.min(riskTier, 1),
+        signals: signalsByFile.get(rel) ?? [],
+      };
+      if (item.tier >= 2 || item.signals.length > 0) {
+        reviewFirst.push(item);
+      } else {
+        restFiles.push(item);
+      }
+    }
+    if (restFiles.length > 0) {
+      remainingClusters.push({
+        id: cl.id,
+        title: cl.title || cl.id,
+        additions: restFiles.reduce((s, f) => s + f.additions, 0),
+        deletions: restFiles.reduce((s, f) => s + f.deletions, 0),
+        files: restFiles,
+      });
+    }
+  }
+
+  reviewFirst.sort(
+    (a, b) =>
+      b.tier - a.tier ||
+      b.signals.length - a.signals.length ||
+      a.path.localeCompare(b.path),
+  );
+
+  const govSignal = signals.find((s) => s.id === "touches_governance");
+  const defectSignal = signals.find((s) => s.tone === "err");
+  let headline;
+  let why;
+  let next;
+  let primaryAction;
+
+  if (decBase.mode === "defect_blocked") {
+    headline =
+      importantCount > 0
+        ? `Action needed: ${importantCount} important finding${importantCount === 1 ? "" : "s"}`
+        : "Action needed: red-flag guardrail tripped";
+    why =
+      findingsDoc?.summary && importantCount > 0
+        ? findingsDoc.summary
+        : defectSignal?.evidence ||
+          (basePolicy.modifiedInPr
+            ? "Base REVIEW.md was modified inside this PR."
+            : basePolicy.riskPolicyModifiedInPr
+              ? ".agents/risk-policy.json was modified inside this PR."
+              : "A blocking risk signal fired on this diff.");
+    next =
+      importantCount > 0
+        ? "Fix the verified important findings and re-run /pre-pr on HEAD."
+        : "Resolve the failing guardrail above and re-run verification on HEAD.";
+    primaryAction =
+      importantCount > 0
+        ? { id: "fix_important", label: `Fix ${importantCount} important` }
+        : prReviewUri
+          ? { id: "open_pr_review", label: "Open pr-review.md" }
+          : { id: "rerun_pre_pr", label: "Re-run /pre-pr" };
+  } else if (decBase.mode === "stale_evidence") {
+    headline = verifierStale
+      ? "Proof behind HEAD: re-run pr-verifier"
+      : "Verification needed on current HEAD";
+    why = verifierStale
+      ? `Attached findings.json verified ${String(evidence.verifier?.headSha ?? "an older commit").slice(0, 7)}, not HEAD ${shortHead}.`
+      : `Freshness is ${freshness}; no passing HEAD verification receipt is recorded yet.`;
+    next = "Run /pre-pr to refresh receipts and pr-verifier on HEAD.";
+    primaryAction = { id: "rerun_pre_pr", label: "Re-run /pre-pr" };
+  } else if (decBase.mode === "ready_to_ship") {
+    headline = evidence.autoMergeEligible
+      ? "Ready to ship: Tier 0 auto-eligible (0 findings)"
+      : "Ready to ship: verified clean (0 findings)";
+    why =
+      findingsDoc?.summary ||
+      `All ${pluralFilesLabel(totalFiles)} verified clean on HEAD ${shortHead}.`;
+    next = "Open pr-review.md or proceed to merge.";
+    primaryAction = prReviewUri
+      ? { id: "open_pr_review", label: "Open pr-review.md" }
+      : { id: "attach_context", label: "Attach summary to chat" };
+  } else {
+    const defectNote = findingsDoc
+      ? "0 defects found"
+      : "verifier pending";
+    headline = `Human review required: Policy Gate (${defectNote})`;
+    why = govSignal
+      ? govSignal.evidence
+      : findingsDoc?.verdict === "ESCALATE_HUMAN"
+        ? findingsDoc.summary
+        : `Tier ${riskTier} (${riskLabel}) changes require human review before merge.`;
+    next =
+      reviewFirst.length > 0
+        ? `Inspect the ${pluralFilesLabel(reviewFirst.length)} pinned under Review First, then approve or merge.`
+        : "Inspect the changed clusters below, then approve or merge.";
+    primaryAction = prReviewUri
+      ? { id: "open_pr_review", label: "Open pr-review.md" }
+      : { id: "attach_context", label: "Attach summary to chat" };
+  }
+
+  const inherentScore = Number(ra?.inherentScore ?? ra?.score ?? 0);
+  const residualScore = Number(ra?.score ?? 0);
+  const residualLabel = ra?.residual ?? (decBase.mode === "ready_to_ship" ? "low" : "medium");
+  const fallbackRollback =
+    shortHead !== "none" ? `git revert ${shortHead}` : "git revert HEAD";
+  const rollbackPlan =
+    evidence.intent?.rollbackPlan || ra?.rollback?.plan || fallbackRollback;
+
+  const verdict = findingsDoc?.verdict ?? null;
+  const verdictTone =
+    verdict === "FAIL"
+      ? "err"
+      : verdict === "PASS" || verdict === "PASS_WITH_NOTES"
+        ? "ok"
+        : verdict === "ESCALATE_HUMAN"
+          ? "warn"
+          : "neutral";
+
+  return {
+    header: {
+      riskTier,
+      riskLabel,
+      freshness,
+      freshnessTone: freshnessToneFor(freshness),
+      shortHead,
+      reviewRound: Number(evidence.reviewRound ?? 0),
+      maxReviewRounds: Number(evidence.maxReviewRounds ?? 3),
+      roundState: evidence.roundState ?? "pending",
+    },
+    decision: {
+      ...decBase,
+      headline,
+      why,
+      next,
+      inherentScore,
+      residualScore,
+      residual: residualLabel,
+      primaryAction,
+    },
+    intentStrip: {
+      declared: Boolean(evidence.intent),
+      goal: evidence.intent?.goal ?? null,
+      inScope: evidence.intent ? Boolean(evidence.intent.inScope) : null,
+      driftedCount: evidence.intent?.driftedFiles?.length ?? 0,
+      rollbackPlan,
+    },
+    assertionSummary,
+    signals,
+    guardrails,
+    reading: {
+      totalFiles,
+      totalAdditions,
+      totalDeletions,
+      reviewFirst,
+      remainingClusters,
+      remainingFileCount: Math.max(0, totalFiles - reviewFirst.length),
+    },
+    verifier: {
+      attached: Boolean(findingsDoc),
+      verdict,
+      verdictTone,
+      summary: findingsDoc?.summary ?? null,
+      stale: verifierStale,
+      verifiedHead: evidence.verifier?.headSha
+        ? String(evidence.verifier.headSha).slice(0, 7)
+        : null,
+      reviewMdChecked: Boolean(findingsDoc?.reviewMdCompliance?.checked),
+      reviewMdViolations: reviewViolations,
+      counts: {
+        all: allFindings.length,
+        important: importantCount,
+        nit: nitCount,
+        pre_existing: preExistingCount,
+      },
+      findings: allFindings,
+      dropped: Array.isArray(findingsDoc?.dropped) ? findingsDoc.dropped : [],
+    },
+    actions: {
+      canOpenPrReview: Boolean(prReviewUri),
+      prReviewUri: prReviewUri ?? null,
+      canFixImportant: importantCount > 0,
+      needsRerun: verifierStale || !isFresh,
+      rollbackCommand: rollbackPlan,
+    },
   };
 }
