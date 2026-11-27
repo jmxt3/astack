@@ -914,6 +914,79 @@ test("compilePrDossier reports Agent Trust level and unifies autoMergeEligible w
     assert.equal(govDossier.evidence.trustContext?.category, "governance");
     assert.match(govDossier.markdown, /capped at `L2` forever/);
     assert.match(govDossier.evidence.autoMerge?.reason ?? "", /capped at L2 forever and never auto-merge/i);
+
+    const legacyRepo = makeRepo();
+    const legacyArt = fs.mkdtempSync(path.join(os.tmpdir(), "astack-dossier-legacy-art-"));
+    const legacyData = fs.mkdtempSync(path.join(os.tmpdir(), "astack-dossier-legacy-data-"));
+    const legacyTrustDir = path.join(legacyArt, "astack-trust");
+    try {
+      fs.mkdirSync(path.join(legacyRepo, ".agents"), { recursive: true });
+      fs.writeFileSync(
+        path.join(legacyRepo, ".agents", "risk-policy.json"),
+        JSON.stringify({
+          schemaVersion: 1,
+          allowTier0AutoMerge: true,
+          humanGates: { planApproval: "nontrivial", prReview: "never" },
+        }, null, 2),
+        "utf8",
+      );
+      execFileSync("git", ["add", ".agents/risk-policy.json"], { cwd: legacyRepo, stdio: "ignore" });
+      execFileSync("git", ["commit", "-m", "enable legacy tier0"], { cwd: legacyRepo, stdio: "ignore" });
+      const legacyBaseSha = execFileSync("git", ["rev-parse", "main"], { cwd: legacyRepo, encoding: "utf8" }).trim();
+      const legacyScope = resolveWorkspaceScope(legacyRepo);
+      assert.equal(legacyScope.kind, "enrolled_repo");
+      applyTrustSettingsAction({ repoId: legacyScope.repoId, action: { beastOn: true }, dataDir: legacyData });
+
+      execFileSync("git", ["checkout", "-b", "feat/tests-legacy"], { cwd: legacyRepo, stdio: "ignore" });
+      fs.writeFileSync(
+        path.join(legacyRepo, "tests", "app.test.js"),
+        "import assert from 'node:assert/strict';\nassert.equal(1, 1);\nassert.equal(2, 2);\nassert.equal(3, 3);\n",
+        "utf8",
+      );
+      execFileSync("git", ["add", "tests/app.test.js"], { cwd: legacyRepo, stdio: "ignore" });
+      execFileSync("git", ["commit", "-m", "add test assertion"], { cwd: legacyRepo, stdio: "ignore" });
+      const legacyHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: legacyRepo, encoding: "utf8" }).trim();
+
+      recordReceipt(
+        { kind: "tool-command", conversationId: "u2", command: "node --test tests/app.test.js", error: "", workspaceDir: legacyRepo },
+        { trustDir: legacyTrustDir, headSha: legacyHead },
+      );
+      const legacyFindings = path.join(legacyTrustDir, "findings.json");
+      fs.mkdirSync(legacyTrustDir, { recursive: true });
+      fs.writeFileSync(
+        legacyFindings,
+        JSON.stringify({
+          schemaVersion: 1,
+          headSha: legacyHead,
+          baseSha: legacyBaseSha,
+          round: 1,
+          verdict: "PASS",
+          summary: "Clean test addition",
+          findings: [],
+          dropped: [],
+          reviewMdCompliance: { checked: true, violations: [] },
+        }),
+        "utf8",
+      );
+      recordVerifierReceipt({ trustDir: legacyTrustDir, headSha: legacyHead, verdict: "PASS", findingsPath: legacyFindings });
+
+      const legacyDossier = compilePrDossier({
+        cwd: legacyRepo,
+        baseRef: "main",
+        artifactDir: legacyArt,
+        findingsPath: legacyFindings,
+        dataDir: legacyData,
+      });
+      assert.equal(legacyDossier.evidence.trustContext?.level, 0);
+      assert.equal(legacyDossier.evidence.autoMergeEligible, true);
+      assert.equal(legacyDossier.evidence.autoMerge?.mode, "tier0_opt_in");
+      assert.doesNotMatch(legacyDossier.evidence.autoMerge?.label ?? "", /Earned Trust L0/i);
+      assert.match(legacyDossier.evidence.autoMerge?.label ?? "", /Tier 0 opt-in satisfied for tests/i);
+    } finally {
+      fs.rmSync(legacyRepo, { recursive: true, force: true });
+      fs.rmSync(legacyArt, { recursive: true, force: true });
+      fs.rmSync(legacyData, { recursive: true, force: true });
+    }
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(artifactDir, { recursive: true, force: true });

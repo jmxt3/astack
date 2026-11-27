@@ -491,6 +491,14 @@ function evaluateAutoMergeEligibility({
     repoTrust.chainValid &&
     mergeDecision.decision === "auto_approve"
   ) {
+    if (mergeDecision.viaLegacyShim) {
+      return {
+        eligible: true,
+        mode: "tier0_opt_in",
+        label: `Yes (Tier 0 opt-in satisfied for ${category})`,
+        reason: `Legacy Tier 0 auto-merge policy satisfied for ${category} with Beast Mode On and low residual risk (R ${mergeAssessment.score.toFixed(2)}).`,
+      };
+    }
     return {
       eligible: true,
       mode: "earned_trust_l3",
