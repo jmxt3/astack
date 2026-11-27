@@ -1068,6 +1068,7 @@
     const live = document.getElementById("live");
     const liveMode = !snap.hasConversation ? "idle" : snap.liveState;
     live.className = `live ${liveMode}`;
+    live.title = snap.liveLabel || "";
     document.getElementById("live-label").textContent = snap.liveLabel;
   }
 
@@ -3582,7 +3583,10 @@
     if (state.snap) return;
     const live = document.getElementById("live");
     const liveLabel = document.getElementById("live-label");
-    if (live) live.className = "live idle";
+    if (live) {
+      live.className = "live idle";
+      live.title = "Loading…";
+    }
     if (liveLabel) liveLabel.textContent = "Loading…";
     const list = document.getElementById("timeline");
     if (!list || list.children.length > 0) return;
@@ -4117,8 +4121,12 @@
         state.lastPollError = { status: res.status, message: msg };
         const live = document.getElementById("live");
         const liveLabel = document.getElementById("live-label");
-        if (live) live.className = res.status === 401 || res.status === 503 ? "live idle" : "live error";
-        if (liveLabel) liveLabel.textContent = res.status === 401 ? "Auth error" : "Error";
+        const statusText = res.status === 401 ? "Auth error" : "Error";
+        if (live) {
+          live.className = res.status === 401 || res.status === 503 ? "live idle" : "live error";
+          live.title = statusText;
+        }
+        if (liveLabel) liveLabel.textContent = statusText;
         if (!state.snap) {
           renderLoadFallback(
             "Could not load AStack Timeline",
@@ -4149,7 +4157,10 @@
       if (reqSeq !== state.pollSeq) return;
       const live = document.getElementById("live");
       const liveLabel = document.getElementById("live-label");
-      if (live) live.className = "live idle";
+      if (live) {
+        live.className = "live idle";
+        live.title = "Offline";
+      }
       if (liveLabel) liveLabel.textContent = "Offline";
       if (!state.snap) {
         const reason =

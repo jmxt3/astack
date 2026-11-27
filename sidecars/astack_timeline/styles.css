@@ -201,6 +201,8 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   font-size: 10.5px;
   font-weight: 500;
   line-height: 1;
+  white-space: nowrap;
+  max-width: 100%;
   cursor: help;
 }
 
@@ -250,7 +252,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 19px;
+  height: 18px;
   padding: 0 7px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--tl-done) 35%, transparent);
@@ -259,6 +261,8 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   font-size: 10.5px;
   font-weight: 500;
   line-height: 1;
+  white-space: nowrap;
+  max-width: 100%;
   transition: background-color 0.12s ease, border-color 0.12s ease;
 }
 
@@ -933,6 +937,9 @@ h4.md-heading { font-size: 13px; }
 .progress-seg-label {
   font-size: 11px;
   color: var(--tl-fg-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .progress-seg-label.done { color: var(--tl-done); }
@@ -1408,6 +1415,24 @@ h4.md-heading { font-size: 13px; }
   background: var(--tl-card);
   color: var(--tl-fg);
   font-size: 11.5px;
+  white-space: nowrap;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.chip, .subcmd-pill, .guide-cmd-chip, .pick-chip, .copy-inline-btn, .status-banner-action {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.chip > span,
+.subcmd-pill > span:not(.subcmd-dot):not(.subcmd-tag),
+.artifact-btn > span:first-of-type,
+.guide-cmd-chip > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .artifact-btn:hover { background: var(--tl-hover); }
@@ -1641,8 +1666,9 @@ h4.md-heading { font-size: 13px; }
 
 .delegate-title-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
 }
 
 .delegate-status-pill {
@@ -1657,6 +1683,9 @@ h4.md-heading { font-size: 13px; }
   font-size: 10.5px;
   font-weight: 600;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   flex: none;
 }
 
@@ -2112,6 +2141,7 @@ h4.md-heading { font-size: 13px; }
 
 .beast-foot-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -2366,15 +2396,24 @@ h4.md-heading { font-size: 13px; }
 
 .status-banner.is-guided {
   flex-direction: column;
+  flex-wrap: nowrap;
   align-items: stretch;
   gap: 6px;
   padding: 8px 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.status-banner.is-guided > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .status-banner-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px 6px;
   min-width: 0;
 }
 
@@ -2419,8 +2458,10 @@ h4.md-heading { font-size: 13px; }
 
 .status-banner-actions {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
   flex: none;
   margin-left: auto;
 }
@@ -2705,6 +2746,7 @@ h4.md-heading { font-size: 13px; }
 
 .cr-intro-top {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
@@ -2891,7 +2933,123 @@ h4.md-heading { font-size: 13px; }
   .row-ask-btn { opacity: 1; }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 440px) {
+  .header { padding: 8px var(--tl-pad) 7px; }
+  .header-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 5px 6px;
+  }
+  .brand-logo { grid-column: 1; grid-row: 1; }
+  .title { grid-column: 2; grid-row: 1; }
+  .live { grid-column: 3; grid-row: 1; justify-self: end; }
+  .mode-switcher { grid-column: 1 / 3; grid-row: 2; justify-self: start; }
+  .progress { grid-column: 3; grid-row: 2; justify-self: end; }
+
+  .focus-strip {
+    gap: 2px 4px;
+    padding: 5px max(6px, calc(var(--tl-pad) - 4px)) 0;
+  }
+  .focus-chip {
+    height: 22px;
+    padding: 0 4px;
+    gap: 4px;
+    font-size: 10.5px;
+  }
+  .focus-spacer { display: none; }
+  .view-nav-group {
+    margin-left: 0;
+    width: 100%;
+    gap: 2px 4px;
+  }
+  .view-nav-group .guide-link-btn {
+    height: 22px;
+    padding: 0 4px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 360px) {
+  :root { --tl-pad: 10px; }
+  .meta-row { gap: 4px 5px; }
+  .meta-sep { display: none; }
+  .main { padding: 10px var(--tl-pad) 0; }
+  .step { gap: 8px; }
+  .status-banner:not(.is-guided) {
+    flex-wrap: wrap;
+    gap: 5px 8px;
+    padding: 6px 8px;
+  }
+  .status-banner.is-guided {
+    padding: 7px 8px;
+  }
+  .status-banner-title {
+    white-space: normal;
+  }
+  .status-banner-copy {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .setup-card,
+  .faster-workflow {
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .sub-accordion-list,
+  .delegate-menu-list,
+  .goal-detail-note {
+    padding-left: 12px;
+  }
+  .sub-row-name { width: auto; max-width: 45%; }
+  .delegate-menu-cmd { width: auto; }
+  .guide-acc-copy {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+  .askbar {
+    margin: 16px var(--tl-pad) 0;
+    gap: 6px;
+    padding: 4px 4px 4px 8px;
+  }
+  .askbar input { height: 26px; font-size: 11.5px; }
+  .btw-submit { height: 26px; padding: 0 7px; font-size: 11px; }
+  .panel-footer {
+    margin-top: 12px;
+    padding: 8px var(--tl-pad) 10px;
+    gap: 4px 8px;
+  }
+}
+
+@media (max-width: 280px) {
+  :root { --tl-pad: 8px; }
+  .progress,
+  .progress.is-mode { display: none; }
+  .mode-switcher { grid-column: 1 / -1; }
+  #live-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .view-nav-group .guide-link-btn svg { display: none; }
+  .rail { width: 28px; }
+  .living-rail { left: -6px; }
+  .step { gap: 6px; }
+  .delegate-menu-desc,
+  .guide-acc-sub,
+  .askbar-icon {
+    display: none;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
   .rail { padding-top: 13px; }
   .askbar input, .subcmd-pill, .more-toggle, .footer-link,
   .guide-acc-btn, .guide-cmd-chip, .guide-cmd-drawer-btn,
