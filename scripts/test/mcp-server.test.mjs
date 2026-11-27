@@ -155,6 +155,8 @@ test("MCP stdio server handles initialize, tools, resources, dossier/audit/docto
       }
       if (uri === "ui://astack/pr-dossier.html") {
         assert.match(content.text, /Could not compile PR dossier\./);
+        assert.match(content.text, /Review First/);
+        assert.match(content.text, /Checked & ruled out/);
       }
     }
 
@@ -164,6 +166,10 @@ test("MCP stdio server handles initialize, tools, resources, dossier/audit/docto
     });
     assert.equal(dossier.result.isError, undefined);
     assert.equal(dossier.result.structuredContent.workspaceDir, tmpRepo);
+    assert.ok(dossier.result.structuredContent.viewModel?.decision?.mode);
+    assert.ok(Array.isArray(dossier.result.structuredContent.viewModel?.guardrails));
+    assert.ok(dossier.result.structuredContent.viewModel?.reading);
+    assert.ok(dossier.result.structuredContent.viewModel?.verifier);
     assert.match(dossier.result.content[0].text, /Visual PR Review Dossier/);
 
     const audit = await client.request("tools/call", {
