@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  buildDossierViewModel,
   compilePrDossier,
   computeFreshness,
   evaluateIntentScope,
@@ -276,33 +277,49 @@ function handleCompilePrDossier(args = {}) {
   const findingsDoc = findFindingsDoc(workspaceDir, trustDir, args.findingsPath || null);
   const clustersWithUris = (result.evidence.clusters ?? []).slice(0, 40).map((c) => ({
     ...c,
-    fileLinks: (c.files ?? []).slice(0, 50).map((rel) => ({
-      path: rel,
-      line: c.firstLines?.[rel] ?? 1,
-      uri: toFileUrl(path.resolve(workspaceDir, rel), c.firstLines?.[rel] ?? 1),
-    })),
+    fileLinks: (c.files ?? []).slice(0, 50).map((rel) => {
+      const stat = c.fileStats?.[rel] ?? {};
+      const line = c.firstLines?.[rel] ?? stat.firstLine ?? 1;
+      return {
+        path: rel,
+        line,
+        additions: Number(stat.additions ?? 0),
+        deletions: Number(stat.deletions ?? 0),
+        uri: toFileUrl(path.resolve(workspaceDir, rel), line),
+      };
+    }),
   }));
+  const prReviewFile = artifactDir ? path.join(artifactDir, "pr-review.md") : null;
+  const prReviewUri = prReviewFile && fs.existsSync(prReviewFile) ? toFileUrl(prReviewFile, 1) : null;
+  const enrichedEvidence = {
+    ...result.evidence,
+    clusters: clustersWithUris,
+  };
+  const enrichedFindingsDoc = findingsDoc
+    ? {
+        ...findingsDoc,
+        findings: Array.isArray(findingsDoc.findings)
+          ? findingsDoc.findings.slice(0, 100).map((f) => ({
+              ...f,
+              uri: f.file ? toFileUrl(path.resolve(workspaceDir, f.file), f.line || 1) : null,
+            }))
+          : [],
+      }
+    : null;
+  const viewModel = buildDossierViewModel({
+    evidence: enrichedEvidence,
+    findingsDoc: enrichedFindingsDoc,
+    prReviewUri,
+  });
 
   return {
     content: [{ type: "text", text: truncateText(result.markdown) }],
     structuredContent: {
       workspaceDir,
       evidencePath: result.evidencePath,
-      evidence: {
-        ...result.evidence,
-        clusters: clustersWithUris,
-      },
-      findingsDoc: findingsDoc
-        ? {
-            ...findingsDoc,
-            findings: Array.isArray(findingsDoc.findings)
-              ? findingsDoc.findings.slice(0, 100).map((f) => ({
-                  ...f,
-                  uri: f.file ? toFileUrl(path.resolve(workspaceDir, f.file), f.line || 1) : null,
-                }))
-              : [],
-          }
-        : null,
+      evidence: enrichedEvidence,
+      findingsDoc: enrichedFindingsDoc,
+      viewModel,
     },
   };
 }
