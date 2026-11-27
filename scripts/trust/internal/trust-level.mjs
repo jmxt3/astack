@@ -12,16 +12,16 @@ import {
 import { DEFAULT_RISK_POLICY } from "./policy.mjs";
 import { TRUST_CATEGORIES } from "./risk.mjs";
 
-export const TRUST_EMA_ALPHA = 0.1;
+export const TRUST_EMA_ALPHA = 0.18;
 export const IDLE_DECAY_DAYS = 30;
 export const IDLE_DECAY_RATE = 0.9;
 export const CATEGORY_RESET_MAX_SCORE = 0.4;
 export const REVERT_COOLDOWN_DAYS = 14;
 
 export const LEVEL_THRESHOLDS = {
-  1: { minOutcomes: 5, minScore: 0.4, demoteBelow: 0.3 },
-  2: { minOutcomes: 10, minScore: 0.65, demoteBelow: 0.55, zeroRevertsDays: 14 },
-  3: { minMerges: 20, minScore: 0.85, demoteBelow: 0.75, maxBrier: 0.12 },
+  1: { minOutcomes: 3, minScore: 0.4, demoteBelow: 0.3 },
+  2: { minOutcomes: 6, minScore: 0.65, demoteBelow: 0.55, zeroRevertsDays: 14 },
+  3: { minMerges: 12, minScore: 0.85, demoteBelow: 0.75, maxBrier: 0.12 },
 };
 
 const CATEGORY_LABELS = {

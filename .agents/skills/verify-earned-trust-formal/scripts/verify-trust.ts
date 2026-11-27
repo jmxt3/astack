@@ -77,7 +77,7 @@ function buildCleanEntries(cat: TrustCategory, count: number): readonly LedgerEn
   return entries;
 }
 
-const TIER_COUNTS = [0, 5, 10, 20] as const;
+const TIER_COUNTS = [0, 3, 6, 12] as const;
 
 const ENTRIES_FOR_TIER: Readonly<Record<"ui" | "governance", readonly (readonly LedgerEntry[])[]>> = {
   ui: TIER_COUNTS.map((n) => buildCleanEntries("ui", n)),

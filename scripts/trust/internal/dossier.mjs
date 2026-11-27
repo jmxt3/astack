@@ -12,16 +12,19 @@ import {
 } from "./ledger.mjs";
 import {
   computeAssertionDelta,
+  evaluateDecisionTable,
   loadBoundaries,
   loadRiskPolicy,
   matchesAnyGlob,
   parsePorcelainPaths,
   readBaseReviewContext,
   resolveBaseRef,
+  resolveEnrolledWorkspaceScope,
 } from "./policy.mjs";
 import { assessChange } from "./risk.mjs";
 import { resolveResidual } from "./mitigation.mjs";
 import { readIntentCard } from "./intent.mjs";
+import { LEVEL_THRESHOLDS, evaluateRepoTrust } from "./trust-level.mjs";
 import {
   renderGitHubPrProof,
   resolvePrStatechart,
@@ -285,9 +288,21 @@ export function renderDossierMarkdown({
     `| Review Round | ${evidence.reviewRound}/${evidence.maxReviewRounds} (\`${evidence.roundState}\`) |`,
     `| Base REVIEW.md | ${evidence.baseReviewPolicy.present ? (evidence.baseReviewPolicy.modifiedInPr ? "Present (MODIFIED IN PR)" : "Present (unchanged)") : "Not present on base"}${evidence.baseReviewPolicy.riskPolicyModifiedInPr ? " (risk-policy.json MODIFIED IN PR)" : ""} |`,
     `| Test Assertions | +${evidence.assertionDelta.added} / -${evidence.assertionDelta.removed} (ratio ${evidence.assertionDelta.weakeningRatio}${evidence.assertionDelta.flagged ? ", FLAGGED" : ""}) |`,
-    `| Auto-Merge Eligible | ${evidence.autoMergeEligible ? "Yes (Tier 0 opt-in satisfied)" : "No (Human review required)"} |`,
-    "",
   ];
+
+  if (evidence.trustContext) {
+    const tc = evidence.trustContext;
+    const trustRow =
+      tc.category === "governance"
+        ? `| Agent Trust | \`governance\` \`L${tc.level}\` (T \`${Number(tc.score ?? 0).toFixed(2)}\`, capped at \`L2\` forever, ${tc.merges} merges, Beast Mode ${tc.beastOn ? "On" : "Off"}) |`
+        : `| Agent Trust | \`${tc.category}\` \`L${tc.level}/L3\` (T \`${Number(tc.score ?? 0).toFixed(2)}\`, ceiling \`L${tc.ceiling}\`, ${tc.merges}/${tc.minMergesForL3} merges, Beast Mode ${tc.beastOn ? "On" : "Off"}, ${tc.promotionMode} promo) |`;
+    lines.push(trustRow);
+  }
+
+  lines.push(
+    `| Auto-Merge Eligible | ${evidence.autoMerge?.label ?? (evidence.autoMergeEligible ? "Yes (Tier 0 opt-in satisfied)" : "No (Human review required)")} |`,
+    "",
+  );
 
   if (evidence.riskAssessment) {
     const ra = evidence.riskAssessment;
@@ -415,6 +430,131 @@ export function renderDossierMarkdown({
   return `${lines.join("\n")}\n`;
 }
 
+function evaluateAutoMergeEligibility({
+  policy,
+  riskTier,
+  freshness,
+  isFresh,
+  assertionDelta,
+  baseCtx,
+  findingsDoc,
+  verifierMatchesHead,
+  reviewViolationCount,
+  importantCount,
+  hasFreshVerifierPass,
+  mergeAssessment,
+  trustContext,
+  scope,
+  repoTrust,
+}) {
+  const proofOk = Boolean(
+    isFresh &&
+      !assertionDelta.flagged &&
+      !baseCtx.reviewMd.modifiedInPr &&
+      !baseCtx.riskPolicy.modifiedInPr &&
+      hasFreshVerifierPass,
+  );
+
+  if (
+    proofOk &&
+    policy.allowTier0AutoMerge === true &&
+    policy.humanGates?.prReview === "tier0-auto" &&
+    riskTier === 0
+  ) {
+    return {
+      eligible: true,
+      mode: "tier0_opt_in",
+      label: "Yes (Tier 0 opt-in satisfied)",
+      reason: "Tier 0 docs opt-in satisfied with fresh verified proof.",
+    };
+  }
+
+  const category = mergeAssessment.category;
+  const mergeDecision = evaluateDecisionTable({
+    action: "merge",
+    residual: mergeAssessment.residual,
+    trustLevel: trustContext?.level ?? 0,
+    category,
+    trustScore: trustContext?.score ?? 0,
+    riskScore: mergeAssessment.score,
+    signals: mergeAssessment.signals,
+    beastOn: Boolean(repoTrust?.beastOn),
+    policy,
+    headless: false,
+  });
+
+  if (
+    proofOk &&
+    scope?.kind === "enrolled_repo" &&
+    repoTrust &&
+    !repoTrust.frozen &&
+    repoTrust.chainValid &&
+    mergeDecision.decision === "auto_approve"
+  ) {
+    if (mergeDecision.viaLegacyShim) {
+      return {
+        eligible: true,
+        mode: "tier0_opt_in",
+        label: `Yes (Tier 0 opt-in satisfied for ${category})`,
+        reason: `Legacy Tier 0 auto-merge policy satisfied for ${category} with Beast Mode On and low residual risk (R ${mergeAssessment.score.toFixed(2)}).`,
+      };
+    }
+    return {
+      eligible: true,
+      mode: "earned_trust_l3",
+      label: `Yes (Earned Trust L${trustContext.level} for ${category}, residual low)`,
+      reason: `Earned Trust L${trustContext.level} (T ${trustContext.score.toFixed(2)}) with Beast Mode On and low residual risk (R ${mergeAssessment.score.toFixed(2)}).`,
+    };
+  }
+
+  let reason;
+  if (
+    category === "governance" ||
+    mergeAssessment.signals.some((s) => s.id === "touches_governance")
+  ) {
+    reason = "governance changes are capped at L2 forever and never auto-merge";
+  } else if (repoTrust && (repoTrust.frozen || !repoTrust.chainValid)) {
+    reason = "trust ledger hash chain is frozen at L0";
+  } else if (!proofOk) {
+    if (baseCtx.reviewMd.modifiedInPr) {
+      reason = "base REVIEW.md was modified in this PR";
+    } else if (baseCtx.riskPolicy.modifiedInPr) {
+      reason = "base .agents/risk-policy.json was modified in this PR";
+    } else if (assertionDelta.flagged) {
+      reason = "test assertion weakening was flagged";
+    } else if (!isFresh) {
+      reason = `verification receipts are ${freshness} (require fresh HEAD receipts)`;
+    } else if (!findingsDoc || !verifierMatchesHead) {
+      reason = "fresh HEAD pr-verifier pass is missing";
+    } else if (reviewViolationCount > 0) {
+      reason = `pr-verifier reported ${reviewViolationCount} REVIEW.md violation(s)`;
+    } else {
+      reason = `pr-verifier verdict is ${findingsDoc.verdict} with ${importantCount} important finding(s)`;
+    }
+  } else if (!scope || scope.kind !== "enrolled_repo" || !repoTrust || !trustContext) {
+    reason = "repo is not enrolled for Earned Trust auto-merge and Tier 0 auto-merge is disabled";
+  } else if (mergeAssessment.residual !== "low") {
+    reason = `residual risk is ${mergeAssessment.residual} (R ${mergeAssessment.score.toFixed(2)}, requires low < 0.15)`;
+  } else if (!repoTrust.beastOn) {
+    reason = `Beast Mode is Off (${category} is at L${trustContext.level}, T ${trustContext.score.toFixed(2)}; enable Beast Mode and reach L3 to delegate Merge)`;
+  } else if (trustContext.level < 3) {
+    if (trustContext.ceiling < 3) {
+      reason = `${category} trust is L${trustContext.level} (T ${trustContext.score.toFixed(2)}, ${trustContext.merges}/${trustContext.minMergesForL3} merges) with ceiling L${trustContext.ceiling}; raise ceiling to L3 and earn L3 trust before delegating Merge`;
+    } else {
+      reason = `${category} trust is L${trustContext.level}/L3 (T ${trustContext.score.toFixed(2)}, ${trustContext.merges}/${trustContext.minMergesForL3} merges); agent must earn L3 trust before delegating Merge`;
+    }
+  } else {
+    reason = mergeDecision.reason || "human review required by merge policy";
+  }
+
+  return {
+    eligible: false,
+    mode: "human_review",
+    label: `No (Human review required: ${reason})`,
+    reason,
+  };
+}
+
 /**
  * Compiles `evidence.json` and the visual Markdown PR review dossier for a branch diff.
  */
@@ -432,6 +572,7 @@ export function compilePrDossier({
   featureMapDir = null,
   repoUrl = null,
   mergeBodyPath = null,
+  dataDir = null,
   writeEvidence = true,
 } = {}) {
   if (format !== "antigravity" && format !== "github") {
@@ -608,15 +749,9 @@ export function compilePrDossier({
     ? findingsDoc.findings.filter((f) => f.severity === "important").length
     : (priorEvidence?.verifier?.importantCount ?? 0);
 
-  const autoMergeEligible = Boolean(
-    policy.allowTier0AutoMerge === true &&
-      policy.humanGates?.prReview === "tier0-auto" &&
-      risk.tier === 0 &&
-      (freshness === "fresh" || freshness === "fresh_rebase_patch_id") &&
-      !assertionDelta.flagged &&
-      !baseCtx.reviewMd.modifiedInPr &&
-      !baseCtx.riskPolicy.modifiedInPr &&
-      findingsDoc &&
+  const isFresh = freshness === "fresh" || freshness === "fresh_rebase_patch_id";
+  const hasFreshVerifierPass = Boolean(
+    findingsDoc &&
       verifierMatchesHead &&
       reviewViolationCount === 0 &&
       (findingsDoc.verdict === "PASS" || findingsDoc.verdict === "PASS_WITH_NOTES") &&
@@ -681,24 +816,95 @@ export function compilePrDossier({
     receipts,
     boundaries,
     intent: intentCard,
-    action: "open_pr",
+    action: isFresh && hasFreshVerifierPass ? "merge" : "open_pr",
     headSha,
   });
+  const priorVerifierEvidence = {
+    ...(priorEvidence ?? {}),
+    verifier: {
+      verdict: rawVerifierVerdict,
+      headSha: effectiveVerifierHead,
+      stale: findingsStale,
+      importantCount,
+      reviewViolationCount,
+    },
+  };
   const riskAssessment = resolveResidual(rawAssessment, receipts, {
     headSha,
-    priorEvidence: {
-      ...(priorEvidence ?? {}),
-      verifier: {
-        verdict: rawVerifierVerdict,
-        headSha: effectiveVerifierHead,
-        stale: findingsStale,
-        importantCount,
-        reviewViolationCount,
-      },
-    },
+    priorEvidence: priorVerifierEvidence,
     proofManifest,
     intent: intentCard,
   });
+  const mergeAssessment =
+    rawAssessment.action === "merge"
+      ? riskAssessment
+      : resolveResidual(
+          { ...rawAssessment, action: "merge" },
+          receipts,
+          {
+            headSha,
+            priorEvidence: priorVerifierEvidence,
+            proofManifest,
+            intent: intentCard,
+          },
+        );
+
+  const scope = resolveEnrolledWorkspaceScope(workspaceDir, { baseRef: resolvedBase });
+  const repoTrust =
+    scope.kind !== "non_repo" && scope.repoId
+      ? evaluateRepoTrust({ repoId: scope.repoId, policy, dataDir })
+      : null;
+  const category = riskAssessment.category;
+  const catState = repoTrust?.categories?.[category] ?? null;
+  const isGov = category === "governance";
+  const minMergesForL3 = LEVEL_THRESHOLDS[3].minMerges;
+  const minScoreForL3 = LEVEL_THRESHOLDS[3].minScore;
+  const trustContext = catState
+    ? {
+        enrolled: scope.kind === "enrolled_repo",
+        scopeKind: scope.kind,
+        category,
+        categoryLabel: catState.label,
+        level: catState.level,
+        earnedLevel: catState.earnedLevel,
+        ceiling: catState.ceiling,
+        maxCeiling: catState.maxCeiling,
+        score: catState.score,
+        brier: catState.brier,
+        clean: catState.clean,
+        edited: catState.edited,
+        reverted: catState.reverted,
+        merges: catState.merges,
+        totalOutcomes: catState.totalOutcomes,
+        beastOn: Boolean(repoTrust?.beastOn),
+        promotionMode: repoTrust?.promotionMode ?? "manual",
+        frozen: Boolean(repoTrust?.frozen),
+        requiredMergeLevel: isGov ? null : 3,
+        minMergesForL3,
+        minScoreForL3,
+        mergesRemainingForL3: isGov ? null : Math.max(0, minMergesForL3 - catState.merges),
+      }
+    : null;
+
+  const autoMerge = evaluateAutoMergeEligibility({
+    policy,
+    riskTier: risk.tier,
+    freshness,
+    isFresh,
+    assertionDelta,
+    baseCtx,
+    findingsDoc,
+    verifierMatchesHead,
+    reviewViolationCount,
+    importantCount,
+    hasFreshVerifierPass,
+    mergeAssessment,
+    trustContext,
+    scope,
+    repoTrust,
+  });
+  const autoMergeEligible = autoMerge.eligible;
+
   const evidence = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
@@ -711,6 +917,8 @@ export function compilePrDossier({
     riskLabel,
     matchedRiskRules: risk.matchedRules,
     riskAssessment,
+    trustContext,
+    autoMerge,
     autoMergeEligible,
     reviewRound,
     maxReviewRounds,

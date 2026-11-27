@@ -55,6 +55,15 @@
     suppressedPopoverEl: null,
     progressPopover: null,
     pulsedTimers: new Set(),
+    beast: {
+      initialized: false,
+      prevOn: false,
+      pendingOn: false,
+      igniting: false,
+      igniteTimer: null,
+      toastTimer: null,
+      mounted: false,
+    },
   };
 
   let rail = null;
@@ -77,7 +86,22 @@
   function svgIcon(kind, sizePx = 12) {
     const ns = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(ns, "svg");
-    const box = kind === "chevron" ? "0 0 16 16" : kind === "diamond" ? "0 0 10 10" : kind === "active-arc" ? "0 0 18 18" : "0 0 14 14";
+    const is24 =
+      kind === "flame-outline" ||
+      kind === "flame-solid" ||
+      kind === "flame-color" ||
+      kind === "bolt" ||
+      kind === "lock" ||
+      kind === "wheel";
+    const box = is24
+      ? "0 0 24 24"
+      : kind === "chevron"
+        ? "0 0 16 16"
+        : kind === "diamond"
+          ? "0 0 10 10"
+          : kind === "active-arc"
+            ? "0 0 18 18"
+            : "0 0 14 14";
     svg.setAttribute("viewBox", box);
     svg.setAttribute("fill", "none");
     svg.setAttribute("stroke", "currentColor");
@@ -206,6 +230,28 @@
       svg.setAttribute("stroke-width", "1.3");
       add("circle", { cx: "7", cy: "7", r: "5.2" });
       add("path", { d: "M5.1 5.1l3.8 3.8M8.9 5.1l-3.8 3.8" });
+    } else if (kind === "flame-outline") {
+      svg.setAttribute("stroke-width", "1.8");
+      add("path", { d: "M12 1.8c1.6 3.7 5.7 6.3 5.7 11.9 0 4.3-2.6 7.6-5.7 7.6s-5.7-2.5-5.7-6.3c0-2.9 1.6-4.8 2.9-6.3 0 2.1.8 3.4 1.9 4-.4-3.5.2-7.3.9-10.9z" });
+    } else if (kind === "flame-solid") {
+      svg.setAttribute("stroke", "none");
+      add("path", { fill: "currentColor", d: "M12 1.8c1.6 3.7 5.7 6.3 5.7 11.9 0 4.3-2.6 7.6-5.7 7.6s-5.7-2.5-5.7-6.3c0-2.9 1.6-4.8 2.9-6.3 0 2.1.8 3.4 1.9 4-.4-3.5.2-7.3.9-10.9z" });
+    } else if (kind === "flame-color") {
+      svg.setAttribute("stroke", "none");
+      add("path", { fill: "#ff8a00", d: "M12 1.8c1.6 3.7 5.7 6.3 5.7 11.9 0 4.3-2.6 7.6-5.7 7.6s-5.7-2.5-5.7-6.3c0-2.9 1.6-4.8 2.9-6.3 0 2.1.8 3.4 1.9 4-.4-3.5.2-7.3.9-10.9z" });
+      add("path", { fill: "#ffd84a", d: "M12 21.3c-1.8 0-3-1.4-3-3.2 0-1.9 1.3-3.1 2.3-4.3.2 1.3 1 2.2 1.8 2.5.3-.9.4-1.8.3-2.8 1.2 1.3 1.6 2.8 1.6 4.2 0 2.1-1.4 3.6-3 3.6z" });
+    } else if (kind === "bolt") {
+      svg.setAttribute("stroke-width", "2.3");
+      add("path", { d: "M13 2 4 14h7l-1 8 9-12h-7l1-8z" });
+    } else if (kind === "lock") {
+      svg.setAttribute("stroke-width", "2.3");
+      add("rect", { x: "5", y: "11", width: "14", height: "10", rx: "2" });
+      add("path", { d: "M8 11V8a4 4 0 0 1 8 0v3" });
+    } else if (kind === "wheel") {
+      svg.setAttribute("stroke-width", "2");
+      add("circle", { cx: "12", cy: "12", r: "9" });
+      add("circle", { cx: "12", cy: "12", r: "2" });
+      add("path", { d: "M12 14v7M10 12H3.5M14 12h6.5" });
     }
     return svg;
   }
@@ -406,6 +452,9 @@
 
   async function updateTrustSettings(actionPayload, successMsg) {
     const actionSeq = ++state.trustActionSeq;
+    if (Object.prototype.hasOwnProperty.call(actionPayload || {}, "beastOn")) {
+      state.beast.pendingOn = Boolean(actionPayload.beastOn);
+    }
     state.pollSeq += 1;
     if (state.pollTimer) {
       clearTimeout(state.pollTimer);
@@ -441,6 +490,10 @@
       if (actionSeq !== state.trustActionSeq) return;
       showToast("Could not update trust settings");
       if (!state.pollInFlight) scheduleNextPoll();
+    } finally {
+      if (actionSeq === state.trustActionSeq) {
+        state.beast.pendingOn = false;
+      }
     }
   }
 
@@ -992,7 +1045,9 @@
   function appendSubCommands(container, sectionId, autoSubCommands, moreCommands) {
     if (Array.isArray(autoSubCommands) && autoSubCommands.length > 0) {
       const subWrap = el("div", "subcmd-section");
-      subWrap.appendChild(el("div", "subcmd-label", "Triggered automatically"));
+      const beastOn = isBeastActive(state.snap, state.snap?.trust?.scopeKind === "non_repo");
+      const labelText = beastOn && autoSubCommands.some((s) => s.ran) ? "Ran automatically" : "Triggered automatically";
+      subWrap.appendChild(el("div", "subcmd-label", labelText));
       const subList = el("div", "subcmd-list");
       for (const sub of autoSubCommands) {
         if (sub.invocable === false) {
@@ -1514,6 +1569,25 @@
         detail.appendChild(roBadge);
       }
     }
+    const beastOn = isBeastActive(snap, snap.trust?.scopeKind === "non_repo");
+    const liveSub = beastOn
+      ? (act.subagents || []).find((a) => a.status === "running" && a.stageId === stage.id)
+      : null;
+    if (liveSub) {
+      const aRow = el("div", "stage-agent-row");
+      aRow.appendChild(el("span", "stage-agent-avatar", (liveSub.type || "A").charAt(0).toUpperCase()));
+      const aCopy = el("span", "stage-agent-copy");
+      aCopy.appendChild(el("strong", "", `${liveSub.type} `));
+      aCopy.appendChild(document.createTextNode(liveSub.task || "running"));
+      aRow.appendChild(aCopy);
+      if (liveSub.startedAt) {
+        const tmr = el("span", "sub-row-timer", formatElapsedText(liveSub.startedAt, liveSub.completedAt));
+        tmr.dataset.timerKind = "elapsed";
+        tmr.dataset.startedAt = liveSub.startedAt;
+        aRow.appendChild(tmr);
+      }
+      detail.appendChild(aRow);
+    }
     detail.appendChild(el("p", "detail-text", stage.detail));
     if (stage.id === "review" && stage.status === "pending") {
       const buildStage = (snap.stages || []).find((s) => s.id === "build");
@@ -1854,6 +1928,8 @@
             : "No background tasks or active schedules in this conversation yet.",
       },
     ];
+    const beastOn = isBeastActive(snap, snap.trust?.scopeKind === "non_repo");
+    const hasBeastWork = beastOn && (agentsWorking > 0 || (act.liveStageIds || []).length > 0);
     for (const f of focusDefs) {
       const chip = el("button", "focus-chip");
       chip.type = "button";
@@ -1861,14 +1937,15 @@
       chip.dataset.testid = `focus-chip-${f.key}`;
       chip.setAttribute("aria-pressed", f.key === "agents" ? "false" : String(state.solo === f.key));
       if (f.icon === "dot") {
-        const d = el("span", `focus-dot ${f.dotMode || ""}`.trim());
+        const dotCls = hasBeastWork ? "focus-dot is-beast-pulse" : `focus-dot ${f.dotMode || ""}`.trim();
+        const d = el("span", dotCls);
         chip.appendChild(d);
       } else {
         const ic = svgIcon(f.icon, f.icon === "diamond" ? 10 : 11);
         if (f.iconTone) ic.classList.add(`focus-icon-${f.iconTone}`);
         chip.appendChild(ic);
       }
-      chip.appendChild(el("span", "focus-count", f.countText));
+      chip.appendChild(el("span", hasBeastWork && f.key === "agents" ? "focus-count is-beast-count" : "focus-count", f.countText));
       chip.appendChild(el("span", "", f.label));
       attachStatusPopover(chip, f.popTitle, f.popStatus, f.popMode, f.popDesc);
       chip.addEventListener("click", () => {
@@ -2109,6 +2186,266 @@
     container.classList.add("hidden");
   }
 
+  function isBeastActive(snap, isNonRepo) {
+    return Boolean(!isNonRepo && snap?.trust?.enrolled && snap?.trust?.beastOn);
+  }
+
+  function computeBeastStopChips(snap) {
+    const cat = snap?.trust?.activeCatState;
+    const lvl = Number(cat?.level ?? 0);
+    const maxCap = Number(cat?.maxCeiling ?? 2);
+    if (lvl <= 0) return ["Plan / risky writes", "Failing checks", "Risky diff", "Merge"];
+    if (lvl >= 3 && maxCap >= 3) return ["Failing checks", "Risky diff", "Sampled merge"];
+    return ["Failing checks", "Risky diff", "Merge"];
+  }
+
+  function computeBeastStageMeta(stage, snap, stages, beastActive) {
+    const rs = stage?.railState || "pending";
+    if (!beastActive) {
+      return { railState: rs, pilotScale: 0.52, pilotAlpha: 1, pillKind: null, pillText: "", note: "" };
+    }
+    if (rs === "running" || rs === "done" || rs === "yourturn" || rs === "stale" || rs === "error" || rs === "skipped") {
+      return { railState: rs, pilotScale: 0.52, pilotAlpha: 1, pillKind: null, pillText: "", note: "" };
+    }
+    const cat = snap?.trust?.activeCatState;
+    const lvl = Number(cat?.level ?? 0);
+    const maxCap = Number(cat?.maxCeiling ?? 2);
+    const residual = snap?.trust?.riskAssessment?.residual;
+    if (stage.id === "ship") {
+      const autoMerge = lvl >= 3 && maxCap >= 3 && residual === "low";
+      if (autoMerge) {
+        return {
+          railState: "pilot",
+          pilotScale: 0.44,
+          pilotAlpha: 0.72,
+          pillKind: "auto",
+          pillText: "Auto · low risk",
+          note: "Auto-merges low-risk diffs at L3; pauses on high risk.",
+        };
+      }
+      return {
+        railState: "lock",
+        pilotScale: 0.44,
+        pilotAlpha: 0.72,
+        pillKind: "gate",
+        pillText: "Needs you · merge",
+        note: "Agents open the PR and watch CI. You press merge.",
+      };
+    }
+    const idx = Array.isArray(stages) ? stages.findIndex((s) => s.id === stage.id) : -1;
+    const runningIdx = Array.isArray(stages) ? stages.findIndex((s) => s.railState === "running") : -1;
+    const isNext =
+      rs === "queued" ||
+      rs === "suggested" ||
+      (runningIdx >= 0 && idx === runningIdx + 1);
+    if (stage.id === "build") {
+      return {
+        railState: "pilot",
+        pilotScale: isNext ? 0.54 : 0.46,
+        pilotAlpha: isNext ? 1 : 0.78,
+        pillKind: isNext ? "auto-next" : "auto",
+        pillText: isNext ? "Auto · next" : "Auto",
+        note: isNext ? "Starts automatically once the plan lands." : "",
+      };
+    }
+    if (stage.id === "review") {
+      return {
+        railState: "pilot",
+        pilotScale: isNext ? 0.52 : 0.42,
+        pilotAlpha: isNext ? 0.95 : 0.65,
+        pillKind: isNext ? "auto-next" : "auto",
+        pillText: isNext ? "Auto · next" : "Auto",
+        note: "Always runs in Beast mode (optional in Manual)",
+      };
+    }
+    return {
+      railState: "pilot",
+      pilotScale: 0.5,
+      pilotAlpha: 0.9,
+      pillKind: "auto",
+      pillText: "Auto",
+      note: "",
+    };
+  }
+
+  function buildBeastGlowFrame(igniting) {
+    const frame = el("div", igniting ? "beast-glow-frame is-igniting" : "beast-glow-frame");
+    frame.dataset.testid = "beast-glow-frame";
+    frame.setAttribute("aria-hidden", "true");
+
+    const corners = [
+      ["beast-bloom is-tl", "top:-200px;left:-200px"],
+      ["beast-bloom is-tr", "top:-200px;right:-200px"],
+      ["beast-bloom beast-bloom-lg is-bl", "bottom:-240px;left:-240px"],
+      ["beast-bloom beast-bloom-lg is-br", "bottom:-240px;right:-240px"],
+    ];
+    for (const [cls, css] of corners) {
+      const b = el("div", cls);
+      b.style.cssText = css;
+      frame.appendChild(b);
+    }
+    frame.appendChild(el("div", "beast-ring"));
+    for (const cls of [
+      "beast-sweep beast-sx beast-s-top",
+      "beast-sweep beast-sx beast-halo beast-s-top",
+      "beast-sweep beast-sy beast-s-right",
+      "beast-sweep beast-sy beast-halo beast-s-right",
+      "beast-sweep beast-sx beast-s-bottom",
+      "beast-sweep beast-sx beast-halo beast-s-bottom",
+      "beast-sweep beast-sy beast-s-left",
+      "beast-sweep beast-sy beast-halo beast-s-left",
+    ]) {
+      frame.appendChild(el("div", cls));
+    }
+    const rnd = (s) => {
+      const x = Math.sin(s * 127.1 + 311.7) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    for (let j = 0; j < 10; j++) {
+      const a = rnd(41 + j * 2.7);
+      const b = rnd(53 + j * 3.9);
+      const c = rnd(67 + j * 5.1);
+      const left = j % 2 === 0;
+      const em = el("div", left ? "beast-ember e-l" : "beast-ember e-r");
+      em.style[left ? "left" : "right"] = `${Math.round(4 + a * 34)}px`;
+      em.style.animationDuration = `${(2.6 + b * 2).toFixed(2)}s`;
+      em.style.animationDelay = `${(-c * 5).toFixed(2)}s`;
+      frame.appendChild(em);
+    }
+    return frame;
+  }
+
+  function buildBeastHeaderBar() {
+    const bar = el("div", "beast-header-bar");
+    bar.dataset.testid = "beast-header-bar";
+
+    const iconBox = el("div", "beast-hero-icon");
+    iconBox.setAttribute("aria-hidden", "true");
+    const mf = el("div", "mf");
+    mf.append(el("div", "mf-glow"), el("div", "mf-t mf-o"), el("div", "mf-t mf-m"), el("div", "mf-t mf-c"));
+    const p1 = el("span", "mp");
+    p1.style.marginLeft = "-3px";
+    const p2 = el("span", "mp mp-b");
+    p2.style.marginLeft = "2px";
+    p2.style.animationDelay = "-0.5s";
+    const p3 = el("span", "mp mp-c");
+    p3.style.marginLeft = "-1px";
+    p3.style.animationDelay = "-0.9s";
+    mf.append(p1, p2, p3);
+    iconBox.appendChild(mf);
+
+    const copy = el("div", "beast-hero-copy");
+    copy.appendChild(el("div", "beast-hero-title", "BEAST MODE"));
+    copy.appendChild(el("div", "beast-hero-sub", "Autopilot · agents drive every step"));
+
+    const wheelBtn = el("button", "beast-wheel-btn");
+    wheelBtn.type = "button";
+    wheelBtn.dataset.testid = "beast-take-wheel";
+    wheelBtn.appendChild(svgIcon("wheel", 14));
+    wheelBtn.appendChild(el("span", "", "Take the wheel"));
+    wheelBtn.addEventListener("click", () => {
+      updateTrustSettings({ beastOn: false }, "Manual mode · current step finishes, next steps wait for you");
+    });
+
+    bar.append(iconBox, copy, wheelBtn);
+    return bar;
+  }
+
+  function buildBeastActivationToast() {
+    const wrap = el("div", "beast-activation-toast");
+    wrap.dataset.testid = "beast-activation-toast";
+    wrap.setAttribute("role", "status");
+    const card = el("div", "beast-activation-card");
+    const ic = svgIcon("flame-color", 22);
+    ic.classList.add("beast-lick");
+    ic.style.flexShrink = "0";
+    const copy = el("div", "beast-hero-copy");
+    copy.appendChild(el("div", "beast-activation-title", "Beast mode is on"));
+    copy.appendChild(
+      el(
+        "div",
+        "beast-activation-body",
+        "Agents will run Plan → Build → Pre-PR → Ship back to back. You're pulled in only for failing checks, risky diffs and the merge.",
+      ),
+    );
+    card.append(ic, copy);
+    wrap.appendChild(card);
+    return wrap;
+  }
+
+  function clearBeastTimers() {
+    if (state.beast.igniteTimer) {
+      clearTimeout(state.beast.igniteTimer);
+      state.beast.igniteTimer = null;
+    }
+    if (state.beast.toastTimer) {
+      clearTimeout(state.beast.toastTimer);
+      state.beast.toastTimer = null;
+    }
+  }
+
+  function syncBeastChrome(snap, isNonRepo) {
+    const beastOn = isBeastActive(snap, isNonRepo);
+    const viewEl = document.getElementById("timeline-view");
+    const glowSlot = document.getElementById("beast-glow-slot");
+    const toastSlot = document.getElementById("beast-toast-slot");
+    const bannerSlot = document.getElementById("beast-banner-slot");
+    const btwInput = document.getElementById("astk-btw");
+
+    if (viewEl) {
+      viewEl.classList.toggle("is-beast", beastOn);
+      viewEl.dataset.beast = beastOn ? "on" : "off";
+    }
+    if (btwInput) {
+      btwInput.placeholder = beastOn
+        ? "Nudge the agents without stopping them"
+        : "Ask a side question without interrupting the agents";
+    }
+    rail?.setBeastMode?.(beastOn);
+
+    const turnedOn = state.beast.initialized && !state.beast.prevOn && beastOn;
+    state.beast.initialized = true;
+    state.beast.prevOn = beastOn;
+
+    if (!beastOn) {
+      clearBeastTimers();
+      state.beast.igniting = false;
+      state.beast.mounted = false;
+      glowSlot?.replaceChildren();
+      toastSlot?.replaceChildren();
+      bannerSlot?.replaceChildren();
+      return;
+    }
+
+    if (turnedOn) {
+      clearBeastTimers();
+      state.beast.igniting = true;
+      rail?.triggerIgnition?.();
+      state.beast.igniteTimer = setTimeout(() => {
+        state.beast.igniting = false;
+        state.beast.igniteTimer = null;
+        const gf = glowSlot?.children?.[0];
+        gf?.classList?.remove("is-igniting");
+      }, 1600);
+      if (toastSlot) {
+        toastSlot.replaceChildren(buildBeastActivationToast());
+        state.beast.toastTimer = setTimeout(() => {
+          state.beast.toastTimer = null;
+          toastSlot.replaceChildren();
+        }, 6600);
+      }
+    }
+
+    if (!state.beast.mounted) {
+      glowSlot?.replaceChildren(buildBeastGlowFrame(state.beast.igniting));
+      bannerSlot?.replaceChildren(buildBeastHeaderBar());
+      state.beast.mounted = true;
+    } else if (turnedOn) {
+      const gf = glowSlot?.children?.[0];
+      gf?.classList?.add("is-igniting");
+    }
+  }
+
   function renderStatusBanner(snap, isNonRepo) {
     const wrap = document.getElementById("status-banner-wrap");
     const banner = document.getElementById("status-banner");
@@ -2119,6 +2456,7 @@
       return;
     }
 
+    const beastOn = isBeastActive(snap, isNonRepo);
     const stages = snap.stages || [];
     const byId = new Map(stages.map((s) => [s.id, s]));
     const plan = byId.get("plan");
@@ -2126,6 +2464,47 @@
     const review = byId.get("review");
     const ship = byId.get("ship");
     const liveIds = snap.activity?.liveStageIds || [];
+
+    if (beastOn && liveIds.length > 0 && state.panelMode !== "review_pr") {
+      const liveStage = stages.find((s) => liveIds.includes(s.id));
+      const liveText = liveStage
+        ? `${liveStage.label} · ${liveStage.collapsedSummary || liveStage.detail}`
+        : "Agents running.";
+      wrap.classList.remove("hidden");
+      banner.className = "status-banner is-autopilot";
+      banner.dataset.testid = "beast-autopilot-card";
+
+      const lead = el("div", "status-banner-lead");
+      const badgeEl = el("span", "beast-autopilot-badge");
+      badgeEl.appendChild(svgIcon("bolt", 13));
+      badgeEl.appendChild(el("span", "", "Autopilot"));
+      lead.appendChild(badgeEl);
+      lead.appendChild(el("span", "status-banner-copy", liveText));
+      banner.appendChild(lead);
+
+      const runningPos = Math.max(1, stages.findIndex((s) => s.railState === "running") + 1);
+      const progBar = el("div", "beast-prog-bar");
+      progBar.setAttribute("role", "img");
+      progBar.setAttribute("aria-label", `Step ${runningPos} of ${stages.length || 4} running, the rest will start automatically`);
+      for (const s of stages) {
+        const cls =
+          s.railState === "done"
+            ? "beast-seg is-done"
+            : s.railState === "running"
+              ? "beast-seg is-run"
+              : "beast-seg";
+        progBar.appendChild(el("div", cls));
+      }
+      banner.appendChild(progBar);
+
+      const stopsRow = el("div", "beast-stops-row");
+      stopsRow.appendChild(el("span", "", "Stops for you only on"));
+      for (const stopLabel of computeBeastStopChips(snap)) {
+        stopsRow.appendChild(el("span", "beast-stop-chip", stopLabel));
+      }
+      banner.appendChild(stopsRow);
+      return;
+    }
 
     let tone = "is-idle";
     let iconKind = "dot";
@@ -2137,6 +2516,7 @@
     let cmdPrompt = null;
     let cmdLabel = null;
     let secondaryAction = null;
+    let manualHint = "";
     const alternative = snap.nextAction?.alternative || null;
 
     if (state.panelMode === "review_pr" && snap.colleagueReview?.detected) {
@@ -2156,6 +2536,7 @@
       iconKind = "dot";
       badge = "Working";
       text = liveStage ? `${liveStage.label} · ${liveStage.collapsedSummary || liveStage.detail}` : "Agents running.";
+      manualHint = "You start each step";
     } else if (
       plan?.readOnlyComplete &&
       !snap.nextAction &&
@@ -2264,6 +2645,7 @@
     };
 
     wrap.classList.remove("hidden");
+    banner.dataset.testid = "timeline-status-banner";
     if (!guided) {
       banner.className = `status-banner ${tone}`;
       const lead = el("div", "status-banner-lead");
@@ -2271,6 +2653,9 @@
       lead.appendChild(el("span", "status-banner-badge", badge));
       lead.appendChild(el("span", "status-banner-copy", text));
       banner.appendChild(lead);
+      if (manualHint) {
+        banner.appendChild(el("span", "status-banner-manual-hint", manualHint));
+      }
       return;
     }
 
@@ -2925,17 +3310,38 @@
       const deltaSec = el("section", "dossier-section");
       const deltaHead = el("div", "dossier-section-head");
       deltaHead.appendChild(el("h2", "dossier-section-title", "Diff Signals & Test Integrity"));
+      const autoBadgeText = delta.flagged
+        ? "FLAGGED"
+        : ev.autoMergeEligible
+          ? ev.autoMerge?.mode === "earned_trust_l3"
+            ? "Auto-Merge L3"
+            : "Tier 0 Auto"
+          : "Human Review";
       deltaHead.appendChild(
         el(
           "span",
           `dossier-badge ${delta.flagged ? "err" : "done"}`,
-          delta.flagged ? "FLAGGED" : ev.autoMergeEligible ? "Tier 0 Auto" : "Human Review",
+          autoBadgeText,
         ),
       );
       deltaSec.appendChild(deltaHead);
       deltaSec.appendChild(
         el("p", "audit-detail", `Test assertions: +${delta.added} / -${delta.removed} (ratio ${delta.weakeningRatio})`),
       );
+      if (ev.trustContext) {
+        const tc = ev.trustContext;
+        const targetLabel = tc.category === "governance" ? "L2 cap" : "L3";
+        deltaSec.appendChild(
+          el(
+            "p",
+            "audit-detail",
+            `Agent Trust: ${tc.category} L${tc.level}/${targetLabel} (T ${Number(tc.score ?? 0).toFixed(2)}, ceiling L${tc.ceiling}, ${tc.merges}/${tc.minMergesForL3} merges)`,
+          ),
+        );
+      }
+      if (ev.autoMerge?.reason) {
+        deltaSec.appendChild(el("p", "audit-detail", ev.autoMerge.reason));
+      }
       const bar = el("div", "trust-ema-bar");
       const pct = Math.min(100, Math.round((Number(delta.weakeningRatio) || 0) * 100));
       const fill = el("div", `dossier-meter-fill ${delta.flagged ? "err" : pct > 10 ? "warn" : ""}`.trim());
@@ -3215,7 +3621,7 @@
       document.getElementById("back-from-artifact")?.focus();
     } else {
       renderFooter(state.snap);
-      rail?.setVisible(!document.hidden);
+      rail?.setVisible(!document.hidden && state.panelMode === "build");
       layoutRail();
       if (restoreFocus) {
         if (prevView === "artifact" && state.artifactReturnEl && document.contains(state.artifactReturnEl)) {
@@ -3244,7 +3650,15 @@
       return r.top + r.height / 2 - top + PAD_TOP;
     });
     rail.resize(height + PAD_TOP);
-    rail.setNodes(railStages.map((s, i) => ({ state: s.railState, agents: s.agents, y: ys[i] ?? PAD_TOP })));
+    rail.setNodes(
+      railStages.map((s, i) => ({
+        state: s.railState,
+        agents: s.agents,
+        pilotScale: s.pilotScale,
+        pilotAlpha: s.pilotAlpha,
+        y: ys[i] ?? PAD_TOP,
+      })),
+    );
   }
 
   function scheduleRailAnnouncement(snap) {
@@ -3277,10 +3691,19 @@
   }
 
   function updateRail(snap) {
-    railStages = (snap?.stages || []).map((s) => ({
-      railState: s.railState || "pending",
-      agents: snap?.activity?.liveAgentsByStage?.[s.id] ?? 0,
-    }));
+    const setupReady = snap?.setup?.status === "ready";
+    const isNonRepo = snap?.trust?.scopeKind === "non_repo" && Boolean(snap?.workspace) && !setupReady;
+    const beastOn = isBeastActive(snap, isNonRepo);
+    const stages = snap?.stages || [];
+    railStages = stages.map((s) => {
+      const meta = computeBeastStageMeta(s, snap, stages, beastOn);
+      return {
+        railState: meta.railState,
+        agents: snap?.activity?.liveAgentsByStage?.[s.id] ?? 0,
+        pilotScale: meta.pilotScale,
+        pilotAlpha: meta.pilotAlpha,
+      };
+    });
     layoutRail();
     scheduleRailAnnouncement(snap);
   }
@@ -3756,19 +4179,49 @@
       }
       if (snap.trust?.enrolled) {
         const activeCat = snap.trust.activeCatState;
-        const beastToggle = el("button", snap.trust.beastOn ? "meta-btn is-beast" : "meta-btn is-neutral");
+        const beastOn = Boolean(snap.trust.beastOn);
+        if (!beastOn) {
+          state.beastDrawerOpen = false;
+        }
+        const rmGroup = el("div", "run-mode-switch");
+        rmGroup.setAttribute("role", "group");
+        rmGroup.setAttribute("aria-label", "Run mode");
+        rmGroup.dataset.testid = "timeline-run-mode";
+
+        const manualBtn = el("button", "run-mode-btn is-manual", "Manual");
+        manualBtn.type = "button";
+        manualBtn.dataset.testid = "timeline-mode-manual";
+        manualBtn.setAttribute("aria-pressed", String(!beastOn));
+        manualBtn.addEventListener("click", () => {
+          if (beastOn || state.beast.pendingOn) {
+            updateTrustSettings({ beastOn: false }, "Manual mode · current step finishes, next steps wait for you");
+          }
+        });
+
+        const beastToggle = el("button", beastOn ? "run-mode-btn is-beast" : "run-mode-btn is-beast-idle");
         beastToggle.type = "button";
         beastToggle.dataset.testid = "timeline-beast-toggle";
-        beastToggle.setAttribute("aria-expanded", String(state.beastDrawerOpen));
-        beastToggle.textContent = snap.trust.beastOn
-          ? `Beast · L${activeCat?.level ?? 0}`
-          : "Beast · Off";
+        beastToggle.setAttribute("aria-pressed", String(beastOn));
+        if (beastOn) {
+          beastToggle.setAttribute("aria-expanded", String(state.beastDrawerOpen));
+        }
+        const flameIc = svgIcon(beastOn ? "flame-solid" : "flame-outline", 12);
+        if (beastOn) flameIc.classList.add("beast-lick");
+        beastToggle.appendChild(flameIc);
+        beastToggle.appendChild(
+          el("span", "", beastOn ? `Beast · L${activeCat?.level ?? 0}` : "Beast"),
+        );
         beastToggle.addEventListener("click", () => {
+          if (!beastOn) {
+            updateTrustSettings({ beastOn: true }, "");
+            return;
+          }
           state.beastDrawerOpen = !state.beastDrawerOpen;
           if (state.beastDrawerOpen) state.setupDrawerOpen = false;
           render(state.snap);
         });
-        metaRow.appendChild(beastToggle);
+        rmGroup.append(manualBtn, beastToggle);
+        metaRow.appendChild(rmGroup);
       } else if (snap.trust?.scopeKind === "git_unregistered") {
         const offBtn = el("button", "meta-btn is-neutral", "Trust: Off");
         offBtn.type = "button";
@@ -3935,6 +4388,7 @@
       setupCard.className = "setup-card hidden";
     }
 
+    syncBeastChrome(snap, isNonRepo);
     renderTotalsStrip(snap);
     renderStatusBanner(snap, isNonRepo);
 
@@ -3966,11 +4420,13 @@
       list.classList.toggle("is-dimmed", isNonRepo);
       railWrap?.classList.toggle("is-dimmed", isNonRepo);
       const liveIds = snap.activity?.liveStageIds || [];
+      const beastActive = isBeastActive(snap, isNonRepo);
 
       snap.stages.forEach((stage, idx) => {
         const isLast = idx === snap.stages.length - 1;
         const isExpanded = state.expanded.has(stage.id);
         const rs = stage.railState || "pending";
+        const beastMeta = computeBeastStageMeta(stage, snap, snap.stages, beastActive);
         const stLabel = stageStatusLabel(stage, snap.stages);
         const liveAgents = snap.activity?.liveAgentsByStage?.[stage.id] ?? 0;
 
@@ -4008,7 +4464,17 @@
         });
 
         stepBtn.appendChild(el("span", "step-title", `${stage.number}. ${stage.label}`));
-        if (stLabel) {
+        if (beastActive && rs === "running") {
+          const runAuto = el("span", "status-text running-auto");
+          runAuto.appendChild(el("span", "beast-spin"));
+          runAuto.appendChild(el("span", "", "Running · auto"));
+          stepBtn.appendChild(runAuto);
+        } else if (beastMeta.pillKind) {
+          const pill = el("span", `beast-stage-pill is-${beastMeta.pillKind}`);
+          pill.appendChild(svgIcon(beastMeta.pillKind === "gate" ? "lock" : "bolt", 10));
+          pill.appendChild(el("span", "", beastMeta.pillText));
+          stepBtn.appendChild(pill);
+        } else if (stLabel) {
           stepBtn.appendChild(el("span", `status-text ${stLabel.cls}`, stLabel.text));
         } else if (stage.id === "plan" && rs === "pending") {
           stepBtn.appendChild(el("span", "status-text muted", "Optional"));
@@ -4021,6 +4487,9 @@
         const summaryText = isExpanded ? stage.summary : stage.collapsedSummary || stage.summary;
         if (summaryText) {
           body.appendChild(el("p", "stage-summary", summaryText));
+        }
+        if (beastMeta.note) {
+          body.appendChild(el("p", "stage-beast-note", beastMeta.note));
         }
 
         const statsRow = buildStageStatsRow(stage);
@@ -4331,8 +4800,10 @@
     poll();
   }
   setInterval(tickTimers, 1000);
+  document.getElementById("timeline-view")?.classList.toggle("is-paused", Boolean(document.hidden));
   document.addEventListener("visibilitychange", () => {
-    rail?.setVisible(!document.hidden && state.view === "timeline");
+    document.getElementById("timeline-view")?.classList.toggle("is-paused", Boolean(document.hidden));
+    rail?.setVisible(!document.hidden && state.view === "timeline" && state.panelMode === "build");
     if (!document.hidden) {
       poll();
       tickTimers();

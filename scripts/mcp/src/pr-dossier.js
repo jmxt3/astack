@@ -39,9 +39,14 @@ function renderDossier(data, app) {
   meterCard.appendChild(domEl("h3", "card-title", "Diff Signals & Test Integrity"));
   const deltaRow = domEl("div", "row");
   deltaRow.appendChild(domEl("span", "", `Test assertions: +${delta.added} / -${delta.removed} (ratio ${delta.weakeningRatio})`));
-  deltaRow.appendChild(
-    domEl("span", `pill ${delta.flagged ? "err" : "ok"}`, delta.flagged ? "FLAGGED" : ev.autoMergeEligible ? "Tier 0 Auto" : "Human Review"),
-  );
+  const autoBadgeText = delta.flagged
+    ? "FLAGGED"
+    : ev.autoMergeEligible
+      ? ev.autoMerge?.mode === "earned_trust_l3"
+        ? "Auto-Merge L3"
+        : "Tier 0 Auto"
+      : "Human Review";
+  deltaRow.appendChild(domEl("span", `pill ${delta.flagged ? "err" : "ok"}`, autoBadgeText));
   meterCard.appendChild(deltaRow);
   const meter = domEl("div", "meter");
   const pct = Math.min(100, Math.round((Number(delta.weakeningRatio) || 0) * 100));
@@ -49,6 +54,22 @@ function renderDossier(data, app) {
   fill.style.width = `${Math.max(4, pct || 4)}%`;
   meter.appendChild(fill);
   meterCard.appendChild(meter);
+  if (ev.trustContext) {
+    const tc = ev.trustContext;
+    const targetLabel = tc.category === "governance" ? "L2 cap" : "L3";
+    const trustRow = domEl("div", "row");
+    trustRow.appendChild(
+      domEl(
+        "span",
+        "muted",
+        `Agent Trust: ${tc.category} L${tc.level}/${targetLabel} (T ${Number(tc.score ?? 0).toFixed(2)}, ceiling L${tc.ceiling}, ${tc.merges}/${tc.minMergesForL3} merges)`,
+      ),
+    );
+    meterCard.appendChild(trustRow);
+    if (ev.autoMerge?.reason) {
+      meterCard.appendChild(domEl("p", "empty", ev.autoMerge.reason));
+    }
+  }
   shell.appendChild(meterCard);
 
   const clusters = Array.isArray(ev.clusters) ? ev.clusters : [];

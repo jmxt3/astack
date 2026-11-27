@@ -78,7 +78,7 @@ export const MITIGATION_TABLE = {
     id: "verifier_pass",
     label: "Isolated pr-verifier PASS receipt on HEAD",
     factor: 0.45,
-    signals: ["large_diff", "dependency_changed", "new_path", "public_surface_changed"],
+    signals: ["large_diff", "dependency_changed", "new_path", "public_surface_changed", "wide_declared_scope"],
   },
   rollback_receipt: {
     id: "rollback_receipt",
