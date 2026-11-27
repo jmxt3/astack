@@ -1856,6 +1856,17 @@ function buildPlanStage({
   };
 }
 
+function summarizeBuildProgress(subChecks = []) {
+  const byId = new Map((subChecks || []).map((c) => [c.id, c]));
+  const cleanSub = byId.get("clean");
+  return {
+    editsDone: byId.get("edits")?.status === "done",
+    cleanStatus: cleanSub?.status || "pending",
+    cleanOptional: Boolean(cleanSub?.optional),
+    verifyStatus: byId.get("verify")?.status || "pending",
+  };
+}
+
 function buildBuildStage({
   planStatus,
   sig,
@@ -1907,6 +1918,7 @@ function buildBuildStage({
       id: "clean",
       label: "clean",
       status: cleanStatus,
+      optional: !hasCodeEdits,
       detail: cleanStatus === "done"
         ? "Cleanup (/deslop or /no-comments) ran after the latest code edit."
         : cleanStatus === "stale"
@@ -1927,6 +1939,16 @@ function buildBuildStage({
     },
   ];
   const onlyCleanStale = cleanStatus === "stale" && verifyStatus === "done";
+  const activeDetail =
+    editsStatus === "done" && verifyStatus === "done" && cleanStatus === "pending"
+      ? "Edits and verification passed. Still needed: clean the diff (/deslop or /no-comments), or skip straight to /pre-pr."
+      : editsStatus === "done" && cleanStatus === "done" && verifyStatus === "pending"
+        ? "Edits are cleaned. Still needed: run tests, lint, or live verification on HEAD."
+        : editsStatus === "done" && cleanStatus === "pending" && verifyStatus === "pending"
+          ? hasCodeEdits
+            ? "Edits recorded. Still needed: clean the diff (/deslop) and run verification on HEAD."
+            : "Edits recorded. Still needed: run tests, lint, or live verification on HEAD."
+          : "Implement changes, clean the diff, and verify on HEAD.";
   const detail = status === "stale"
     ? onlyCleanStale
       ? "New code edits landed after cleanup. Re-run /deslop or /no-comments."
@@ -1944,7 +1966,7 @@ function buildBuildStage({
       : status === "skipped"
         ? "Optional — reviewing or iterating on an existing PR."
         : status === "active"
-          ? "Running build, cleanup, and live verification."
+          ? activeDetail
           : "Run /astack-mode with your goal and done check.";
 
   return {
@@ -2059,48 +2081,254 @@ function buildShipStage({ reviewStatus, shipped, shipLive, openPrRequested = fal
   };
 }
 
-function selectNextAction(stepViews, setupState) {
+function selectNextAction(
+  stepViews,
+  setupState,
+  { changedFilesCount = 0, riskPresentation = null, reviewRound = 0, maxReviewRounds = 3 } = {},
+) {
   const [plan, build, review, ship] = stepViews;
+  const filePhrase =
+    changedFilesCount > 0
+      ? `${changedFilesCount} changed ${changedFilesCount === 1 ? "file" : "files"}`
+      : "";
+  const parallelReviewAlt =
+    changedFilesCount >= 2
+      ? {
+          label: `Parallel review (${changedFilesCount} files)`,
+          command: "/run-workflow",
+          summary: `Review all ${changedFilesCount} changed files in parallel, then run pr-verifier`,
+          prompt: `/run-workflow Review the ${changedFilesCount} changed files on this branch in parallel, one reviewer per file, then run pr-verifier once on HEAD and log a one-line verdict per file.`,
+        }
+      : null;
+
   if (review.status === "error") {
-    return { stageId: "review", stageLabel: "Pre-PR Check", command: "/pre-pr", hint: review.detail };
+    return {
+      stageId: "review",
+      stageLabel: "Pre-PR Check",
+      command: "/pre-pr",
+      title: "Resolve escalated Pre-PR findings",
+      hint: review.detail,
+      instruction: `Pre-PR reached ${reviewRound}/${maxReviewRounds} rounds. Fix or decide on blocking findings, then re-run /pre-pr.`,
+      prompt: "/pre-pr Review the escalated findings, resolve blocking issues, and re-verify on HEAD.",
+    };
   }
   if (build.status === "stale") {
-    const onlyClean =
-      build.subChecks?.some((c) => c.id === "clean" && c.status === "stale") &&
-      build.subChecks?.some((c) => c.id === "verify" && c.status === "done");
+    const prog = summarizeBuildProgress(build.subChecks);
+    const onlyClean = prog.cleanStatus === "stale" && prog.verifyStatus === "done";
+    const needsClean = prog.cleanStatus === "stale" || (prog.cleanStatus === "pending" && !prog.cleanOptional);
     return {
       stageId: "build",
       stageLabel: "Build & Prove",
-      command: "/astack-mode",
+      command: onlyClean ? "/deslop" : "/astack-mode",
+      title: onlyClean ? "Re-clean latest code edits" : "Re-verify edits on HEAD",
       hint: onlyClean
         ? "Code edited after cleanup. Re-run /deslop or /no-comments."
-        : "Edits landed after verify. Re-clean and re-verify on HEAD.",
+        : needsClean
+          ? "Edits landed after verify. Re-clean and re-verify on HEAD."
+          : "Edits landed after verify. Re-verify on HEAD.",
+      instruction: onlyClean
+        ? "Tests already pass on HEAD, but code changed after cleanup. Re-clean the diff before Pre-PR Check."
+        : needsClean
+          ? "New edits landed after verification. Re-clean and re-verify on HEAD before Pre-PR Check."
+          : "New edits landed after verification. Re-verify on HEAD before Pre-PR Check.",
+      prompt: onlyClean
+        ? filePhrase
+          ? `/deslop /no-comments Clean the ${filePhrase} on this branch and confirm verification stays green.`
+          : "/deslop /no-comments Clean the latest code edits on this branch and confirm verification stays green."
+        : needsClean
+          ? filePhrase
+            ? `/astack-mode Re-clean and re-verify the ${filePhrase} on HEAD.`
+            : "/astack-mode Re-clean and re-verify the latest edits on HEAD."
+          : filePhrase
+            ? `/astack-mode Re-verify the ${filePhrase} on HEAD.`
+            : "/astack-mode Re-verify the latest edits on HEAD.",
+      remaining: onlyClean
+        ? ["Clean diff"]
+        : needsClean
+          ? ["Clean diff", "Verify on HEAD"]
+          : ["Verify on HEAD"],
     };
   }
   if (review.status === "stale") {
-    return { stageId: "review", stageLabel: "Pre-PR Check", command: "/pre-pr", hint: "Re-run PR dossier on updated HEAD." };
+    return {
+      stageId: "review",
+      stageLabel: "Pre-PR Check",
+      command: "/pre-pr",
+      title: "Re-run Pre-PR Check on updated HEAD",
+      hint: "Re-run PR dossier on updated HEAD.",
+      instruction: "New edits invalidated the previous PR dossier. Re-compile pr-review.md and run pr-verifier on HEAD.",
+      prompt: "/pre-pr Re-compile pr-review.md and run isolated pr-verifier on updated HEAD.",
+      ...(parallelReviewAlt ? { alternative: parallelReviewAlt } : {}),
+    };
   }
   if (plan.status === "waiting_gate") {
-    return { stageId: "plan", stageLabel: "Plan", command: "Proceed", hint: "Review implementation_plan.md and click Proceed." };
+    return {
+      stageId: "plan",
+      stageLabel: "Plan",
+      command: "Proceed",
+      title: "Approve implementation plan",
+      hint: "Review implementation_plan.md and click Proceed.",
+      instruction: "Review implementation_plan.md, then click Proceed in chat to start implementation.",
+      prompt: "Proceed",
+    };
   }
   if (review.status === "waiting_gate") {
-    return { stageId: "ship", stageLabel: "Ship", command: "/astack-mode open the pr", hint: "Inspect pr-review.md, then open the PR when ready." };
+    const isHumanGate = riskPresentation?.mode === "human_gate";
+    return {
+      stageId: "ship",
+      stageLabel: "Ship",
+      command: "/astack-mode open the pr",
+      title: isHumanGate
+        ? `Review PR dossier (Risk ${riskPresentation.scorePct}%), then open PR`
+        : "Inspect PR dossier, then open PR",
+      hint: "Inspect pr-review.md, then open the PR when ready.",
+      instruction: isHumanGate
+        ? `Pre-PR Check passed on HEAD (Risk ${riskPresentation.scorePct}%). Inspect pr-review.md, then open the PR when satisfied.`
+        : "Pre-PR Check passed on HEAD. Inspect pr-review.md, then open the PR when ready.",
+      prompt: "/astack-mode open the pr",
+    };
   }
   if (setupState.status === "needs_setup" && stepViews.every((s) => s.status === "pending")) {
     return {
       stageId: "setup",
       stageLabel: "First-time setup",
       command: "/setup-astack",
+      title: "Set up AStack for this repository",
       hint: "Run once in this repo to scaffold verification skills and policies.",
+      instruction: "Run once to scaffold verification skills and repo guardrails.",
+      prompt: "/setup-astack",
     };
   }
   const current = stepViews.find((s) => s.status === "active") || stepViews.find((s) => s.status === "next");
   if (current) {
+    if (current.id === "build" && current.status === "active") {
+      const { editsDone, cleanStatus, cleanOptional, verifyStatus } = summarizeBuildProgress(current.subChecks);
+      if (editsDone && verifyStatus === "done" && cleanStatus === "pending") {
+        const riskNote =
+          riskPresentation?.mode === "human_gate"
+            ? ` (Risk ${riskPresentation.scorePct}% requires human review before shipping)`
+            : "";
+        return {
+          stageId: "build",
+          stageLabel: current.label,
+          command: "/deslop",
+          title: "1 step left in Build & Prove: clean diff",
+          hint: filePhrase
+            ? `Edits and verification passed on ${filePhrase}. Clean the diff, then run /pre-pr.`
+            : "Edits and verification passed. Clean the diff, then run /pre-pr.",
+          instruction: `Edits and verification passed${filePhrase ? ` on ${filePhrase}` : ""}. Clean the diff to finish Step 2, then compile PR proof${riskNote}.`,
+          prompt: filePhrase
+            ? `/deslop /no-comments Clean the ${filePhrase} on this branch, confirm tests stay green, then run /pre-pr on HEAD.`
+            : "/deslop /no-comments Clean the changed files on this branch, confirm tests stay green, then run /pre-pr on HEAD.",
+          inProgress: true,
+          remaining: ["Clean diff"],
+          alternative: {
+            label: "Skip cleanup → /pre-pr",
+            command: "/pre-pr",
+            summary: "Skip diff cleanup and go straight to Pre-PR Check",
+            prompt: "/pre-pr Compile pr-review.md and run isolated pr-verifier on HEAD.",
+          },
+        };
+      }
+      if (editsDone && verifyStatus === "pending" && (cleanStatus === "done" || (cleanStatus === "pending" && cleanOptional))) {
+        return {
+          stageId: "build",
+          stageLabel: current.label,
+          command: "/astack-mode",
+          title: "1 step left in Build & Prove: verify on HEAD",
+          hint: cleanOptional
+            ? "Edits recorded. Run tests or live verification on HEAD."
+            : "Edits are cleaned. Run tests or live verification on HEAD.",
+          instruction: cleanOptional
+            ? "Edits are recorded. Run tests, lint, or live verification on HEAD to finish Step 2."
+            : "Edits and cleanup are done. Run tests, lint, or live verification on HEAD to finish Step 2.",
+          prompt: filePhrase
+            ? `/astack-mode Verify the ${filePhrase} on HEAD (run tests, lint, and live checks).`
+            : "/astack-mode Verify the current changes on HEAD (run tests, lint, and live checks).",
+          inProgress: true,
+          remaining: ["Verify on HEAD"],
+        };
+      }
+      if (editsDone && cleanStatus === "pending" && verifyStatus === "pending") {
+        return {
+          stageId: "build",
+          stageLabel: current.label,
+          command: "/astack-mode",
+          title: "2 steps left in Build & Prove: clean & verify",
+          hint: "Edits recorded. Clean the diff and verify on HEAD.",
+          instruction: "Edits are recorded. Clean the diff (/deslop, /no-comments) and run verification on HEAD.",
+          prompt: filePhrase
+            ? `/astack-mode Clean the ${filePhrase} with /deslop and /no-comments, then run verification on HEAD.`
+            : "/astack-mode Clean the diff with /deslop and /no-comments, then run verification on HEAD.",
+          inProgress: true,
+          remaining: ["Clean diff", "Verify on HEAD"],
+        };
+      }
+      return {
+        stageId: "build",
+        stageLabel: current.label,
+        command: "/astack-mode",
+        title: "Implement changes in Build & Prove",
+        hint: current.detail,
+        instruction: "Implement the changes, clean the diff, and verify on HEAD.",
+        prompt: "/astack-mode",
+        inProgress: true,
+        remaining: ["Edits", "Clean diff", "Verify on HEAD"],
+      };
+    }
+    if (current.id === "build" && current.status === "next") {
+      return {
+        stageId: "build",
+        stageLabel: current.label,
+        command: "/astack-mode",
+        title: "Start Build & Prove",
+        hint: current.detail,
+        instruction: "Implement the approved plan, clean the diff, and prove it works on HEAD.",
+        prompt: "/astack-mode Implement the plan, clean the diff, and verify on HEAD.",
+        inProgress: false,
+      };
+    }
+    if (current.id === "review") {
+      return {
+        stageId: "review",
+        stageLabel: current.label,
+        command: "/pre-pr",
+        title: current.status === "active" ? "Finish Pre-PR Check" : "Run Pre-PR Check",
+        hint: current.detail,
+        instruction:
+          current.status === "active"
+            ? "Finish compiling pr-review.md and run isolated pr-verifier on HEAD."
+            : "Build & Prove is complete. Compile pr-review.md and run isolated pr-verifier before opening a PR.",
+        prompt: "/pre-pr Compile pr-review.md and run isolated pr-verifier on HEAD.",
+        inProgress: current.status === "active",
+        ...(parallelReviewAlt ? { alternative: parallelReviewAlt } : {}),
+      };
+    }
+    if (current.id === "ship") {
+      return {
+        stageId: "ship",
+        stageLabel: current.label,
+        command: "/astack-mode open the pr",
+        title: "Open the pull request",
+        hint: current.detail,
+        instruction: review?.status === "skipped"
+          ? "Commit clean changes and open the PR on GitHub."
+          : "Pre-PR Check passed. Commit clean changes and open the PR on GitHub.",
+        prompt: "/astack-mode open the pr",
+        inProgress: current.status === "active",
+      };
+    }
     return {
       stageId: current.id,
       stageLabel: current.label,
       command: current.primaryCommand,
+      title: current.status === "active" ? "Continue planning" : "Start with a plan or direct build",
       hint: current.detail,
+      instruction:
+        current.status === "active"
+          ? "Finish drafting implementation_plan.md before editing code."
+          : "Start read-only with /plan, or jump straight into /astack-mode.",
+      prompt: current.primaryCommand,
       inProgress: current.status === "active",
     };
   }
@@ -2111,7 +2339,10 @@ function selectNextAction(stepViews, setupState) {
     stageId: "plan",
     stageLabel: "Start",
     command: "/plan",
+    title: "Start a task",
     hint: "Start a task with /plan or /astack-mode.",
+    instruction: "Start read-only with /plan, or jump straight into /astack-mode.",
+    prompt: "/plan",
   };
 }
 
@@ -2277,6 +2508,21 @@ function buildStageCollapsedSummary(stage, pr, prs, shipped, { railState = null,
     }
     if (stage.status === "done") return "Cleaned and verified on HEAD.";
     if (stage.status === "skipped") return "Completed earlier or not needed for this flow.";
+    if (stage.status === "active") {
+      const { editsDone, cleanStatus, cleanOptional, verifyStatus } = summarizeBuildProgress(stage.subChecks);
+      if (editsDone && verifyStatus === "done" && cleanStatus === "pending") {
+        return "Edits & verify done · Still needed: clean diff (/deslop).";
+      }
+      if (editsDone && verifyStatus === "pending" && (cleanStatus === "done" || (cleanStatus === "pending" && cleanOptional))) {
+        return cleanOptional
+          ? "Edits done · Still needed: verify on HEAD."
+          : "Edits & clean done · Still needed: verify on HEAD.";
+      }
+      if (editsDone && cleanStatus === "pending" && verifyStatus === "pending") {
+        return "Edits done · Still needed: clean diff & verify.";
+      }
+      return "In progress · implement, clean, and verify.";
+    }
     return stage.summary;
   }
   if (stage.id === "review") {
@@ -2338,7 +2584,7 @@ const DEFECT_RISK_SIGNALS = new Set([
 function buildRiskPresentation(riskAssessment, { prItems = [], reviewStage = null } = {}) {
   if (!riskAssessment) return null;
   const scoreNum = Number(riskAssessment.score ?? 0);
-  const scoreText = scoreNum.toFixed(2);
+  const scorePct = Math.round(scoreNum * 100);
   const whyItems = (riskAssessment.signals || []).map((s) => ({
     id: s.id,
     weightPct: Math.round((s.weight ?? 0) * 100),
@@ -2363,7 +2609,8 @@ function buildRiskPresentation(riskAssessment, { prItems = [], reviewStage = nul
     return {
       mode: "resolved_merged",
       tone: "done",
-      headerBadge: `Merged · R ${scoreText}`,
+      scorePct,
+      headerBadge: `Merged · Risk ${scorePct}%`,
       headline:
         mergedPrs.length === 1
           ? `Reviewed & merged (PR #${mergedPrs[0].number})`
@@ -2380,8 +2627,9 @@ function buildRiskPresentation(riskAssessment, { prItems = [], reviewStage = nul
     return {
       mode: "defect_blocked",
       tone: "err",
+      scorePct,
       headerBadge: null,
-      headline: `Action needed (R ${scoreText})`,
+      headline: `Action needed · Risk ${scorePct}%`,
       nextHint: "Fix the flagged issue above and re-run verification on HEAD.",
       whyItems,
       rollbackCommand,
@@ -2392,12 +2640,20 @@ function buildRiskPresentation(riskAssessment, { prItems = [], reviewStage = nul
     riskAssessment.residual === "high" ||
     riskAssessment.residual === "medium"
   ) {
+    const reviewStatus = reviewStage?.status ?? null;
+    const nextHint =
+      reviewStatus === "waiting_gate" || reviewStatus === "done"
+        ? "PR dossier is ready. Inspect it, then open or merge the PR when satisfied."
+        : reviewStatus === "stale"
+          ? "New edits landed after the last dossier. Re-run /pre-pr before opening the PR."
+          : "High-impact files changed. Run /pre-pr to compile the PR dossier and verify HEAD before opening a PR.";
     return {
       mode: "human_gate",
       tone: "warn",
-      headerBadge: Number(riskAssessment.tier ?? 0) >= 3 ? `Review gate · R ${scoreText}` : null,
-      headline: `Human review required (R ${scoreText})`,
-      nextHint: "Inspect the PR dossier, then approve or merge when satisfied.",
+      scorePct,
+      headerBadge: Number(riskAssessment.tier ?? 0) >= 3 ? `Review gate · Risk ${scorePct}%` : null,
+      headline: `Human review required · Risk ${scorePct}%`,
+      nextHint,
       whyItems,
       rollbackCommand,
     };
@@ -2405,8 +2661,9 @@ function buildRiskPresentation(riskAssessment, { prItems = [], reviewStage = nul
   return {
     mode: "low_ok",
     tone: "neutral",
+    scorePct,
     headerBadge: null,
-    headline: `Low risk (R ${scoreText})`,
+    headline: `Low risk · ${scorePct}%`,
     nextHint: null,
     whyItems,
     rollbackCommand,
@@ -2780,7 +3037,16 @@ export function evaluateTimelineSnapshot({
     liveAgentsByStage: liveInfo.liveAgentsByStage,
   };
 
-  const nextAction = selectNextAction(rawSteps, setupState);
+  const riskTier = evidence?.riskTier ?? null;
+  const riskAssessment = evidence?.riskAssessment ?? null;
+  const riskPresentation = buildRiskPresentation(riskAssessment, { prItems, reviewStage });
+
+  const nextAction = selectNextAction(rawSteps, setupState, {
+    changedFilesCount: sig.changedFiles.size,
+    riskPresentation,
+    reviewRound,
+    maxReviewRounds,
+  });
   const suggestedStageId = resolveSuggestedStageId(nextAction, rawSteps, liveSet);
   const buildQueuedByPlan =
     Boolean(sig.astackModeAt) &&
@@ -2909,8 +3175,6 @@ export function evaluateTimelineSnapshot({
     liveLabel = "Review";
   }
 
-  const riskTier = evidence?.riskTier ?? null;
-  const riskAssessment = evidence?.riskAssessment ?? null;
   const riskDescription = riskTier !== null ? (policyResult.policy.tiers?.[String(riskTier)]?.description ?? null) : null;
   const riskMatchedGlobs = riskTier !== null && Array.isArray(evidence?.matchedRiskRules)
     ? [...new Set(evidence.matchedRiskRules.filter((r) => r.tier === riskTier && typeof r.glob === "string").map((r) => r.glob))].slice(0, 4)
@@ -2960,7 +3224,7 @@ export function evaluateTimelineSnapshot({
     categories: repoTrust?.categoryList ?? [],
     promoBanner,
     riskAssessment,
-    riskPresentation: buildRiskPresentation(riskAssessment, { prItems, reviewStage }),
+    riskPresentation,
   };
 
   const colleagueCommands = [...(sig.colleagueReview?.commands ?? [])];
