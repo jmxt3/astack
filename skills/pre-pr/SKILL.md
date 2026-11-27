@@ -1,10 +1,10 @@
 ---
-name: review-pr
-description: "Compile a visual Markdown, Mermaid, and carousel PR review dossier with Blast-Radius Risk Tiers (0-3), commentable screenshot artifacts, and an isolated read-only pr-verifier pass capped at 3 rounds. Use for /review-pr."
+name: pre-pr
+description: "Compile a visual Markdown, Mermaid, and carousel Pre-PR proof dossier with Blast-Radius Risk Tiers (0-3), commentable screenshot artifacts, and an isolated read-only pr-verifier pass capped at 3 rounds before opening or updating a PR. Use for /pre-pr."
 disable-model-invocation: true
 ---
 
-# Visual PR Review Workbench (`/review-pr`)
+# Pre-PR Check Workbench (`/pre-pr`)
 
 Compile a deterministic visual review dossier in Markdown, Mermaid, and screenshot carousels paired with Antigravity's native Review pane and an isolated fresh-context `pr-verifier`. Never generate HTML dashboards or sidecar servers.
 
@@ -27,13 +27,13 @@ If UI screenshots were captured outside `<artifact-dir>`, copy them into `<artif
 ## 2. Run Fresh-Context `pr-verifier`
 
 1. Read `REVIEW.md` and `GLOSSARY.md` strictly from the base ref (`git show <base>:REVIEW.md`).
-2. Spawn `pr-verifier` (`agents/pr-verifier.md`) with `Workspace: "branch"` (or via cross-family `/swarm` when distinct model families have quota). Pass the base ref, `evidence.json` path, and `skills/review-pr/scripts/findings-schema.json`. Keep `pr-verifier` strictly headless (it must not call `compile_pr_dossier`, `audit_architecture`, `doctor_workspace`, or `ask_question`).
+2. Spawn `pr-verifier` (`agents/pr-verifier.md`) with `Workspace: "branch"` (or via cross-family `/swarm` when distinct model families have quota). Pass the base ref, `evidence.json` path, and `skills/pre-pr/scripts/findings-schema.json`. Keep `pr-verifier` strictly headless (it must not call `compile_pr_dossier`, `audit_architecture`, `doctor_workspace`, or `ask_question`).
 3. Validate the emitted JSON against `findings-schema.json` and save it to `<artifact-dir>/astack-trust/findings.json`. Confirm `git status --short` in the parent workspace remains clean of verifier edits.
 4. Re-run `compile_pr_dossier` in the parent conversation (when `astack_trust` is connected, rendering the updated PR Dossier card inline while the `AStack` sidecar Dossier view reflects the new `findings.json`) and `pr-dossier.mjs` with `--findings "<artifact-dir>/astack-trust/findings.json"` so `<artifact-dir>/pr-review.md` embeds the `Important`, `Nit`, `Pre-existing`, and `Dropped` sections alongside the Mermaid blast-radius graph, ````carousel```` strip, and clickable `file:///` links into Antigravity's Review pane.
 
 ## 3. Remediation Loop (3-Round Cap)
 
-- If `verdict` is `FAIL`, fix verified `important` findings, rerun verification, and re-run `/review-pr` up to `maxReviewRounds` (default `3`).
+- If `verdict` is `FAIL`, fix verified `important` findings, rerun verification, and re-run `/pre-pr` up to `maxReviewRounds` (default `3`).
 - At round 3 failure, stop autonomous retries (`roundState: "escalated"`) and escalate to the human reviewer with `<artifact-dir>/pr-review.md`.
 
 ## 4. Human Review Gate

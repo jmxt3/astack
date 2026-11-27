@@ -31,7 +31,7 @@ build playbooks · /tdd · /typescript-best-practices · /run-workflow · /boost
     S6["Stage 6. Clean and audit
 /deslop · /no-comments · /unslop · /technical-writing · /interrogate · /blast-radius · /security-audit · /audit-architecture"]
     S7["Stage 7. Verify live
-/browser · /control-ui · /design-audit · /control-cli · /benchmark-checklist · /review-pr"]
+/browser · /control-ui · /design-audit · /control-cli · /benchmark-checklist · /pre-pr"]
     S8["Stage 8. Ship and compound
 opening-a-pr · babysit (watch-pr.mjs) · shipping · release-and-postmortem · /maintain-verification-skill · /correct · /reflect · /automate-me · /compact"]
 
@@ -90,7 +90,7 @@ Scan this chronological table to see every main AStack command, native Antigravi
 | 43 | Stage 7 | `/design-audit` | Audit desktop and mobile layout, ARIA, focus, and UI states | [Design Audit](#design-audit) |
 | 44 | Stage 7 | `/control-cli` | Drive CLIs, TUIs, daemons, and APIs in isolated temp state | [Control CLI](#control-cli) |
 | 45 | Stage 7 | `/benchmark-checklist` | Vet performance speedups across 7 empirical questions | [Benchmark Checklist](#benchmark-checklist) |
-| 46 | Stage 7 | `/review-pr` (`pr-dossier.mjs` and `pr-verifier`) | Compile Risk Tier PR dossier and run isolated verification | [Review PR](#review-pr-pr-dossiermjs-and-pr-verifier) |
+| 46 | Stage 7 | `/pre-pr` (`pr-dossier.mjs` and `pr-verifier`) | Compile Risk Tier Pre-PR dossier and run isolated verification | [Pre-PR Check](#pre-pr-pr-dossiermjs-and-pr-verifier) |
 | 47 | Stage 8 | `/astack-mode open the pr` (`opening-a-pr.md`) | Rebase ordered commits, clean prose, and open ready PRs | [Opening a PR](#astack-mode-open-the-pr-opening-a-prmd) |
 | 48 | Stage 8 | `/astack-mode babysit` (`babysit.md` and `watch-pr.mjs`) | Drive open PRs to merge-ready, triage Bugbot, and watch queues | [Babysit PRs](#astack-mode-babysit-babysitmd-and-watch-prmjs) |
 | 49 | Stage 8 | `/astack-mode land the stack` (`shipping.md`) | Verify each PR via `@verifier` and merge contiguous stack bottom-up | [Shipping stacks](#astack-mode-land-the-stack-shippingmd) |
@@ -612,12 +612,12 @@ Never call code done without running the real user surface and verifying side ef
 /benchmark-checklist vet this export speedup on the 60k-row fixture before it goes into the PR description.
 ```
 
-### `/review-pr` (`pr-dossier.mjs` and `pr-verifier`)
+### `/pre-pr` (`pr-dossier.mjs` and `pr-verifier`)
 
-- **Function.** [`/review-pr`](../skills/review-pr/SKILL.md) runs [`pr-dossier.mjs`](../skills/review-pr/scripts/pr-dossier.mjs) to classify Risk Tier (`0..3`), verify `evidence.json` SHA freshness, write `<artifact-dir>/pr-review.md` (`UserFacing: true`), and spawn the isolated [`pr-verifier`](../agents/pr-verifier.md) subagent against base-branch `REVIEW.md` before opening or updating a PR.
+- **Function.** [`/pre-pr`](../skills/pre-pr/SKILL.md) runs [`pr-dossier.mjs`](../skills/pre-pr/scripts/pr-dossier.mjs) to classify Risk Tier (`0..3`), verify `evidence.json` SHA freshness, write `<artifact-dir>/pr-review.md` (`UserFacing: true`), and spawn the isolated [`pr-verifier`](../agents/pr-verifier.md) subagent against base-branch `REVIEW.md` before opening or updating a PR.
 
 ```bash
-node skills/review-pr/scripts/pr-dossier.mjs --out pr-review.md
+node skills/pre-pr/scripts/pr-dossier.mjs --out pr-review.md
 ```
 
 ---
@@ -790,6 +790,6 @@ Every bundled CLI below supports `-h` / `--help` with exit code `0` and zero mod
 13. [`skills/statechart/scripts/statechart.mjs`](../skills/statechart/scripts/statechart.mjs) runs TLC on TLA+ specs and generates Mermaid statecharts plus shortest bug paths.
 14. [`skills/security-audit/scripts/validate-findings.cjs`](../skills/security-audit/scripts/validate-findings.cjs) validates `findings.json` against the security-audit schema.
 15. [`skills/security-audit/scripts/validate-coverage-ledger.cjs`](../skills/security-audit/scripts/validate-coverage-ledger.cjs) validates `coverage-ledger.json` canonical RFC-3986 entries.
-16. [`skills/review-pr/scripts/pr-dossier.mjs`](../skills/review-pr/scripts/pr-dossier.mjs) compiles Risk Tier 0-3 blast radius, receipts, and PR proof blocks for `pr-review.md` and GitHub PR bodies.
+16. [`skills/pre-pr/scripts/pr-dossier.mjs`](../skills/pre-pr/scripts/pr-dossier.mjs) compiles Risk Tier 0-3 blast radius, receipts, and PR proof blocks for `pr-review.md` and GitHub PR bodies.
 17. [`skills/audit-architecture/scripts/arch-audit.mjs`](../skills/audit-architecture/scripts/arch-audit.mjs) enforces `.agents/boundaries.json`, banned patterns, and shallow-module checks.
 18. [`sidecars/astack_timeline/main.mjs`](../sidecars/astack_timeline/main.mjs) serves the read-only AStack Timeline sidecar UI (`sidecar_sdk` or standalone HTTP).

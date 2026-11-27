@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { COMMAND_DOCS, DELEGATE_GUIDE_DATA } from "./command-catalog.mjs";
+import { COMMAND_DOCS, COLLEAGUE_REVIEW_GUIDE, DELEGATE_GUIDE_DATA } from "./command-catalog.mjs";
 import { evaluateTimelineSnapshot, resolveSafeArtifactUri, resolveSafeTaskLogPath } from "./timeline-engine.mjs";
 import {
   OUTCOME_SCORES,
@@ -215,7 +215,11 @@ function buildStandalonePreloadScript(defaultConvId) {
 }
 
 function buildCatalogScript() {
-  return `window.ASTACK_CATALOG = ${JSON.stringify({ delegateGuide: DELEGATE_GUIDE_DATA, commandDocs: COMMAND_DOCS })};\n`;
+  return `window.ASTACK_CATALOG = ${JSON.stringify({
+    delegateGuide: DELEGATE_GUIDE_DATA,
+    colleagueReviewGuide: COLLEAGUE_REVIEW_GUIDE,
+    commandDocs: COMMAND_DOCS,
+  })};\n`;
 }
 
 function fetchGhPrMeta(workspaceDir) {

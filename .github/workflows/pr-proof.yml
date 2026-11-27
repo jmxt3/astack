@@ -28,7 +28,7 @@ jobs:
             import("node:child_process").then(({ spawnSync }) => {
               const res = spawnSync(
                 process.execPath,
-                ["skills/review-pr/scripts/pr-dossier.mjs", "--check-pr-body", "-"],
+                ["skills/pre-pr/scripts/pr-dossier.mjs", "--check-pr-body", "-"],
                 { input: process.env.PR_BODY ?? "", stdio: ["pipe", "inherit", "inherit"] }
               );
               process.exit(res.status ?? 1);

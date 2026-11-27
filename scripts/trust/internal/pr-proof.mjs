@@ -296,7 +296,7 @@ function collectUnifiedProofRows({ evidence, proofManifest }) {
       label: "No verification receipts recorded on HEAD",
       surface: "cli",
       status: "SKIP",
-      commandOrAction: "node skills/review-pr/scripts/pr-dossier.mjs --format github",
+      commandOrAction: "node skills/pre-pr/scripts/pr-dossier.mjs --format github",
       observed: `Freshness is ${evidence?.freshness ?? "missing_receipts"}`,
     });
   }

@@ -1163,7 +1163,7 @@ export function evaluatePrIntent(event, options = {}) {
   const ephemeralMessage = [
     `AStack PR proof workflow triggered (HEAD \`${(headSha ?? "none").slice(0, 7)}\`, freshness \`${freshness}\`).`,
     manifestStatus,
-    `Run \`node skills/review-pr/scripts/pr-dossier.mjs --format github${artifactFlag}${featureFlag} --out <body-file>\` (pass \`--merge-body <body-file>\` to keep human sections) before opening or updating the PR.`,
+    `Run \`node skills/pre-pr/scripts/pr-dossier.mjs --format github${artifactFlag}${featureFlag} --out <body-file>\` (pass \`--merge-body <body-file>\` to keep human sections) before opening or updating the PR.`,
     "Pass `--body-file <body-file>` to `gh pr create` or pass the compiled Markdown body to `github-mcp-server`, keeping `## Why`, `## What changed`, `## Scope`, and `## Blast Radius` concise per `skills/astack-mode/playbooks/opening-a-pr.md`.",
   ].join("\n");
 

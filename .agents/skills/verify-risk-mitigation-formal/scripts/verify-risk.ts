@@ -194,7 +194,7 @@ function verifyNoisyOrAndDominantCategoryAlgebra(): {
     { path: "scripts/mcp/tools.mjs", expected: "core" },
     { path: "scripts/cli/statusline.mjs", expected: "tooling" },
     { path: "sidecars/astack_timeline/app.js", expected: "ui" },
-    { path: "skills/review-pr/SKILL.md", expected: "skills" },
+    { path: "skills/pre-pr/SKILL.md", expected: "skills" },
     { path: "scripts/test/risk.test.mjs", expected: "tests" },
     { path: "README.md", expected: "docs" },
   ];

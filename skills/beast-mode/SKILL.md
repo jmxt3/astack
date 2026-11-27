@@ -1,12 +1,12 @@
 ---
 name: beast-mode
-description: "Autonomous earned-trust engineering loop across Plan, Build, PR Review, and Ship stages on enrolled git repositories. Layers /goal and /astack-mode over residual-risk scoring, Intent Cards, per-category trust ceilings, and live Timeline or CLI controls. Use for /beast-mode."
+description: "Autonomous earned-trust engineering loop across Plan, Build, Pre-PR Check, and Ship stages on enrolled git repositories. Layers /goal and /astack-mode over residual-risk scoring, Intent Cards, per-category trust ceilings, and live Timeline or CLI controls. Use for /beast-mode."
 disable-model-invocation: true
 ---
 
 # Beast Mode
 
-Run one engineering task across Plan, Build and Verify, PR Review, and Ship with earned autonomy inside an enrolled git repository. Beast Mode never bypasses verification, base-branch policy, or human-set category ceilings.
+Run one engineering task across Plan, Build and Verify, Pre-PR Check, and Ship with earned autonomy inside an enrolled git repository. Beast Mode never bypasses verification, base-branch policy, or human-set category ceilings.
 
 ## Scope and Prerequisites
 
@@ -39,9 +39,9 @@ Layer `/astack-mode` (and `/goal` for multi-turn autonomous objectives) across f
    - `arch-audit.mjs --strict` and `validate-astack.mjs` when touching boundaries or plugin manifests (`lint` receipt).
 3. Run `/deslop` and `/no-comments` on code changes and re-run verification after the final edit.
 
-### 3. PR Review and Risk Card
+### 3. Pre-PR Check and Risk Card
 
-1. Run isolated `pr-verifier` (`skills/review-pr/scripts/workflows/pr-verify-loop.py`) and compile `evidence.json` plus the GitHub PR body (`node skills/review-pr/scripts/pr-dossier.mjs --format github --out <body-file>`).
+1. Run isolated `pr-verifier` (`skills/pre-pr/scripts/workflows/pr-verify-loop.py`) and compile `evidence.json` plus the GitHub PR body (`node skills/pre-pr/scripts/pr-dossier.mjs --format github --out <body-file>`).
 2. Confirm the Risk Card sentence, signal-to-receipt proofs, and rollback receipt match the actual diff.
 3. At `L2+` with `low` or `medium` residual risk, pushing and opening the PR proceed inside the decision table. Merging pauses for human review at `L0` to `L2`, on any `medium`/`high` residual risk, or on `governance` changes (capped at `L2` forever).
 

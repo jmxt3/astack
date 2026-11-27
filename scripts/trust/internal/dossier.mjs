@@ -369,7 +369,7 @@ export function renderDossierMarkdown({
 
   lines.push("## Independent PR Verifier Report", "");
   if (!findingsDoc) {
-    lines.push("No `findings.json` attached yet. Run `pr-verifier` via `/review-pr`.", "");
+    lines.push("No `findings.json` attached yet. Run `pr-verifier` via `/pre-pr`.", "");
   } else {
     if (evidence.verifier?.stale) {
       lines.push(

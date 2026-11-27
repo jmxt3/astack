@@ -1106,9 +1106,11 @@ function createAppJsTestHarness({
   }
 
   const ids = [
-    "timeline-view", "progress", "live", "live-label", "meta-row", "setup-drawer", "beast-drawer",
+    "timeline-view", "panel-mode-switcher", "mode-btn-build", "mode-btn-review",
+    "progress", "live", "live-label", "meta-row", "setup-drawer", "beast-drawer",
     "promo-wrap", "promo-card", "setup-wrap", "setup-card", "focus-strip", "focus-artifacts",
-    "status-banner-wrap", "status-banner", "living-rail", "timeline", "rail-announcer",
+    "status-banner-wrap", "status-banner", "timeline-wrap", "living-rail", "timeline", "rail-announcer",
+    "colleague-review-panel",
     "btw-form", "askbar-icon", "astk-btw", "btw-submit", "panel-footer",
     "trust-view", "dossier-view", "audit-view", "delegate-view", "artifact-view", "cmd-popover", "toast",
   ];
@@ -1153,7 +1155,42 @@ function createAppJsTestHarness({
     location: { search: "", hash: "" },
     getComputedStyle: () => ({ backgroundColor: "rgb(11, 11, 12)" }),
     document,
-    ASTACK_CATALOG: { delegateGuide: {}, commandDocs: {} },
+    ASTACK_CATALOG: {
+      delegateGuide: {},
+      colleagueReviewGuide: {
+        intents: [
+          {
+            id: "single",
+            title: "Review one PR",
+            subtitle: "Default for most daily reviews",
+            defaultOpen: true,
+            steps: [
+              { step: 1, title: "Understand first", condition: "Only if large or unfamiliar", badge: "Optional", command: "/teach", prompt: "/teach PR" },
+              { step: 2, title: "Hunt real bugs", condition: "Recommended default", badge: "Default", command: "/interrogate", prompt: "/interrogate PR" },
+              { step: 3, title: "Check downstream impact", condition: "Only if shared helper", badge: "Optional", command: "/blast-radius", prompt: "/blast-radius PR" },
+            ],
+            moreChecks: [
+              { title: "Security check", condition: "Only if auth", command: "/security-audit", prompt: "/security-audit PR" },
+            ],
+          },
+          {
+            id: "queue",
+            title: "Triage a queue of PRs",
+            subtitle: "Multiple independent PRs",
+            defaultOpen: false,
+            steps: [{ title: "2 to 9 PRs", condition: "Batch", badge: "2-9 PRs", command: "/fanout", prompt: "/fanout PRs" }],
+          },
+          {
+            id: "stack",
+            title: "Review a PR stack",
+            subtitle: "Dependent PRs",
+            defaultOpen: false,
+            steps: [{ title: "Stacked PRs", condition: "Stack", badge: "Stack", command: "/swarm", prompt: "/swarm PRs" }],
+          },
+        ],
+      },
+      commandDocs: {},
+    },
     setTimeout: (fn, ms) => scheduleTimer(fn, ms, false),
     clearTimeout: cancelTimer,
     setInterval: (fn, ms) => scheduleTimer(fn, ms, true),
@@ -1192,6 +1229,10 @@ function makeFakeSnapshot(etag = "etag-1") {
     branch: "main",
     setup: { status: "ready", commands: [], autoSubCommands: [], moreCommands: [] },
     trust: { scopeKind: "enrolled_repo", enrolled: true, beastOn: false, categories: [] },
+    workflowMode: "standard",
+    workflowLabel: null,
+    panelDefaultMode: "build",
+    colleagueReview: { detected: false, activeIntent: null, detectedCommands: [], running: false, targetPrs: [] },
     doneCount: 1,
     totalCount: 4,
     liveState: "ok",
@@ -1200,7 +1241,7 @@ function makeFakeSnapshot(etag = "etag-1") {
     stages: [
       { id: "plan", number: 1, label: "Plan", status: "done", railState: "done", summary: "Plan done", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
       { id: "build", number: 2, label: "Build & Prove", status: "next", railState: "suggested", summary: "Build", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
-      { id: "review", number: 3, label: "PR Review", status: "pending", railState: "pending", summary: "Review", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+      { id: "review", number: 3, label: "Pre-PR Check", status: "pending", railState: "pending", summary: "Pre-PR Check", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
       { id: "ship", number: 4, label: "Ship", status: "pending", railState: "pending", summary: "Ship", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
     ],
     activity: { liveStageIds: [], liveAgentsByStage: {}, subagents: [], schedules: [], automations: [], backgroundJobs: { count: 0, runningCount: 0, items: [] }, prs: { totalCount: 0, openCount: 0, mergedCount: 0, closedCount: 0, items: [] } },
@@ -1630,6 +1671,71 @@ test("app.js ignores stale out-of-order /api/trust/settings responses from rapid
       "Beast · Off",
       "Stale earlier On response must not overwrite newer Off click",
     );
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("sidecar serves colleagueReviewGuide and toggles between Build (Pre-PR Check) and Review PR modes", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-modes-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const catalogRes = await (await fetch(`${srv.url}catalog.js`)).text();
+    assert.match(catalogRes, /colleagueReviewGuide/);
+    assert.match(catalogRes, /Pre-PR Check/);
+    assert.doesNotMatch(catalogRes, /\/review-pr/);
+
+    const appJs = await (await fetch(`${srv.url}app.js`)).text();
+    let currentSnap = makeFakeSnapshot("etag-build-mode");
+    const harness = createAppJsTestHarness({
+      appJs,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => currentSnap,
+      }),
+    });
+
+    await harness.advanceBy(100);
+    assert.equal(harness.byId.get("mode-btn-build").getAttribute("aria-pressed"), "true");
+    assert.equal(harness.byId.get("mode-btn-review").getAttribute("aria-pressed"), "false");
+    assert.equal(harness.byId.get("timeline-wrap").classList.contains("hidden"), false);
+    assert.equal(harness.byId.get("colleague-review-panel").classList.contains("hidden"), true);
+    assert.equal(harness.byId.get("timeline").findByTestId("timeline-step-review").children.length > 0, true);
+
+    harness.byId.get("mode-btn-review").click();
+    assert.equal(harness.byId.get("mode-btn-review").getAttribute("aria-pressed"), "true");
+    assert.equal(harness.byId.get("timeline-wrap").classList.contains("hidden"), true);
+    assert.equal(harness.byId.get("colleague-review-panel").classList.contains("hidden"), false);
+    assert.ok(harness.byId.get("colleague-review-panel").findByTestId("cr-intent-single"));
+    assert.ok(harness.byId.get("colleague-review-panel").findByTestId("cr-intent-queue"));
+    assert.ok(harness.byId.get("colleague-review-panel").findByTestId("cr-intent-stack"));
+    assert.ok(harness.byId.get("colleague-review-panel").findByTestId("cr-intent-body-single"));
+
+    currentSnap = {
+      ...makeFakeSnapshot("etag-review-auto"),
+      conversationId: "22222222-3333-4444-8555-666666666666",
+      panelDefaultMode: "review_pr",
+      colleagueReview: {
+        detected: true,
+        activeIntent: "queue",
+        detectedCommands: ["/fanout"],
+        running: false,
+        targetPrs: [{ number: 231, state: "open", url: "https://github.com/acme/demo/pull/231" }],
+      },
+    };
+    harness.byId.get("mode-btn-build").click();
+    assert.equal(harness.byId.get("mode-btn-build").getAttribute("aria-pressed"), "true");
+    await harness.advanceBy(2000);
+    assert.equal(
+      harness.byId.get("mode-btn-review").getAttribute("aria-pressed"),
+      "true",
+      "Conversation change must reset manual mode override and auto-select Review PR",
+    );
+    assert.ok(harness.byId.get("colleague-review-panel").findByTestId("cr-intent-body-queue"));
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });

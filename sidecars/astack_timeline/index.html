@@ -14,6 +14,10 @@
       <div class="header-row">
         <img class="brand-logo" src="/logo.svg" alt="" width="18" height="18" aria-hidden="true">
         <h1 class="title">AStack Timeline</h1>
+        <div id="panel-mode-switcher" class="mode-switcher" role="group" aria-label="Panel mode" data-testid="panel-mode-switcher">
+          <button id="mode-btn-build" type="button" class="subcmd-pill is-sans" data-panel-mode="build" data-testid="mode-switch-build" aria-pressed="true">Build</button>
+          <button id="mode-btn-review" type="button" class="subcmd-pill is-sans" data-panel-mode="review_pr" data-testid="mode-switch-review-pr" aria-pressed="false">Review PR</button>
+        </div>
         <span id="progress" class="progress" data-testid="timeline-progress">0 / 4</span>
         <span id="live" class="live" role="status" data-testid="timeline-live">
           <span class="live-dot" aria-hidden="true"></span>
@@ -40,11 +44,12 @@
     </section>
 
     <main class="main">
-      <div class="timeline-wrap">
+      <div id="timeline-wrap" class="timeline-wrap">
         <canvas id="living-rail" class="living-rail" aria-hidden="true"></canvas>
         <ol id="timeline" class="timeline" aria-label="AStack engineering workflow timeline" data-testid="timeline-list"></ol>
       </div>
       <div id="rail-announcer" class="sr-only" aria-live="polite" data-testid="rail-announcer"></div>
+      <section id="colleague-review-panel" class="colleague-review-panel hidden" aria-label="Colleague PR Review" data-testid="colleague-review-panel"></section>
     </main>
 
     <div class="bottom-dock">

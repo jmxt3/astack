@@ -1,6 +1,6 @@
 # Scheduled PR Triage Automation
 
-This directory provides a dormant Antigravity App automation template (`sidecar.json`) that triages open pull requests on weekday mornings and compiles visual `/review-pr` summaries without editing branches.
+This directory provides a dormant Antigravity App automation template (`sidecar.json`) that triages open pull requests on weekday mornings and compiles visual `/pre-pr` summaries without editing branches.
 
 ## Enable in Antigravity App
 

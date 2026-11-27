@@ -414,7 +414,7 @@ test("all 20 bundled CLI entrypoints exit 0 on --help and -h with zero module-ty
     "skills/statechart/scripts/statechart.mjs",
     "skills/security-audit/scripts/validate-findings.cjs",
     "skills/security-audit/scripts/validate-coverage-ledger.cjs",
-    "skills/review-pr/scripts/pr-dossier.mjs",
+    "skills/pre-pr/scripts/pr-dossier.mjs",
     "skills/audit-architecture/scripts/arch-audit.mjs",
     "sidecars/astack_timeline/main.mjs",
   ];

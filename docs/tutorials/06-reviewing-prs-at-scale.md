@@ -1,6 +1,6 @@
 # Review colleague PRs at scale with proven findings
 
-Review single PRs and large PR queues without guessing in five walkthroughs. You catch reproducible bugs on one branch with `/interrogate`, prove downstream safety across callers with `/blast-radius`, map an 800-line PR with `/teach`, triage four PRs in parallel with `/fanout`, and scale to 10 or more PRs or stacked PRs using `/run-workflow` and `/swarm`. Avoid prompting `/astack-mode review this PR` because generic review prompts generate unverified style opinions, whereas `/interrogate` and `/blast-radius` discard any claim that fails to reproduce against real code.
+Review single PRs and large PR queues without guessing in five walkthroughs (also surfaced inside the AStack sidecar's **Review PR** mode across three intents: **Review one PR**, **Triage a queue of PRs**, and **Review a PR stack**). You catch reproducible bugs on one branch with `/interrogate`, prove downstream safety across callers with `/blast-radius`, map an 800-line PR with `/teach`, triage four PRs in parallel with `/fanout`, and scale to 10 or more PRs or stacked PRs using `/run-workflow` and `/swarm`. Avoid prompting `/astack-mode review this PR` because generic review prompts generate unverified style opinions, whereas `/interrogate` and `/blast-radius` discard any claim that fails to reproduce against real code.
 
 ## Prove real bugs and drop noise on one PR with /interrogate
 
@@ -10,7 +10,7 @@ Suppose a colleague asks you to review `PR #214`, which switches `/api/transacti
 
    ```bash
    git fetch origin pull/214/head:pr-214
-   git worktree add ../review-pr-214 pr-214
+   git worktree add ../pr-214 pr-214
    ```
 
 2. Run [`/interrogate`](../../skills/interrogate/SKILL.md) in read-only mode with nitpicks excluded.

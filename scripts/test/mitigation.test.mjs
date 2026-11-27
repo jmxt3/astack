@@ -18,7 +18,7 @@ import {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const evidenceGateScript = path.resolve(here, "../hooks/evidence-gate.mjs");
-const dossierCli = path.resolve(here, "../../skills/review-pr/scripts/pr-dossier.mjs");
+const dossierCli = path.resolve(here, "../../skills/pre-pr/scripts/pr-dossier.mjs");
 
 function runHook(scriptPath, stdinObj, extraEnv = {}) {
   const stdout = execFileSync(process.execPath, [scriptPath], {

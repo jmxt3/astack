@@ -12,7 +12,7 @@ import {
   validatePrBodyContract,
 } from "../../../scripts/trust/index.mjs";
 
-const USAGE = `Usage: node skills/review-pr/scripts/pr-dossier.mjs [options]
+const USAGE = `Usage: node skills/pre-pr/scripts/pr-dossier.mjs [options]
 
 Options:
   --base <ref>             Base git ref (defaults to origin/main, main, or HEAD~1)

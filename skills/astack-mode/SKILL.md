@@ -21,7 +21,7 @@ At the start of any build, feature, bug-fix, or refactor run, display this fligh
 6. [HUMAN GATE] Visual PR Review & Merge (inline PR Dossier + AStack panel + pr-review.md RequestFeedback:true + ask_question; non-blocking RequestFeedback:false in Beast Mode / /goal / autopilot-* / Tier 0 auto)
 ```
 
-Before reporting done on a PR or branch review, run `/review-pr` (visual dossier + isolated `pr-verifier`, capped at 3 remediation rounds before human escalation). Use `/audit-architecture` for deep-module and `.agents/boundaries.json` scans.
+Before reporting done on a PR or branch check, run `/pre-pr` (visual dossier + isolated `pr-verifier`, capped at 3 remediation rounds before human escalation). Use `/audit-architecture` for deep-module and `.agents/boundaries.json` scans.
 
 ## Non-negotiables
 
