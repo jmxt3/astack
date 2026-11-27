@@ -181,9 +181,12 @@ test("tracks /plan + /grill-me waiting gate and exposes safe implementation_plan
     const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(snap.setup.status, "ready");
     assert.equal(snap.stages[0].status, "waiting_gate");
-    assert.equal(snap.stages[0].commands[0].state, "done");
-    assert.equal(snap.stages[0].commands[1].command, "/grill-me");
-    assert.equal(snap.stages[0].commands[1].state, "done");
+    assert.deepEqual(
+      snap.stages[0].commands.map((c) => c.command),
+      ["/investigate", "/plan", "/grill-me"],
+    );
+    assert.equal(snap.stages[0].commands.find((c) => c.command === "/plan")?.state, "done");
+    assert.equal(snap.stages[0].commands.find((c) => c.command === "/grill-me")?.state, "done");
     assert.equal(snap.stages[0].artifact?.name, "implementation_plan.md");
     assert.match(snap.stages[0].artifact?.uri ?? "", /^file:\/\//);
     assert.equal(snap.nextAction.command, "Proceed");
@@ -985,7 +988,7 @@ test("keeps Build & Prove pending during /plan with baseline lint checks and avo
     const planningSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(planningSnap.doneCount, 0);
     assert.equal(planningSnap.stages[0].status, "active");
-    assert.equal(planningSnap.stages[0].commands[0].state, "active");
+    assert.equal(planningSnap.stages[0].commands.find((c) => c.command === "/plan")?.state, "active");
     assert.equal(planningSnap.nextAction.stageId, "plan");
     assert.equal(planningSnap.nextAction.inProgress, true);
     assert.equal(planningSnap.stages[1].status, "pending");
@@ -1007,7 +1010,7 @@ test("keeps Build & Prove pending during /plan with baseline lint checks and avo
     const gateSnap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(gateSnap.doneCount, 0);
     assert.equal(gateSnap.stages[0].status, "waiting_gate");
-    assert.equal(gateSnap.stages[0].commands[0].state, "done");
+    assert.equal(gateSnap.stages[0].commands.find((c) => c.command === "/plan")?.state, "done");
     assert.equal(gateSnap.stages[1].status, "pending");
 
     const step3 = {
@@ -1127,7 +1130,7 @@ test("detects Antigravity metadata Slash Command chips even after text while ign
 
     const snap = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(snap.stages[0].status, "active");
-    assert.equal(snap.stages[0].commands[0].state, "active");
+    assert.equal(snap.stages[0].commands.find((c) => c.command === "/plan")?.state, "active");
     assert.equal(snap.stages[2].status, "pending");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -3398,6 +3401,230 @@ test("evaluateTimelineSnapshot caches transcript parsing without cross-call muta
     const afterChildDone = evaluateTimelineSnapshot({ conversationId: convId, brainDir, workspaceDir });
     assert.equal(afterChildDone.activity.runningSubagentsCount, 0, "Child transcript completion must update parent snapshot");
     assert.equal(afterChildDone.activity.subagents[0].status, "done");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("routes read-only /investigate, /how, /why, diagnosis.md gate, diagnosis-to-plan, and Combined Gate without activating Build", () => {
+  const { root, brainDir, workspaceDir } = makeFixture("astack-inv-");
+  try {
+    writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+
+    const convInv = "conv-inv-running";
+    const childSelfId = "aaaa1111-1111-4111-8111-111111111111";
+    const childBrowserId = "bbbb2222-2222-4222-8222-222222222222";
+    writeTranscript(brainDir, convInv, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:00:00Z",
+        content: "<USER_REQUEST>/investigate why CI run failed</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:00:05Z",
+        tool_calls: [
+          { name: "read_file", args: { Path: "/plugin/skills/astack-mode/SKILL.md" } },
+          { name: "read_file", args: { Path: "/plugin/skills/control-cli/SKILL.md" } },
+          { name: "invoke_subagent", args: { TypeName: "self", Role: "CI Log Analyst", Prompt: "Inspect GitHub Actions logs" } },
+          { name: "invoke_subagent", args: { TypeName: "browser", Role: "Repro Probe", Prompt: "Check dashboard error" } },
+          { name: "run_command", args: { CommandLine: "gh run view 123 --log-failed", toolSummary: "Fetch failed CI log" } },
+        ],
+      },
+      {
+        step_index: 2,
+        type: "GENERIC",
+        created_at: "2026-11-27T10:00:06Z",
+        content: `Spawned {"conversationId":"${childSelfId}"} and {"conversationId":"${childBrowserId}"}\ntask id: ${convInv}/task-1`,
+      },
+    ]);
+
+    const invRunning = evaluateTimelineSnapshot({ conversationId: convInv, brainDir, workspaceDir });
+    assert.equal(invRunning.stages[0].label, "Investigate & Plan");
+    assert.equal(invRunning.stages[0].status, "active");
+    assert.equal(invRunning.stages[0].railState, "running");
+    assert.equal(invRunning.stages[0].readOnlyActive, true);
+    assert.equal(invRunning.stages[0].subChecks[0].status, "run");
+    assert.equal(invRunning.stages[1].status, "pending", "Build & Prove must remain pending during read-only investigation");
+    assert.equal(invRunning.workflowMode, "investigation");
+    assert.equal(invRunning.workflowLabel, "Investigation");
+    assert.equal(invRunning.activity.subagents[0].stageId, "plan");
+    assert.equal(invRunning.activity.subagents[1].stageId, "plan");
+    assert.equal(invRunning.activity.backgroundJobs.items[0].stageId, "plan");
+    assert.notEqual(invRunning.stages[1].subChecks.find((c) => c.id === "verify")?.status, "done");
+
+    writeText(path.join(brainDir, convInv, "diagnosis.md"), "# Diagnosis\nOS shutdown killed runner.\n");
+    writeTranscript(brainDir, convInv, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:00:00Z",
+        content: "<USER_REQUEST>/investigate why CI run failed</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:01:00Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convInv, "diagnosis.md") } }],
+      },
+    ]);
+
+    const diagGate = evaluateTimelineSnapshot({ conversationId: convInv, brainDir, workspaceDir });
+    assert.equal(diagGate.stages[0].status, "waiting_gate");
+    assert.equal(diagGate.stages[0].waitingArtifact, "diagnosis");
+    assert.equal(diagGate.stages[0].subChecks[0].status, "done");
+    assert.equal(diagGate.stages[0].subChecks[1].status, "pending");
+    assert.equal(diagGate.stages[0].artifacts.some((a) => a.name === "diagnosis.md"), true);
+    assert.equal(diagGate.stages[1].artifacts.some((a) => a.name === "diagnosis.md"), false);
+    assert.equal(diagGate.stages[1].status, "pending");
+    assert.equal(diagGate.nextAction?.command, "/plan");
+
+    writeTranscript(brainDir, convInv, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:00:00Z",
+        content: "<USER_REQUEST>/investigate why CI run failed</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:01:00Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convInv, "diagnosis.md") } }],
+      },
+      {
+        step_index: 2,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:02:00Z",
+        content: "<USER_REQUEST>/plan write the fix plan</USER_REQUEST>",
+      },
+    ]);
+
+    const planningAfterDiag = evaluateTimelineSnapshot({ conversationId: convInv, brainDir, workspaceDir });
+    assert.equal(planningAfterDiag.stages[0].status, "active");
+    assert.equal(planningAfterDiag.stages[0].subChecks[0].status, "done");
+    assert.equal(planningAfterDiag.stages[0].subChecks[1].status, "run");
+
+    writeText(path.join(brainDir, convInv, "implementation_plan.md"), "# Plan\n## Root Cause\nShutdown.\n");
+    writeTranscript(brainDir, convInv, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:00:00Z",
+        content: "<USER_REQUEST>/investigate why CI run failed</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:01:00Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convInv, "diagnosis.md") } }],
+      },
+      {
+        step_index: 2,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:02:00Z",
+        content: "<USER_REQUEST>/plan write the fix plan</USER_REQUEST>",
+      },
+      {
+        step_index: 3,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T10:03:00Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convInv, "implementation_plan.md") } }],
+      },
+      {
+        step_index: 4,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T10:04:00Z",
+        content: "<USER_REQUEST>Proceeded with implementation_plan.md</USER_REQUEST>",
+      },
+    ]);
+
+    const planDoneSnap = evaluateTimelineSnapshot({ conversationId: convInv, brainDir, workspaceDir });
+    assert.equal(planDoneSnap.stages[0].status, "done");
+    assert.equal(planDoneSnap.stages[0].subChecks[0].status, "done");
+    assert.equal(planDoneSnap.stages[0].subChecks[1].status, "done");
+    assert.deepEqual(planDoneSnap.stages[0].artifacts.map((a) => a.name), ["diagnosis.md", "implementation_plan.md"]);
+    assert.equal(planDoneSnap.stages[1].status, "next");
+
+    const convReadOnly = "conv-how-done";
+    writeTranscript(brainDir, convReadOnly, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T11:00:00Z",
+        content: "<USER_REQUEST>/how does receipt freshness work?</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-27T11:00:30Z",
+        content: "Receipt freshness compares HEAD SHA against recorded receipts.",
+      },
+    ]);
+
+    const roDone = evaluateTimelineSnapshot({ conversationId: convReadOnly, brainDir, workspaceDir });
+    assert.equal(roDone.stages[0].status, "done");
+    assert.equal(roDone.stages[0].readOnlyComplete, true);
+    assert.equal(roDone.stages[0].subChecks[0].status, "done");
+    assert.equal(roDone.stages[0].subChecks[1].status, "optional");
+    assert.equal(roDone.stages[1].status, "pending");
+    assert.equal(roDone.workflowMode, "investigation");
+    assert.equal(roDone.nextAction, null);
+
+    const convCombined = "conv-combined-gate";
+    writeText(
+      path.join(brainDir, convCombined, "implementation_plan.md"),
+      "# Fix Plan\n\n## Root Cause & Empirical Evidence\nMissing guard.\n\n## Proposed Changes\nFix.\n",
+    );
+    writeTranscript(brainDir, convCombined, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T12:00:00Z",
+        content: "<USER_REQUEST>/astack-mode find root cause of X and fix it</USER_REQUEST>",
+      },
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-27T12:01:00Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convCombined, "implementation_plan.md") } }],
+      },
+    ]);
+
+    const combinedSnap = evaluateTimelineSnapshot({ conversationId: convCombined, brainDir, workspaceDir });
+    assert.equal(combinedSnap.stages[0].status, "waiting_gate");
+    assert.equal(combinedSnap.stages[0].waitingArtifact, "plan");
+    assert.equal(combinedSnap.stages[0].combinedGate, true);
+    assert.equal(combinedSnap.stages[0].subChecks[0].status, "done");
+    assert.equal(combinedSnap.stages[1].status, "pending");
+
+    const convTeachPr = "conv-teach-pr";
+    writeTranscript(brainDir, convTeachPr, [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-27T12:05:00Z",
+        content: "<USER_REQUEST>/teach https://github.com/org/repo/pull/42</USER_REQUEST>",
+      },
+    ]);
+    const teachPrSnap = evaluateTimelineSnapshot({ conversationId: convTeachPr, brainDir, workspaceDir });
+    assert.equal(teachPrSnap.panelDefaultMode, "review_pr");
+    assert.equal(teachPrSnap.colleagueReview.detected, true);
+    assert.ok(teachPrSnap.colleagueReview.detectedCommands.includes("/teach"));
+    assert.equal(teachPrSnap.colleagueReview.targetPrs[0]?.number, 42);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
