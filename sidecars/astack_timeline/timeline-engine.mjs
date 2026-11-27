@@ -181,6 +181,12 @@ function unquoteArg(v) {
       return s.slice(1, -1);
     }
   }
+  if (s.startsWith('"')) {
+    return s
+      .slice(1)
+      .replace(/\s*<truncated\s+\d+\s+bytes>\s*$/i, "")
+      .replace(/\\(\\|"|n|r|t)/g, (_, ch) => (ch === "n" ? "\n" : ch === "r" ? "\r" : ch === "t" ? "\t" : ch));
+  }
   return s;
 }
 
@@ -360,6 +366,58 @@ function summarizeText(raw, maxLen = 72) {
     .trim();
   if (!firstLine) return "";
   return firstLine.length > maxLen ? `${firstLine.slice(0, maxLen - 1)}…` : firstLine;
+}
+
+function cleanInlineMarkdown(raw, maxLen = 88) {
+  const cleaned = String(raw ?? "")
+    .replace(/^\s*#+\s*/gm, "")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1");
+  return summarizeText(cleaned, maxLen);
+}
+
+function extractFinalResponseSummary(content) {
+  const trimmed = String(content ?? "").trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && typeof parsed.summary === "string" && parsed.summary.trim()) {
+        return cleanInlineMarkdown(parsed.summary, 96);
+      }
+      return "";
+    } catch {
+      return "";
+    }
+  }
+  return cleanInlineMarkdown(trimmed, 96);
+}
+
+function extractToolActivitySummary(name, args) {
+  if (name === "run_command") {
+    const cmdSummary = unquoteArg(args.toolSummary || args.Description);
+    if (cmdSummary) return summarizeText(cmdSummary, 72);
+    const cmd = unquoteArg(args.CommandLine || args.commandLine || args.command);
+    return cmd ? summarizeText(cmd, 72) : "";
+  }
+  if (FILE_WRITE_TOOLS.has(name)) {
+    const base = path.posix.basename(targetPathOf(args) || "");
+    return base ? `${name === "edit_file" ? "Editing" : "Writing"} ${base}` : "";
+  }
+  if (FILE_READ_TOOLS.has(name)) {
+    const base = path.posix.basename(targetPathOf(args) || "");
+    return base ? `Reading ${base}` : "";
+  }
+  if (name === "search_web") {
+    const q = unquoteArg(args.query);
+    return q ? summarizeText(`Searching: ${q}`, 72) : "";
+  }
+  if (name === "call_mcp_tool") {
+    const tn = unquoteArg(args.ToolName);
+    return tn ? `Running ${tn}` : "";
+  }
+  return "";
 }
 
 function formatCadenceLabel(durationSec, cronExpr) {
@@ -808,6 +866,10 @@ function makeEmptyTranscriptSignals() {
     pr: null,
     prs: new Map(),
     terminalDoneAt: null,
+    latestTs: null,
+    latestFocus: "",
+    latestToolSummary: "",
+    finalResponseSummary: "",
   };
 }
 
@@ -854,6 +916,7 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
   const pendingSubagentIndices = [];
   const subagentByConvId = new Map();
   const subagentMarkers = new Map();
+  const rawPrompts = new Map();
   const pendingScheduleIndices = [];
   const scheduleTaskMap = new Map();
   const swarmMemberById = new Map();
@@ -884,6 +947,7 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
     const order = Number.isFinite(step.step_index) ? step.step_index : i;
     const marker = makeMarker(step.created_at, order);
     if (!sig.startedAt && marker.ts) sig.startedAt = marker.ts;
+    if (marker.ts) sig.latestTs = marker.ts;
 
     if (step.type === "USER_INPUT" || step.source === "USER_EXPLICIT") {
       sig.mainTurn.active = true;
@@ -1293,10 +1357,17 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
         sig.goal.active = false;
         sig.goal.completed = true;
       }
+      if (step.status === "DONE" && !hasTools && step.content.trim()) {
+        sig.finalResponseSummary = extractFinalResponseSummary(step.content);
+      } else if (hasTools) {
+        sig.finalResponseSummary = "";
+      }
       const proseOnly = step.content.replace(/```[\s\S]*?```/g, " ");
       for (const prRef of extractPrReferences(proseOnly, { urlsOnly: true })) {
         upsertPrEntry(sig.prs, prRef, { ts: marker.ts });
       }
+    } else if (hasTools) {
+      sig.finalResponseSummary = "";
     }
 
     if (!Array.isArray(step.tool_calls)) {
@@ -1311,6 +1382,14 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
       const name = String(tc?.name ?? "");
       const args = tc?.args && typeof tc.args === "object" ? tc.args : {};
       let queuedMeta = { kind: "other" };
+
+      if (name === "update_focus") {
+        const focusText = unquoteArg(args.focus);
+        if (focusText) sig.latestFocus = cleanInlineMarkdown(focusText, 88);
+      } else {
+        const toolActivity = extractToolActivitySummary(name, args);
+        if (toolActivity) sig.latestToolSummary = toolActivity;
+      }
 
       if (FILE_READ_TOOLS.has(name)) {
         const p = targetPathOf(args);
@@ -1396,6 +1475,7 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
         const subType = unquoteArg(args.TypeName) || "self";
         const roleText = unquoteArg(args.Role);
         const promptText = unquoteArg(args.Prompt);
+        const workspaceRaw = unquoteArg(args.Workspace).trim().toLowerCase();
         const investigating = Boolean(
           (sig.investigateCmdAt || sig.investigateReadAt || sig.diagnosisWrittenAt) && !sig.latestWorkspaceWriteAt,
         );
@@ -1406,7 +1486,8 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
           id: `sa-${sig.subagents.length}`,
           type: subType,
           role: roleText || subType,
-          task: summarizeText(promptText || roleText || subType, 68),
+          task: cleanInlineMarkdown(promptText || "", 88),
+          workspace: workspaceRaw && workspaceRaw !== "inherit" ? workspaceRaw : null,
           stageId,
           childConvId: null,
           startedAt: marker.ts,
@@ -1417,6 +1498,7 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
         const subagentIndex = sig.subagents.length;
         pendingSubagentIndices.push(subagentIndex);
         subagentMarkers.set(entry, marker);
+        rawPrompts.set(entry, promptText);
         sig.subagents.push(entry);
         queuedMeta = { kind: "subagent", subagentIndex, ts: marker.ts };
       } else if (name === "manage_subagents") {
@@ -1659,6 +1741,30 @@ function parseTranscriptRaw(transcriptPath, brainConvDir, workspaceDir, brainDir
     }
   }
 
+  if (sig.subagents.length > 1) {
+    const byTask = new Map();
+    for (const sa of sig.subagents) {
+      if (!sa.task) continue;
+      if (!byTask.has(sa.task)) byTask.set(sa.task, []);
+      byTask.get(sa.task).push(sa);
+    }
+    for (const group of byTask.values()) {
+      if (group.length < 2) continue;
+      const prompts = group.map((sa) => String(rawPrompts.get(sa) || ""));
+      let prefixLen = prompts[0].length;
+      for (let k = 1; k < prompts.length; k++) {
+        let j = 0;
+        const limit = Math.min(prefixLen, prompts[k].length);
+        while (j < limit && prompts[0][j] === prompts[k][j]) j++;
+        prefixLen = j;
+      }
+      for (let k = 0; k < group.length; k++) {
+        const remainder = prompts[k].slice(prefixLen).trim();
+        group[k].task = remainder ? cleanInlineMarkdown(remainder, 88) : "";
+      }
+    }
+  }
+
   sig.backgroundJobs = [...bgJobByTaskId.values()];
   return sig;
 }
@@ -1733,14 +1839,35 @@ function analyzeTranscript(transcriptPath, brainConvDir, workspaceDir, brainDir 
   mergeUnreferencedTaskLogs(sig, brainConvDir);
 
   for (const sa of sig.subagents) {
-    if (sa.status === "running" && sa.childConvId && brainDir) {
+    if (sa.status !== "failed" && sa.childConvId && brainDir) {
       const childConvDir = path.join(brainDir, sa.childConvId);
       const childTranscript = path.join(childConvDir, ".system_generated", "logs", "transcript.jsonl");
       const childSig = parseTranscriptCached(childTranscript, childConvDir, workspaceDir, brainDir);
+      if (childSig.startedAt && Number.isFinite(Date.parse(childSig.startedAt))) {
+        sa.startedAt = childSig.startedAt;
+      }
       const doneRes = childSig.terminalDoneAt;
-      if (doneRes) {
+      if (sa.status === "running" && doneRes) {
         sa.status = "done";
-        sa.completedAt = typeof doneRes === "string" ? doneRes : sa.startedAt;
+        sa.completedAt = typeof doneRes === "string" ? doneRes : (childSig.latestTs || sa.startedAt);
+      } else if (
+        sa.status === "done" &&
+        typeof doneRes === "string" &&
+        Number.isFinite(Date.parse(doneRes))
+      ) {
+        if (!sa.completedAt || Date.parse(doneRes) <= Date.parse(sa.completedAt)) {
+          sa.completedAt = doneRes;
+        }
+      }
+      if (sa.completedAt && sa.startedAt && Date.parse(sa.completedAt) < Date.parse(sa.startedAt)) {
+        sa.completedAt = sa.startedAt;
+      }
+      if (sa.status === "done" && childSig.finalResponseSummary) {
+        sa.task = childSig.finalResponseSummary;
+      } else if (childSig.latestFocus) {
+        sa.task = childSig.latestFocus;
+      } else if (childSig.latestToolSummary) {
+        sa.task = childSig.latestToolSummary;
       }
     }
   }
