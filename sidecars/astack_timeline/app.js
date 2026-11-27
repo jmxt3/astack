@@ -2643,23 +2643,41 @@
     return loadPanelEndpoint("audit", "/api/arch-audit", renderAuditView);
   }
 
+  function dossierToneClass(tone) {
+    if (tone === "err") return "err";
+    if (tone === "warn") return "warn";
+    if (tone === "ok") return "done";
+    return "";
+  }
+
+  function pluralFiles(count) {
+    return `${count} ${count === 1 ? "file" : "files"}`;
+  }
+
+  function makeDossierFileBtn(filePath, line, uri) {
+    const btn = el("button", "audit-file-btn", `${filePath}:${line || 1}`);
+    btn.type = "button";
+    btn.addEventListener("click", () => openWorkspaceFile(uri, `${filePath}:${line || 1}`));
+    return btn;
+  }
+
   function renderDossierView() {
     const container = document.getElementById("dossier-view");
     if (!container) return;
     const slot = state.dossier;
     const res = slot.data;
     const ev = res?.ok ? res.evidence : null;
-    const findingsDoc = res?.ok ? res.findingsDoc : null;
+    const vm = res?.ok ? res.viewModel : null;
 
     let pillText = slot.loading ? "Compiling..." : "Idle";
     let pillClass = "";
     let leadText = "Branch diff blast radius, guided reading clusters, and PR verifier findings for the active repository.";
 
-    if (ev) {
-      pillText = `Tier ${ev.riskTier} (${ev.riskLabel})`;
-      pillClass = ev.riskTier >= 3 ? "err" : ev.riskTier === 2 ? "warn" : ev.riskTier === 0 ? "done" : "";
-      const shortHead = (ev.headSha || "none").slice(0, 7);
-      leadText = `${ev.freshness} · ${shortHead} · Round ${ev.reviewRound}/${ev.maxReviewRounds} (${ev.roundState})`;
+    if (vm) {
+      const h = vm.header;
+      pillText = `Tier ${h.riskTier} (${h.riskLabel})`;
+      pillClass = h.riskTier >= 3 ? "err" : h.riskTier === 2 ? "warn" : h.riskTier === 0 ? "done" : "";
+      leadText = `${h.freshness} · ${h.shortHead} · Round ${h.reviewRound}/${h.maxReviewRounds} (${h.roundState})`;
     } else if (slot.error || (res && !res.ok)) {
       pillText = res?.reason === "non_repo" || res?.reason === "no_workspace" ? "Unavailable" : "Error";
       pillClass = res?.reason === "non_repo" || res?.reason === "no_workspace" ? "warn" : "err";
@@ -2695,112 +2713,279 @@
       acts.appendChild(buildCopyActionPill("/pre-pr", "/pre-pr"));
       sec.appendChild(acts);
       body.appendChild(sec);
-    } else if (ev) {
-      const delta = ev.assertionDelta || { added: 0, removed: 0, weakeningRatio: 0, flagged: false };
-      const deltaSec = el("section", "dossier-section");
-      const deltaHead = el("div", "dossier-section-head");
-      deltaHead.appendChild(el("h2", "dossier-section-title", "Diff Signals & Test Integrity"));
-      deltaHead.appendChild(
+    } else if (vm) {
+      const dec = vm.decision;
+      const banner = el("section", `dossier-banner ${dossierToneClass(dec.tone)}`.trim());
+      banner.dataset.testid = "dossier-decision-banner";
+      const bHead = el("div", "dossier-banner-head");
+      const bLeft = el("div", "dossier-banner-left");
+      bLeft.appendChild(el("span", "dossier-banner-tag", dec.badge));
+      bLeft.appendChild(el("h2", "dossier-banner-title", dec.headline));
+      bHead.appendChild(bLeft);
+      bHead.appendChild(
+        el(
+          "span",
+          `dossier-badge ${dossierToneClass(dec.tone)}`.trim(),
+          `Inherent ${dec.inherentScore.toFixed(2)} -> Residual ${dec.residualScore.toFixed(2)} (${dec.residual})`,
+        ),
+      );
+      banner.appendChild(bHead);
+
+      const whyLine = el("p", "dossier-banner-line");
+      whyLine.append(el("strong", "", "Why: "), document.createTextNode(dec.why));
+      const nextLine = el("p", "dossier-banner-line");
+      nextLine.append(el("strong", "", "Next: "), document.createTextNode(dec.next));
+      banner.append(whyLine, nextLine);
+      body.appendChild(banner);
+
+      const intentSec = el("section", "dossier-intent");
+      const intentLeft = el("div", "dossier-intent-left");
+      const intentBadgeText = !vm.intentStrip.declared
+        ? "No Intent Card"
+        : vm.intentStrip.inScope
+          ? "In Scope"
+          : `Scope Drift (${vm.intentStrip.driftedCount})`;
+      const intentBadgeCls = !vm.intentStrip.declared ? "" : vm.intentStrip.inScope ? "done" : "err";
+      intentLeft.appendChild(el("span", `dossier-badge ${intentBadgeCls}`.trim(), intentBadgeText));
+      if (vm.intentStrip.goal) {
+        intentLeft.appendChild(el("span", "dossier-intent-goal", vm.intentStrip.goal));
+      }
+      const rbWrap = el("div", "dossier-rollback");
+      rbWrap.appendChild(el("code", "dossier-rollback-code", vm.intentStrip.rollbackPlan));
+      const cpBtn = el("button", "copy-inline-btn", "Copy");
+      cpBtn.type = "button";
+      cpBtn.addEventListener("click", async () => {
+        const ok = await writeClipboard(vm.intentStrip.rollbackPlan);
+        showToast(ok ? `Copied rollback: ${vm.intentStrip.rollbackPlan}` : vm.intentStrip.rollbackPlan);
+      });
+      rbWrap.appendChild(cpBtn);
+      intentSec.append(intentLeft, rbWrap);
+      body.appendChild(intentSec);
+
+      const sigSec = el("section", "dossier-section");
+      const sigHead = el("div", "dossier-section-head");
+      sigHead.appendChild(el("h2", "dossier-section-title", "Signals & Guardrails"));
+      const delta = vm.assertionSummary;
+      const netSign = delta.net >= 0 ? "+" : "";
+      sigHead.appendChild(
         el(
           "span",
           `dossier-badge ${delta.flagged ? "err" : "done"}`,
-          delta.flagged ? "FLAGGED" : ev.autoMergeEligible ? "Tier 0 Auto" : "Human Review",
+          `Assertions +${delta.added} / -${delta.removed} (net ${netSign}${delta.net}) · ${delta.flagged ? "FLAGGED" : "Safe"}`,
         ),
       );
-      deltaSec.appendChild(deltaHead);
-      deltaSec.appendChild(
-        el("p", "audit-detail", `Test assertions: +${delta.added} / -${delta.removed} (ratio ${delta.weakeningRatio})`),
-      );
-      const bar = el("div", "trust-ema-bar");
-      const pct = Math.min(100, Math.round((Number(delta.weakeningRatio) || 0) * 100));
-      const fill = el("div", `dossier-meter-fill ${delta.flagged ? "err" : pct > 10 ? "warn" : ""}`.trim());
-      fill.style.width = `${Math.max(4, pct || 4)}%`;
-      bar.appendChild(fill);
-      deltaSec.appendChild(bar);
-      body.appendChild(deltaSec);
+      sigSec.appendChild(sigHead);
 
-      const clusters = Array.isArray(ev.clusters) ? ev.clusters : [];
+      if (delta.flagged && delta.flaggedFiles.length > 0) {
+        const ratioPct = Math.round((delta.weakeningRatio || 0) * 100);
+        const capPct = Math.round((delta.maxAllowedRatio || 0.25) * 100);
+        const flagBox = el("div", "dossier-stale-alert");
+        flagBox.appendChild(document.createTextNode(`Weakening ratio ${ratioPct}% exceeds ${capPct}% cap in `));
+        delta.flaggedFiles.forEach((f, idx) => {
+          if (idx > 0) flagBox.appendChild(document.createTextNode(", "));
+          flagBox.appendChild(makeDossierFileBtn(f.path, f.line, f.uri));
+        });
+        sigSec.appendChild(flagBox);
+      }
+
+      for (const sig of vm.signals) {
+        const row = el("div", "dossier-signal-row");
+        const info = el("div", "dossier-signal-info");
+        const sHead = el("div", "dossier-signal-head");
+        sHead.appendChild(el("span", `dossier-badge ${dossierToneClass(sig.tone)}`.trim(), sig.badge));
+        sHead.appendChild(el("span", "dossier-section-sub", sig.id));
+        info.appendChild(sHead);
+        if (sig.evidence) info.appendChild(el("div", "audit-detail", sig.evidence));
+        row.appendChild(info);
+        if (sig.file) row.appendChild(makeDossierFileBtn(sig.file, sig.line, sig.uri));
+        sigSec.appendChild(row);
+      }
+
+      if (vm.guardrails.length > 0) {
+        const strip = el("div", "dossier-pill-strip");
+        for (const g of vm.guardrails) {
+          const pill = el("span", `dossier-badge ${dossierToneClass(g.tone)}`.trim(), `${g.label}: ${g.status}`);
+          pill.title = g.detail || "";
+          strip.appendChild(pill);
+        }
+        sigSec.appendChild(strip);
+      }
+      body.appendChild(sigSec);
+
+      const read = vm.reading;
       const clSec = el("section", "dossier-section");
       const clHead = el("div", "dossier-section-head");
-      clHead.appendChild(el("h2", "dossier-section-title", `Guided Reading Clusters (${clusters.length})`));
+      clHead.appendChild(
+        el("h2", "dossier-section-title", `Guided Reading (${pluralFiles(read.totalFiles)} · +${read.totalAdditions}/-${read.totalDeletions})`),
+      );
+      clHead.appendChild(el("span", "dossier-section-sub", read.reviewFirst.length > 0 ? "Review First pinned" : "All low-risk"));
       clSec.appendChild(clHead);
-      if (clusters.length === 0) {
+
+      if (read.totalFiles === 0) {
         clSec.appendChild(el("p", "audit-empty", "No changed files against base ref."));
       } else {
-        clusters.forEach((cl, idx) => {
+        if (read.reviewFirst.length > 0) {
+          const pin = el("div", "dossier-pin");
+          pin.appendChild(el("div", "dossier-pin-title", `Review First (${pluralFiles(read.reviewFirst.length)} flagged Tier 2/3)`));
+          for (const f of read.reviewFirst) {
+            const row = el("div", "dossier-file-row");
+            const left = el("div", "dossier-file-left");
+            const tCls = f.tier >= 3 ? "err" : f.tier === 2 ? "warn" : f.tier === 0 ? "done" : "";
+            left.appendChild(el("span", `dossier-badge ${tCls}`.trim(), `Tier ${f.tier}`));
+            for (const s of f.signals || []) {
+              left.appendChild(el("span", `dossier-badge ${dec.tone === "err" ? "err" : "warn"}`, s));
+            }
+            left.appendChild(makeDossierFileBtn(f.path, f.line, f.uri));
+            row.appendChild(left);
+            row.appendChild(el("span", "dossier-section-sub", `+${f.additions}/-${f.deletions}`));
+            pin.appendChild(row);
+          }
+          clSec.appendChild(pin);
+        }
+
+        if (read.remainingClusters.length > 0) {
           const det = el("details", "dossier-cluster");
-          if (idx === 0) det.open = true;
+          if (read.reviewFirst.length === 0) det.open = true;
           const sum = el("summary", "dossier-cluster-sum");
-          sum.appendChild(el("span", "", cl.title || cl.id));
-          sum.appendChild(el("span", "dossier-section-sub", `${(cl.files || []).length} files · +${cl.additions}/-${cl.deletions}`));
+          sum.appendChild(el("span", "", `Other ${pluralFiles(read.remainingFileCount)} across ${read.remainingClusters.length} clusters`));
+          sum.appendChild(el("span", "dossier-section-sub", "Expand"));
           det.appendChild(sum);
-          for (const f of Array.isArray(cl.fileLinks) ? cl.fileLinks : []) {
-            const row = el("div", "audit-row");
-            const btn = el("button", "audit-file-btn", `${f.path}:${f.line}`);
-            btn.type = "button";
-            btn.addEventListener("click", () => openWorkspaceFile(f.uri, `${f.path}:${f.line}`));
-            row.appendChild(btn);
-            det.appendChild(row);
+          for (const cl of read.remainingClusters) {
+            const sub = el("div", "dossier-cluster-sub");
+            sub.appendChild(
+              el("div", "dossier-cluster-sub-title", `${cl.title} (${pluralFiles(cl.files.length)} · +${cl.additions}/-${cl.deletions})`),
+            );
+            for (const f of cl.files) {
+              const row = el("div", "dossier-file-row");
+              row.appendChild(makeDossierFileBtn(f.path, f.line, f.uri));
+              row.appendChild(el("span", "dossier-section-sub", `+${f.additions}/-${f.deletions}`));
+              sub.appendChild(row);
+            }
+            det.appendChild(sub);
           }
           clSec.appendChild(det);
-        });
+        }
       }
       body.appendChild(clSec);
 
+      const ver = vm.verifier;
       const fSec = el("section", "dossier-section");
-      const allFindings = Array.isArray(findingsDoc?.findings) ? findingsDoc.findings : [];
       const fHead = el("div", "dossier-section-head");
-      fHead.appendChild(el("h2", "dossier-section-title", findingsDoc ? `PR Verifier (${findingsDoc.verdict})` : "PR Verifier"));
+      fHead.appendChild(el("h2", "dossier-section-title", "Independent PR Verifier"));
+      if (ver.verdict) {
+        fHead.appendChild(el("span", `dossier-badge ${dossierToneClass(ver.verdictTone)}`.trim(), ver.verdict));
+      }
       fSec.appendChild(fHead);
-      if (!findingsDoc) {
-        fSec.appendChild(el("p", "audit-empty", "No findings.json attached yet."));
-      } else {
-        const tabs = el("div", "guide-example-chips");
-        tabs.setAttribute("role", "group");
-        tabs.setAttribute("aria-label", "Filter findings by severity");
-        for (const sev of ["all", "important", "nit", "pre_existing"]) {
-          const cnt = sev === "all" ? allFindings.length : allFindings.filter((f) => f.severity === sev).length;
-          const tab = el("button", "pick-chip", `${sev} (${cnt})`);
-          tab.type = "button";
-          tab.setAttribute("aria-pressed", String(slot.severity === sev));
-          tab.addEventListener("click", () => {
-            slot.severity = sev;
-            renderDossierView();
-          });
-          tabs.appendChild(tab);
-        }
-        fSec.appendChild(tabs);
 
-        const visible = slot.severity === "all" ? allFindings : allFindings.filter((f) => f.severity === slot.severity);
-        if (visible.length === 0) {
-          fSec.appendChild(el("p", "audit-empty", "No matching findings in this category."));
-        } else {
-          for (const item of visible) {
-            const row = el("div", "audit-row");
-            row.appendChild(el("div", "audit-detail", `[${item.severity}] ${item.claim}`));
-            if (item.uri || item.file) {
-              const btn = el("button", "audit-file-btn", `${item.file}:${item.line} (${item.category})`);
-              btn.type = "button";
-              btn.addEventListener("click", () => openWorkspaceFile(item.uri, `${item.file}:${item.line}`));
-              row.appendChild(btn);
-            }
-            fSec.appendChild(row);
+      if (!ver.attached) {
+        fSec.appendChild(el("p", "audit-empty", "No findings.json attached yet. Run /pre-pr to audit HEAD."));
+      } else {
+        if (ver.stale) {
+          fSec.appendChild(
+            el(
+              "div",
+              "dossier-stale-alert",
+              `Stale report: verified ${ver.verifiedHead || "an older commit"}, current HEAD is ${vm.header.shortHead}. Re-run /pre-pr.`,
+            ),
+          );
+        }
+        if (ver.summary) {
+          fSec.appendChild(el("p", "dossier-banner-line", ver.summary));
+        }
+        const compStrip = el("div", "dossier-pill-strip");
+        const vCount = ver.reviewMdViolations.length;
+        compStrip.appendChild(
+          el(
+            "span",
+            `dossier-badge ${vCount > 0 ? "err" : "done"}`,
+            vCount > 0 ? `Base REVIEW.md: ${vCount} violation(s)` : "Base REVIEW.md: checked, 0 violations",
+          ),
+        );
+        if (ver.counts.all === 0) {
+          compStrip.appendChild(el("span", "dossier-badge", "0 important · 0 nit · 0 pre-existing"));
+        }
+        fSec.appendChild(compStrip);
+
+        if (ver.counts.all > 0) {
+          const tabs = el("div", "guide-example-chips");
+          tabs.setAttribute("role", "group");
+          tabs.setAttribute("aria-label", "Filter findings by severity");
+          for (const sev of ["all", "important", "nit", "pre_existing"]) {
+            const cnt = ver.counts[sev] ?? 0;
+            const tab = el("button", "pick-chip", `${sev} (${cnt})`);
+            tab.type = "button";
+            tab.setAttribute("aria-pressed", String(slot.severity === sev));
+            tab.addEventListener("click", () => {
+              slot.severity = sev;
+              renderDossierView();
+            });
+            tabs.appendChild(tab);
           }
+          fSec.appendChild(tabs);
+
+          const visible = slot.severity === "all" ? ver.findings : ver.findings.filter((f) => f.severity === slot.severity);
+          if (visible.length === 0) {
+            fSec.appendChild(el("p", "audit-empty", "No matching findings in this category."));
+          } else {
+            for (const item of visible) {
+              const card = el("div", "dossier-finding-card");
+              const fh = el("div", "dossier-finding-head");
+              const meta = el("div", "dossier-finding-meta");
+              meta.appendChild(el("span", `dossier-badge ${item.severity === "important" ? "err" : "warn"}`, item.severity));
+              meta.appendChild(el("span", "", `${item.id} · ${item.category}`));
+              fh.appendChild(meta);
+              if (item.ruleRef) fh.appendChild(el("span", "dossier-section-sub", item.ruleRef));
+              card.appendChild(fh);
+              card.appendChild(el("div", "audit-detail", item.claim));
+              if (item.evidence) card.appendChild(el("div", "dossier-section-sub", `Evidence: ${item.evidence}`));
+              if (item.suggestedFix) card.appendChild(el("div", "audit-detail", `Suggested fix: ${item.suggestedFix}`));
+              if (item.uri || item.file) card.appendChild(makeDossierFileBtn(item.file, item.line, item.uri));
+              fSec.appendChild(card);
+            }
+          }
+        }
+
+        if (ver.dropped.length > 0) {
+          const det = el("details", "dossier-cluster");
+          const sum = el("summary", "dossier-cluster-sum");
+          sum.appendChild(
+            el("span", "", `Checked & ruled out (${ver.dropped.length} dropped ${ver.dropped.length === 1 ? "claim" : "claims"})`),
+          );
+          sum.appendChild(el("span", "dossier-section-sub", "Expand"));
+          det.appendChild(sum);
+          const list = el("ul", "dossier-dropped-list");
+          for (const d of ver.dropped) {
+            const li = el("li");
+            li.append(el("strong", "", d.claim), document.createTextNode(`: ${d.reason}`));
+            list.appendChild(li);
+          }
+          det.appendChild(list);
+          fSec.appendChild(det);
         }
       }
       body.appendChild(fSec);
 
       const acts = el("div", "dossier-actions");
+      if (vm.actions.canOpenPrReview && vm.actions.prReviewUri) {
+        const openBtn = el("button", "subcmd-pill is-sans", "Open pr-review.md");
+        openBtn.type = "button";
+        openBtn.addEventListener("click", () => openWorkspaceFile(vm.actions.prReviewUri, "pr-review.md"));
+        acts.appendChild(openBtn);
+      }
       acts.appendChild(buildCopyActionPill("/pre-pr", "/pre-pr"));
-      if (allFindings.some((f) => f.severity === "important")) {
+      if (vm.actions.canFixImportant) {
         acts.appendChild(
           buildCopyActionPill(
-            "Fix important findings",
+            `Fix ${ver.counts.important} important`,
             "/astack-mode Fix the verified important findings from findings.json and re-verify on HEAD.",
           ),
         );
       }
       body.appendChild(acts);
+    } else if (res?.ok) {
+      const sec = el("section", "dossier-section");
+      sec.appendChild(el("p", "audit-empty", "Dossier view model unavailable. Re-run /pre-pr."));
+      body.appendChild(sec);
     }
 
     container.replaceChildren(header, body);

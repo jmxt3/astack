@@ -874,7 +874,17 @@ test("GET /api/dossier and /api/arch-audit stay read-only, enforce auth and vali
     assert.equal(dossierBody.ok, true);
     assert.ok(Array.isArray(dossierBody.evidence.clusters) && dossierBody.evidence.clusters.length > 0);
     assert.match(dossierBody.evidence.clusters[0].fileLinks[0].uri, /^file:\/\//);
+    assert.ok(dossierBody.viewModel?.decision?.mode);
+    assert.ok(Array.isArray(dossierBody.viewModel?.guardrails));
+    assert.ok(dossierBody.viewModel?.reading);
+    assert.ok(dossierBody.viewModel?.verifier);
     assert.equal(fs.existsSync(path.join(brainDir, convId, "astack-trust", "evidence.json")), false);
+
+    const sidecarAppJs = await (await fetch(`${srv.url}app.js`)).text();
+    assert.match(sidecarAppJs, /dossier-decision-banner/);
+    assert.match(sidecarAppJs, /Review First/);
+    assert.match(sidecarAppJs, /Checked & ruled out/);
+    assert.doesNotMatch(sidecarAppJs, /pct > 10/);
 
     const auditRes = await fetch(`${srv.url}api/arch-audit?conversationId=${convId}`, { headers });
     assert.equal(auditRes.status, 200);

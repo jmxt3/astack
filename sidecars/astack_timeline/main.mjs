@@ -13,6 +13,7 @@ import {
   OUTCOME_SCORES,
   TRUST_CATEGORIES,
   applyTrustSettingsAction,
+  buildDossierViewModel,
   compilePrDossier,
   loadRiskPolicy,
   readHeadShaFast,
@@ -784,10 +785,13 @@ function createDossierResponder({
       const clustersWithUris = (result.evidence.clusters ?? []).slice(0, 40).map((c) => ({
         ...c,
         fileLinks: (c.files ?? []).slice(0, 50).map((rel) => {
-          const line = c.firstLines?.[rel] ?? 1;
+          const stat = c.fileStats?.[rel] ?? {};
+          const line = c.firstLines?.[rel] ?? stat.firstLine ?? 1;
           return {
             path: rel,
             line,
+            additions: Number(stat.additions ?? 0),
+            deletions: Number(stat.deletions ?? 0),
             uri: toFileUrl(path.resolve(scope.repoRoot, rel), line),
           };
         }),
@@ -803,13 +807,22 @@ function createDossierResponder({
               : [],
           }
         : null;
+      const prReviewFile = artifactDir ? path.join(artifactDir, "pr-review.md") : null;
+      const prReviewUri = prReviewFile && fs.existsSync(prReviewFile) ? toFileUrl(prReviewFile, 1) : null;
+      const enrichedEvidence = { ...result.evidence, clusters: clustersWithUris };
+      const viewModel = buildDossierViewModel({
+        evidence: enrichedEvidence,
+        findingsDoc: enrichedFindingsDoc,
+        prReviewUri,
+      });
       return {
         status: 200,
         body: {
           ok: true,
           workspaceDir: scope.repoRoot,
-          evidence: { ...result.evidence, clusters: clustersWithUris },
+          evidence: enrichedEvidence,
           findingsDoc: enrichedFindingsDoc,
+          viewModel,
         },
       };
     } catch (err) {
