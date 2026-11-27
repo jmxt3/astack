@@ -1109,7 +1109,8 @@ function createAppJsTestHarness({
   }
 
   const ids = [
-    "timeline-view", "panel-mode-switcher", "mode-btn-build", "mode-btn-review",
+    "timeline-view", "beast-glow-slot", "beast-toast-slot", "beast-banner-slot",
+    "panel-mode-switcher", "mode-btn-build", "mode-btn-review",
     "progress", "live", "live-label", "meta-row", "setup-drawer", "beast-drawer",
     "promo-wrap", "promo-card", "setup-wrap", "setup-card", "focus-strip", "focus-artifacts",
     "status-banner-wrap", "status-banner", "timeline-wrap", "living-rail", "timeline", "rail-announcer",
@@ -1575,16 +1576,15 @@ test("app.js Beast toggle updates UI immediately, recovers polling after failed 
 
     await harness.advanceBy(100);
     const beastBtn0 = harness.byId.get("meta-row").findByTestId("timeline-beast-toggle");
-    assert.equal(beastBtn0?.textContent, "Beast · Off");
-    beastBtn0.click();
-
-    const onBtn = findButtonByText(harness.byId.get("beast-drawer"), "On");
-    assert.ok(onBtn, "Beast drawer On button must render");
+    assert.equal(beastBtn0?.textContent, "Beast");
+    assert.equal(beastBtn0?.getAttribute("aria-pressed"), "false");
+    assert.equal(harness.byId.get("beast-glow-slot").children.length, 0);
+    assert.equal(harness.byId.get("beast-banner-slot").children.length, 0);
 
     await harness.advanceBy(1800);
     assert.equal(timelineCalls, 2, "Second poll must be in flight");
     failNextPost = true;
-    onBtn.click();
+    beastBtn0.click();
     await harness.flushMicrotasks();
     assert.equal(harness.byId.get("toast").textContent, "boom");
 
@@ -1592,11 +1592,14 @@ test("app.js Beast toggle updates UI immediately, recovers polling after failed 
     await harness.advanceBy(2000);
     assert.ok(timelineCalls >= 3, `Polling must recover after failed POST while poll was in flight (got ${timelineCalls} calls)`);
 
-    findButtonByText(harness.byId.get("beast-drawer"), "On").click();
+    harness.byId.get("meta-row").findByTestId("timeline-beast-toggle").click();
     await harness.flushMicrotasks();
     const beastBtnOn = harness.byId.get("meta-row").findByTestId("timeline-beast-toggle");
     assert.equal(beastBtnOn?.textContent, "Beast · L0");
     assert.equal(beastBtnOn?.classList.contains("is-beast"), true);
+    assert.equal(beastBtnOn?.getAttribute("aria-pressed"), "true");
+    beastBtnOn.click();
+    assert.ok(findButtonByText(harness.byId.get("beast-drawer"), "Auto"), "Clicking active Beast pill must open Beast drawer");
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });
@@ -1659,21 +1662,220 @@ test("app.js ignores stale out-of-order /api/trust/settings responses from rapid
 
     await harness.advanceBy(100);
     harness.byId.get("meta-row").findByTestId("timeline-beast-toggle").click();
-    findButtonByText(harness.byId.get("beast-drawer"), "On").click();
-    findButtonByText(harness.byId.get("beast-drawer"), "Off").click();
+    harness.byId.get("meta-row").findByTestId("timeline-mode-manual").click();
     assert.equal(pendingResolvers.length, 2);
 
     pendingResolvers[1].resolve();
     await harness.flushMicrotasks();
-    assert.equal(harness.byId.get("meta-row").findByTestId("timeline-beast-toggle")?.textContent, "Beast · Off");
+    assert.equal(harness.byId.get("meta-row").findByTestId("timeline-beast-toggle")?.textContent, "Beast");
 
     pendingResolvers[0].resolve();
     await harness.flushMicrotasks();
     assert.equal(
       harness.byId.get("meta-row").findByTestId("timeline-beast-toggle")?.textContent,
-      "Beast · Off",
-      "Stale earlier On response must not overwrite newer Off click",
+      "Beast",
+      "Stale earlier On response must not overwrite newer Manual click",
     );
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("app.js mounts Beast B Corner Glow, one-shot ignition + toast, Autopilot card, and removes them in Manual", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-beast-glow-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const appJs = await (await fetch(`${srv.url}app.js`)).text();
+    let serverBeastOn = true;
+    let level = 0;
+    let maxCeiling = 2;
+    let residual = "medium";
+
+    const makeRunningSnap = (etag) => ({
+      ...makeFakeSnapshot(etag),
+      stages: [
+        { id: "plan", number: 1, label: "Plan", status: "active", railState: "running", summary: "Plan", collapsedSummary: "Drafting implementation plan.", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+        { id: "build", number: 2, label: "Build & Prove", status: "pending", railState: "queued", summary: "Build", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+        { id: "review", number: 3, label: "Pre-PR Check", status: "pending", railState: "suggested", summary: "Review", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+        { id: "ship", number: 4, label: "Ship", status: "pending", railState: "pending", summary: "Ship", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+      ],
+      activity: {
+        liveStageIds: ["plan"],
+        liveAgentsByStage: { plan: 1 },
+        agentsWorkingCount: 1,
+        agentsTotalCount: 1,
+        subagents: [],
+        schedules: [],
+        automations: [],
+        backgroundJobs: { count: 0, runningCount: 0, items: [] },
+        prs: { totalCount: 0, openCount: 0, mergedCount: 0, closedCount: 0, items: [] },
+      },
+      trust: {
+        scopeKind: "enrolled_repo",
+        enrolled: true,
+        activeCategory: "ui",
+        beastOn: serverBeastOn,
+        promotionMode: "manual",
+        promotionLockedByPolicy: false,
+        chainValid: true,
+        frozen: false,
+        totalOutcomes: 0,
+        riskAssessment: { residual, score: 0.12 },
+        activeCatState: { id: "ui", level, ceiling: maxCeiling, maxCeiling, score: 0.9, brier: 0.05 },
+        categories: [{ id: "ui", level, ceiling: maxCeiling, maxCeiling, score: 0.9, brier: 0.05, clean: 0, edited: 0, reverted: 0 }],
+      },
+    });
+
+    const harness = createAppJsTestHarness({
+      appJs,
+      fetchImpl: (url, opts) => {
+        if (url === "/api/timeline") {
+          return Promise.resolve({ ok: true, status: 200, json: async () => makeRunningSnap(`etag-${serverBeastOn}-${level}-${maxCeiling}`) });
+        }
+        if (url === "/api/trust/settings") {
+          const body = JSON.parse(opts.body || "{}");
+          serverBeastOn = Boolean(body.beastOn);
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true, trust: makeRunningSnap("p").trust }) });
+        }
+        throw new Error(`Unexpected endpoint: ${url}`);
+      },
+    });
+
+    // Reloading while already in Beast must NOT replay ignition or toast
+    await harness.advanceBy(100);
+    assert.equal(harness.byId.get("timeline-view").classList.contains("is-beast"), true);
+    const glow0 = harness.byId.get("beast-glow-slot").findByTestId("beast-glow-frame");
+    assert.ok(glow0, "Initial Beast load must mount glow frame");
+    assert.equal(glow0.classList.contains("is-igniting"), false, "Reloading in Beast must stay resting without ignition");
+    assert.equal(harness.byId.get("beast-toast-slot").children.length, 0, "Reloading in Beast must not show activation toast");
+    assert.ok(harness.byId.get("beast-banner-slot").findByTestId("beast-header-bar"), "Beast header bar must mount");
+    assert.ok(harness.byId.get("status-banner").textContent.includes("Autopilot"), "Running Beast must show Autopilot card");
+    assert.equal(harness.byId.get("astk-btw").placeholder, "Nudge the agents without stopping them");
+
+    // Take the wheel returns to Manual and removes all Beast-only DOM nodes
+    harness.byId.get("beast-banner-slot").findByTestId("beast-take-wheel").click();
+    await harness.flushMicrotasks();
+    assert.equal(harness.byId.get("timeline-view").classList.contains("is-beast"), false);
+    assert.equal(harness.byId.get("beast-glow-slot").children.length, 0);
+    assert.equal(harness.byId.get("beast-banner-slot").children.length, 0);
+    assert.equal(harness.byId.get("beast-toast-slot").children.length, 0);
+    assert.equal(harness.byId.get("astk-btw").placeholder, "Ask a side question without interrupting the agents");
+    assert.ok(harness.byId.get("status-banner").textContent.includes("You start each step"));
+
+    // Transition Off -> On plays 1.6s ignition flare and 6.6s activation toast
+    harness.byId.get("meta-row").findByTestId("timeline-beast-toggle").click();
+    await harness.flushMicrotasks();
+    const glow1 = harness.byId.get("beast-glow-slot").findByTestId("beast-glow-frame");
+    assert.equal(glow1.classList.contains("is-igniting"), true, "Switching Off->On must trigger ignition flare");
+    assert.ok(harness.byId.get("beast-toast-slot").findByTestId("beast-activation-toast"), "Switching Off->On must show activation toast");
+
+    await harness.advanceBy(1650);
+    assert.equal(glow1.classList.contains("is-igniting"), false, "Ignition flare class must clear after 1.6s");
+    await harness.advanceBy(5100);
+    assert.equal(harness.byId.get("beast-toast-slot").children.length, 0, "Activation toast must unmount after 6.6s");
+
+    // Visibility pause toggles is-paused without replaying ignition or toast
+    harness.setHidden(true);
+    assert.equal(harness.byId.get("timeline-view").classList.contains("is-paused"), true);
+    harness.setHidden(false);
+    assert.equal(harness.byId.get("timeline-view").classList.contains("is-paused"), false);
+    assert.equal(harness.byId.get("beast-toast-slot").children.length, 0);
+
+    // Trust-level chips and governance cap
+    level = 3;
+    maxCeiling = 3;
+    residual = "low";
+    await harness.advanceBy(2000);
+    assert.ok(harness.byId.get("status-banner").textContent.includes("Sampled merge"));
+    assert.ok(harness.byId.get("timeline").textContent.includes("Auto · low risk"));
+
+    maxCeiling = 2; // governance cap
+    await harness.advanceBy(2000);
+    assert.ok(harness.byId.get("timeline").textContent.includes("Needs you · merge"));
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("living-rail.js draws Beast Mode flames, pilot flames, and lock nodes and sleeps when idle", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-rail-beast-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const railJs = await (await fetch(`${srv.url}living-rail.js`)).text();
+    let rafCalls = 0;
+    const grad = { addColorStop() {} };
+    const fakeCtx = {
+      fillStyle: "#000000",
+      strokeStyle: "#000000",
+      lineWidth: 1,
+      lineCap: "butt",
+      lineJoin: "miter",
+      globalCompositeOperation: "source-over",
+      setTransform() {},
+      clearRect() {},
+      save() {},
+      restore() {},
+      beginPath() {},
+      closePath() {},
+      moveTo() {},
+      lineTo() {},
+      bezierCurveTo() {},
+      arc() {},
+      fill() {},
+      stroke() {},
+      strokeRect() {},
+      setLineDash() {},
+      createRadialGradient: () => grad,
+      createLinearGradient: () => grad,
+    };
+    const fakeCanvas = { style: {}, width: 40, height: 200, getContext: () => fakeCtx };
+    let queuedCb = null;
+    const sandbox = {
+      document: { documentElement: { dataset: { theme: "dark" } } },
+      getComputedStyle: () => ({ getPropertyValue: () => "" }),
+      matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+      requestAnimationFrame: (cb) => {
+        rafCalls += 1;
+        queuedCb = cb;
+        return rafCalls;
+      },
+      cancelAnimationFrame() {},
+      performance: { now: () => 1000 },
+      devicePixelRatio: 1,
+    };
+    sandbox.window = sandbox;
+    vm.runInNewContext(railJs, sandbox, { filename: "living-rail.js" });
+
+    const rail = sandbox.createLivingRail(fakeCanvas, { reducedMotion: false });
+    rail.resize(260);
+    rail.setBeastMode(true);
+    rail.triggerIgnition();
+    rail.setNodes([
+      { state: "done", agents: 0, y: 30 },
+      { state: "running", agents: 2, y: 100 },
+      { state: "pilot", agents: 0, pilotScale: 0.54, pilotAlpha: 1, y: 170 },
+      { state: "lock", agents: 0, y: 240 },
+    ]);
+    assert.ok(queuedCb, "Live running stage must schedule RAF");
+    const countBeforeFrame = rafCalls;
+    queuedCb(1016);
+    assert.equal(rafCalls, countBeforeFrame + 1, "Live running stage must reschedule RAF");
+
+    // Idle state (only pilot + lock, zero running/yourturn) must draw once and stop RAF
+    rail.setNodes([
+      { state: "done", agents: 0, y: 30 },
+      { state: "pilot", agents: 0, pilotScale: 0.54, pilotAlpha: 1, y: 100 },
+      { state: "lock", agents: 0, y: 170 },
+    ]);
+    const idleCount = rafCalls;
+    queuedCb(1032);
+    assert.equal(rafCalls, idleCount, "Idle Beast rail with no running stage must sleep with zero extra RAF");
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });
