@@ -82,7 +82,7 @@ const TRUST_CLI_VALUE_FLAGS = new Set([
 
 const SHELL_WRITE_OPERATOR_RE = /(?:>>?|\|\s*tee\b|\bSet-Content\b|\bAdd-Content\b|\bOut-File\b)/i;
 const TRUST_STORE_HINT_RE =
-  /(?:plugin-data[\\/]+astack[\\/]+trust|(?:\$\{?(?:env:)?|%|\$env:)(?:ASTACK_PLUGIN_DATA|ANTIGRAVITY_PLUGIN_DATA|PLUGIN_DATA)[}%]?[\\/]+trust)/i;
+  /(?:plugin[-_]data[\\/]+astack[\\/]+trust|(?:\$\{?(?:env:)?|%|\$env:)(?:ASTACK_PLUGIN_DATA|ANTIGRAVITY_PLUGIN_DATA|PLUGIN_DATA)[}%]?[\\/]+trust)/i;
 
 const INTERPRETER_VERBS = new Set([
   "node",
@@ -110,12 +110,12 @@ const SHELL_AND_INTERPRETER_VERBS = new Set([
 const PWSH_ENCODED_FLAG_RE =
   /^[-/](?:e|en|enc|enco|encod|encode|encoded|encodedc|encodedco|encodedcom|encodedcomm|encodedcomma|encodedcomman|encodedcommand)(?::.*)?$/i;
 const PROTECTED_INLINE_CODE_RE =
-  /(?:plugin-data[\\/]astack[\\/]trust|scripts[\\/]trust|\bsettings\.json\b|\bledger\.jsonl\b|\bcli\.mjs\b|\bapplyTrustSettingsAction\b|\bappendOutcome\b|\bwriteTrustSettingsAtomic\b)/i;
+  /(?:plugin[-_]data[\\/]astack[\\/]trust|scripts[\\/]trust|\bsettings\.json\b|\bledger\.jsonl\b|\bcli\.mjs\b|\bapplyTrustSettingsAction\b|\bappendOutcome\b|\bwriteTrustSettingsAtomic\b)/i;
 const PROTECTED_INLINE_PARTS_RE =
-  /\bscripts\b[^;\n]{0,40}\btrust\b|\bplugin-data\b[^;\n]{0,40}\btrust\b/i;
+  /\bscripts\b[^;\n]{0,40}\btrust\b|\bplugin[-_]data\b[^;\n]{0,40}\btrust\b/i;
 const TAINTED_VAR_VALUE_RE =
-  /(?:trust|plugin-data|settings\.json|ledger\.jsonl|cli\.mjs|ASTACK_PLUGIN_DATA|ANTIGRAVITY_PLUGIN_DATA|PLUGIN_DATA)/i;
-const PLUGIN_DATA_DIR_HINT_RE = /(?:ASTACK_PLUGIN_DATA|ANTIGRAVITY_PLUGIN_DATA|PLUGIN_DATA|plugin-data[\\/]astack)/i;
+  /(?:trust|plugin[-_]data|settings\.json|ledger\.jsonl|cli\.mjs|ASTACK_PLUGIN_DATA|ANTIGRAVITY_PLUGIN_DATA|PLUGIN_DATA)/i;
+const PLUGIN_DATA_DIR_HINT_RE = /(?:ASTACK_PLUGIN_DATA|ANTIGRAVITY_PLUGIN_DATA|PLUGIN_DATA|plugin[-_]data[\\/]astack)/i;
 const B64_TOKEN_RE = /^[A-Za-z0-9+/=]{16,}$/;
 const HEX_TOKEN_RE = /^[0-9a-fA-F]{16,}$/;
 const XARGS_VALUE_FLAGS = new Set([

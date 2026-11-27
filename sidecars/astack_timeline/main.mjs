@@ -304,13 +304,15 @@ function createTimelineResponder({
   dataDir = null,
 }) {
   const inFlight = new Map();
-  return async ({ conversationId = "", etag = "", workspaceUri = "" } = {}) => {
+  let generation = 0;
+  const respond = async ({ conversationId = "", etag = "", workspaceUri = "" } = {}) => {
     const rawConv = String(conversationId || defaultConversationId || "").trim();
     if (rawConv && !isValidConversationId(rawConv, allowFixtureIds)) {
       return { status: 400, body: { error: "Invalid conversationId" } };
     }
 
-    const flightKey = `${rawConv}|${workspaceUri}`;
+    const reqGen = generation;
+    const flightKey = `${reqGen}|${rawConv}|${workspaceUri}`;
     let pending = inFlight.get(flightKey);
     if (!pending) {
       pending = (async () => {
@@ -352,6 +354,11 @@ function createTimelineResponder({
     }
     return result;
   };
+  respond.invalidate = () => {
+    generation += 1;
+    inFlight.clear();
+  };
+  return respond;
 }
 
 function createTrustSettingsResponder({
@@ -359,6 +366,7 @@ function createTrustSettingsResponder({
   allowFixtureIds = false,
   workspaceResolver,
   dataDir = null,
+  onMutation = null,
 }) {
   return async (payload = {}) => {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -401,6 +409,7 @@ function createTrustSettingsResponder({
           note: typeof ro.note === "string" ? ro.note : "",
           dataDir,
         });
+        onMutation?.();
         return { status: 200, body: { ok: true, entry: res.entry, trust: res.trust } };
       }
 
@@ -433,6 +442,7 @@ function createTrustSettingsResponder({
         action,
         dataDir,
       });
+      onMutation?.();
       return { status: 200, body: { ok: true, settings: res.settings, trust: res.trust } };
     } catch (err) {
       return { status: 400, body: { error: err.message } };
@@ -807,6 +817,7 @@ export async function createTimelineServer(options = {}) {
     allowFixtureIds,
     workspaceResolver,
     dataDir,
+    onMutation: () => respondTimeline.invalidate(),
   });
   const respondArtifact = createArtifactResponder({
     brainDir,
@@ -1012,6 +1023,7 @@ export async function startTimelineSidecar(options = {}) {
         allowFixtureIds,
         workspaceResolver,
         dataDir,
+        onMutation: () => respondTimeline.invalidate(),
       });
       const respondArtifact = createArtifactResponder({
         brainDir,

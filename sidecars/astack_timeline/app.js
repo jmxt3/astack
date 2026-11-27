@@ -12,6 +12,7 @@
     pollTimer: null,
     pollInFlight: false,
     pollAbort: null,
+    trustActionSeq: 0,
     lastPollError: null,
     snap: null,
     workspaceUri: params.get("workspaceUri") || "",
@@ -396,7 +397,17 @@
   }
 
   async function updateTrustSettings(actionPayload, successMsg) {
+    const actionSeq = ++state.trustActionSeq;
     state.pollSeq += 1;
+    if (state.pollTimer) {
+      clearTimeout(state.pollTimer);
+      state.pollTimer = null;
+    }
+    if (state.pollInFlight) {
+      state.pollAbort?.abort();
+      state.pollInFlight = false;
+      state.pollAbort = null;
+    }
     try {
       const res = await apiPost("/api/trust/settings", {
         ...actionPayload,
@@ -404,8 +415,12 @@
         workspaceUri: state.workspaceUri,
       });
       const data = await res.json().catch(() => ({}));
+      if (actionSeq !== state.trustActionSeq) {
+        return;
+      }
       if (!res.ok) {
         showToast(data?.error || `Settings update failed (${res.status})`);
+        if (!state.pollInFlight) scheduleNextPoll();
         return;
       }
       if (data?.trust) {
@@ -415,7 +430,9 @@
       state.etag = "";
       await poll({ force: true });
     } catch {
+      if (actionSeq !== state.trustActionSeq) return;
       showToast("Could not update trust settings");
+      if (!state.pollInFlight) scheduleNextPoll();
     }
   }
 

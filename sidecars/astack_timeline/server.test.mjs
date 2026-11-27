@@ -1369,3 +1369,269 @@ test("createTimelineServer coalesces concurrent polls, bounds slow agentapi look
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("POST /api/trust/settings invalidates in-flight /api/timeline coalescing so post-toggle reads never return stale beastOn=false", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-inflight-trust-"));
+  const brainDir = path.join(root, "brain");
+  const dataDir = path.join(root, "plugin_data");
+  const enrolledRepo = path.join(root, "enrolled");
+  const convId = "88888888-9999-4aaa-8bbb-cccccccccccc";
+  fs.mkdirSync(enrolledRepo, { recursive: true });
+  execFileSync("git", ["init", "-b", "main"], { cwd: enrolledRepo, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "t@e.com"], { cwd: enrolledRepo, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "T"], { cwd: enrolledRepo, stdio: "ignore" });
+  writeText(
+    path.join(enrolledRepo, ".agents", "risk-policy.json"),
+    JSON.stringify({ schemaVersion: 1, autonomy: { defaultCeiling: 2, ceilings: { ui: 3 } } }, null, 2),
+  );
+  execFileSync("git", ["add", "."], { cwd: enrolledRepo, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "enroll"], { cwd: enrolledRepo, stdio: "ignore" });
+  writeText(
+    path.join(brainDir, convId, ".system_generated", "logs", "transcript.jsonl"),
+    [
+      JSON.stringify({
+        step_index: 0,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-21T11:00:00Z",
+        tool_calls: [{ name: "run_command", args: { CommandLine: 'gh pr create --title "PR 12" --body "ok"' } }],
+      }),
+      JSON.stringify({
+        step_index: 1,
+        type: "GENERIC",
+        created_at: "2026-11-21T11:00:02Z",
+        content: "https://github.com/acme/demo/pull/12\n",
+      }),
+    ].join("\n") + "\n",
+  );
+
+  let releasePrMeta = null;
+  let prFetchCount = 0;
+  const srv = await createTimelineServer({
+    brainDir,
+    workspaceDir: enrolledRepo,
+    conversationId: convId,
+    token: "inflight-tok",
+    dataDir,
+    port: 0,
+    enableGhLookup: true,
+    prStatusResolver: () => {
+      prFetchCount += 1;
+      if (prFetchCount === 1) {
+        return new Promise((resolve) => {
+          releasePrMeta = () => resolve(null);
+        });
+      }
+      return Promise.resolve(new Map([[12, { number: 12, title: "PR 12", state: "open", url: null }]]));
+    },
+  });
+
+  try {
+    const headers = { "Content-Type": "application/json", "X-Sidecar-Token": "inflight-tok" };
+    const slowPollPromise = fetch(`${srv.url}api/timeline?conversationId=${convId}`, { headers }).then((r) => r.json());
+    const deadline = Date.now() + 3000;
+    while (!releasePrMeta && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    assert.ok(releasePrMeta, "Expected first timeline poll to block on prStatusResolver");
+
+    const postRes = await fetch(`${srv.url}api/trust/settings`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ beastOn: true, conversationId: convId }),
+    });
+    assert.equal(postRes.status, 200);
+    assert.equal((await postRes.json()).trust.beastOn, true);
+
+    const postToggleSnapPromise = fetch(`${srv.url}api/timeline?conversationId=${convId}`, { headers }).then((r) => r.json());
+    await new Promise((r) => setTimeout(r, 30));
+    releasePrMeta();
+
+    const [slowSnap, postToggleSnap] = await Promise.all([slowPollPromise, postToggleSnapPromise]);
+    assert.equal(slowSnap.trust.beastOn, false);
+    assert.equal(postToggleSnap.trust.beastOn, true, "Post-toggle timeline poll must not coalesce onto pre-mutation in-flight request");
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function findButtonByText(rootNode, text) {
+  if (!rootNode) return null;
+  if (rootNode.tagName === "BUTTON" && rootNode.textContent === text) return rootNode;
+  for (const ch of rootNode.children || []) {
+    const hit = findButtonByText(ch, text);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+test("app.js Beast toggle updates UI immediately, recovers polling after failed POST during in-flight poll, and ignores out-of-order responses", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-beast-ui-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const appJs = await (await fetch(`${srv.url}app.js`)).text();
+
+    let serverBeastOn = false;
+    let resolveInFlightPoll = null;
+    let timelineCalls = 0;
+    let failNextPost = false;
+
+    const makeSnap = (beastOn, etag) => ({
+      ...makeFakeSnapshot(etag),
+      trust: {
+        scopeKind: "enrolled_repo",
+        enrolled: true,
+        activeCategory: "ui",
+        beastOn,
+        promotionMode: "manual",
+        promotionLockedByPolicy: false,
+        chainValid: true,
+        frozen: false,
+        totalOutcomes: 0,
+        activeCatState: { id: "ui", level: 0, ceiling: 2, maxCeiling: 3, score: 0, brier: 0 },
+        categories: [{ id: "ui", level: 0, ceiling: 2, maxCeiling: 3, score: 0, brier: 0, clean: 0, edited: 0, reverted: 0 }],
+      },
+    });
+
+    const harness = createAppJsTestHarness({
+      appJs,
+      fetchImpl: (url, opts) => {
+        if (url === "/api/timeline") {
+          timelineCalls += 1;
+          if (timelineCalls === 2) {
+            return new Promise((resolve) => {
+              resolveInFlightPoll = () =>
+                resolve({ ok: true, status: 200, json: async () => makeSnap(serverBeastOn, `etag-${serverBeastOn}`) });
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => makeSnap(serverBeastOn, `etag-${serverBeastOn}-${timelineCalls}`),
+          });
+        }
+        if (url === "/api/trust/settings") {
+          const body = JSON.parse(opts.body || "{}");
+          if (failNextPost) {
+            failNextPost = false;
+            return Promise.resolve({ ok: false, status: 500, json: async () => ({ error: "boom" }) });
+          }
+          serverBeastOn = Boolean(body.beastOn);
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ ok: true, trust: makeSnap(serverBeastOn, "p").trust }),
+          });
+        }
+        throw new Error(`Unexpected endpoint: ${url}`);
+      },
+    });
+
+    await harness.advanceBy(100);
+    const beastBtn0 = harness.byId.get("meta-row").findByTestId("timeline-beast-toggle");
+    assert.equal(beastBtn0?.textContent, "Beast · Off");
+    beastBtn0.click();
+
+    const onBtn = findButtonByText(harness.byId.get("beast-drawer"), "On");
+    assert.ok(onBtn, "Beast drawer On button must render");
+
+    await harness.advanceBy(1800);
+    assert.equal(timelineCalls, 2, "Second poll must be in flight");
+    failNextPost = true;
+    onBtn.click();
+    await harness.flushMicrotasks();
+    assert.equal(harness.byId.get("toast").textContent, "boom");
+
+    resolveInFlightPoll?.();
+    await harness.advanceBy(2000);
+    assert.ok(timelineCalls >= 3, `Polling must recover after failed POST while poll was in flight (got ${timelineCalls} calls)`);
+
+    findButtonByText(harness.byId.get("beast-drawer"), "On").click();
+    await harness.flushMicrotasks();
+    const beastBtnOn = harness.byId.get("meta-row").findByTestId("timeline-beast-toggle");
+    assert.equal(beastBtnOn?.textContent, "Beast · L0");
+    assert.equal(beastBtnOn?.classList.contains("is-beast"), true);
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("app.js ignores stale out-of-order /api/trust/settings responses from rapid consecutive clicks", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-beast-ooo-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const appJs = await (await fetch(`${srv.url}app.js`)).text();
+    let serverBeastOn = false;
+    const pendingResolvers = [];
+    const makeTrust = (beastOn) => ({
+      scopeKind: "enrolled_repo",
+      enrolled: true,
+      activeCategory: "ui",
+      beastOn,
+      promotionMode: "manual",
+      promotionLockedByPolicy: false,
+      chainValid: true,
+      frozen: false,
+      totalOutcomes: 0,
+      activeCatState: { id: "ui", level: 0, ceiling: 2, maxCeiling: 3, score: 0, brier: 0 },
+      categories: [{ id: "ui", level: 0, ceiling: 2, maxCeiling: 3, score: 0, brier: 0, clean: 0, edited: 0, reverted: 0 }],
+    });
+
+    const harness = createAppJsTestHarness({
+      appJs,
+      fetchImpl: (url, opts) => {
+        if (url === "/api/timeline") {
+          const trust = makeTrust(serverBeastOn);
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ ...makeFakeSnapshot(`etag-${serverBeastOn}`), trust }),
+          });
+        }
+        if (url === "/api/trust/settings") {
+          const body = JSON.parse(opts.body || "{}");
+          return new Promise((resolve) => {
+            pendingResolvers.push({
+              beastOn: Boolean(body.beastOn),
+              resolve: () => {
+                serverBeastOn = Boolean(body.beastOn);
+                resolve({
+                  ok: true,
+                  status: 200,
+                  json: async () => ({ ok: true, trust: makeTrust(serverBeastOn) }),
+                });
+              },
+            });
+          });
+        }
+        throw new Error(`Unexpected endpoint: ${url}`);
+      },
+    });
+
+    await harness.advanceBy(100);
+    harness.byId.get("meta-row").findByTestId("timeline-beast-toggle").click();
+    findButtonByText(harness.byId.get("beast-drawer"), "On").click();
+    findButtonByText(harness.byId.get("beast-drawer"), "Off").click();
+    assert.equal(pendingResolvers.length, 2);
+
+    pendingResolvers[1].resolve();
+    await harness.flushMicrotasks();
+    assert.equal(harness.byId.get("meta-row").findByTestId("timeline-beast-toggle")?.textContent, "Beast · Off");
+
+    pendingResolvers[0].resolve();
+    await harness.flushMicrotasks();
+    assert.equal(
+      harness.byId.get("meta-row").findByTestId("timeline-beast-toggle")?.textContent,
+      "Beast · Off",
+      "Stale earlier On response must not overwrite newer Off click",
+    );
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
