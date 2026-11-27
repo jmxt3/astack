@@ -1083,7 +1083,27 @@
     if (rs === "queued") {
       const idx = Array.isArray(stages) ? stages.findIndex((s) => s.id === stage.id) : -1;
       const earlierBusy = idx > 0 && stages.slice(0, idx).some((s) => s.railState === "running" || s.railState === "yourturn");
-      return { text: earlierBusy ? "Queued" : "Idle", cls: "queued" };
+      if (earlierBusy) return { text: "Queued", cls: "queued" };
+      if (stage?.id === "build" && stage.status === "active") {
+        const editsDone = stage.subChecks?.some((c) => c.id === "edits" && c.status === "done");
+        const cleanSub = stage.subChecks?.find((c) => c.id === "clean");
+        const cleanPendingRequired = cleanSub?.status === "pending" && !cleanSub?.optional;
+        const cleanDoneOrOptional =
+          cleanSub?.status === "done" || (cleanSub?.status === "pending" && Boolean(cleanSub?.optional));
+        const verifyStatus = stage.subChecks?.find((c) => c.id === "verify")?.status;
+        if (editsDone && verifyStatus === "done" && cleanPendingRequired) {
+          return { text: "Cleanup left", cls: "queued" };
+        }
+        if (editsDone && cleanDoneOrOptional && verifyStatus === "pending") {
+          return { text: "Verify left", cls: "queued" };
+        }
+        if (editsDone && cleanPendingRequired && verifyStatus === "pending") {
+          return { text: "2 steps left", cls: "queued" };
+        }
+        return { text: "In progress", cls: "queued" };
+      }
+      if (stage?.status === "active") return { text: "In progress", cls: "queued" };
+      return { text: "Idle", cls: "queued" };
     }
     if (rs === "suggested") return { text: "Suggested", cls: "muted" };
     if (rs === "skipped") {
@@ -1135,28 +1155,44 @@
     row.appendChild(askBtn);
   }
 
-  function buildBuildStageDetail(stage, snap) {
-    const detail = el("div", "detail");
-    const act = snap.activity || {};
-
-    const segGrid = el("div", "progress-segments");
+  function buildSubChecksBar(stage) {
+    const subChecks = stage.subChecks || [];
+    if (subChecks.length === 0) return null;
+    const segGrid = el("div", subChecks.length === 2 ? "progress-segments is-two" : "progress-segments");
     segGrid.setAttribute("role", "list");
     segGrid.setAttribute("aria-label", "Progress");
-    const subChecks = stage.subChecks || [];
     let activeAssigned = false;
     for (const sub of subChecks) {
       const seg = el("div", "progress-seg");
       seg.setAttribute("role", "listitem");
       let mode = sub.status;
-      if (mode === "pending" && stage.status === "active" && !activeAssigned) {
+      if (mode === "pending" && stage.status === "active" && !activeAssigned && stage.id !== "plan") {
         mode = "run";
         activeAssigned = true;
       }
       const bar = el("span", `progress-seg-bar ${mode}`);
       if (mode === "run") bar.classList.add("pulse");
       const title = sub.label.charAt(0).toUpperCase() + sub.label.slice(1);
-      const labelText = mode === "done" ? `✓ ${title}` : mode === "stale" ? `! ${title}` : mode === "run" ? `${title}…` : title;
-      const statusText = mode === "done" ? "Done" : mode === "stale" ? "Stale" : mode === "run" ? "Next up" : "Pending";
+      const labelText =
+        mode === "done"
+          ? `✓ ${title}`
+          : mode === "stale"
+            ? `! ${title}`
+            : mode === "run"
+              ? `${title}…`
+              : mode === "optional"
+                ? `${title} (opt)`
+                : title;
+      const statusText =
+        mode === "done"
+          ? "Done"
+          : mode === "stale"
+            ? "Stale"
+            : mode === "run"
+              ? "In progress"
+              : mode === "optional"
+                ? "Optional"
+                : "Pending";
       if (sub.detail) {
         seg.tabIndex = 0;
         attachStatusPopover(seg, title, statusText, mode, sub.detail);
@@ -1165,8 +1201,48 @@
       seg.appendChild(el("span", `progress-seg-label ${mode}`, labelText));
       segGrid.appendChild(seg);
     }
-    detail.appendChild(segGrid);
+    return segGrid;
+  }
 
+  function buildBuildStageDetail(stage, snap) {
+    const detail = el("div", "detail");
+    const act = snap.activity || {};
+
+    const subChecks = stage.subChecks || [];
+    const segGrid = buildSubChecksBar(stage);
+    if (segGrid) detail.appendChild(segGrid);
+
+    if (stage.status === "active" && stage.railState !== "running") {
+      const editsDone = subChecks.some((c) => c.id === "edits" && c.status === "done");
+      const pendingSubs = subChecks.filter((c) => c.status === "pending" && c.id !== "edits" && !c.optional);
+      if (editsDone && pendingSubs.length > 0) {
+        const callout = el("div", "subcheck-callout is-info");
+        callout.dataset.testid = "build-remaining-callout";
+        const msgRow = el("div", "subcheck-callout-msg");
+        const dot = el("span", "status-banner-dot");
+        dot.style.marginTop = "4px";
+        dot.setAttribute("aria-hidden", "true");
+        msgRow.append(dot, el("span", "", `Still left in Build & Prove: ${pendingSubs.map((s) => s.detail).join(" ")}`));
+        callout.appendChild(msgRow);
+
+        const actionCmds = [];
+        if (pendingSubs.some((s) => s.id === "clean")) actionCmds.push("/deslop", "/no-comments");
+        if (pendingSubs.some((s) => s.id === "verify")) actionCmds.push("/astack-mode");
+        if (actionCmds.length > 0) {
+          const actionRow = el("div", "subcheck-callout-actions");
+          for (const cmd of actionCmds) {
+            const meta = lookupCommandMeta(snap, cmd);
+            const btn = el("button", "subcmd-pill");
+            btn.type = "button";
+            btn.appendChild(el("span", "", cmd));
+            wireCommandAction(btn, meta ? { ...meta, command: cmd } : cmd);
+            actionRow.appendChild(btn);
+          }
+          callout.appendChild(actionRow);
+        }
+        detail.appendChild(callout);
+      }
+    }
     const accGroup = el("div", "accordion-group");
     const swarm = act.swarm || {};
     if (swarm.active || (swarm.members && swarm.members.length > 0)) {
@@ -1388,7 +1464,28 @@
   function buildGenericStageDetail(stage, snap) {
     const detail = el("div", "detail");
     const act = snap.activity || {};
+    if (stage.id === "plan") {
+      const segGrid = buildSubChecksBar(stage);
+      if (segGrid) detail.appendChild(segGrid);
+      if (stage.readOnlyActive) {
+        const roBadge = el("span", "stage-readonly-pill", "Read-only");
+        roBadge.dataset.testid = "plan-readonly-pill";
+        detail.appendChild(roBadge);
+      }
+    }
     detail.appendChild(el("p", "detail-text", stage.detail));
+    if (stage.id === "review" && stage.status === "pending") {
+      const buildStage = (snap.stages || []).find((s) => s.id === "build");
+      if (buildStage?.status === "active" || buildStage?.status === "stale") {
+        const prereq = el(
+          "p",
+          "detail-note",
+          "Finish Step 2 (Build & Prove) first, or run /pre-pr now to check HEAD immediately.",
+        );
+        prereq.dataset.testid = "review-prerequisite-note";
+        detail.appendChild(prereq);
+      }
+    }
     detail.appendChild(buildCommandChips(stage.commands));
 
     if (stage.id === "review" && snap.trust?.riskAssessment && snap.trust.scopeKind !== "non_repo") {
@@ -1468,10 +1565,13 @@
 
       const rollbackCmd = rp?.rollbackCommand || (ra.rollback?.kind && ra.rollback.kind !== "none" ? ra.rollback.plan : null);
       if (rollbackCmd) {
+        const rbDetails = el("details", "risk-card-rollback-details");
+        rbDetails.dataset.testid = "risk-card-rollback";
+        rbDetails.appendChild(el("summary", "risk-card-rollback-sum", "Undo / rollback command (only after commit or merge)"));
+        rbDetails.appendChild(el("p", "risk-card-rb-note", "Safety reference only — not a workflow next step."));
         const rbRow = el("div", "risk-card-rollback");
-        rbRow.appendChild(el("span", "risk-card-rb-label", "Rollback:"));
         rbRow.appendChild(el("code", "risk-card-rb-code", rollbackCmd));
-        const cpBtn = el("button", "copy-inline-btn", "Copy");
+        const cpBtn = el("button", "subcmd-pill is-sans", "Copy");
         cpBtn.type = "button";
         cpBtn.setAttribute("aria-label", `Copy rollback command ${rollbackCmd}`);
         cpBtn.addEventListener("click", async (ev) => {
@@ -1480,7 +1580,8 @@
           showToast(ok ? `Copied "${rollbackCmd}"` : rollbackCmd);
         });
         rbRow.appendChild(cpBtn);
-        rc.appendChild(rbRow);
+        rbDetails.appendChild(rbRow);
+        rc.appendChild(rbDetails);
       }
 
       if (snap.trust.enrolled && snap.fullHeadSha) {
@@ -1516,16 +1617,20 @@
       detail.appendChild(rc);
     }
 
-    if (stage.id === "review" && act.workflow?.suggestedReview) {
+    if (
+      stage.id === "review" &&
+      act.workflow?.suggestedReview &&
+      (stage.status === "next" || stage.status === "stale" || stage.status === "active")
+    ) {
       const sug = act.workflow.suggestedReview;
       const box = el("div", "faster-workflow");
       const p = el("p", "faster-workflow-text");
-      p.appendChild(el("span", "faster-workflow-lead", "Faster: "));
+      p.appendChild(el("span", "faster-workflow-lead", "Optional alternative: "));
       p.appendChild(document.createTextNode(`${sug.summary} `));
       p.appendChild(el("span", "faster-workflow-cmd", sug.command));
-      p.appendChild(document.createTextNode("."));
+      p.appendChild(document.createTextNode(" (instead of single-pass /pre-pr)."));
       box.appendChild(p);
-      const copyBtn = el("button", "copy-inline-btn", "Copy");
+      const copyBtn = el("button", "subcmd-pill is-sans", "Copy");
       copyBtn.type = "button";
       copyBtn.setAttribute("aria-label", "Copy the /run-workflow prompt");
       copyBtn.addEventListener("click", (ev) => {
@@ -1985,7 +2090,13 @@
     let iconKind = "dot";
     let badge = "Next";
     let text = "";
-    let action = null;
+    let guided = false;
+    let title = "";
+    let instruction = "";
+    let cmdPrompt = null;
+    let cmdLabel = null;
+    let secondaryAction = null;
+    const alternative = snap.nextAction?.alternative || null;
 
     if (state.panelMode === "review_pr" && snap.colleagueReview?.detected) {
       tone = snap.colleagueReview.running ? "is-running" : "is-done";
@@ -1995,94 +2106,201 @@
       text = cmds.length > 0
         ? `Colleague PR review active (${cmds.join(", ")}).`
         : "Colleague PR review mode active.";
+    } else if (state.panelMode === "review_pr") {
+      wrap.classList.add("hidden");
+      return;
     } else if (liveIds.length > 0) {
       const liveStage = stages.find((s) => liveIds.includes(s.id));
       tone = "is-running";
       iconKind = "dot";
       badge = "Working";
       text = liveStage ? `${liveStage.label} · ${liveStage.collapsedSummary || liveStage.detail}` : "Agents running.";
-    } else if (review?.status === "error") {
-      tone = "is-err";
-      iconKind = "warn";
-      badge = "Needs attention";
-      text = review.detail || "Remediation round cap reached.";
-      action = { type: "copy", label: "/pre-pr", command: "/pre-pr" };
-    } else if (plan?.status === "waiting_gate") {
-      tone = "is-yourturn";
-      iconKind = "dot";
-      badge = "Your turn";
-      text = "Review the implementation plan, then click Proceed.";
-      action = plan.artifact
-        ? { type: "artifact", label: "Open Plan", artifact: plan.artifact }
-        : { type: "copy", label: "Proceed", command: "Proceed" };
-    } else if (review?.status === "waiting_gate") {
-      tone = "is-yourturn";
-      iconKind = "dot";
-      badge = "Your turn";
-      text = "Review the PR dossier, then open or merge the PR.";
-      action = review.artifact
-        ? { type: "artifact", label: "Open Dossier", artifact: review.artifact }
-        : { type: "view", label: "Open Dossier", view: "dossier" };
-    } else if (review?.status === "stale") {
-      tone = "is-yourturn";
-      iconKind = "warn";
-      badge = "Needs attention";
-      text = snap.nextAction?.hint || "New edits invalidated the PR check. Re-run /pre-pr.";
-      action = {
-        type: "copy",
-        label: snap.nextAction?.command || "/pre-pr",
-        command: snap.nextAction?.command || "/pre-pr",
-      };
+    } else if (
+      plan?.readOnlyComplete &&
+      !snap.nextAction &&
+      build?.status === "pending" &&
+      review?.status === "pending" &&
+      ship?.status === "pending"
+    ) {
+      tone = "is-done";
+      iconKind = "check";
+      badge = "Done";
+      text = plan.collapsedSummary || "Investigation complete (read-only).";
     } else if (ship?.status === "done" && !snap.nextAction) {
       tone = "is-done";
       iconKind = "check";
       badge = "All done";
       text = ship.collapsedSummary || "All workflow stages complete.";
+    } else if (review?.status === "error") {
+      guided = true;
+      tone = "is-err";
+      iconKind = "warn";
+      badge = "Needs attention";
+      title = snap.nextAction?.title || "Resolve escalated Pre-PR findings";
+      instruction = snap.nextAction?.instruction || review.detail || "Remediation round cap reached.";
+      cmdLabel = snap.nextAction?.command || "/pre-pr";
+      cmdPrompt = snap.nextAction?.prompt || "/pre-pr";
+    } else if (review?.status === "stale") {
+      guided = true;
+      tone = "is-yourturn";
+      iconKind = "warn";
+      badge = "Needs attention";
+      title = snap.nextAction?.title || "Re-run Pre-PR Check on updated HEAD";
+      instruction = snap.nextAction?.instruction || snap.nextAction?.hint || "New edits invalidated the PR check. Re-run /pre-pr.";
+      cmdLabel = snap.nextAction?.command || "/pre-pr";
+      cmdPrompt = snap.nextAction?.prompt || cmdLabel;
+    } else if (plan?.status === "waiting_gate") {
+      guided = true;
+      tone = "is-yourturn";
+      iconKind = "dot";
+      badge = "Your turn";
+      if (plan.waitingArtifact === "diagnosis") {
+        const diagArt = (plan.artifacts || []).find((a) => a.name === "diagnosis.md") || plan.artifact;
+        title = snap.nextAction?.title || "Review root-cause diagnosis";
+        instruction =
+          snap.nextAction?.instruction || "Review diagnosis.md, then run /plan to draft a fix or close read-only.";
+        cmdLabel = "/plan";
+        cmdPrompt = snap.nextAction?.prompt || "/plan";
+        if (diagArt) {
+          secondaryAction = { type: "artifact", label: "Open Diagnosis", artifact: diagArt };
+        }
+      } else {
+        const planArt = (plan.artifacts || []).find((a) => a.name === "implementation_plan.md") || plan.artifact;
+        title =
+          snap.nextAction?.title ||
+          (plan.combinedGate ? "Approve combined diagnosis and plan" : "Approve implementation plan");
+        instruction =
+          snap.nextAction?.instruction ||
+          (plan.combinedGate
+            ? "Review diagnosis and implementation plan, then click Proceed."
+            : "Review implementation_plan.md, then click Proceed.");
+        cmdLabel = "Proceed";
+        cmdPrompt = snap.nextAction?.prompt || "Proceed";
+        if (planArt) {
+          secondaryAction = { type: "artifact", label: "Open Plan", artifact: planArt };
+        }
+      }
+    } else if (review?.status === "waiting_gate") {
+      guided = true;
+      tone = "is-yourturn";
+      iconKind = "dot";
+      badge = "Your turn";
+      title = snap.nextAction?.title || "Inspect PR dossier, then open PR";
+      instruction = snap.nextAction?.instruction || "Review the PR dossier, then open or merge the PR.";
+      cmdLabel = snap.nextAction?.command || "/astack-mode open the pr";
+      cmdPrompt = snap.nextAction?.prompt || "/astack-mode open the pr";
+      secondaryAction = review.artifact
+        ? { type: "artifact", label: "Open Dossier", artifact: review.artifact }
+        : { type: "view", label: "Open Dossier", view: "dossier" };
     } else if (snap.nextAction) {
+      guided = true;
       tone = "is-idle";
       iconKind = "dot";
-      badge = "Next";
-      text = snap.nextAction.hint || "Ready to start.";
-      if (snap.nextAction.command) {
-        action = { type: "copy", label: snap.nextAction.command, command: snap.nextAction.command };
-      }
+      badge = "Recommended next";
+      title = snap.nextAction.title || snap.nextAction.stageLabel || "Next step";
+      instruction = snap.nextAction.instruction || snap.nextAction.hint || "Ready to start.";
+      cmdLabel = snap.nextAction.command || null;
+      cmdPrompt = snap.nextAction.prompt || cmdLabel;
     } else {
       wrap.classList.add("hidden");
       return;
     }
 
-    wrap.classList.remove("hidden");
-    banner.className = `status-banner ${tone}`;
-
-    const lead = el("div", "status-banner-lead");
-    if (iconKind === "check") {
-      const ic = svgIcon("check-sm", 12);
-      ic.classList.add("status-banner-icon");
-      lead.appendChild(ic);
-    } else if (iconKind === "warn") {
-      const ic = svgIcon("warn", 12);
-      ic.classList.add("status-banner-icon");
-      lead.appendChild(ic);
-    } else {
-      const dot = el("span", tone === "is-running" ? "status-banner-dot pulse" : "status-banner-dot");
-      dot.setAttribute("aria-hidden", "true");
-      lead.appendChild(dot);
-    }
-    lead.appendChild(el("span", "status-banner-badge", badge));
-    lead.appendChild(el("span", "status-banner-copy", text));
-    banner.appendChild(lead);
-
-    if (action) {
-      const btn = el("button", "status-banner-action", action.label);
-      btn.type = "button";
-      if (action.type === "copy") {
-        wireCommandAction(btn, lookupCommandMeta(snap, action.command) || action.command);
-      } else if (action.type === "artifact") {
-        btn.addEventListener("click", () => openArtifact(action.artifact, btn));
-      } else if (action.type === "view") {
-        btn.addEventListener("click", () => switchView(action.view));
+    const appendIcon = (parent) => {
+      if (iconKind === "check") {
+        const ic = svgIcon("check-sm", 12);
+        ic.classList.add("status-banner-icon");
+        parent.appendChild(ic);
+      } else if (iconKind === "warn") {
+        const ic = svgIcon("warn", 12);
+        ic.classList.add("status-banner-icon");
+        parent.appendChild(ic);
+      } else {
+        const dot = el("span", tone === "is-running" ? "status-banner-dot pulse" : "status-banner-dot");
+        dot.setAttribute("aria-hidden", "true");
+        parent.appendChild(dot);
       }
-      banner.appendChild(btn);
+    };
+
+    wrap.classList.remove("hidden");
+    if (!guided) {
+      banner.className = `status-banner ${tone}`;
+      const lead = el("div", "status-banner-lead");
+      appendIcon(lead);
+      lead.appendChild(el("span", "status-banner-badge", badge));
+      lead.appendChild(el("span", "status-banner-copy", text));
+      banner.appendChild(lead);
+      return;
+    }
+
+    banner.className = `status-banner is-guided ${tone}`;
+    const head = el("div", "status-banner-head");
+    appendIcon(head);
+    head.appendChild(el("span", "status-banner-badge", badge));
+    if (title) head.appendChild(el("span", "status-banner-title", title));
+    banner.appendChild(head);
+
+    if (instruction) {
+      banner.appendChild(el("p", "status-banner-instruction", instruction));
+    }
+
+    if (cmdPrompt || secondaryAction) {
+      const cmdRow = el("div", "status-banner-cmd-row");
+      if (cmdPrompt) {
+        const codeEl = el("code", "status-banner-cmd", cmdPrompt);
+        codeEl.dataset.testid = "status-banner-cmd";
+        cmdRow.appendChild(codeEl);
+      }
+      const actions = el("div", "status-banner-actions");
+      if (secondaryAction) {
+        const secBtn = el("button", "status-banner-action", secondaryAction.label);
+        secBtn.type = "button";
+        if (secondaryAction.type === "artifact") {
+          secBtn.addEventListener("click", () => openArtifact(secondaryAction.artifact, secBtn));
+        } else if (secondaryAction.type === "view") {
+          secBtn.addEventListener("click", () => switchView(secondaryAction.view));
+        }
+        actions.appendChild(secBtn);
+      }
+      if (cmdPrompt) {
+        const isProceed = cmdPrompt === "Proceed";
+        const copyBtn = el("button", "status-banner-action is-primary");
+        copyBtn.type = "button";
+        copyBtn.dataset.testid = "status-banner-copy";
+        if (!isProceed) {
+          copyBtn.appendChild(svgIcon("copy", 11));
+        }
+        copyBtn.appendChild(el("span", "", isProceed ? "Proceed" : "Copy command"));
+        const meta = cmdLabel ? lookupCommandMeta(snap, cmdLabel) : null;
+        copyBtn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          copyCommand(
+            { ...(meta || {}), command: cmdLabel || cmdPrompt, copyText: cmdPrompt },
+            copyBtn,
+            cmdPrompt !== (cmdLabel || cmdPrompt),
+          );
+        });
+        actions.appendChild(copyBtn);
+      }
+      cmdRow.appendChild(actions);
+      banner.appendChild(cmdRow);
+    }
+
+    if (alternative && alternative.prompt) {
+      const altRow = el("div", "status-banner-alt");
+      altRow.appendChild(el("span", "status-banner-alt-label", "Optional:"));
+      const altBtn = el("button", "subcmd-pill is-sans", alternative.label || alternative.command);
+      altBtn.type = "button";
+      altBtn.dataset.testid = "status-banner-alt";
+      if (alternative.summary) {
+        attachStatusPopover(altBtn, alternative.label || alternative.command, alternative.command, "", alternative.summary);
+      }
+      altBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        copyCommand({ command: alternative.command, copyText: alternative.prompt }, altBtn, true);
+      });
+      altRow.appendChild(altBtn);
+      banner.appendChild(altRow);
     }
   }
 
@@ -3351,6 +3569,11 @@
     syncPanelMode(snap);
     const progressEl = document.getElementById("progress");
     const WORKFLOW_MODE_COPY = {
+      investigation: {
+        title: "Investigation",
+        status: "Read-only",
+        desc: "Isolating root cause or exploring read-only before planning any edits.",
+      },
       pr_iteration: {
         title: "PR Iteration",
         status: "Advisory",
@@ -3407,7 +3630,8 @@
     if (snap.riskTier !== null && snap.riskTier !== undefined) {
       const riskWord = RISK_TITLES[snap.riskTier] || `Tier ${snap.riskTier}`;
       const raScore = typeof snap.trust?.riskAssessment?.score === "number" ? snap.trust.riskAssessment.score : null;
-      const riskLabel = rp?.headerBadge || (raScore !== null ? `${riskWord} · R ${raScore.toFixed(2)}` : riskWord);
+      const riskPct = raScore !== null ? Math.round(raScore * 100) : null;
+      const riskLabel = rp?.headerBadge || (riskPct !== null ? `${riskWord} · ${riskPct}%` : riskWord);
       const descParts = [];
       if (rp) {
         descParts.push(rp.headline);
@@ -3435,7 +3659,7 @@
         cls: riskCls,
         testId: "timeline-risk-badge",
         popTitle: raScore !== null ? `Risk Score · ${riskWord}` : `Blast-Radius Risk · Tier ${snap.riskTier}`,
-        popStatus: raScore !== null ? `R ${raScore.toFixed(2)}` : riskWord,
+        popStatus: raScore !== null ? `Risk ${riskPct}% (R ${raScore.toFixed(2)})` : riskWord,
         popMode: rp?.mode === "resolved_merged" ? "done" : snap.riskTier >= 3 ? "stale" : snap.riskTier === 0 ? "done" : "",
         popDesc: descParts.join(" "),
       });
@@ -3673,7 +3897,8 @@
         snap.stages.find((s) => s.railState === "error") ||
         snap.stages.find((s) => s.railState === "running") ||
         snap.stages.find((s) => s.railState === "stale") ||
-        snap.stages.find((s) => s.railState === "yourturn");
+        snap.stages.find((s) => s.railState === "yourturn") ||
+        snap.stages.find((s) => s.id === snap.nextAction?.stageId && s.status !== "pending");
       if (focus) state.expanded.add(focus.id);
     }
 

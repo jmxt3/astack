@@ -4,7 +4,7 @@ This guide shows an AI agent how to operate **AStack** (`astack`, sometimes call
 
 ## How AStack works for an AI agent
 
-AStack is a local Google Antigravity plugin (`plugin.json` v0.4.0) backed by markdown skills, playbooks, custom agents, and Node 22+ scripts. It ships `66` skills (`29` auto-invocable workflow skills plus `37` manual-only skills made up of `24` `principle-*` skills and `13` explicit entrypoints listed in [`scripts/catalog.json`](../scripts/catalog.json)), `26` playbooks under `skills/astack-mode/playbooks/`, `4` custom agents ([`astack-engineer`](../agents/astack-engineer.md), [`astack-agent`](../agents/astack-agent.md), [`pr-verifier`](../agents/pr-verifier.md), and [`comment-sicko`](../agents/comment-sicko.md)), `1` conditional rule ([`rules/astack-orchestration.md`](../rules/astack-orchestration.md)), `10` lifecycle hooks (`3` passive observe-only plus `astack-verify-reminder --dirty-only` enabled by default and `6` opt-in blocking gates in [`hooks.json`](../hooks.json)), `1` local MCP server (`astack_trust`), `1` optional Timeline sidecar (`sidecars/astack_timeline/`), and `20` bundled CLI scripts.
+AStack is a local Google Antigravity plugin (`plugin.json` v0.4.0) backed by markdown skills, playbooks, custom agents, and Node 22+ scripts. It ships `67` skills (`29` auto-invocable workflow skills plus `38` manual-only skills made up of `24` `principle-*` skills and `14` explicit entrypoints listed in [`scripts/catalog.json`](../scripts/catalog.json)), `26` playbooks under `skills/astack-mode/playbooks/`, `4` custom agents ([`astack-engineer`](../agents/astack-engineer.md), [`astack-agent`](../agents/astack-agent.md), [`pr-verifier`](../agents/pr-verifier.md), and [`comment-sicko`](../agents/comment-sicko.md)), `1` conditional rule ([`rules/astack-orchestration.md`](../rules/astack-orchestration.md)), `10` lifecycle hooks (`3` passive observe-only plus `astack-verify-reminder --dirty-only` enabled by default and `6` opt-in blocking gates in [`hooks.json`](../hooks.json)), `1` local MCP server (`astack_trust`), `1` optional Timeline sidecar (`sidecars/astack_timeline/`), and `20` bundled CLI scripts.
 
 Follow five core rules on every run:
 
@@ -19,7 +19,7 @@ flowchart TD
     S0["Stage 0. Install and onboard
 agy plugin install · validate-astack.mjs · /setup-astack · /create-verification-skill · /create-formal-verification-skill"]
     S1["Stage 1. Frame and gate
-/astack-help · /in-your-own-words · /sharpen · /astack-mode · /plan · /grill-me"]
+/astack-help · /in-your-own-words · /investigate · /sharpen · /astack-mode · /plan · /grill-me"]
     S2["Stage 2. Understand read-only
 /how · /why · /teach · /recall · session-pickup"]
     S3["Stage 3. Design and model
@@ -53,7 +53,8 @@ Scan this chronological table to see every main AStack command, native Antigravi
 | 6 | Stage 0 | `hooks.json` and `rules/astack-orchestration.md` | Enable opt-in safety guards and always-on routing rules | [Opt-in hooks](#opt-in-lifecycle-hooks-hooksjson-and-always-on-rules) |
 | 7 | Stage 1 | `/astack-help` | Recommend a skill and prompt without executing edits | [AStack Help](#astack-help) |
 | 8 | Stage 1 | `/in-your-own-words` | Restate the ticket or goal read-only before coding | [In Your Own Words](#in-your-own-words) |
-| 9 | Stage 1 | `/sharpen` | Deepen an underspecified prompt without running it | [Sharpen](#sharpen) |
+| 9 | Stage 1 | `/investigate` | Isolate unknown root causes read-only at `diagnosis.md` | [Investigate](#investigate) |
+| 10 | Stage 1 | `/sharpen` | Deepen an underspecified prompt without running it | [Sharpen](#sharpen) |
 | 10 | Stage 1 | `/astack-mode` and `new task.` | Route goal to a playbook, checklist, and execution tier | [AStack Mode](#astack-mode-and-new-task) |
 | 11 | Stage 1 | `/plan` (`plan-contract.md`) | Write `implementation_plan.md` and pause for **Proceed** | [Plan](#plan) |
 | 12 | Stage 1 | `/grill-me` | Ask sequential `ask_question` decisions to clarify specs | [Grill Me](#grill-me) |
@@ -141,7 +142,7 @@ agy plugin list --json
 
 ### `node scripts/validate-astack.mjs` and `node --run test`
 
-- **Function.** Validates plugin integrity (`plugin.json`, `LICENSE`, frontmatter schema, `24,000`-byte `SKILL.md` limits, `37` manual-only vs `29` auto-invocable split in [`scripts/catalog.json`](../scripts/catalog.json), `RESERVED_SKILL_NAMES` non-collision, command-surface sync across `command-catalog.json` and docs, relative markdown links, `principle-*` references, and `agy plugin validate --strict --json`). Supports `--no-agy`, `--json`, `--write-native-commands` to regenerate [`native-commands.md`](../skills/astack-mode/references/native-commands.md), and `--apply-frontmatter-policy`. Running `node --run test` inside the AStack repository executes `validate` plus `test:plugin`, `test:sidecar`, `test:trust`, `test:helpers`, `test:watch-pr`, `test:statechart`, `test:security-audit`, `test:eval`, `test:mcp`, and `test:cli`.
+- **Function.** Validates plugin integrity (`plugin.json`, `LICENSE`, frontmatter schema, `24,000`-byte `SKILL.md` limits, `38` manual-only vs `29` auto-invocable split in [`scripts/catalog.json`](../scripts/catalog.json), `RESERVED_SKILL_NAMES` non-collision, command-surface sync across `command-catalog.json` and docs, relative markdown links, `principle-*` references, and `agy plugin validate --strict --json`). Supports `--no-agy`, `--json`, `--write-native-commands` to regenerate [`native-commands.md`](../skills/astack-mode/references/native-commands.md), and `--apply-frontmatter-policy`. Running `node --run test` inside the AStack repository executes `validate` plus `test:plugin`, `test:sidecar`, `test:trust`, `test:helpers`, `test:watch-pr`, `test:statechart`, `test:security-audit`, `test:eval`, `test:mcp`, and `test:cli`.
 - **Practical example.** Run validation after editing any skill, rule, or doc inside AStack:
 
 ```bash
@@ -199,6 +200,15 @@ Use these commands before writing code so the agent aligns on the target, sets t
 
 ```text
 /in-your-own-words Read BILL-142 and its linked Confluence spec. Restate the goal, inclusive or exclusive date boundary, and invalid-date exit code without editing any files.
+```
+
+### `/investigate`
+
+- **Function.** [`/investigate`](../skills/investigate/SKILL.md) (`disable-model-invocation: true`) isolates unknown failures read-only (`Reproduce -> Localize -> Reduce -> Prove`) before planning or editing production files (scratch probes only in `<artifact-dir>/scratch/`). Under the 4-case matrix, investigation-only prompts stop at `<artifact-dir>/diagnosis.md` (`RequestFeedback: true`), mixed `"find root cause and fix"` prompts pause once at a Combined Gate in `<artifact-dir>/implementation_plan.md` when the mechanism is proven, and uncertain or external causes fall back to `diagnosis.md`.
+- **Practical example.** Diagnose a failing CI run before planning any repo changes:
+
+```text
+/investigate why the Windows release job exited mid-build. gather runner and event logs read-only and stage diagnosis.md.
 ```
 
 ### `/sharpen`

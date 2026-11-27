@@ -299,17 +299,17 @@ test("live AStack repo validates cleanly and enforces UI/Orchestrator and agent 
   }
 });
 
-test("live repo matches scripts/catalog.json manualOnlySkills (37 manual-only, 29 auto-invocable)", () => {
+test("live repo matches scripts/catalog.json manualOnlySkills (38 manual-only, 29 auto-invocable)", () => {
   const catalog = JSON.parse(fs.readFileSync(path.join(DEFAULT_ROOT_DIR, "scripts", "catalog.json"), "utf8"));
   const manualSet = new Set(catalog.manualOnlySkills);
-  assert.equal(manualSet.size, 37);
+  assert.equal(manualSet.size, 38);
 
   const skillDirs = fs
     .readdirSync(path.join(DEFAULT_ROOT_DIR, "skills"), { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name)
     .sort();
-  assert.equal(skillDirs.length, 66);
+  assert.equal(skillDirs.length, 67);
 
   let manualCount = 0;
   let autoCount = 0;
@@ -325,7 +325,7 @@ test("live repo matches scripts/catalog.json manualOnlySkills (37 manual-only, 2
       autoCount++;
     }
   }
-  assert.equal(manualCount, 37);
+  assert.equal(manualCount, 38);
   assert.equal(autoCount, 29);
 });
 

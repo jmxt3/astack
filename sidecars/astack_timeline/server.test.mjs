@@ -487,7 +487,7 @@ test("createTimelineServer reports nextAction.inProgress when /plan is active be
     const snap = await res.json();
     assert.equal(snap.doneCount, 0);
     assert.equal(snap.stages[0].status, "active");
-    assert.equal(snap.stages[0].commands[0].state, "active");
+    assert.equal(snap.stages[0].commands.find((c) => c.command === "/plan")?.state, "active");
     assert.equal(snap.stages[1].status, "pending");
     assert.equal(snap.nextAction.stageId, "plan");
     assert.equal(snap.nextAction.inProgress, true);
@@ -509,7 +509,7 @@ test("createTimelineServer reports nextAction.inProgress when /plan is active be
     assert.match(appJs, /focus-drawer-prs/);
     assert.match(appJs, /focus-drawer-tasks/);
     assert.match(cssText, /\.living-rail\s*\{[^}]*top:\s*-32px/);
-    assert.doesNotMatch(cssText, /\.subcheck-callout/);
+    assert.doesNotMatch(cssText, /\.subcmd-pill\.stale-action/);
     assert.match(cssText, /\.pr-badge\.merged/);
   } finally {
     await srv.close();
@@ -1042,6 +1042,9 @@ function createAppJsTestHarness({
     get textContent() {
       if (this.children.length === 0) return this._text;
       return this._text + this.children.map((c) => c.textContent).join("");
+    }
+    get childNodes() {
+      return this.children;
     }
     set textContent(v) {
       this._text = String(v ?? "");
@@ -1971,6 +1974,274 @@ test("createTimelineServer negatively caches null and failing prStatusFetcher re
     assert.equal(throwCalls, 1, "Failed PR lookup must be negatively cached inside TTL");
   } finally {
     await errSrv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("createTimelineServer serves diagnosis.md via /api/artifact and renders 1. Investigate & Plan labels", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-diag-"));
+  const brainDir = path.join(root, "brain");
+  const workspaceDir = path.join(root, "repo");
+  const convId = "77777777-8888-4999-aaaa-bbbbbbbbbbbb";
+
+  writeText(path.join(workspaceDir, ".agents", "skills", "verify-app", "SKILL.md"), "# Verify\n");
+  writeText(path.join(brainDir, convId, "diagnosis.md"), "# Diagnosis\nRoot cause verified.\n");
+  writeText(
+    path.join(brainDir, convId, ".system_generated", "logs", "transcript.jsonl"),
+    [
+      JSON.stringify({
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        created_at: "2026-11-20T12:00:00Z",
+        content: "<USER_REQUEST>/investigate why CI failed</USER_REQUEST>",
+      }),
+      JSON.stringify({
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        created_at: "2026-11-20T12:00:10Z",
+        tool_calls: [{ name: "write_file", args: { Path: path.join(brainDir, convId, "diagnosis.md") } }],
+      }),
+    ].join("\n") + "\n",
+  );
+
+  const srv = await createTimelineServer({ brainDir, workspaceDir, port: 0 });
+  try {
+    const [tlRes, artRes, appRes] = await Promise.all([
+      fetch(`${srv.url}api/timeline?conversationId=${convId}`),
+      fetch(`${srv.url}api/artifact?conversationId=${convId}&name=diagnosis.md`),
+      fetch(`${srv.url}app.js`),
+    ]);
+    assert.equal(tlRes.status, 200);
+    assert.equal(artRes.status, 200);
+    assert.equal(appRes.status, 200);
+
+    const snap = await tlRes.json();
+    assert.equal(snap.stages[0].label, "Investigate & Plan");
+    assert.equal(snap.stages[0].status, "waiting_gate");
+    assert.equal(snap.stages[0].waitingArtifact, "diagnosis");
+    assert.equal(snap.workflowMode, "investigation");
+    assert.equal(snap.workflowLabel, "Investigation");
+
+    const artJson = await artRes.json();
+    assert.equal(artJson.kind, "markdown");
+    assert.match(artJson.content, /Root cause verified/);
+
+    const appJs = await appRes.text();
+    assert.match(appJs, /Open Diagnosis/);
+    assert.match(appJs, /plan-readonly-pill/);
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function findByClass(rootNode, clsName) {
+  if (!rootNode) return null;
+  if (rootNode.classList?.contains(clsName)) return rootNode;
+  for (const ch of rootNode.children || []) {
+    const hit = findByClass(ch, clsName);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+test("app.js renders guided next-step command banner, Cleanup left label, collapsed rollback disclosure, and contextual Step 3 suggestions", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-guided-ui-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const appJs = await (await fetch(`${srv.url}app.js`)).text();
+
+    let currentSnap = {
+      ...makeFakeSnapshot("etag-partial-build"),
+      workflowMode: "direct_build",
+      workflowLabel: "Direct flow",
+      freshness: "fresh",
+      riskTier: 3,
+      riskLabel: "critical",
+      doneCount: 1,
+      nextAction: {
+        stageId: "build",
+        stageLabel: "Build & Prove",
+        command: "/deslop",
+        title: "1 step left in Build & Prove: clean diff",
+        hint: "Edits and verification passed on 5 changed files. Clean the diff, then run /pre-pr.",
+        instruction: "Edits and verification passed on 5 changed files. Clean the diff to finish Step 2, then compile PR proof (Risk 70% requires human review before shipping).",
+        prompt: "/deslop /no-comments Clean the 5 changed files on this branch, confirm tests stay green, then run /pre-pr on HEAD.",
+        inProgress: true,
+        remaining: ["Clean diff"],
+        alternative: {
+          label: "Skip cleanup → /pre-pr",
+          command: "/pre-pr",
+          summary: "Skip diff cleanup and go straight to Pre-PR Check",
+          prompt: "/pre-pr Compile pr-review.md and run isolated pr-verifier on HEAD.",
+        },
+      },
+      trust: {
+        scopeKind: "git_unregistered",
+        enrolled: false,
+        beastOn: false,
+        categories: [],
+        riskAssessment: {
+          tier: 3,
+          score: 0.703,
+          residual: "blocked",
+          signals: [{ id: "touches_governance", weight: 0.55, evidence: ".github/workflows/release.yml" }],
+          satisfied: [],
+          rollback: { kind: "revert", plan: "git revert 084812a" },
+        },
+        riskPresentation: {
+          mode: "human_gate",
+          tone: "warn",
+          scorePct: 70,
+          headerBadge: "Review gate · Risk 70%",
+          headline: "Human review required · Risk 70%",
+          nextHint: "High-impact files changed. Run /pre-pr to compile the PR dossier and verify HEAD before opening a PR.",
+          whyItems: [{ id: "touches_governance", weightPct: 55, evidence: ".github/workflows/release.yml", isDefect: false, isHard: true }],
+          rollbackCommand: "git revert 084812a",
+        },
+      },
+      stages: [
+        { id: "plan", number: 1, label: "Plan", status: "skipped", railState: "skipped", summary: "Plan", collapsedSummary: "Skipped for direct edit flow.", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+        {
+          id: "build",
+          number: 2,
+          label: "Build & Prove",
+          status: "active",
+          railState: "queued",
+          summary: "Implement, clean the diff, and prove it works.",
+          collapsedSummary: "Edits & verify done · Still needed: clean diff (/deslop).",
+          detail: "Edits and verification passed. Still needed: clean the diff (/deslop or /no-comments), or skip straight to /pre-pr.",
+          subChecks: [
+            { id: "edits", label: "edits", status: "done", detail: "Code edits recorded." },
+            { id: "clean", label: "clean", status: "pending", detail: "Waiting for /deslop or /no-comments on your code diff." },
+            { id: "verify", label: "verify", status: "done", detail: "Tests passed." },
+          ],
+          artifacts: [],
+          commands: [],
+          autoSubCommands: [],
+          moreCommands: [],
+        },
+        {
+          id: "review",
+          number: 3,
+          label: "Pre-PR Check",
+          status: "pending",
+          railState: "pending",
+          summary: "Verify HEAD independently and compile PR proof.",
+          collapsedSummary: "Verify HEAD independently and compile PR proof.",
+          detail: "Compile pr-review.md and run isolated pr-verifier.",
+          artifacts: [],
+          commands: [],
+          autoSubCommands: [],
+          moreCommands: [],
+        },
+        { id: "ship", number: 4, label: "Ship", status: "pending", railState: "pending", summary: "Ship", collapsedSummary: "Open the PR and track CI to merge-ready.", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+      ],
+      activity: {
+        liveStageIds: [],
+        liveAgentsByStage: {},
+        subagents: [],
+        schedules: [],
+        automations: [],
+        backgroundJobs: { count: 0, runningCount: 0, items: [] },
+        workflow: {
+          active: false,
+          runsCount: 0,
+          stageId: null,
+          suggestedReview: {
+            fileCount: 5,
+            summary: "review the 5 changed files in parallel with",
+            command: "/run-workflow",
+            prompt: "/run-workflow Review the 5 changed files.",
+          },
+        },
+        prs: { totalCount: 0, openCount: 0, mergedCount: 0, closedCount: 0, items: [] },
+      },
+    };
+
+    const harness = createAppJsTestHarness({
+      appJs,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => currentSnap,
+      }),
+    });
+
+    await harness.advanceBy(100);
+    const banner = harness.byId.get("status-banner");
+    assert.equal(banner.classList.contains("is-guided"), true);
+    assert.equal(
+      banner.findByTestId("status-banner-cmd")?.textContent,
+      "/deslop /no-comments Clean the 5 changed files on this branch, confirm tests stay green, then run /pre-pr on HEAD.",
+    );
+    assert.ok(banner.findByTestId("status-banner-copy"));
+    assert.equal(banner.findByTestId("status-banner-alt")?.textContent, "Skip cleanup → /pre-pr");
+
+    const buildStep = harness.byId.get("timeline").findByTestId("timeline-step-build");
+    assert.match(buildStep.textContent, /Cleanup left/);
+    assert.doesNotMatch(buildStep.textContent, /\bIdle\b/);
+    assert.ok(buildStep.findByTestId("build-remaining-callout"), "Step 2 should auto-expand and display remaining work callout");
+
+    const reviewStepBtn = findByClass(harness.byId.get("timeline").findByTestId("timeline-step-review"), "step-btn");
+    reviewStepBtn.click();
+    const reviewStep = harness.byId.get("timeline").findByTestId("timeline-step-review");
+    assert.ok(reviewStep.findByTestId("review-prerequisite-note"));
+    assert.match(reviewStep.findByTestId("timeline-risk-card").textContent, /Human review required · Risk 70%/);
+    const rollbackEl = reviewStep.findByTestId("risk-card-rollback");
+    assert.equal(rollbackEl?.tagName, "DETAILS");
+    assert.notEqual(rollbackEl?.open, true);
+    assert.equal(findByClass(reviewStep, "faster-workflow"), null, "Must hide /run-workflow alternative while Step 3 is still pending");
+
+    currentSnap = {
+      ...currentSnap,
+      etag: "etag-review-next",
+      stages: currentSnap.stages.map((s) =>
+        s.id === "build"
+          ? { ...s, status: "done", railState: "done" }
+          : s.id === "review"
+            ? { ...s, status: "next", railState: "suggested" }
+            : s,
+      ),
+    };
+    await harness.advanceBy(2000);
+    const reviewStepNext = harness.byId.get("timeline").findByTestId("timeline-step-review");
+    const altBox = findByClass(reviewStepNext, "faster-workflow");
+    assert.ok(altBox, "Must show optional /run-workflow alternative once Step 3 is next");
+    assert.match(altBox.textContent, /Optional alternative:/);
+
+    currentSnap = {
+      ...currentSnap,
+      etag: "etag-stale-and-gate",
+      nextAction: {
+        stageId: "review",
+        stageLabel: "Pre-PR Check",
+        command: "/pre-pr",
+        title: "Re-run Pre-PR Check on updated HEAD",
+        instruction: "New edits invalidated the previous PR dossier. Re-compile pr-review.md and run pr-verifier on HEAD.",
+        prompt: "/pre-pr Re-compile pr-review.md and run isolated pr-verifier on updated HEAD.",
+      },
+      stages: currentSnap.stages.map((s) =>
+        s.id === "plan"
+          ? { ...s, status: "waiting_gate", railState: "yourturn" }
+          : s.id === "review"
+            ? { ...s, status: "stale", railState: "stale" }
+            : s,
+      ),
+    };
+    await harness.advanceBy(2000);
+    const staleGateBanner = harness.byId.get("status-banner");
+    assert.match(staleGateBanner.textContent, /Needs attention/);
+    assert.doesNotMatch(staleGateBanner.textContent, /Your turn/);
+    assert.equal(
+      staleGateBanner.findByTestId("status-banner-cmd")?.textContent,
+      "/pre-pr Re-compile pr-review.md and run isolated pr-verifier on updated HEAD.",
+    );
+  } finally {
+    await srv.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

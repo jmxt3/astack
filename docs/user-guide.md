@@ -34,7 +34,7 @@ Open your project workspace and run:
 Select the **`(Recommended)`** option when prompted so [`/setup-astack`](../skills/setup-astack/SKILL.md) teaches agents how to launch and verify your app automatically.
 
 > [!TIP]
-> AStack works out of the box with **any model on any Antigravity plan**, with zero model config or chat restart needed. `37` manual-only/principle skills set `disable-model-invocation: true` so only `29` workflow skills sit in your model index, broad sweeps use `flash`, `/arena` checks live models via `swarm{action: "models"}`, and **Orchestrator (Carbon)** (Google AI Ultra) or **Orchestrator (Argon)** (Google AI Pro and Ultra) runs dynamic bidirectional routing with [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/) automatically.
+> AStack works out of the box with **any model on any Antigravity plan**, with zero model config or chat restart needed. `38` manual-only/principle skills set `disable-model-invocation: true` so only `29` workflow skills sit in your model index, broad sweeps use `flash`, `/arena` checks live models via `swarm{action: "models"}`, and **Orchestrator (Carbon)** (Google AI Ultra) or **Orchestrator (Argon)** (Google AI Pro and Ultra) runs dynamic bidirectional routing with [Gemini 4 Carbon](https://antigravity.google/blog/gemini-4-carbon-in-google-antigravity) and [Gemini 4 Hydrogen](https://antigravity.google/blog/gemini-4-hydrogen-in-google-antigravity/) automatically.
 
 ### Step 3: Run Tasks With `/astack-mode`
 
@@ -98,8 +98,9 @@ Review `<artifact-dir>/implementation_plan.md` in Antigravity's side panel (or i
 Update step 2 to use <X> instead of <Y>, keep <Z> out of scope, and show me the revised plan before implementing.
 ```
 
-Three zero-execution skills help refine prompts and check understanding before you spend execution turns:
+Three zero-execution skills help refine prompts and check understanding before you spend execution turns (plus [`/investigate`](../skills/investigate/SKILL.md) for unknown failures):
 
+- [`/investigate`](../skills/investigate/SKILL.md): reproduces and isolates root causes read-only (`diagnosis.md`) before planning or editing production files.
 - [`/sharpen`](../skills/sharpen/SKILL.md): rewrites a rough prompt deeper without running the task.
 - [`/in-your-own-words`](../skills/in-your-own-words/SKILL.md): restates what the agent thinks your goal is so you catch misreadings early.
 - [`/astack-help`](../skills/astack-help/SKILL.md): recommends the right skill and returns a copyable prompt without starting work.
