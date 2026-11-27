@@ -62,7 +62,8 @@ Options:
   --status-only               print one status table and exit 0
   --allow-draft               do not treat a draft as a merge gate
   --pretty                    render human text instead of JSON
-  --record-outcome            record terminal MERGED/CLOSED verdicts to trust ledger
+  --record-outcome            record terminal MERGED/CLOSED verdicts (default on enrolled repos; logs skip diagnostics)
+  --no-record-outcome         disable automatic outcome ledger recording
   --cwd <dir>                 local repository path for trust lookup (default: cwd)
   --data-dir <dir>            explicit plugin data directory override
   --category <cat>            trust category override (docs|tests|ui|skills|tooling|core|governance)
@@ -151,6 +152,7 @@ export function parseArgs(
         "allow-draft": { type: "boolean", default: false },
         pretty: { type: "boolean", default: false },
         "record-outcome": { type: "boolean", default: false },
+        "no-record-outcome": { type: "boolean", default: false },
         cwd: { type: "string" },
         "data-dir": { type: "string" },
         category: { type: "string" },
@@ -182,6 +184,12 @@ export function parseArgs(
     const stackPrs = rawStackPrs !== undefined ? stackPrList(rawStackPrs) : undefined;
     if (stackPrs !== undefined && !isQueuedStack) {
       throw new CliExitError("error: --stack-prs requires --queued-stack\n", 64);
+    }
+
+    const recordOutcomeFlag = Boolean(values["record-outcome"]);
+    const noRecordOutcomeFlag = Boolean(values["no-record-outcome"]);
+    if (recordOutcomeFlag && noRecordOutcomeFlag) {
+      throw new CliExitError("error: option '--record-outcome' cannot be used with option '--no-record-outcome'\n", 64);
     }
 
     const rawCategory = values.category as string | undefined;
@@ -217,7 +225,8 @@ export function parseArgs(
         allowDraft: Boolean(values["allow-draft"]),
       },
       outcomeRecording: {
-        enabled: Boolean(values["record-outcome"]),
+        enabled: !noRecordOutcomeFlag,
+        explicit: recordOutcomeFlag,
         cwd: (values.cwd as string | undefined) ?? null,
         dataDir: (values["data-dir"] as string | undefined) ?? null,
         category,

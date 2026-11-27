@@ -10,6 +10,7 @@ import {
   classifyDominantCategory,
   classifyFileCategory,
   computeNoisyOrScore,
+  resolveResidual,
 } from "../trust/index.mjs";
 import { runRiskBacktest, runRiskFixtureCases } from "../eval/risk-backtest.mjs";
 
@@ -88,6 +89,36 @@ test("assessChange computes noisy-OR score, category precedence, and all change 
   });
   assert.ok(wideIntent.signals.some((s) => s.id === "wide_declared_scope"));
   assert.equal(wideIntent.signals.some((s) => s.id === "scope_drift"), false);
+
+  const featureWithTestsAndDocs = assessChange({
+    diffText: "diff --git a/sidecars/astack_timeline/app.js b/sidecars/astack_timeline/app.js\n--- a/sidecars/astack_timeline/app.js\n+++ b/sidecars/astack_timeline/app.js\n@@ -1 +1 @@\n-a\n+b\n",
+    numstat: "500\t20\tscripts/test/big.test.mjs\n450\t0\tdocs/guide.md\n5\t1\tsidecars/astack_timeline/app.js\n",
+    intent: { affectedGlobs: ["sidecars/astack_timeline/**", "scripts/test/**", "docs/**"] },
+  });
+  assert.equal(featureWithTestsAndDocs.signals.some((s) => s.id === "wide_declared_scope"), false);
+  assert.equal(featureWithTestsAndDocs.signals.some((s) => s.id === "large_diff"), false);
+
+  const head = "c".repeat(40);
+  const wideReceipts = [
+    { kind: "command", category: "test", ok: true, headSha: head, ts: "2026-11-24T10:00:00Z", summary: "node --test" },
+    { kind: "command", category: "verify", ok: true, headSha: head, ts: "2026-11-24T10:01:00Z", summary: "control-ui" },
+    { kind: "verifier", category: "verify", ok: true, verdict: "PASS", headSha: head, ts: "2026-11-24T10:02:00Z", summary: "pr-verifier PASS" },
+  ];
+  const threeCodeCategories = assessChange({
+    diffText: "diff --git a/sidecars/astack_timeline/app.js b/sidecars/astack_timeline/app.js\n--- a/sidecars/astack_timeline/app.js\n+++ b/sidecars/astack_timeline/app.js\n@@ -1 +1 @@\n-a\n+b\n",
+    numstat: "5\t1\tsidecars/astack_timeline/app.js\n",
+    receipts: wideReceipts,
+    headSha: head,
+    intent: { affectedGlobs: ["sidecars/**", "scripts/cli/**", "skills/**"] },
+  });
+  assert.ok(threeCodeCategories.signals.some((s) => s.id === "wide_declared_scope"));
+  const mitigatedWide = resolveResidual(
+    { ...threeCodeCategories, action: "merge" },
+    wideReceipts,
+    { headSha: head, intent: { affectedGlobs: ["sidecars/**", "scripts/cli/**", "skills/**"], rollbackPlan: "git revert ccccccc" } },
+  );
+  assert.equal(mitigatedWide.residual, "low");
+  assert.ok(mitigatedWide.score < 0.15);
 });
 
 test("risk-cases.json regression fixtures pass including PR #13 sidecar permissions and PR #15 cleanup", () => {
