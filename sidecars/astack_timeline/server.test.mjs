@@ -944,7 +944,12 @@ test("serves status banner, interactive Trust: Off drawer, calm Risk Card UI, an
     assert.match(appJs, /renderStatusBanner\(/);
     assert.match(appJs, /snap\.trust\?\.riskPresentation/);
     assert.match(appJs, /const offBtn = el\("button", "meta-btn is-neutral", "Trust: Off"\)/);
-    assert.match(appJs, /Beast Mode is enabled per repository/);
+    assert.match(appJs, /Auto Mode is enabled per repository/);
+    assert.match(appJs, /#2563eb/);
+    assert.match(appJs, /#7dd3fc/);
+    assert.match(cssText, /#5aa2ff/);
+    assert.match(cssText, /#38bdf8/);
+    assert.doesNotMatch(cssText, /#ff8a00|#ffd84a/);
     assert.match(appJs, /a\.status === "failed"/);
     assert.match(railJs, /if \(next\.state === "yourturn"\) return "yourturn"/);
     assert.match(railJs, /else if \(kind === "yourturn"\)/);
@@ -963,6 +968,7 @@ function createAppJsTestHarness({
   hidden = false,
   workspaceUris = ["file:///repo"],
   fetchImpl,
+  createLivingRail = null,
 }) {
   let now = 0;
   let nextTimerId = 1;
@@ -1122,7 +1128,7 @@ function createAppJsTestHarness({
   }
 
   const ids = [
-    "timeline-view", "beast-glow-slot", "beast-toast-slot", "beast-banner-slot",
+    "timeline-view", "beast-glow-slot", "beast-toast-slot",
     "panel-mode-switcher", "mode-btn-build", "mode-btn-review",
     "progress", "live", "live-label", "meta-row", "setup-drawer", "beast-drawer",
     "promo-wrap", "promo-card", "setup-wrap", "setup-card", "focus-strip", "focus-artifacts",
@@ -1223,6 +1229,7 @@ function createAppJsTestHarness({
       fetch: fetchImpl,
     },
   };
+  if (createLivingRail) sandbox.createLivingRail = createLivingRail;
   sandbox.window = sandbox;
 
   vm.runInNewContext(appJs, sandbox, { filename: "app.js" });
@@ -1589,10 +1596,9 @@ test("app.js Beast toggle recovers polling after failed POST during in-flight po
 
     await harness.advanceBy(100);
     const beastBtn0 = harness.byId.get("meta-row").findByTestId("timeline-beast-toggle");
-    assert.equal(beastBtn0?.textContent, "Beast");
+    assert.equal(beastBtn0?.textContent, "Auto");
     assert.equal(beastBtn0?.getAttribute("aria-pressed"), "false");
     assert.equal(harness.byId.get("beast-glow-slot").children.length, 0);
-    assert.equal(harness.byId.get("beast-banner-slot").children.length, 0);
 
     await harness.advanceBy(1800);
     assert.equal(timelineCalls, 2, "Second poll must be in flight");
@@ -1608,11 +1614,12 @@ test("app.js Beast toggle recovers polling after failed POST during in-flight po
     harness.byId.get("meta-row").findByTestId("timeline-beast-toggle").click();
     await harness.flushMicrotasks();
     const beastBtnOn = harness.byId.get("meta-row").findByTestId("timeline-beast-toggle");
-    assert.equal(beastBtnOn?.textContent, "Beast · L0");
+    assert.equal(beastBtnOn?.textContent, "Auto · L0");
     assert.equal(beastBtnOn?.classList.contains("is-beast"), true);
     assert.equal(beastBtnOn?.getAttribute("aria-pressed"), "true");
     beastBtnOn.click();
-    assert.ok(findButtonByText(harness.byId.get("beast-drawer"), "Auto"), "Clicking active Beast pill must open Beast drawer");
+    assert.ok(harness.byId.get("beast-drawer").textContent.includes("Auto-promote"), "Clicking active Auto pill must open Auto drawer with Auto-promote label");
+    assert.ok(findButtonByText(harness.byId.get("beast-drawer"), "Off"), "Auto drawer must render Off/On controls");
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });
@@ -1680,13 +1687,13 @@ test("app.js ignores stale out-of-order /api/trust/settings responses from rapid
 
     pendingResolvers[1].resolve();
     await harness.flushMicrotasks();
-    assert.equal(harness.byId.get("meta-row").findByTestId("timeline-beast-toggle")?.textContent, "Beast");
+    assert.equal(harness.byId.get("meta-row").findByTestId("timeline-beast-toggle")?.textContent, "Auto");
 
     pendingResolvers[0].resolve();
     await harness.flushMicrotasks();
     assert.equal(
       harness.byId.get("meta-row").findByTestId("timeline-beast-toggle")?.textContent,
-      "Beast",
+      "Auto",
       "Stale earlier On response must not overwrite newer Manual click",
     );
   } finally {
@@ -1764,7 +1771,7 @@ test("app.js mounts Beast B Corner Glow, one-shot ignition + toast, Autopilot ca
     assert.ok(glow0, "Initial Beast load must mount glow frame");
     assert.equal(glow0.classList.contains("is-igniting"), false, "Reloading in Beast must stay resting without ignition");
     assert.equal(harness.byId.get("beast-toast-slot").children.length, 0, "Reloading in Beast must not show activation toast");
-    assert.ok(harness.byId.get("beast-banner-slot").findByTestId("beast-header-bar"), "Beast header bar must mount");
+    assert.equal(harness.byId.get("timeline-view").findByTestId("beast-header-bar"), null, "Top BEAST MODE header bar must stay removed");
     assert.ok(harness.byId.get("status-banner").textContent.includes("Autopilot"), "Running Beast must show Autopilot card");
     assert.equal(harness.byId.get("astk-btw").placeholder, "Nudge the agents without stopping them");
 
@@ -1773,12 +1780,11 @@ test("app.js mounts Beast B Corner Glow, one-shot ignition + toast, Autopilot ca
     assert.equal(harness.byId.get("beast-drawer").classList.contains("hidden"), false);
     assert.equal(harness.byId.get("meta-row").findByTestId("timeline-beast-toggle").getAttribute("aria-expanded"), "true");
 
-    // Take the wheel returns to Manual, closes Beast drawer, restores banner testid, and removes Beast-only DOM nodes
-    harness.byId.get("beast-banner-slot").findByTestId("beast-take-wheel").click();
+    // Manual toggle returns to Manual, closes Beast drawer, restores banner testid, and removes Beast-only DOM nodes
+    harness.byId.get("meta-row").findByTestId("timeline-mode-manual").click();
     await harness.flushMicrotasks();
     assert.equal(harness.byId.get("timeline-view").classList.contains("is-beast"), false);
     assert.equal(harness.byId.get("beast-glow-slot").children.length, 0);
-    assert.equal(harness.byId.get("beast-banner-slot").children.length, 0);
     assert.equal(harness.byId.get("beast-toast-slot").children.length, 0);
     assert.equal(harness.byId.get("beast-drawer").classList.contains("hidden"), true, "Turning Beast off must close #beast-drawer");
     assert.equal(
@@ -1796,6 +1802,7 @@ test("app.js mounts Beast B Corner Glow, one-shot ignition + toast, Autopilot ca
     const glow1 = harness.byId.get("beast-glow-slot").findByTestId("beast-glow-frame");
     assert.equal(glow1.classList.contains("is-igniting"), true, "Switching Off->On must trigger ignition flare");
     assert.ok(harness.byId.get("beast-toast-slot").findByTestId("beast-activation-toast"), "Switching Off->On must show activation toast");
+    assert.match(harness.byId.get("beast-toast-slot").textContent, /Auto mode is on/);
 
     await harness.advanceBy(1650);
     assert.equal(glow1.classList.contains("is-igniting"), false, "Ignition flare class must clear after 1.6s");
@@ -1820,6 +1827,229 @@ test("app.js mounts Beast B Corner Glow, one-shot ignition + toast, Autopilot ca
     maxCeiling = 2; // governance cap
     await harness.advanceBy(2000);
     assert.ok(harness.byId.get("timeline").textContent.includes("Needs you · merge"));
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("app.js hides Beast Mode flames, corner halo, and pilot nodes when idle and re-lights on running work", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-beast-idle-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const appJs = await (await fetch(`${srv.url}app.js`)).text();
+    let scenario = "idle_done";
+    let serverBeastOn = true;
+    const railEvents = { beastModes: [], nodeBatches: [] };
+    const createLivingRailSpy = () => ({
+      resize() {},
+      setNodes(nodes) {
+        railEvents.nodeBatches.push(nodes.map((n) => n.railState ?? n.state));
+      },
+      setBeastMode(on) {
+        railEvents.beastModes.push(Boolean(on));
+      },
+      triggerIgnition() {},
+      setVisible() {},
+      refreshTheme() {},
+      destroy() {},
+    });
+
+    const buildScenarioSnap = (etag) => {
+      const base = {
+        ...makeFakeSnapshot(etag),
+        trust: {
+          scopeKind: "enrolled_repo",
+          enrolled: true,
+          activeCategory: "ui",
+          beastOn: serverBeastOn,
+          promotionMode: "manual",
+          promotionLockedByPolicy: false,
+          chainValid: true,
+          frozen: false,
+          totalOutcomes: 2,
+          riskAssessment: { residual: "low", score: 0.06 },
+          activeCatState: { id: "ui", level: 0, ceiling: 2, maxCeiling: 2, score: 0.9, brier: 0.05 },
+          categories: [{ id: "ui", level: 0, ceiling: 2, maxCeiling: 2, score: 0.9, brier: 0.05, clean: 2, edited: 0, reverted: 0 }],
+        },
+      };
+      if (scenario === "idle_pending") {
+        return {
+          ...base,
+          stages: [
+            { id: "plan", number: 1, label: "Investigate & Plan", status: "waiting_gate", railState: "yourturn", summary: "Plan ready", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+            { id: "build", number: 2, label: "Build & Prove", status: "pending", railState: "pending", summary: "Build", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+            { id: "review", number: 3, label: "Pre-PR Check", status: "pending", railState: "pending", summary: "Review", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+            { id: "ship", number: 4, label: "Ship", status: "pending", railState: "pending", summary: "Ship", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+          ],
+          activity: {
+            liveStageIds: [],
+            liveAgentsByStage: {},
+            agentsWorkingCount: 0,
+            agentsTotalCount: 0,
+            runningTasksCount: 0,
+            subagents: [],
+            schedules: [],
+            automations: [],
+            backgroundJobs: { count: 0, runningCount: 0, items: [] },
+            prs: { totalCount: 0, openCount: 0, mergedCount: 0, closedCount: 0, items: [] },
+          },
+        };
+      }
+      if (scenario === "bg_job") {
+        return {
+          ...base,
+          stages: [
+            { id: "plan", number: 1, label: "Investigate & Plan", status: "done", railState: "done", summary: "Done", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+            { id: "build", number: 2, label: "Build & Prove", status: "done", railState: "done", summary: "Done", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+            { id: "review", number: 3, label: "Pre-PR Check", status: "done", railState: "done", summary: "Done", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+            { id: "ship", number: 4, label: "Ship", status: "done", railState: "done", summary: "PR merged", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+          ],
+          activity: {
+            liveStageIds: [],
+            liveAgentsByStage: {},
+            agentsWorkingCount: 0,
+            agentsTotalCount: 0,
+            runningTasksCount: 1,
+            subagents: [],
+            schedules: [],
+            automations: [],
+            backgroundJobs: { count: 1, runningCount: 1, items: [{ taskId: "watch-ci", status: "running" }] },
+            prs: { totalCount: 1, openCount: 0, mergedCount: 1, closedCount: 0, items: [] },
+          },
+        };
+      }
+      if (scenario === "running_stage") {
+        return {
+          ...base,
+          stages: [
+            { id: "plan", number: 1, label: "Investigate & Plan", status: "done", railState: "done", summary: "Done", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+            { id: "build", number: 2, label: "Build & Prove", status: "active", railState: "running", summary: "Editing files", collapsedSummary: "Editing files", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+            { id: "review", number: 3, label: "Pre-PR Check", status: "pending", railState: "queued", summary: "Review", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+            { id: "ship", number: 4, label: "Ship", status: "pending", railState: "pending", summary: "Ship", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+          ],
+          activity: {
+            liveStageIds: ["build"],
+            liveAgentsByStage: { build: 1 },
+            agentsWorkingCount: 1,
+            agentsTotalCount: 1,
+            runningTasksCount: 0,
+            subagents: [],
+            schedules: [],
+            automations: [],
+            backgroundJobs: { count: 0, runningCount: 0, items: [] },
+            prs: { totalCount: 0, openCount: 0, mergedCount: 0, closedCount: 0, items: [] },
+          },
+        };
+      }
+      return {
+        ...base,
+        stages: [
+          { id: "plan", number: 1, label: "Investigate & Plan", status: "done", railState: "done", summary: "Done", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+          { id: "build", number: 2, label: "Build & Prove", status: "done", railState: "done", summary: "Done", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+          { id: "review", number: 3, label: "Pre-PR Check", status: "done", railState: "done", summary: "Done", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+          { id: "ship", number: 4, label: "Ship", status: "done", railState: "done", summary: "PR #42 merged", artifacts: [], commands: [], autoSubCommands: [], moreCommands: [] },
+        ],
+        activity: {
+          liveStageIds: [],
+          liveAgentsByStage: {},
+          agentsWorkingCount: 0,
+          agentsTotalCount: 1,
+          runningTasksCount: 0,
+          subagents: [],
+          schedules: [],
+          automations: [],
+          backgroundJobs: { count: 0, runningCount: 0, items: [] },
+          prs: { totalCount: 1, openCount: 0, mergedCount: 1, closedCount: 0, items: [] },
+        },
+      };
+    };
+
+    const harness = createAppJsTestHarness({
+      appJs,
+      createLivingRail: createLivingRailSpy,
+      fetchImpl: (url, opts) => {
+        if (url === "/api/timeline") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => buildScenarioSnap(`etag-${scenario}-${serverBeastOn}`),
+          });
+        }
+        if (url === "/api/trust/settings") {
+          const body = JSON.parse(opts.body || "{}");
+          serverBeastOn = Boolean(body.beastOn);
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true, trust: buildScenarioSnap("p").trust }) });
+        }
+        throw new Error(`Unexpected endpoint: ${url}`);
+      },
+    });
+
+    // 1. Idle Beast Mode (all stages done, zero running stages/agents/tasks)
+    await harness.advanceBy(100);
+    assert.equal(harness.byId.get("timeline-view").classList.contains("is-beast"), false);
+    assert.equal(harness.byId.get("timeline-view").dataset.beast, "idle");
+    assert.equal(harness.byId.get("beast-glow-slot").children.length, 0);
+    assert.equal(harness.byId.get("beast-toast-slot").children.length, 0);
+    const beastToggleIdle = harness.byId.get("meta-row").findByTestId("timeline-beast-toggle");
+    assert.equal(beastToggleIdle?.classList.contains("is-beast"), true);
+    assert.equal(beastToggleIdle?.textContent, "Auto · L0");
+    assert.equal(beastToggleIdle?.children?.[0]?.classList.contains("beast-lick"), false, "Idle Auto toggle flame must not flicker");
+    assert.equal(harness.byId.get("astk-btw").placeholder, "Ask a side question without interrupting the agents");
+
+    // 2. Toggling Manual -> Auto while idle does NOT mount glow or activation toast
+    harness.byId.get("meta-row").findByTestId("timeline-mode-manual").click();
+    await harness.flushMicrotasks();
+    assert.equal(serverBeastOn, false);
+    harness.byId.get("meta-row").findByTestId("timeline-beast-toggle").click();
+    await harness.flushMicrotasks();
+    assert.equal(serverBeastOn, true);
+    assert.equal(harness.byId.get("beast-glow-slot").children.length, 0);
+    assert.equal(harness.byId.get("beast-toast-slot").children.length, 0);
+    assert.match(harness.byId.get("toast").textContent, /Auto mode on/i);
+
+    // 3. Running background job keeps halo alive; stopping it removes halo
+    scenario = "bg_job";
+    await harness.advanceBy(2000);
+    assert.equal(harness.byId.get("timeline-view").classList.contains("is-beast"), true);
+    assert.ok(harness.byId.get("beast-glow-slot").findByTestId("beast-glow-frame"), "Background job must keep halo mounted");
+    scenario = "idle_done";
+    await harness.advanceBy(2000);
+    assert.equal(harness.byId.get("timeline-view").classList.contains("is-beast"), false);
+    assert.equal(harness.byId.get("beast-glow-slot").children.length, 0, "Finishing background job must remove halo");
+
+    // 4. Running -> Idle -> Running transitions unmount and remount halo cleanly without replaying activation toast
+    scenario = "running_stage";
+    await harness.advanceBy(2000);
+    assert.equal(harness.byId.get("timeline-view").classList.contains("is-beast"), true);
+    assert.ok(harness.byId.get("beast-glow-slot").findByTestId("beast-glow-frame"));
+    assert.equal(
+      harness.byId.get("meta-row").findByTestId("timeline-beast-toggle")?.children?.[0]?.classList.contains("beast-lick"),
+      true,
+      "Active running stage must animate Beast toggle flame",
+    );
+    scenario = "idle_done";
+    await harness.advanceBy(2000);
+    assert.equal(harness.byId.get("beast-glow-slot").children.length, 0);
+    assert.equal(harness.byId.get("meta-row").findByTestId("timeline-beast-toggle")?.children?.[0]?.classList.contains("beast-lick"), false);
+    scenario = "running_stage";
+    await harness.advanceBy(2000);
+    assert.ok(harness.byId.get("beast-glow-slot").findByTestId("beast-glow-frame"), "Returning to running work must restore halo");
+    assert.equal(harness.byId.get("beast-toast-slot").children.length, 0, "Returning to running work must not replay activation toast");
+
+    // 5. Idle pending stages emit zero pilot/lock canvas nodes and keep setBeastMode(false) while keeping static Auto pills
+    railEvents.beastModes.length = 0;
+    railEvents.nodeBatches.length = 0;
+    scenario = "idle_pending";
+    await harness.advanceBy(2000);
+    assert.equal(harness.byId.get("beast-glow-slot").children.length, 0);
+    assert.equal(railEvents.beastModes.at(-1), false);
+    const lastBatch = railEvents.nodeBatches.at(-1) || [];
+    assert.equal(lastBatch.includes("pilot"), false, `Expected zero pilot flames while idle, got ${JSON.stringify(lastBatch)}`);
+    assert.equal(lastBatch.includes("lock"), false, `Expected zero lock canvas nodes while idle, got ${JSON.stringify(lastBatch)}`);
+    assert.ok(harness.byId.get("timeline").textContent.includes("Auto"), "Idle pending stage must still show static Auto pill");
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });

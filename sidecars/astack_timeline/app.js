@@ -93,8 +93,7 @@
       kind === "flame-solid" ||
       kind === "flame-color" ||
       kind === "bolt" ||
-      kind === "lock" ||
-      kind === "wheel";
+      kind === "lock";
     const box = is24
       ? "0 0 24 24"
       : kind === "chevron"
@@ -240,8 +239,8 @@
       add("path", { fill: "currentColor", d: "M12 1.8c1.6 3.7 5.7 6.3 5.7 11.9 0 4.3-2.6 7.6-5.7 7.6s-5.7-2.5-5.7-6.3c0-2.9 1.6-4.8 2.9-6.3 0 2.1.8 3.4 1.9 4-.4-3.5.2-7.3.9-10.9z" });
     } else if (kind === "flame-color") {
       svg.setAttribute("stroke", "none");
-      add("path", { fill: "#ff8a00", d: "M12 1.8c1.6 3.7 5.7 6.3 5.7 11.9 0 4.3-2.6 7.6-5.7 7.6s-5.7-2.5-5.7-6.3c0-2.9 1.6-4.8 2.9-6.3 0 2.1.8 3.4 1.9 4-.4-3.5.2-7.3.9-10.9z" });
-      add("path", { fill: "#ffd84a", d: "M12 21.3c-1.8 0-3-1.4-3-3.2 0-1.9 1.3-3.1 2.3-4.3.2 1.3 1 2.2 1.8 2.5.3-.9.4-1.8.3-2.8 1.2 1.3 1.6 2.8 1.6 4.2 0 2.1-1.4 3.6-3 3.6z" });
+      add("path", { fill: "#2563eb", d: "M12 1.8c1.6 3.7 5.7 6.3 5.7 11.9 0 4.3-2.6 7.6-5.7 7.6s-5.7-2.5-5.7-6.3c0-2.9 1.6-4.8 2.9-6.3 0 2.1.8 3.4 1.9 4-.4-3.5.2-7.3.9-10.9z" });
+      add("path", { fill: "#7dd3fc", d: "M12 21.3c-1.8 0-3-1.4-3-3.2 0-1.9 1.3-3.1 2.3-4.3.2 1.3 1 2.2 1.8 2.5.3-.9.4-1.8.3-2.8 1.2 1.3 1.6 2.8 1.6 4.2 0 2.1-1.4 3.6-3 3.6z" });
     } else if (kind === "bolt") {
       svg.setAttribute("stroke-width", "2.3");
       add("path", { d: "M13 2 4 14h7l-1 8 9-12h-7l1-8z" });
@@ -249,11 +248,6 @@
       svg.setAttribute("stroke-width", "2.3");
       add("rect", { x: "5", y: "11", width: "14", height: "10", rx: "2" });
       add("path", { d: "M8 11V8a4 4 0 0 1 8 0v3" });
-    } else if (kind === "wheel") {
-      svg.setAttribute("stroke-width", "2");
-      add("circle", { cx: "12", cy: "12", r: "9" });
-      add("circle", { cx: "12", cy: "12", r: "2" });
-      add("path", { d: "M12 14v7M10 12H3.5M14 12h6.5" });
     }
     return svg;
   }
@@ -1655,7 +1649,7 @@
           rp?.mode === "resolved_merged"
             ? `Merged · category ${cat.id} is L${cat.level} (T ${cat.score.toFixed(2)}, cap L${cat.ceiling}).`
             : !snap.trust.beastOn
-              ? `Beast Mode is Off. Category ${cat.id} is L${cat.level} (T ${cat.score.toFixed(2)}, cap L${cat.ceiling}).`
+              ? `Auto Mode is Off. Category ${cat.id} is L${cat.level} (T ${cat.score.toFixed(2)}, cap L${cat.ceiling}).`
               : rp?.mode === "human_gate" && ra.residual === "blocked"
                 ? `Requires human review (${cat.id} capped at L${cat.ceiling}).`
                 : ra.residual === "blocked"
@@ -1930,8 +1924,7 @@
             : "No background tasks or active schedules in this conversation yet.",
       },
     ];
-    const beastOn = isBeastActive(snap, snap.trust?.scopeKind === "non_repo");
-    const hasBeastWork = beastOn && (agentsWorking > 0 || (act.liveStageIds || []).length > 0);
+    const hasBeastWork = isBeastRunning(snap, snap.trust?.scopeKind === "non_repo");
     for (const f of focusDefs) {
       const chip = el("button", "focus-chip");
       chip.type = "button";
@@ -2192,6 +2185,22 @@
     return Boolean(!isNonRepo && snap?.trust?.enrolled && snap?.trust?.beastOn);
   }
 
+  function hasRunningWork(snap) {
+    const act = snap?.activity;
+    if (Array.isArray(act?.liveStageIds) && act.liveStageIds.length > 0) return true;
+    if (Number(act?.agentsWorkingCount ?? 0) > 0) return true;
+    if (Number(act?.runningTasksCount ?? 0) > 0) return true;
+    if (Number(act?.backgroundJobs?.runningCount ?? 0) > 0) return true;
+    if (act?.workflow?.active) return true;
+    if (snap?.colleagueReview?.running) return true;
+    if (Array.isArray(snap?.stages) && snap.stages.some((s) => s?.railState === "running")) return true;
+    return false;
+  }
+
+  function isBeastRunning(snap, isNonRepo) {
+    return isBeastActive(snap, isNonRepo) && hasRunningWork(snap);
+  }
+
   function computeBeastStopChips(snap) {
     const cat = snap?.trust?.activeCatState;
     const lvl = Number(cat?.level ?? 0);
@@ -2201,7 +2210,7 @@
     return ["Failing checks", "Risky diff", "Merge"];
   }
 
-  function computeBeastStageMeta(stage, snap, stages, beastActive) {
+  function computeBeastStageMeta(stage, snap, stages, beastActive, beastLive = beastActive) {
     const rs = stage?.railState || "pending";
     if (!beastActive) {
       return { railState: rs, pilotScale: 0.52, pilotAlpha: 1, pillKind: null, pillText: "", note: "" };
@@ -2209,6 +2218,7 @@
     if (rs === "running" || rs === "done" || rs === "yourturn" || rs === "stale" || rs === "error" || rs === "skipped") {
       return { railState: rs, pilotScale: 0.52, pilotAlpha: 1, pillKind: null, pillText: "", note: "" };
     }
+    const useFlame = Boolean(beastLive);
     const cat = snap?.trust?.activeCatState;
     const lvl = Number(cat?.level ?? 0);
     const maxCap = Number(cat?.maxCeiling ?? 2);
@@ -2217,7 +2227,7 @@
       const autoMerge = lvl >= 3 && maxCap >= 3 && residual === "low";
       if (autoMerge) {
         return {
-          railState: "pilot",
+          railState: useFlame ? "pilot" : rs,
           pilotScale: 0.44,
           pilotAlpha: 0.72,
           pillKind: "auto",
@@ -2226,7 +2236,7 @@
         };
       }
       return {
-        railState: "lock",
+        railState: useFlame ? "lock" : rs,
         pilotScale: 0.44,
         pilotAlpha: 0.72,
         pillKind: "gate",
@@ -2242,7 +2252,7 @@
       (runningIdx >= 0 && idx === runningIdx + 1);
     if (stage.id === "build") {
       return {
-        railState: "pilot",
+        railState: useFlame ? "pilot" : rs,
         pilotScale: isNext ? 0.54 : 0.46,
         pilotAlpha: isNext ? 1 : 0.78,
         pillKind: isNext ? "auto-next" : "auto",
@@ -2252,16 +2262,16 @@
     }
     if (stage.id === "review") {
       return {
-        railState: "pilot",
+        railState: useFlame ? "pilot" : rs,
         pilotScale: isNext ? 0.52 : 0.42,
         pilotAlpha: isNext ? 0.95 : 0.65,
         pillKind: isNext ? "auto-next" : "auto",
         pillText: isNext ? "Auto · next" : "Auto",
-        note: "Always runs in Beast mode (optional in Manual)",
+        note: "Always runs in Auto mode (optional in Manual)",
       };
     }
     return {
-      railState: "pilot",
+      railState: useFlame ? "pilot" : rs,
       pilotScale: 0.5,
       pilotAlpha: 0.9,
       pillKind: "auto",
@@ -2317,42 +2327,6 @@
     return frame;
   }
 
-  function buildBeastHeaderBar() {
-    const bar = el("div", "beast-header-bar");
-    bar.dataset.testid = "beast-header-bar";
-
-    const iconBox = el("div", "beast-hero-icon");
-    iconBox.setAttribute("aria-hidden", "true");
-    const mf = el("div", "mf");
-    mf.append(el("div", "mf-glow"), el("div", "mf-t mf-o"), el("div", "mf-t mf-m"), el("div", "mf-t mf-c"));
-    const p1 = el("span", "mp");
-    p1.style.marginLeft = "-3px";
-    const p2 = el("span", "mp mp-b");
-    p2.style.marginLeft = "2px";
-    p2.style.animationDelay = "-0.5s";
-    const p3 = el("span", "mp mp-c");
-    p3.style.marginLeft = "-1px";
-    p3.style.animationDelay = "-0.9s";
-    mf.append(p1, p2, p3);
-    iconBox.appendChild(mf);
-
-    const copy = el("div", "beast-hero-copy");
-    copy.appendChild(el("div", "beast-hero-title", "BEAST MODE"));
-    copy.appendChild(el("div", "beast-hero-sub", "Autopilot · agents drive every step"));
-
-    const wheelBtn = el("button", "beast-wheel-btn");
-    wheelBtn.type = "button";
-    wheelBtn.dataset.testid = "beast-take-wheel";
-    wheelBtn.appendChild(svgIcon("wheel", 14));
-    wheelBtn.appendChild(el("span", "", "Take the wheel"));
-    wheelBtn.addEventListener("click", () => {
-      updateTrustSettings({ beastOn: false }, "Manual mode · current step finishes, next steps wait for you");
-    });
-
-    bar.append(iconBox, copy, wheelBtn);
-    return bar;
-  }
-
   function buildBeastActivationToast() {
     const wrap = el("div", "beast-activation-toast");
     wrap.dataset.testid = "beast-activation-toast";
@@ -2362,7 +2336,7 @@
     ic.classList.add("beast-lick");
     ic.style.flexShrink = "0";
     const copy = el("div", "beast-hero-copy");
-    copy.appendChild(el("div", "beast-activation-title", "Beast mode is on"));
+    copy.appendChild(el("div", "beast-activation-title", "Auto mode is on"));
     copy.appendChild(
       el(
         "div",
@@ -2388,34 +2362,33 @@
 
   function syncBeastChrome(snap, isNonRepo) {
     const beastOn = isBeastActive(snap, isNonRepo);
+    const beastLive = isBeastRunning(snap, isNonRepo);
     const viewEl = document.getElementById("timeline-view");
     const glowSlot = document.getElementById("beast-glow-slot");
     const toastSlot = document.getElementById("beast-toast-slot");
-    const bannerSlot = document.getElementById("beast-banner-slot");
     const btwInput = document.getElementById("astk-btw");
 
     if (viewEl) {
-      viewEl.classList.toggle("is-beast", beastOn);
-      viewEl.dataset.beast = beastOn ? "on" : "off";
+      viewEl.classList.toggle("is-beast", beastLive);
+      viewEl.dataset.beast = beastLive ? "on" : beastOn ? "idle" : "off";
     }
     if (btwInput) {
-      btwInput.placeholder = beastOn
+      btwInput.placeholder = beastLive
         ? "Nudge the agents without stopping them"
         : "Ask a side question without interrupting the agents";
     }
-    rail?.setBeastMode?.(beastOn);
+    rail?.setBeastMode?.(beastLive);
 
     const turnedOn = state.beast.initialized && !state.beast.prevOn && beastOn;
     state.beast.initialized = true;
     state.beast.prevOn = beastOn;
 
-    if (!beastOn) {
+    if (!beastLive) {
       clearBeastTimers();
       state.beast.igniting = false;
       state.beast.mounted = false;
       glowSlot?.replaceChildren();
       toastSlot?.replaceChildren();
-      bannerSlot?.replaceChildren();
       return;
     }
 
@@ -2440,7 +2413,6 @@
 
     if (!state.beast.mounted) {
       glowSlot?.replaceChildren(buildBeastGlowFrame(state.beast.igniting));
-      bannerSlot?.replaceChildren(buildBeastHeaderBar());
       state.beast.mounted = true;
     } else if (turnedOn) {
       const gf = glowSlot?.children?.[0];
@@ -3177,8 +3149,8 @@
         trust.frozen
           ? "Frozen (ledger invalid)"
           : trust.beastOn
-            ? `Beast On · ${trust.promotionMode === "auto" ? "Auto promote" : "Manual promote"}`
-            : "Beast Off",
+            ? `Auto On · ${trust.promotionMode === "auto" ? "Auto-promote On" : "Auto-promote Off"}`
+            : "Auto Off",
       ),
     );
     titleRow.appendChild(statusPill);
@@ -3190,19 +3162,19 @@
     const picker = el("section", "delegate-picker");
     picker.appendChild(el("span", "delegate-picker-label", "Autonomy & Promotion Settings (local plugin data, protected from agent writes)"));
     const row1 = el("div", "delegate-pick-chips");
-    for (const [val, lbl] of [[false, "Beast: Off"], [true, "Beast: On"]]) {
+    for (const [val, lbl] of [[false, "Auto Mode: Off"], [true, "Auto Mode: On"]]) {
       const b = el("button", "pick-chip", lbl);
       b.type = "button";
       b.setAttribute("aria-pressed", String(Boolean(trust.beastOn) === val));
-      b.addEventListener("click", () => updateTrustSettings({ beastOn: val }, `Beast Mode ${val ? "On" : "Off"}`));
+      b.addEventListener("click", () => updateTrustSettings({ beastOn: val }, `Auto Mode ${val ? "On" : "Off"}`));
       row1.appendChild(b);
     }
-    for (const [val, lbl] of [["manual", "Promote: Manual (default)"], ["auto", "Promote: Auto up to Ceiling"]]) {
+    for (const [val, lbl] of [["manual", "Auto-promote: Off (default)"], ["auto", "Auto-promote: On up to Ceiling"]]) {
       const b = el("button", "pick-chip", lbl);
       b.type = "button";
       b.disabled = val === "auto" && Boolean(trust.promotionLockedByPolicy);
       b.setAttribute("aria-pressed", String(trust.promotionMode === val));
-      b.addEventListener("click", () => updateTrustSettings({ promotionMode: val }, `Promotion set to ${val}`));
+      b.addEventListener("click", () => updateTrustSettings({ promotionMode: val }, `Auto-promote ${val === "auto" ? "On" : "Off"}`));
       row1.appendChild(b);
     }
     picker.appendChild(row1);
@@ -3953,9 +3925,10 @@
     const setupReady = snap?.setup?.status === "ready";
     const isNonRepo = snap?.trust?.scopeKind === "non_repo" && Boolean(snap?.workspace) && !setupReady;
     const beastOn = isBeastActive(snap, isNonRepo);
+    const beastLive = isBeastRunning(snap, isNonRepo);
     const stages = snap?.stages || [];
     railStages = stages.map((s) => {
-      const meta = computeBeastStageMeta(s, snap, stages, beastOn);
+      const meta = computeBeastStageMeta(s, snap, stages, beastOn, beastLive);
       return {
         railState: meta.railState,
         agents: snap?.activity?.liveAgentsByStage?.[s.id] ?? 0,
@@ -4470,14 +4443,18 @@
           beastToggle.setAttribute("aria-expanded", String(state.beastDrawerOpen));
         }
         const flameIc = svgIcon(beastOn ? "flame-solid" : "flame-outline", 12);
-        if (beastOn) flameIc.classList.add("beast-lick");
+        const beastLive = isBeastRunning(snap, isNonRepo);
+        if (beastLive) flameIc.classList.add("beast-lick");
         beastToggle.appendChild(flameIc);
         beastToggle.appendChild(
-          el("span", "", beastOn ? `Beast · L${activeCat?.level ?? 0}` : "Beast"),
+          el("span", "", beastOn ? `Auto · L${activeCat?.level ?? 0}` : "Auto"),
         );
         beastToggle.addEventListener("click", () => {
           if (!beastOn) {
-            updateTrustSettings({ beastOn: true }, "");
+            const msg = hasRunningWork(state.snap)
+              ? ""
+              : "Auto mode on · flame and autopilot visuals activate while work is running";
+            updateTrustSettings({ beastOn: true }, msg);
             return;
           }
           state.beastDrawerOpen = !state.beastDrawerOpen;
@@ -4491,7 +4468,7 @@
         offBtn.type = "button";
         offBtn.dataset.testid = "timeline-trust-off";
         offBtn.setAttribute("aria-expanded", String(state.beastDrawerOpen));
-        const offDesc = "Beast Mode is enabled per repository. Click to see how to enroll this repo.";
+        const offDesc = "Auto Mode is enabled per repository. Click to see how to enroll this repo.";
         attachStatusPopover(offBtn, "Earned Trust", "Off", "", offDesc);
         offBtn.addEventListener("click", () => {
           hideCommandPopover();
@@ -4524,26 +4501,26 @@
         beastDrawer.classList.remove("hidden");
 
         const r1 = el("div", "beast-ctrl-row");
-        r1.appendChild(el("span", "beast-ctrl-label", "Beast Mode (run up to earned level)"));
+        r1.appendChild(el("span", "beast-ctrl-label", "Auto Mode (run up to earned level)"));
         const g1 = el("div", "beast-seg-group");
         for (const [val, lbl] of [[false, "Off"], [true, "On"]]) {
           const b = el("button", "subcmd-pill is-sans", lbl);
           b.type = "button";
           b.setAttribute("aria-pressed", String(Boolean(snap.trust.beastOn) === val));
-          b.addEventListener("click", () => updateTrustSettings({ beastOn: val }, `Beast Mode ${val ? "On" : "Off"}`));
+          b.addEventListener("click", () => updateTrustSettings({ beastOn: val }, `Auto Mode ${val ? "On" : "Off"}`));
           g1.appendChild(b);
         }
         r1.appendChild(g1);
 
         const r2 = el("div", "beast-ctrl-row");
-        r2.appendChild(el("span", "beast-ctrl-label", "Promotion"));
+        r2.appendChild(el("span", "beast-ctrl-label", "Auto-promote"));
         const g2 = el("div", "beast-seg-group");
-        for (const [val, lbl] of [["manual", "Manual"], ["auto", "Auto"]]) {
+        for (const [val, lbl] of [["manual", "Off"], ["auto", "On"]]) {
           const b = el("button", "subcmd-pill is-sans", lbl);
           b.type = "button";
           b.disabled = val === "auto" && Boolean(snap.trust.promotionLockedByPolicy);
           b.setAttribute("aria-pressed", String(snap.trust.promotionMode === val));
-          b.addEventListener("click", () => updateTrustSettings({ promotionMode: val }, `Promotion set to ${val}`));
+          b.addEventListener("click", () => updateTrustSettings({ promotionMode: val }, `Auto-promote ${val === "auto" ? "On" : "Off"}`));
           g2.appendChild(b);
         }
         r2.appendChild(g2);
@@ -4578,7 +4555,7 @@
           el(
             "p",
             "setup-drawer-detail",
-            "Beast Mode is enabled per repository. Add .agents/risk-policy.json on your base branch (main) to enroll this repo.",
+            "Auto Mode is enabled per repository. Add .agents/risk-policy.json on your base branch (main) to enroll this repo.",
           ),
         );
         const chips = el("div", "chips");
@@ -4691,12 +4668,13 @@
       railWrap?.classList.toggle("is-dimmed", isNonRepo);
       const liveIds = snap.activity?.liveStageIds || [];
       const beastActive = isBeastActive(snap, isNonRepo);
+      const beastLive = isBeastRunning(snap, isNonRepo);
 
       snap.stages.forEach((stage, idx) => {
         const isLast = idx === snap.stages.length - 1;
         const isExpanded = state.expanded.has(stage.id);
         const rs = stage.railState || "pending";
-        const beastMeta = computeBeastStageMeta(stage, snap, snap.stages, beastActive);
+        const beastMeta = computeBeastStageMeta(stage, snap, snap.stages, beastActive, beastLive);
         const stLabel = stageStatusLabel(stage, snap.stages);
         const liveAgents = snap.activity?.liveAgentsByStage?.[stage.id] ?? 0;
 
