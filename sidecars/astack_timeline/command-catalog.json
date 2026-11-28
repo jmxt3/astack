@@ -966,6 +966,7 @@
         "id": "single",
         "title": "Review one PR",
         "subtitle": "Default for most daily reviews",
+        "icon": "single-falcon",
         "defaultOpen": true,
         "steps": [
           {
@@ -973,6 +974,7 @@
             "title": "Understand first",
             "condition": "Only if large or unfamiliar",
             "badge": "Optional",
+            "icon": "teach-owl",
             "command": "/teach",
             "prompt": "/teach me what PR #123 changes and whether it preserves prior invariants."
           },
@@ -981,6 +983,7 @@
             "title": "Hunt real bugs",
             "condition": "Recommended default",
             "badge": "Default",
+            "icon": "interrogate-beetle",
             "command": "/interrogate",
             "prompt": "/interrogate this branch against origin/main skeptically. Don't change anything. Keep only live-reproduced bugs."
           },
@@ -989,6 +992,7 @@
             "title": "Check downstream impact",
             "condition": "Only if shared helper, API, or schema",
             "badge": "Optional",
+            "icon": "blast-volcano",
             "command": "/blast-radius",
             "prompt": "/blast-radius Prove downstream callers, wire formats, and persisted state stay safe on this branch."
           }
@@ -997,6 +1001,7 @@
           {
             "title": "Security check",
             "condition": "Only if auth, secrets, or untrusted input",
+            "icon": "security-scorpion",
             "command": "/security-audit",
             "prompt": "/security-audit Review trust boundaries, input validation, and auth paths touched by this PR."
           }
@@ -1006,12 +1011,14 @@
         "id": "queue",
         "title": "Triage a queue of PRs",
         "subtitle": "Multiple independent PRs",
+        "icon": "queue-fish",
         "defaultOpen": false,
         "steps": [
           {
             "title": "2 to 9 PRs",
             "condition": "Run /interrogate only on PRs flagged ISSUES",
             "badge": "2-9 PRs",
+            "icon": "fanout-octopus",
             "command": "/fanout",
             "prompt": "/fanout Review PR #231, #232, and #235 in isolated branch workspaces, run affected tests, and return one consolidated report."
           },
@@ -1019,6 +1026,7 @@
             "title": "10 or more PRs",
             "condition": "Parallel Python pipeline with one ranked verdict per PR",
             "badge": "10+ PRs",
+            "icon": "workflow-abacus",
             "command": "/run-workflow",
             "prompt": "/run-workflow List open PRs requesting my review, check out each in parallel temp worktrees, run tests and boundary checks, and return one ranked line per PR."
           }
@@ -1028,12 +1036,14 @@
         "id": "stack",
         "title": "Review a PR stack",
         "subtitle": "Dependent PRs with shared contracts",
+        "icon": "stack-cairn",
         "defaultOpen": false,
         "steps": [
           {
             "title": "Stacked PRs (#A -> #B -> #C)",
             "condition": "One reviewer per PR plus independent @verifier",
             "badge": "Stack",
+            "icon": "swarm-bee",
             "command": "/swarm",
             "prompt": "/swarm Review stacked PRs #240, #241, and #242 with one reviewer per PR in branch workspaces plus an independent @verifier that reruns every candidate bug."
           }

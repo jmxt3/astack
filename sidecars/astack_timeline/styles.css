@@ -18,6 +18,9 @@
   --tl-fill: color-mix(in srgb, var(--tl-fg) 5%, transparent);
   --tl-hover: color-mix(in srgb, var(--tl-fg) 7%, transparent);
   --tl-ring: color-mix(in srgb, var(--tl-primary) 70%, transparent);
+  --sf-blue-top: #2694ff;
+  --sf-blue-bot: #005fd4;
+  --sf-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --tl-pad: max(14px, calc((100% - 544px) / 2));
   --tl-font: var(--font-family, "Google Sans Flex", "Google Sans", Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
   --tl-mono: var(--editor-font-family, "Google Sans Code", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
@@ -34,6 +37,8 @@
   --tl-queued: #8fb6ee;
   --tl-fill: color-mix(in srgb, var(--tl-fg) 7%, transparent);
   --tl-hover: color-mix(in srgb, var(--tl-fg) 6%, transparent);
+  --sf-blue-top: #3cb0ff;
+  --sf-blue-bot: #0064df;
 }
 
 * { box-sizing: border-box; }
@@ -3093,8 +3098,9 @@ h4.md-heading { font-size: 13px; }
 
 .cr-step-card {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
   padding: 9px 10px;
   border-radius: 7px;
   border: 1px solid var(--tl-line);
@@ -3105,6 +3111,153 @@ h4.md-heading { font-size: 13px; }
   border-color: color-mix(in srgb, var(--tl-primary) 42%, var(--tl-border));
   background: color-mix(in srgb, var(--tl-primary) 5%, var(--tl-card));
 }
+
+.cr-step-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.cr-intent-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--sf-blue-top) 22%, var(--tl-line));
+  background: color-mix(in srgb, var(--sf-blue-top) 8%, var(--tl-card));
+  flex: none;
+}
+
+.cr-step-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin-top: 1px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--sf-blue-top) 20%, var(--tl-line));
+  background: color-mix(in srgb, var(--sf-blue-top) 7%, var(--tl-fill));
+  flex: none;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.cr-step-card:hover .cr-step-icon,
+.cr-step-card.is-active .cr-step-icon {
+  border-color: color-mix(in srgb, var(--sf-blue-top) 45%, var(--tl-border));
+  background: color-mix(in srgb, var(--sf-blue-top) 12%, var(--tl-fill));
+}
+
+.sf-icon {
+  display: block;
+  flex: none;
+  overflow: visible;
+  transform-box: view-box;
+  transform-origin: 12px 12px;
+}
+
+.sf-stop-top { stop-color: var(--sf-blue-top); }
+.sf-stop-bot { stop-color: var(--sf-blue-bot); }
+
+.sf-icon .sf-layer {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.sf-icon .sf-l1 { --base-op: 1; opacity: 1; }
+.sf-icon .sf-l2 { --base-op: 0.52; opacity: 0.52; }
+.sf-icon .sf-l3 { --base-op: 0.26; opacity: 0.26; }
+
+@keyframes sf-bounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  22% { transform: translateY(-2px) scale(1.11, 0.94); }
+  48% { transform: translateY(0.7px) scale(0.95, 1.05); }
+  72% { transform: translateY(-0.5px) scale(1.03, 0.98); }
+}
+
+@keyframes sf-pulse {
+  0%, 100% { opacity: var(--base-op, 1); }
+  50% { opacity: calc(var(--base-op, 1) * 0.28); }
+}
+
+@keyframes sf-var-color {
+  0%, 100% { opacity: calc(var(--base-op, 1) * 0.3); transform: scale(0.97); }
+  32% { opacity: var(--base-op, 1); transform: scale(1.03); }
+  62% { opacity: calc(var(--base-op, 1) * 0.65); transform: scale(1); }
+}
+
+@keyframes sf-breathe {
+  0%, 100% { transform: scale(1); opacity: var(--base-op, 1); }
+  50% { transform: scale(1.07); opacity: calc(var(--base-op, 1) * 0.78); }
+}
+
+@keyframes sf-swim-outlier {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(-1.7px); }
+}
+
+@keyframes sf-swim-school {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(1.2px); }
+}
+
+@keyframes sf-puff-expand {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(1.12); }
+  65% { transform: scale(0.96); }
+}
+
+@keyframes sf-strike-tail {
+  0%, 100% { transform: rotate(0deg); }
+  35% { transform: rotate(9deg) translate(0.4px, 0.3px); }
+  60% { transform: rotate(-3deg); }
+}
+
+@keyframes sf-flutter {
+  0%, 100% { transform: scaleX(1) scaleY(1); }
+  50% { transform: scaleX(0.84) scaleY(1.08); }
+}
+
+@keyframes sf-hover-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.4px); }
+}
+
+@keyframes sf-tap-pop {
+  0% { transform: scale(1); }
+  35% { transform: scale(0.84); }
+  72% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+.sf-icon.is-popping {
+  animation: sf-tap-pop 460ms var(--sf-ease-spring) 1;
+}
+
+.sf-icon.fx-signature.sig-lock .sf-l1 { animation: sf-bounce 2.2s var(--sf-ease-spring) infinite; }
+.sf-icon.fx-signature.sig-lock .sf-l3 { animation: sf-pulse 2.2s ease-in-out infinite; }
+
+.sf-icon.fx-signature.sig-fish .sf-l1 { animation: sf-swim-outlier 1.9s ease-in-out infinite; }
+.sf-icon.fx-signature.sig-fish .sf-l2 { animation: sf-swim-school 1.9s ease-in-out 180ms infinite; }
+.sf-icon.fx-signature.sig-fish .sf-l3 { animation: sf-swim-school 1.9s ease-in-out 360ms infinite; }
+
+.sf-icon.fx-signature.sig-wave .sf-v1 { animation: sf-var-color 1.9s ease-in-out 0ms infinite; }
+.sf-icon.fx-signature.sig-wave .sf-v2 { animation: sf-var-color 1.9s ease-in-out 340ms infinite; }
+.sf-icon.fx-signature.sig-wave .sf-v3 { animation: sf-var-color 1.9s ease-in-out 680ms infinite; }
+
+.sf-icon.fx-signature.sig-puff .sf-l1 { animation: sf-puff-expand 1.9s var(--sf-ease-spring) infinite; }
+.sf-icon.fx-signature.sig-puff .sf-l3 { animation: sf-var-color 1.9s ease-in-out infinite; }
+
+.sf-icon.fx-signature.sig-strike .sf-l1 { animation: sf-strike-tail 2s var(--sf-ease-spring) infinite; }
+.sf-icon.fx-signature.sig-strike .sf-l2 { animation: sf-breathe 2s ease-in-out infinite; }
+
+.sf-icon.fx-signature.sig-flutter .sf-l2 { animation: sf-flutter 0.52s ease-in-out infinite; }
+.sf-icon.fx-signature.sig-flutter .sf-l3 { animation: sf-flutter 0.52s ease-in-out 80ms infinite; }
+.sf-icon.fx-signature.sig-flutter .sf-l1 { animation: sf-hover-bob 1.6s ease-in-out infinite; }
 
 .cr-step-head {
   display: flex;
@@ -3469,11 +3622,12 @@ h4.md-heading { font-size: 13px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .spin, .pulse, .chip-active-dot, .timeline-loading-dot, .subagents-section.is-highlighted { animation: none; }
+  .spin, .pulse, .chip-active-dot, .timeline-loading-dot, .subagents-section.is-highlighted,
+  .sf-icon, .sf-icon .sf-layer { animation: none !important; }
   .chev, .chip, .meta-btn, .more-toggle, .step-btn, .subcmd-pill, .toast,
   .sub-accordion-btn, .delegate-menu-row, .row-ask-btn, .focus-chip,
   .guide-acc-btn, .guide-cmd-chip, .guide-cmd-drawer-btn, .pick-chip, .copy-inline-btn, .refresh-btn, .status-banner-action,
-  .run-mode-btn {
+  .run-mode-btn, .cr-step-icon {
     transition: none;
   }
 }
@@ -3995,7 +4149,9 @@ h4.md-heading { font-size: 13px; }
 .panel-view.is-paused .beast-seg.is-run,
 .panel-view.is-paused .beast-lick,
 .panel-view.is-paused .beast-spin,
-.panel-view.is-paused .focus-dot.is-beast-pulse {
+.panel-view.is-paused .focus-dot.is-beast-pulse,
+.panel-view.is-paused .sf-icon,
+.panel-view.is-paused .sf-icon .sf-layer {
   animation-play-state: paused !important;
 }
 
