@@ -944,7 +944,12 @@ test("serves status banner, interactive Trust: Off drawer, calm Risk Card UI, an
     assert.match(appJs, /renderStatusBanner\(/);
     assert.match(appJs, /snap\.trust\?\.riskPresentation/);
     assert.match(appJs, /const offBtn = el\("button", "meta-btn is-neutral", "Trust: Off"\)/);
-    assert.match(appJs, /Beast Mode is enabled per repository/);
+    assert.match(appJs, /Auto Mode is enabled per repository/);
+    assert.match(appJs, /#2563eb/);
+    assert.match(appJs, /#7dd3fc/);
+    assert.match(cssText, /#5aa2ff/);
+    assert.match(cssText, /#38bdf8/);
+    assert.doesNotMatch(cssText, /#ff8a00|#ffd84a/);
     assert.match(appJs, /a\.status === "failed"/);
     assert.match(railJs, /if \(next\.state === "yourturn"\) return "yourturn"/);
     assert.match(railJs, /else if \(kind === "yourturn"\)/);
@@ -1591,7 +1596,7 @@ test("app.js Beast toggle recovers polling after failed POST during in-flight po
 
     await harness.advanceBy(100);
     const beastBtn0 = harness.byId.get("meta-row").findByTestId("timeline-beast-toggle");
-    assert.equal(beastBtn0?.textContent, "Beast");
+    assert.equal(beastBtn0?.textContent, "Auto");
     assert.equal(beastBtn0?.getAttribute("aria-pressed"), "false");
     assert.equal(harness.byId.get("beast-glow-slot").children.length, 0);
 
@@ -1609,11 +1614,12 @@ test("app.js Beast toggle recovers polling after failed POST during in-flight po
     harness.byId.get("meta-row").findByTestId("timeline-beast-toggle").click();
     await harness.flushMicrotasks();
     const beastBtnOn = harness.byId.get("meta-row").findByTestId("timeline-beast-toggle");
-    assert.equal(beastBtnOn?.textContent, "Beast · L0");
+    assert.equal(beastBtnOn?.textContent, "Auto · L0");
     assert.equal(beastBtnOn?.classList.contains("is-beast"), true);
     assert.equal(beastBtnOn?.getAttribute("aria-pressed"), "true");
     beastBtnOn.click();
-    assert.ok(findButtonByText(harness.byId.get("beast-drawer"), "Auto"), "Clicking active Beast pill must open Beast drawer");
+    assert.ok(harness.byId.get("beast-drawer").textContent.includes("Auto-promote"), "Clicking active Auto pill must open Auto drawer with Auto-promote label");
+    assert.ok(findButtonByText(harness.byId.get("beast-drawer"), "Off"), "Auto drawer must render Off/On controls");
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });
@@ -1681,13 +1687,13 @@ test("app.js ignores stale out-of-order /api/trust/settings responses from rapid
 
     pendingResolvers[1].resolve();
     await harness.flushMicrotasks();
-    assert.equal(harness.byId.get("meta-row").findByTestId("timeline-beast-toggle")?.textContent, "Beast");
+    assert.equal(harness.byId.get("meta-row").findByTestId("timeline-beast-toggle")?.textContent, "Auto");
 
     pendingResolvers[0].resolve();
     await harness.flushMicrotasks();
     assert.equal(
       harness.byId.get("meta-row").findByTestId("timeline-beast-toggle")?.textContent,
-      "Beast",
+      "Auto",
       "Stale earlier On response must not overwrite newer Manual click",
     );
   } finally {
@@ -1796,6 +1802,7 @@ test("app.js mounts Beast B Corner Glow, one-shot ignition + toast, Autopilot ca
     const glow1 = harness.byId.get("beast-glow-slot").findByTestId("beast-glow-frame");
     assert.equal(glow1.classList.contains("is-igniting"), true, "Switching Off->On must trigger ignition flare");
     assert.ok(harness.byId.get("beast-toast-slot").findByTestId("beast-activation-toast"), "Switching Off->On must show activation toast");
+    assert.match(harness.byId.get("beast-toast-slot").textContent, /Auto mode is on/);
 
     await harness.advanceBy(1650);
     assert.equal(glow1.classList.contains("is-igniting"), false, "Ignition flare class must clear after 1.6s");
@@ -1988,11 +1995,11 @@ test("app.js hides Beast Mode flames, corner halo, and pilot nodes when idle and
     assert.equal(harness.byId.get("beast-toast-slot").children.length, 0);
     const beastToggleIdle = harness.byId.get("meta-row").findByTestId("timeline-beast-toggle");
     assert.equal(beastToggleIdle?.classList.contains("is-beast"), true);
-    assert.equal(beastToggleIdle?.textContent, "Beast · L0");
-    assert.equal(beastToggleIdle?.children?.[0]?.classList.contains("beast-lick"), false, "Idle Beast toggle flame must not flicker");
+    assert.equal(beastToggleIdle?.textContent, "Auto · L0");
+    assert.equal(beastToggleIdle?.children?.[0]?.classList.contains("beast-lick"), false, "Idle Auto toggle flame must not flicker");
     assert.equal(harness.byId.get("astk-btw").placeholder, "Ask a side question without interrupting the agents");
 
-    // 2. Toggling Manual -> Beast while idle does NOT mount glow or activation toast
+    // 2. Toggling Manual -> Auto while idle does NOT mount glow or activation toast
     harness.byId.get("meta-row").findByTestId("timeline-mode-manual").click();
     await harness.flushMicrotasks();
     assert.equal(serverBeastOn, false);
@@ -2001,7 +2008,7 @@ test("app.js hides Beast Mode flames, corner halo, and pilot nodes when idle and
     assert.equal(serverBeastOn, true);
     assert.equal(harness.byId.get("beast-glow-slot").children.length, 0);
     assert.equal(harness.byId.get("beast-toast-slot").children.length, 0);
-    assert.match(harness.byId.get("toast").textContent, /Beast mode on/i);
+    assert.match(harness.byId.get("toast").textContent, /Auto mode on/i);
 
     // 3. Running background job keeps halo alive; stopping it removes halo
     scenario = "bg_job";

@@ -239,8 +239,8 @@
       add("path", { fill: "currentColor", d: "M12 1.8c1.6 3.7 5.7 6.3 5.7 11.9 0 4.3-2.6 7.6-5.7 7.6s-5.7-2.5-5.7-6.3c0-2.9 1.6-4.8 2.9-6.3 0 2.1.8 3.4 1.9 4-.4-3.5.2-7.3.9-10.9z" });
     } else if (kind === "flame-color") {
       svg.setAttribute("stroke", "none");
-      add("path", { fill: "#ff8a00", d: "M12 1.8c1.6 3.7 5.7 6.3 5.7 11.9 0 4.3-2.6 7.6-5.7 7.6s-5.7-2.5-5.7-6.3c0-2.9 1.6-4.8 2.9-6.3 0 2.1.8 3.4 1.9 4-.4-3.5.2-7.3.9-10.9z" });
-      add("path", { fill: "#ffd84a", d: "M12 21.3c-1.8 0-3-1.4-3-3.2 0-1.9 1.3-3.1 2.3-4.3.2 1.3 1 2.2 1.8 2.5.3-.9.4-1.8.3-2.8 1.2 1.3 1.6 2.8 1.6 4.2 0 2.1-1.4 3.6-3 3.6z" });
+      add("path", { fill: "#2563eb", d: "M12 1.8c1.6 3.7 5.7 6.3 5.7 11.9 0 4.3-2.6 7.6-5.7 7.6s-5.7-2.5-5.7-6.3c0-2.9 1.6-4.8 2.9-6.3 0 2.1.8 3.4 1.9 4-.4-3.5.2-7.3.9-10.9z" });
+      add("path", { fill: "#7dd3fc", d: "M12 21.3c-1.8 0-3-1.4-3-3.2 0-1.9 1.3-3.1 2.3-4.3.2 1.3 1 2.2 1.8 2.5.3-.9.4-1.8.3-2.8 1.2 1.3 1.6 2.8 1.6 4.2 0 2.1-1.4 3.6-3 3.6z" });
     } else if (kind === "bolt") {
       svg.setAttribute("stroke-width", "2.3");
       add("path", { d: "M13 2 4 14h7l-1 8 9-12h-7l1-8z" });
@@ -1649,7 +1649,7 @@
           rp?.mode === "resolved_merged"
             ? `Merged · category ${cat.id} is L${cat.level} (T ${cat.score.toFixed(2)}, cap L${cat.ceiling}).`
             : !snap.trust.beastOn
-              ? `Beast Mode is Off. Category ${cat.id} is L${cat.level} (T ${cat.score.toFixed(2)}, cap L${cat.ceiling}).`
+              ? `Auto Mode is Off. Category ${cat.id} is L${cat.level} (T ${cat.score.toFixed(2)}, cap L${cat.ceiling}).`
               : rp?.mode === "human_gate" && ra.residual === "blocked"
                 ? `Requires human review (${cat.id} capped at L${cat.ceiling}).`
                 : ra.residual === "blocked"
@@ -2267,7 +2267,7 @@
         pilotAlpha: isNext ? 0.95 : 0.65,
         pillKind: isNext ? "auto-next" : "auto",
         pillText: isNext ? "Auto · next" : "Auto",
-        note: "Always runs in Beast mode (optional in Manual)",
+        note: "Always runs in Auto mode (optional in Manual)",
       };
     }
     return {
@@ -2336,7 +2336,7 @@
     ic.classList.add("beast-lick");
     ic.style.flexShrink = "0";
     const copy = el("div", "beast-hero-copy");
-    copy.appendChild(el("div", "beast-activation-title", "Beast mode is on"));
+    copy.appendChild(el("div", "beast-activation-title", "Auto mode is on"));
     copy.appendChild(
       el(
         "div",
@@ -3149,8 +3149,8 @@
         trust.frozen
           ? "Frozen (ledger invalid)"
           : trust.beastOn
-            ? `Beast On · ${trust.promotionMode === "auto" ? "Auto promote" : "Manual promote"}`
-            : "Beast Off",
+            ? `Auto On · ${trust.promotionMode === "auto" ? "Auto-promote On" : "Auto-promote Off"}`
+            : "Auto Off",
       ),
     );
     titleRow.appendChild(statusPill);
@@ -3162,19 +3162,19 @@
     const picker = el("section", "delegate-picker");
     picker.appendChild(el("span", "delegate-picker-label", "Autonomy & Promotion Settings (local plugin data, protected from agent writes)"));
     const row1 = el("div", "delegate-pick-chips");
-    for (const [val, lbl] of [[false, "Beast: Off"], [true, "Beast: On"]]) {
+    for (const [val, lbl] of [[false, "Auto Mode: Off"], [true, "Auto Mode: On"]]) {
       const b = el("button", "pick-chip", lbl);
       b.type = "button";
       b.setAttribute("aria-pressed", String(Boolean(trust.beastOn) === val));
-      b.addEventListener("click", () => updateTrustSettings({ beastOn: val }, `Beast Mode ${val ? "On" : "Off"}`));
+      b.addEventListener("click", () => updateTrustSettings({ beastOn: val }, `Auto Mode ${val ? "On" : "Off"}`));
       row1.appendChild(b);
     }
-    for (const [val, lbl] of [["manual", "Promote: Manual (default)"], ["auto", "Promote: Auto up to Ceiling"]]) {
+    for (const [val, lbl] of [["manual", "Auto-promote: Off (default)"], ["auto", "Auto-promote: On up to Ceiling"]]) {
       const b = el("button", "pick-chip", lbl);
       b.type = "button";
       b.disabled = val === "auto" && Boolean(trust.promotionLockedByPolicy);
       b.setAttribute("aria-pressed", String(trust.promotionMode === val));
-      b.addEventListener("click", () => updateTrustSettings({ promotionMode: val }, `Promotion set to ${val}`));
+      b.addEventListener("click", () => updateTrustSettings({ promotionMode: val }, `Auto-promote ${val === "auto" ? "On" : "Off"}`));
       row1.appendChild(b);
     }
     picker.appendChild(row1);
@@ -4447,13 +4447,13 @@
         if (beastLive) flameIc.classList.add("beast-lick");
         beastToggle.appendChild(flameIc);
         beastToggle.appendChild(
-          el("span", "", beastOn ? `Beast · L${activeCat?.level ?? 0}` : "Beast"),
+          el("span", "", beastOn ? `Auto · L${activeCat?.level ?? 0}` : "Auto"),
         );
         beastToggle.addEventListener("click", () => {
           if (!beastOn) {
             const msg = hasRunningWork(state.snap)
               ? ""
-              : "Beast mode on · fire and autopilot visuals activate while work is running";
+              : "Auto mode on · flame and autopilot visuals activate while work is running";
             updateTrustSettings({ beastOn: true }, msg);
             return;
           }
@@ -4468,7 +4468,7 @@
         offBtn.type = "button";
         offBtn.dataset.testid = "timeline-trust-off";
         offBtn.setAttribute("aria-expanded", String(state.beastDrawerOpen));
-        const offDesc = "Beast Mode is enabled per repository. Click to see how to enroll this repo.";
+        const offDesc = "Auto Mode is enabled per repository. Click to see how to enroll this repo.";
         attachStatusPopover(offBtn, "Earned Trust", "Off", "", offDesc);
         offBtn.addEventListener("click", () => {
           hideCommandPopover();
@@ -4501,26 +4501,26 @@
         beastDrawer.classList.remove("hidden");
 
         const r1 = el("div", "beast-ctrl-row");
-        r1.appendChild(el("span", "beast-ctrl-label", "Beast Mode (run up to earned level)"));
+        r1.appendChild(el("span", "beast-ctrl-label", "Auto Mode (run up to earned level)"));
         const g1 = el("div", "beast-seg-group");
         for (const [val, lbl] of [[false, "Off"], [true, "On"]]) {
           const b = el("button", "subcmd-pill is-sans", lbl);
           b.type = "button";
           b.setAttribute("aria-pressed", String(Boolean(snap.trust.beastOn) === val));
-          b.addEventListener("click", () => updateTrustSettings({ beastOn: val }, `Beast Mode ${val ? "On" : "Off"}`));
+          b.addEventListener("click", () => updateTrustSettings({ beastOn: val }, `Auto Mode ${val ? "On" : "Off"}`));
           g1.appendChild(b);
         }
         r1.appendChild(g1);
 
         const r2 = el("div", "beast-ctrl-row");
-        r2.appendChild(el("span", "beast-ctrl-label", "Promotion"));
+        r2.appendChild(el("span", "beast-ctrl-label", "Auto-promote"));
         const g2 = el("div", "beast-seg-group");
-        for (const [val, lbl] of [["manual", "Manual"], ["auto", "Auto"]]) {
+        for (const [val, lbl] of [["manual", "Off"], ["auto", "On"]]) {
           const b = el("button", "subcmd-pill is-sans", lbl);
           b.type = "button";
           b.disabled = val === "auto" && Boolean(snap.trust.promotionLockedByPolicy);
           b.setAttribute("aria-pressed", String(snap.trust.promotionMode === val));
-          b.addEventListener("click", () => updateTrustSettings({ promotionMode: val }, `Promotion set to ${val}`));
+          b.addEventListener("click", () => updateTrustSettings({ promotionMode: val }, `Auto-promote ${val === "auto" ? "On" : "Off"}`));
           g2.appendChild(b);
         }
         r2.appendChild(g2);
@@ -4555,7 +4555,7 @@
           el(
             "p",
             "setup-drawer-detail",
-            "Beast Mode is enabled per repository. Add .agents/risk-policy.json on your base branch (main) to enroll this repo.",
+            "Auto Mode is enabled per repository. Add .agents/risk-policy.json on your base branch (main) to enroll this repo.",
           ),
         );
         const chips = el("div", "chips");

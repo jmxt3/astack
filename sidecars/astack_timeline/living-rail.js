@@ -49,13 +49,13 @@
       spark: dark ? [220, 235, 255] : accent,
       core: dark ? [15, 26, 43] : toRgb(ctx, v("--tl-card"), "#ffffff"),
       hand: toRgb(ctx, v("--tl-queued"), dark ? "#8fb6ee" : "#3b6fb6"),
-      beastOuter: dark ? [234, 88, 12] : [180, 83, 9],
-      beastAmber: dark ? [255, 162, 0] : [217, 119, 6],
-      beastYellow: dark ? [253, 224, 71] : [250, 204, 21],
-      beastCore: dark ? [255, 253, 224] : [254, 249, 195],
-      beastDisc: dark ? [26, 15, 5] : [255, 251, 235],
-      beastLine: dark ? [255, 176, 32] : [217, 119, 6],
-      beastSpark: dark ? [255, 243, 184] : [250, 204, 21],
+      beastOuter: dark ? [37, 99, 235] : [29, 78, 216],
+      beastAmber: dark ? [90, 162, 255] : [0, 104, 184],
+      beastYellow: dark ? [56, 189, 248] : [2, 132, 199],
+      beastCore: dark ? [240, 249, 255] : [224, 242, 254],
+      beastDisc: dark ? [10, 22, 42] : [239, 246, 255],
+      beastLine: dark ? [90, 162, 255] : [0, 104, 184],
+      beastSpark: dark ? [224, 242, 254] : [56, 189, 248],
     };
   }
 
