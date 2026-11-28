@@ -3035,3 +3035,285 @@ test("createTimelineServer ignores batched read_file fixture PR URLs and skips p
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("createTimelineServer serves clean header HTML and binary PNG/ICO favicons", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-hdr-html-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const htmlRes = await fetch(`${srv.url}`);
+    assert.equal(htmlRes.status, 200);
+    const html = await htmlRes.text();
+    assert.doesNotMatch(html, /class="brand-logo"/);
+    assert.doesNotMatch(html, /class="title"/);
+    assert.match(html, /<h1 class="sr-only">AStack Timeline<\/h1>/);
+    assert.match(html, /<link\b[^>]*href="\/logo\.svg"[^>]*>/);
+    assert.match(html, /<link\b[^>]*href="\/logo\.png"[^>]*>/);
+    assert.match(html, /<link\b[^>]*href="\/favicon\.ico"[^>]*>/);
+
+    const cssRes = await fetch(`${srv.url}styles.css`);
+    assert.equal(cssRes.status, 200);
+    const cssText = await cssRes.text();
+    assert.match(cssText, /^\.title\s*\{/m, "styles.css must preserve .title for sub-view headings");
+
+    for (const assetPath of ["logo.png", "favicon.ico"]) {
+      const res = await fetch(`${srv.url}${assetPath}`);
+      assert.equal(res.status, 200, `${assetPath} should return 200`);
+      assert.match(res.headers.get("content-type") ?? "", /^image\/png\b/i);
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      assert.ok(bytes.length > 8, `${assetPath} must be non-empty PNG`);
+      assert.deepEqual([...bytes.slice(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+    }
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("app.js hides calm header metadata and progress in Review PR mode while keeping run-mode controls", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-hdr-calm-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const appJs = await (await fetch(`${srv.url}app.js`)).text();
+    let currentSnap = {
+      ...makeFakeSnapshot("etag-calm-merged"),
+      freshness: "fresh",
+      riskTier: 2,
+      trust: {
+        scopeKind: "enrolled_repo",
+        enrolled: true,
+        beastOn: false,
+        chainValid: true,
+        frozen: false,
+        categories: [],
+        riskPresentation: {
+          mode: "resolved_merged",
+          headerBadge: "Merged · Tier 2",
+          headline: "PR merged",
+          whyItems: [],
+        },
+      },
+    };
+
+    const harness = createAppJsTestHarness({
+      appJs,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => currentSnap,
+      }),
+    });
+
+    const assertCalmMetaRow = () => {
+      const metaRow = harness.byId.get("meta-row");
+      assert.equal(metaRow.classList.contains("hidden"), false);
+      assert.equal(metaRow.findByTestId("timeline-setup-toggle"), null);
+      assert.equal(metaRow.findByTestId("timeline-freshness"), null);
+      assert.equal(metaRow.findByTestId("timeline-risk-badge"), null);
+      assert.equal(metaRow.findByTestId("timeline-alerts"), null);
+      assert.equal(metaRow.findByTestId("timeline-trust-alert"), null);
+      const runMode = metaRow.findByTestId("timeline-run-mode");
+      assert.ok(runMode);
+      assert.ok(runMode.findByTestId("timeline-mode-manual"));
+      assert.ok(runMode.findByTestId("timeline-beast-toggle"));
+      assert.equal(harness.byId.get("setup-drawer").classList.contains("hidden"), true);
+    };
+
+    await harness.advanceBy(100);
+    assertCalmMetaRow();
+
+    currentSnap = {
+      ...makeFakeSnapshot("etag-calm-low-ok"),
+      freshness: "fresh",
+      riskTier: 0,
+      trust: {
+        scopeKind: "enrolled_repo",
+        enrolled: true,
+        beastOn: false,
+        chainValid: true,
+        frozen: false,
+        categories: [],
+        riskPresentation: {
+          mode: "low_ok",
+          headerBadge: "Low risk · 10%",
+          headline: "Low risk",
+          whyItems: [],
+        },
+      },
+    };
+    await harness.advanceBy(2000);
+    assertCalmMetaRow();
+
+    const progress = harness.byId.get("progress");
+    assert.equal(progress.classList.contains("hidden"), false);
+    harness.byId.get("mode-btn-review").click();
+    assert.equal(progress.classList.contains("hidden"), true);
+    harness.byId.get("mode-btn-build").click();
+    assert.equal(progress.classList.contains("hidden"), false);
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("app.js renders actionable header alerts for stale checks, stage errors, risky states, and trust ledger issues", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-hdr-alerts-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const appJs = await (await fetch(`${srv.url}app.js`)).text();
+    let currentSnap = makeFakeSnapshot("etag-alert-init");
+
+    const harness = createAppJsTestHarness({
+      appJs,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => currentSnap,
+      }),
+    });
+
+    await harness.advanceBy(100);
+
+    const pushSnap = async (snap) => {
+      currentSnap = snap;
+      await harness.advanceBy(2000);
+      return harness.byId.get("meta-row").findByTestId("timeline-alerts");
+    };
+
+    const dirtyAlerts = await pushSnap({
+      ...makeFakeSnapshot("etag-alert-dirty"),
+      freshness: "dirty_after_verify",
+    });
+    assert.ok(dirtyAlerts);
+    const dirtyFresh = dirtyAlerts.findByTestId("timeline-freshness");
+    assert.ok(dirtyFresh);
+    assert.equal(dirtyFresh.textContent, "Checks stale");
+    assert.equal(dirtyFresh.classList.contains("warn"), true);
+
+    const staleAlerts = await pushSnap({
+      ...makeFakeSnapshot("etag-alert-stale-sha"),
+      freshness: "stale_sha",
+    });
+    assert.ok(staleAlerts);
+    const staleFresh = staleAlerts.findByTestId("timeline-freshness");
+    assert.ok(staleFresh);
+    assert.equal(staleFresh.textContent, "Checks outdated");
+    assert.equal(staleFresh.classList.contains("warn"), true);
+
+    const baseStages = makeFakeSnapshot("etag-base").stages;
+    const statusErrAlerts = await pushSnap({
+      ...makeFakeSnapshot("etag-alert-stage-status-err"),
+      freshness: "fresh",
+      stages: baseStages.map((s) => (s.id === "review" ? { ...s, status: "error" } : s)),
+    });
+    assert.ok(statusErrAlerts);
+    const statusErrFresh = statusErrAlerts.findByTestId("timeline-freshness");
+    assert.ok(statusErrFresh);
+    assert.equal(statusErrFresh.textContent, "Verification failed");
+    assert.equal(statusErrFresh.classList.contains("error"), true);
+
+    const railErrAlerts = await pushSnap({
+      ...makeFakeSnapshot("etag-alert-stage-rail-err"),
+      freshness: "fresh",
+      stages: baseStages.map((s) => (s.id === "review" ? { ...s, status: "active", railState: "error" } : s)),
+    });
+    assert.ok(railErrAlerts);
+    const railErrFresh = railErrAlerts.findByTestId("timeline-freshness");
+    assert.ok(railErrFresh);
+    assert.equal(railErrFresh.textContent, "Verification failed");
+    assert.equal(railErrFresh.classList.contains("error"), true);
+
+    const gateAlerts = await pushSnap({
+      ...makeFakeSnapshot("etag-alert-human-gate"),
+      freshness: "fresh",
+      riskTier: 2,
+      trust: {
+        scopeKind: "enrolled_repo",
+        enrolled: true,
+        beastOn: false,
+        chainValid: true,
+        frozen: false,
+        categories: [],
+        riskPresentation: {
+          mode: "human_gate",
+          headerBadge: "Review gate · Risk 52%",
+          headline: "Human review required",
+          whyItems: [],
+        },
+      },
+    });
+    assert.ok(gateAlerts);
+    const gateBadge = gateAlerts.findByTestId("timeline-risk-badge");
+    assert.ok(gateBadge);
+    assert.equal(gateBadge.classList.contains("tier-2"), true);
+    assert.equal(gateBadge.classList.contains("is-error"), false);
+
+    const defectAlerts = await pushSnap({
+      ...makeFakeSnapshot("etag-alert-defect-blocked"),
+      freshness: "fresh",
+      riskTier: 3,
+      trust: {
+        scopeKind: "enrolled_repo",
+        enrolled: true,
+        beastOn: false,
+        chainValid: true,
+        frozen: false,
+        categories: [],
+        riskPresentation: {
+          mode: "defect_blocked",
+          headerBadge: "Blocked · Defect",
+          headline: "Defect blocked",
+          whyItems: [],
+        },
+      },
+    });
+    assert.ok(defectAlerts);
+    const defectBadge = defectAlerts.findByTestId("timeline-risk-badge");
+    assert.ok(defectBadge);
+    assert.equal(defectBadge.classList.contains("is-error"), true);
+
+    const frozenAlerts = await pushSnap({
+      ...makeFakeSnapshot("etag-alert-trust-frozen"),
+      freshness: "fresh",
+      trust: {
+        scopeKind: "enrolled_repo",
+        enrolled: true,
+        beastOn: false,
+        chainValid: true,
+        frozen: true,
+        categories: [],
+      },
+    });
+    assert.ok(frozenAlerts);
+    const frozenPill = frozenAlerts.findByTestId("timeline-trust-alert");
+    assert.ok(frozenPill);
+    assert.equal(frozenPill.classList.contains("is-error"), true);
+    assert.equal(frozenPill.textContent, "Trust frozen");
+
+    const chainAlerts = await pushSnap({
+      ...makeFakeSnapshot("etag-alert-trust-chain"),
+      freshness: "fresh",
+      trust: {
+        scopeKind: "enrolled_repo",
+        enrolled: true,
+        beastOn: false,
+        chainValid: false,
+        frozen: false,
+        categories: [],
+      },
+    });
+    assert.ok(chainAlerts);
+    const chainPill = chainAlerts.findByTestId("timeline-trust-alert");
+    assert.ok(chainPill);
+    assert.equal(chainPill.classList.contains("is-error"), true);
+    assert.equal(chainPill.textContent, "Ledger check failed");
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

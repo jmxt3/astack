@@ -43,6 +43,8 @@ const ARTIFACT_MIME_TYPES = new Map([
 const STATIC_ASSETS = new Map([
   ["/", { file: "index.html", type: "text/html; charset=utf-8" }],
   ["/logo.svg", { file: "../../assets/logo.svg", type: "image/svg+xml; charset=utf-8" }],
+  ["/logo.png", { file: "../../assets/logo.png", type: "image/png", binary: true }],
+  ["/favicon.ico", { file: "../../assets/logo.png", type: "image/png", binary: true }],
   ["/styles.css", { file: "styles.css", type: "text/css; charset=utf-8" }],
   ["/living-rail.js", { file: "living-rail.js", type: "application/javascript; charset=utf-8" }],
   ["/app.js", { file: "app.js", type: "application/javascript; charset=utf-8" }],
@@ -311,16 +313,17 @@ let cachedCatalogScript = null;
 
 function readStaticAsset(asset) {
   const filePath = path.join(__dirname, ...asset.file.split("/"));
+  const readFile = () => (asset.binary ? fs.readFileSync(filePath) : fs.readFileSync(filePath, "utf8"));
   try {
     const st = fs.statSync(filePath);
     const key = `${st.mtimeMs}:${st.size}`;
     const hit = staticAssetCache.get(filePath);
     if (hit && hit.key === key) return hit.body;
-    const body = fs.readFileSync(filePath, "utf8");
+    const body = readFile();
     staticAssetCache.set(filePath, { key, body });
     return body;
   } catch {
-    return fs.readFileSync(filePath, "utf8");
+    return readFile();
   }
 }
 

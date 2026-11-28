@@ -34,7 +34,6 @@
     guideUserToggled: false,
     guideCmdDrawerOpen: false,
     guideSelectedExampleByStage: {},
-    setupDrawerOpen: false,
     beastDrawerOpen: false,
     panelMode: "build",
     panelModeUserToggled: false,
@@ -4540,6 +4539,109 @@
     list.replaceChildren(card);
   }
 
+  const RISK_TITLES = ["Low risk", "Medium risk", "High risk", "Critical risk"];
+
+  function computeHeaderAlerts(snap) {
+    if (!snap) return [];
+    const alerts = [];
+    const rp = snap.trust?.riskPresentation || null;
+    const showRisk =
+      rp?.mode === "defect_blocked" ||
+      rp?.mode === "human_gate" ||
+      (!rp && snap?.riskTier !== null && snap?.riskTier !== undefined && snap.riskTier >= 1);
+
+    if (showRisk && rp?.mode !== "resolved_merged" && rp?.mode !== "low_ok") {
+      const tierNum =
+        snap?.riskTier !== null && snap?.riskTier !== undefined
+          ? snap.riskTier
+          : snap?.trust?.riskAssessment?.tier ?? (rp?.mode === "defect_blocked" ? 3 : 2);
+      const riskWord = RISK_TITLES[tierNum] || `Tier ${tierNum}`;
+      const raScore = typeof snap?.trust?.riskAssessment?.score === "number" ? snap.trust.riskAssessment.score : null;
+      const riskPct = raScore !== null ? Math.round(raScore * 100) : null;
+      const riskLabel = rp?.headerBadge || (riskPct !== null ? `${riskWord} · ${riskPct}%` : riskWord);
+      const descParts = [];
+      if (rp) {
+        if (rp.headline) descParts.push(rp.headline);
+        for (const w of rp.whyItems || []) {
+          if (w.evidence) descParts.push(`${w.id}: ${w.evidence}`);
+        }
+        if (rp.nextHint) descParts.push(rp.nextHint);
+      } else if (snap?.trust?.riskAssessment?.summary) {
+        descParts.push(snap.trust.riskAssessment.summary);
+      } else {
+        if (snap?.riskDescription) {
+          const cleanDesc = snap.riskDescription.trim().replace(/\.+$/, "");
+          descParts.push(`${cleanDesc}.`);
+        }
+        if (Array.isArray(snap?.riskMatchedGlobs) && snap.riskMatchedGlobs.length > 0) {
+          descParts.push(`Matched: ${snap.riskMatchedGlobs.join(", ")}.`);
+        }
+        if (tierNum >= 1) descParts.push("Requires human PR review.");
+      }
+      const riskCls =
+        rp?.mode === "defect_blocked"
+          ? "meta-pill meta-risk is-error"
+          : `meta-pill meta-risk tier-${tierNum}`;
+      alerts.push({
+        text: riskLabel,
+        cls: riskCls,
+        testId: "timeline-risk-badge",
+        popTitle: raScore !== null ? `Risk Score · ${riskWord}` : `Blast-Radius Risk · Tier ${tierNum}`,
+        popStatus: raScore !== null ? `Risk ${riskPct}% (R ${raScore.toFixed(2)})` : riskWord,
+        popMode: rp?.mode === "defect_blocked" || tierNum >= 3 ? "stale" : "",
+        popDesc: descParts.filter(Boolean).join(" ") || "Requires human review before merging.",
+      });
+    }
+
+    const hasStageError =
+      Array.isArray(snap?.stages) && snap.stages.some((s) => s?.status === "error" || s?.railState === "error");
+    if (hasStageError) {
+      alerts.push({
+        text: "Verification failed",
+        cls: "meta-pill meta-fresh error",
+        testId: "timeline-freshness",
+        popTitle: "Verification Failed",
+        popStatus: "Action required",
+        popMode: "stale",
+        popDesc: "Verification failed or escalated. Inspect the flagged stage and re-run checks on HEAD.",
+      });
+    } else if (snap?.freshness === "dirty_after_verify") {
+      alerts.push({
+        text: "Checks stale",
+        cls: "meta-pill meta-fresh warn",
+        testId: "timeline-freshness",
+        popTitle: "Receipt Freshness",
+        popStatus: "dirty_after_verify",
+        popMode: "stale",
+        popDesc: "Files changed after the last verification run. Re-run tests or /pre-pr on current HEAD.",
+      });
+    } else if (snap?.freshness === "stale_sha") {
+      alerts.push({
+        text: "Checks outdated",
+        cls: "meta-pill meta-fresh warn",
+        testId: "timeline-freshness",
+        popTitle: "Receipt Freshness",
+        popStatus: "stale_sha",
+        popMode: "stale",
+        popDesc: "Verification receipts belong to an older commit. Re-run tests or /pre-pr on current HEAD.",
+      });
+    }
+
+    if (snap?.trust?.enrolled && (snap.trust.frozen || snap.trust.chainValid === false)) {
+      alerts.push({
+        text: snap.trust.chainValid === false ? "Ledger check failed" : "Trust frozen",
+        cls: "meta-pill meta-risk is-error",
+        testId: "timeline-trust-alert",
+        popTitle: "Trust Ledger",
+        popStatus: "Action required",
+        popMode: "stale",
+        popDesc: "Trust ledger verification failed or is frozen. Open Trust to inspect and recover.",
+      });
+    }
+
+    return alerts;
+  }
+
   function render(snap) {
     if (!snap) return;
     clearLoadingTimer();
@@ -4570,22 +4672,19 @@
     const modeInfo = WORKFLOW_MODE_COPY[snap.workflowMode];
     if (progressEl) {
       if (state.panelMode === "review_pr") {
-        progressEl.textContent = "Review PR";
-        progressEl.className = "progress is-mode";
-        state.progressPopover = {
-          title: "Colleague PR Review",
-          statusText: "Dedicated",
-          mode: "",
-          desc: "Focused workflows for reviewing someone else's open PR without authoring stages.",
-        };
+        progressEl.textContent = "";
+        progressEl.className = "progress hidden";
+        state.progressPopover = null;
       } else if (snap.workflowLabel && modeInfo) {
         progressEl.textContent = snap.workflowLabel;
         progressEl.className = "progress is-mode";
+        progressEl.classList.remove("hidden");
         state.progressPopover = { title: modeInfo.title, statusText: modeInfo.status, mode: "", desc: modeInfo.desc };
       } else {
         const cycleNum = snap.cycles?.currentNumber || 1;
         progressEl.textContent = cycleNum > 1 ? `Cycle ${cycleNum} · ${snap.doneCount} / ${snap.totalCount}` : `${snap.doneCount} / ${snap.totalCount}`;
         progressEl.className = "progress";
+        progressEl.classList.remove("hidden");
         state.progressPopover = {
           title: cycleNum > 1 ? `Cycle ${cycleNum} Workflow` : "Advisory Workflow Guide",
           statusText: `${snap.doneCount} / ${snap.totalCount}`,
@@ -4599,93 +4698,28 @@
     }
     applyLiveStatus(snap);
 
-    const RISK_TITLES = ["Low risk", "Medium risk", "High risk", "Critical risk"];
-    const FRESHNESS_DISPLAY = {
-      fresh: { label: "✓ Verified", mode: "done", desc: "Tests or validation passed on the current git HEAD with no unverified edits." },
-      fresh_rebase_patch_id: { label: "✓ Verified", mode: "done", desc: "Rebased commit matches previously verified patch-id on current HEAD." },
-    };
-
-    const rp = snap.trust?.riskPresentation || null;
-    const metaParts = [];
-    if (snap.riskTier !== null && snap.riskTier !== undefined) {
-      const riskWord = RISK_TITLES[snap.riskTier] || `Tier ${snap.riskTier}`;
-      const raScore = typeof snap.trust?.riskAssessment?.score === "number" ? snap.trust.riskAssessment.score : null;
-      const riskPct = raScore !== null ? Math.round(raScore * 100) : null;
-      const riskLabel = rp?.headerBadge || (riskPct !== null ? `${riskWord} · ${riskPct}%` : riskWord);
-      const descParts = [];
-      if (rp) {
-        descParts.push(rp.headline);
-        for (const w of rp.whyItems || []) {
-          if (w.evidence) descParts.push(`${w.id}: ${w.evidence}`);
-        }
-        if (rp.nextHint) descParts.push(rp.nextHint);
-      } else if (snap.trust?.riskAssessment?.summary) {
-        descParts.push(snap.trust.riskAssessment.summary);
-      } else {
-        if (snap.riskDescription) {
-          const cleanDesc = snap.riskDescription.trim().replace(/\.+$/, "");
-          descParts.push(`${cleanDesc}.`);
-        }
-        if (Array.isArray(snap.riskMatchedGlobs) && snap.riskMatchedGlobs.length > 0) {
-          descParts.push(`Matched: ${snap.riskMatchedGlobs.join(", ")}.`);
-        }
-        if (snap.riskTier >= 1) descParts.push("Requires human PR review.");
-      }
-      const riskCls = rp?.mode === "resolved_merged"
-        ? "meta-pill meta-risk is-resolved"
-        : `meta-pill meta-risk tier-${snap.riskTier}`;
-      metaParts.push({
-        text: riskLabel,
-        cls: riskCls,
-        testId: "timeline-risk-badge",
-        popTitle: raScore !== null ? `Risk Score · ${riskWord}` : `Blast-Radius Risk · Tier ${snap.riskTier}`,
-        popStatus: raScore !== null ? `Risk ${riskPct}% (R ${raScore.toFixed(2)})` : riskWord,
-        popMode: rp?.mode === "resolved_merged" ? "done" : snap.riskTier >= 3 ? "stale" : snap.riskTier === 0 ? "done" : "",
-        popDesc: descParts.join(" "),
-      });
-    }
-    if (snap.freshness && FRESHNESS_DISPLAY[snap.freshness]) {
-      const fm = FRESHNESS_DISPLAY[snap.freshness];
-      metaParts.push({
-        text: fm.label,
-        cls: `meta-pill meta-fresh ${fm.mode}`.trim(),
-        testId: "timeline-freshness",
-        popTitle: "Receipt Freshness",
-        popStatus: snap.freshness,
-        popMode: fm.mode,
-        popDesc: fm.desc,
-      });
-    }
+    const metaParts = computeHeaderAlerts(snap);
     const setupReady = snap.setup?.status === "ready";
     const isNonRepo = snap.trust?.scopeKind === "non_repo" && Boolean(snap.workspace) && !setupReady;
     const hasTrustBadge = Boolean(snap.trust?.enrolled || snap.trust?.scopeKind === "git_unregistered");
     const metaRow = document.getElementById("meta-row");
     metaRow.replaceChildren();
-    if (!isNonRepo && (metaParts.length > 0 || setupReady || hasTrustBadge)) {
+    if (!isNonRepo && (metaParts.length > 0 || hasTrustBadge)) {
       metaRow.classList.remove("hidden");
-      metaParts.forEach((part, idx) => {
-        if (idx > 0) metaRow.appendChild(el("span", "meta-sep", "·"));
-        const node = el("span", part.cls || "", part.text);
-        if (part.testId) node.dataset.testid = part.testId;
-        if (part.popDesc) {
-          node.tabIndex = 0;
-          attachStatusPopover(node, part.popTitle, part.popStatus, part.popMode, part.popDesc);
-        }
-        metaRow.appendChild(node);
-      });
-      if (setupReady) {
-        const setupToggle = el("button", "meta-btn");
-        setupToggle.type = "button";
-        setupToggle.dataset.testid = "timeline-setup-toggle";
-        setupToggle.setAttribute("aria-expanded", String(state.setupDrawerOpen));
-        setupToggle.appendChild(svgIcon("check-sm", 10));
-        setupToggle.appendChild(el("span", "", "Setup ready"));
-        setupToggle.addEventListener("click", () => {
-          state.setupDrawerOpen = !state.setupDrawerOpen;
-          if (state.setupDrawerOpen) state.beastDrawerOpen = false;
-          render(state.snap);
+      if (metaParts.length > 0) {
+        const alertsWrap = el("div", "meta-alerts");
+        alertsWrap.dataset.testid = "timeline-alerts";
+        metaParts.forEach((part, idx) => {
+          if (idx > 0) alertsWrap.appendChild(el("span", "meta-sep", "·"));
+          const node = el("span", part.cls || "", part.text);
+          if (part.testId) node.dataset.testid = part.testId;
+          if (part.popDesc) {
+            node.tabIndex = 0;
+            attachStatusPopover(node, part.popTitle, part.popStatus, part.popMode, part.popDesc);
+          }
+          alertsWrap.appendChild(node);
         });
-        metaRow.appendChild(setupToggle);
+        metaRow.appendChild(alertsWrap);
       }
       if (snap.trust?.enrolled) {
         const activeCat = snap.trust.activeCatState;
@@ -4731,7 +4765,6 @@
             return;
           }
           state.beastDrawerOpen = !state.beastDrawerOpen;
-          if (state.beastDrawerOpen) state.setupDrawerOpen = false;
           render(state.snap);
         });
         rmGroup.append(manualBtn, beastToggle);
@@ -4746,7 +4779,6 @@
         offBtn.addEventListener("click", () => {
           hideCommandPopover();
           state.beastDrawerOpen = !state.beastDrawerOpen;
-          if (state.beastDrawerOpen) state.setupDrawerOpen = false;
           render(state.snap);
         });
         metaRow.appendChild(offBtn);
@@ -4757,14 +4789,7 @@
 
     const setupDrawer = document.getElementById("setup-drawer");
     setupDrawer.replaceChildren();
-    if (setupReady && state.setupDrawerOpen) {
-      setupDrawer.classList.remove("hidden");
-      setupDrawer.appendChild(el("p", "setup-drawer-detail", snap.setup.detail));
-      setupDrawer.appendChild(buildCommandChips(snap.setup.commands));
-      appendSubCommands(setupDrawer, "setup", snap.setup.autoSubCommands, snap.setup.moreCommands);
-    } else {
-      setupDrawer.classList.add("hidden");
-    }
+    setupDrawer.classList.add("hidden");
 
     const beastDrawer = document.getElementById("beast-drawer");
     if (beastDrawer) {
