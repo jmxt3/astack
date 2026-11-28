@@ -964,6 +964,7 @@ test("serves status banner, interactive Trust: Off drawer, calm Risk Card UI, an
 
 function createAppJsTestHarness({
   appJs,
+  catalogJs = null,
   conversationId = "11111111-2222-3333-4444-555555555555",
   hidden = false,
   workspaceUris = ["file:///repo"],
@@ -1232,6 +1233,9 @@ function createAppJsTestHarness({
   if (createLivingRail) sandbox.createLivingRail = createLivingRail;
   sandbox.window = sandbox;
 
+  if (catalogJs) {
+    vm.runInNewContext(catalogJs, sandbox, { filename: "catalog.js" });
+  }
   vm.runInNewContext(appJs, sandbox, { filename: "app.js" });
   return {
     byId,
@@ -2208,6 +2212,106 @@ test("sidecar serves colleagueReviewGuide and toggles between Build (Pre-PR Chec
       "Conversation change must reset manual mode override and auto-select Review PR",
     );
     assert.ok(harness.byId.get("colleague-review-panel").findByTestId("cr-intent-body-queue"));
+  } finally {
+    await srv.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Review PR panel renders all 10 animated hierarchical SF Symbols icons with unique gradients and reduced-motion rules", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astack-tl-sf-icons-"));
+  const brainDir = path.join(root, "brain");
+  fs.mkdirSync(brainDir, { recursive: true });
+  const srv = await createTimelineServer({ brainDir, port: 0 });
+  try {
+    const [catalogJs, appJs, cssText] = await Promise.all([
+      (await fetch(`${srv.url}catalog.js`)).text(),
+      (await fetch(`${srv.url}app.js`)).text(),
+      (await fetch(`${srv.url}styles.css`)).text(),
+    ]);
+
+    const harness = createAppJsTestHarness({
+      appJs,
+      catalogJs,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => makeFakeSnapshot("etag-sf-icons"),
+      }),
+    });
+
+    await harness.advanceBy(100);
+    harness.byId.get("mode-btn-review").click();
+
+    const panel = harness.byId.get("colleague-review-panel");
+    const seenGradIds = new Set();
+
+    function assertSfIconSlot(testId, expectedIconId, expectedSigClass) {
+      const slot = panel.findByTestId(testId);
+      assert.ok(slot, `Expected icon slot ${testId}`);
+      const svg = slot.children.find((ch) => ch.tagName === "SVG");
+      assert.ok(svg, `Expected <svg> inside ${testId}`);
+      assert.equal(svg.getAttribute("viewBox"), "0 0 24 24");
+      assert.equal(svg.getAttribute("aria-hidden"), "true");
+      assert.equal(svg.getAttribute("data-sf-icon"), expectedIconId);
+      assert.equal(svg.classList.contains("sf-icon"), true);
+      assert.equal(svg.classList.contains("fx-signature"), true);
+      assert.equal(svg.classList.contains(expectedSigClass), true, `${expectedIconId} must carry ${expectedSigClass}`);
+
+      const defs = svg.children.find((ch) => ch.tagName === "DEFS");
+      assert.ok(defs, `${expectedIconId} must include <defs> gradient`);
+      const grad = defs.children.find((ch) => ch.tagName === "LINEARGRADIENT");
+      assert.ok(grad, `${expectedIconId} must define <linearGradient>`);
+      const gradId = grad.getAttribute("id");
+      assert.ok(gradId && !seenGradIds.has(gradId), `Gradient ID ${gradId} must be unique`);
+      seenGradIds.add(gradId);
+      assert.equal(grad.children.length, 2, `${expectedIconId} gradient must have 2 stops`);
+      assert.equal(grad.children[0].classList.contains("sf-stop-top"), true);
+      assert.equal(grad.children[1].classList.contains("sf-stop-bot"), true);
+
+      const layers = svg.children.filter((ch) => ch.tagName === "G");
+      assert.equal(layers.length, 3, `${expectedIconId} must render 3 hierarchical layers`);
+      assert.deepEqual(
+        layers.map((g) => ["sf-l3", "sf-l2", "sf-l1"].find((cls) => g.classList.contains(cls))),
+        ["sf-l3", "sf-l2", "sf-l1"],
+      );
+      for (const g of layers) {
+        assert.ok(g.children.length > 0, `${expectedIconId} layer must contain vector geometry`);
+        for (const shape of g.children) {
+          const fill = shape.getAttribute("fill");
+          const stroke = shape.getAttribute("stroke");
+          assert.ok(
+            fill === `url(#${gradId})` || stroke === `url(#${gradId})`,
+            `${expectedIconId} shape must paint with gradient url(#${gradId})`,
+          );
+        }
+      }
+    }
+
+    assertSfIconSlot("cr-intent-icon-single", "single-falcon", "sig-lock");
+    assertSfIconSlot("cr-intent-icon-queue", "queue-fish", "sig-fish");
+    assertSfIconSlot("cr-intent-icon-stack", "stack-cairn", "sig-wave");
+
+    assertSfIconSlot("cr-step-icon-teach-owl", "teach-owl", "sig-lock");
+    assertSfIconSlot("cr-step-icon-interrogate-beetle", "interrogate-beetle", "sig-lock");
+    assertSfIconSlot("cr-step-icon-blast-volcano", "blast-volcano", "sig-puff");
+    panel.findByTestId("cr-more-toggle").click();
+    assertSfIconSlot("cr-step-icon-security-scorpion", "security-scorpion", "sig-strike");
+
+    panel.findByTestId("cr-intent-queue").click();
+    assertSfIconSlot("cr-step-icon-fanout-octopus", "fanout-octopus", "sig-wave");
+    assertSfIconSlot("cr-step-icon-workflow-abacus", "workflow-abacus", "sig-wave");
+
+    panel.findByTestId("cr-intent-stack").click();
+    assertSfIconSlot("cr-step-icon-swarm-bee", "swarm-bee", "sig-flutter");
+
+    assert.match(cssText, /--sf-blue-top:\s*#2694ff/);
+    assert.match(cssText, /--sf-blue-top:\s*#3cb0ff/);
+    assert.match(cssText, /\.sf-icon \.sf-l2\s*\{[^}]*opacity:\s*0\.52/);
+    assert.match(cssText, /\.sf-icon \.sf-l3\s*\{[^}]*opacity:\s*0\.26/);
+    assert.match(cssText, /\.sf-icon\.fx-signature\.sig-flutter/);
+    assert.match(cssText, /\.panel-view\.is-paused \.sf-icon,\s*\.panel-view\.is-paused \.sf-icon \.sf-layer/);
+    assert.match(cssText, /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.sf-icon,\s*\.sf-icon \.sf-layer\s*\{\s*animation:\s*none !important;/);
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });

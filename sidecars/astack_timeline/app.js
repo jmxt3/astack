@@ -252,6 +252,251 @@
     return svg;
   }
 
+  let sfGradSeq = 0;
+
+  const REVIEW_SF_ICONS = {
+    "single-falcon": {
+      sig: "sig-lock",
+      varOrder: { l3: 1, l2: 2, l1: 3 },
+      layers: {
+        l3: [
+          ["path", { paint: "fill", d: "M3.6 14.5C3.6 8.2 7.5 3.6 12.8 3.2c-2.8 1.3-4.6 3.5-5.6 6.4-.8 2.3-1 5.2-.6 8.4-1.8-1-3-2.1-3-3.5Z" }],
+        ],
+        l2: [
+          ["path", { paint: "fill", "fill-rule": "evenodd", d: "M5.2 20.6C4.7 13.8 6.4 7.3 11.4 4.8c2.8-1.4 5.4-.5 6.8 1.7-1.4.4-2.4 1.4-2.7 3 1.4.7 1.3 2.5-.3 3.4-.5.3-1 .5-1.5.5-.1 2.7.9 5.2 2.8 7.2ZM11.2 8.2a2.1 2.1 0 1 0 4.2 0 2.1 2.1 0 1 0-4.2 0ZM12.3 12.1c-.9 2.4-2.3 4.3-4 5.6l1 .9c1.9-1.4 3.4-3.5 4.3-6.1Z" }],
+        ],
+        l1: [
+          ["path", { paint: "fill", d: "M16.5 6.8c3 .3 5.2 2.4 4.8 5.8-1.5-1.4-3.3-1.9-5.6-1.7-.4-1.7-.1-3.1.8-4.1Z" }],
+          ["circle", { paint: "fill", cx: "13.3", cy: "8.2", r: "1.15" }],
+        ],
+      },
+    },
+    "queue-fish": {
+      sig: "sig-fish",
+      varOrder: { l3: 1, l2: 2, l1: 3 },
+      layers: {
+        l3: [
+          ["path", { paint: "fill", "fill-rule": "evenodd", d: "M7.6 18.6c2.4-2.8 7.8-2.8 11.8 0-4 2.8-9.4 2.8-11.8 0Zm8.2-.2a.9.9 0 1 0-1.8 0 .9.9 0 1 0 1.8 0Z" }],
+          ["path", { paint: "fill", d: "M8.1 18.6 4.2 16.1c-.5 1.6-.5 3.4 0 5Z" }],
+        ],
+        l2: [
+          ["path", { paint: "fill", "fill-rule": "evenodd", d: "M7.6 5.4c2.4-2.8 7.8-2.8 11.8 0-4 2.8-9.4 2.8-11.8 0Zm8.2-.2a.9.9 0 1 0-1.8 0 .9.9 0 1 0 1.8 0Z" }],
+          ["path", { paint: "fill", d: "M8.1 5.4 4.2 2.9c-.5 1.6-.5 3.4 0 5Z" }],
+        ],
+        l1: [
+          ["path", { paint: "fill", "fill-rule": "evenodd", d: "M16.4 12c-2.4-2.8-7.8-2.8-11.8 0 4 2.8 9.4 2.8 11.8 0Zm-8.2-.2a.95.95 0 1 0 1.9 0 .95.95 0 1 0-1.9 0Z" }],
+          ["path", { paint: "fill", d: "M15.9 12l3.9-2.5c.5 1.6.5 3.4 0 5Z" }],
+        ],
+      },
+    },
+    "stack-cairn": {
+      sig: "sig-wave",
+      varOrder: { l3: 1, l2: 2, l1: 3 },
+      layers: {
+        l3: [
+          ["path", { paint: "fill", d: "M3.8 19.3c-.9-1.6.2-3.7 3.2-4l9.6-.2c3 .2 4.3 2.4 3.3 4.3-.8 1.3-3.4 1.6-8 1.6s-7.3-.3-8.1-1.7Z" }],
+        ],
+        l2: [
+          ["path", { paint: "fill", d: "M6.1 13.2c-.7-1.6.4-3.6 3.1-3.8l5.8.3c2.5.3 3.3 2.2 2.5 3.6-.8 1.2-3 1.2-5.6 1.2s-5.1-.1-5.8-1.3Z" }],
+        ],
+        l1: [
+          ["path", { paint: "fill", d: "M9.1 7.6c-.7-1.5.1-3.6 2.7-3.9 2.6-.3 3.8 1.7 3 3.4-.6 1.3-1.9 1.7-3.2 1.7-1.3 0-2-.5-2.5-1.2Z" }],
+        ],
+      },
+    },
+    "teach-owl": {
+      sig: "sig-lock",
+      varOrder: { l3: 1, l2: 2, l1: 3 },
+      layers: {
+        l3: [
+          ["path", { paint: "fill", d: "M5 12.2c-1.1 1.7-1.1 4.2.5 5.9-.3-2.1-.2-4.1-.5-5.9Z" }],
+          ["path", { paint: "fill", d: "M19 12.2c1.1 1.7 1.1 4.2-.5 5.9.3-2.1.2-4.1.5-5.9Z" }],
+        ],
+        l2: [
+          ["path", { paint: "fill", "fill-rule": "evenodd", d: "M5.6 3.5 8.8 5.9c1-.4 2.1-.6 3.2-.6s2.2.2 3.2.6l3.2-2.4-.6 4.4c1.3 1.6 1.8 3.8 1.3 6.9-.5 3.5-3.2 5.9-7.1 5.9s-6.6-2.4-7.1-5.9c-.5-3.1 0-5.3 1.3-6.9ZM9.1 7.8a2.5 2.5 0 1 0 0 5 2.5 2.5 0 1 0 0-5Zm5.8 0a2.5 2.5 0 1 0 0 5 2.5 2.5 0 1 0 0-5Zm-6.1 8.8c1.5 1.3 4.9 1.3 6.4 0l-.8-1c-1.1.9-3.7.9-4.8 0Z" }],
+        ],
+        l1: [
+          ["circle", { paint: "fill", cx: "9.1", cy: "10.3", r: "1.25" }],
+          ["circle", { paint: "fill", cx: "14.9", cy: "10.3", r: "1.25" }],
+          ["path", { paint: "fill", d: "M12 12.1 13.4 13.9 12 15.5l-1.4-1.6Z" }],
+        ],
+      },
+    },
+    "interrogate-beetle": {
+      sig: "sig-lock",
+      varOrder: { l3: 1, l2: 2, l1: 3 },
+      layers: {
+        l3: [
+          ["path", { paint: "stroke", "stroke-width": "1.75", d: "M8.2 10.6 5.4 9.3 3.9 10.9M15.8 10.6l2.8-1.3 1.5 1.6M7.1 14H4.4l-1.3 1.6M16.9 14h2.7l1.3 1.6M7.5 17.5 5 18.8 4.2 20.8M16.5 17.5 19 18.8l.8 2" }],
+        ],
+        l2: [
+          ["path", { paint: "fill", d: "M8.4 10.2c0-2.1 1.5-3.1 3.6-3.1s3.6 1 3.6 3.1Z" }],
+          ["path", { paint: "fill", d: "M11.3 11v10.2c-2.6-.2-4.4-2.2-4.4-5.2v-2.6c0-1.6 1.6-2.4 4.4-2.4Z" }],
+          ["path", { paint: "fill", d: "M12.7 11c2.8 0 4.4.8 4.4 2.4V16c0 3-1.8 5-4.4 5.2Z" }],
+        ],
+        l1: [
+          ["path", { paint: "fill", d: "M9.7 7.6C7 6.1 6.7 3 10.4 2.1c-1 1.4-1 2.7.4 3.4-.2.8-.6 1.5-1.1 2.1Z" }],
+          ["path", { paint: "fill", d: "M14.3 7.6c2.7-1.5 3-4.6-.7-5.5 1 1.4 1 2.7-.4 3.4.2.8.6 1.5 1.1 2.1Z" }],
+        ],
+      },
+    },
+    "blast-volcano": {
+      sig: "sig-puff",
+      varOrder: { l2: 1, l1: 2, l3: 3 },
+      layers: {
+        l3: [
+          ["path", { paint: "fill", d: "M8.4 8.6c-2.2 0-3.1-2.6-1.3-4 1.3-1 3.3-.6 4.2.7 1.1-1.8 4-1.9 5.4-.4 1.6 1.5.7 3.7-1.4 3.7Z" }],
+          ["circle", { paint: "fill", cx: "4.3", cy: "9", r: "1.15" }],
+          ["circle", { paint: "fill", cx: "19.7", cy: "9", r: "1.15" }],
+        ],
+        l2: [
+          ["path", { paint: "fill", d: "M2.4 21c3.3-2.8 5.4-6.1 6.7-9.8h5.8c1.3 3.7 3.4 7 6.7 9.8Z" }],
+        ],
+        l1: [
+          ["path", { paint: "fill", d: "M9.1 11.2h5.8l-.8 3.6c-.4 1.1-1.4.9-1.9-.6-.5 1.9-1.8 1.9-2.3.1Z" }],
+        ],
+      },
+    },
+    "security-scorpion": {
+      sig: "sig-strike",
+      varOrder: { l3: 1, l2: 2, l1: 3 },
+      layers: {
+        l3: [
+          ["path", { paint: "stroke", "stroke-width": "1.8", d: "M9.8 16.5 8.4 20.2M12.5 16.5l-.3 3.7M15 16.1l1.2 4.1" }],
+        ],
+        l2: [
+          ["path", { paint: "fill", d: "M7.6 15.4c1.8-2.8 6-3 8.8-1-1.7 2.8-6 3-8.8 1Z" }],
+          ["path", { paint: "stroke", "stroke-width": "1.9", d: "M16 14.4 18 13.4M20.9 11.7c-1.5-.8-3.1.1-2.9 1.7.2 1.6 1.7 2.4 2.9 1.5" }],
+        ],
+        l1: [
+          ["path", { paint: "stroke", "stroke-width": "2.3", d: "M8.1 15.2C4.2 14.1 3.2 10.1 5.2 6.8 7.2 3.5 11.8 3.2 14.6 5.4" }],
+          ["path", { paint: "fill", d: "M14.1 4.4c1.9.1 2.9 2.1 1.2 4-.9-1.1-1.6-2.4-1.2-4Z" }],
+        ],
+      },
+    },
+    "fanout-octopus": {
+      sig: "sig-wave",
+      varOrder: { l3: 1, l2: 2, l1: 3 },
+      layers: {
+        l3: [
+          ["path", { paint: "stroke", "stroke-width": "2.2", d: "M10.1 12.6c-.4 3.1-1.6 5.2-1.9 7.4-.1.9.9 1.2 1.6.5M13.9 12.6c.4 3.1 1.6 5.2 1.9 7.4.1.9-.9 1.2-1.6.5" }],
+        ],
+        l2: [
+          ["path", { paint: "stroke", "stroke-width": "2.2", d: "M7.6 12c-2.1 1.3-3.8 3.2-4.2 5.4-.3 1.5 1 2.4 2.3 1.6M16.4 12c2.1 1.3 3.8 3.2 4.2 5.4.3 1.5-1 2.4-2.3 1.6" }],
+        ],
+        l1: [
+          ["path", { paint: "fill", "fill-rule": "evenodd", d: "M6.6 12.2c-1.2-1.8-1-4.8.4-6.8C8.4 3.4 10.1 2.6 12 2.6s3.6.8 5 2.8c1.4 2 1.6 5 .4 6.8-1.3 1.4-3.3 1.9-5.4 1.9s-4.1-.5-5.4-1.9Zm3-4.1a1.15 1.15 0 1 0 0 2.3 1.15 1.15 0 1 0 0-2.3Zm4.8 0a1.15 1.15 0 1 0 0 2.3 1.15 1.15 0 1 0 0-2.3Z" }],
+        ],
+      },
+    },
+    "workflow-abacus": {
+      sig: "sig-wave",
+      varOrder: { l3: 1, l2: 2, l1: 3 },
+      layers: {
+        l3: [
+          ["rect", { paint: "stroke", "stroke-width": "2", x: "3", y: "3.6", width: "18", height: "16.8", rx: "2.4" }],
+          ["path", { paint: "stroke", "stroke-width": "1.4", d: "M3 7.6h18M3 12h18M3 16.4h18" }],
+        ],
+        l2: [
+          ["rect", { paint: "fill", x: "6", y: "5.9", width: "2.5", height: "3.4", rx: "1.1" }],
+          ["rect", { paint: "fill", x: "9.6", y: "5.9", width: "2.5", height: "3.4", rx: "1.1" }],
+          ["rect", { paint: "fill", x: "15.5", y: "5.9", width: "2.5", height: "3.4", rx: "1.1" }],
+          ["rect", { paint: "fill", x: "6", y: "10.3", width: "2.5", height: "3.4", rx: "1.1" }],
+          ["rect", { paint: "fill", x: "12", y: "10.3", width: "2.5", height: "3.4", rx: "1.1" }],
+          ["rect", { paint: "fill", x: "15.5", y: "10.3", width: "2.5", height: "3.4", rx: "1.1" }],
+        ],
+        l1: [
+          ["rect", { paint: "fill", x: "6", y: "14.7", width: "2.5", height: "3.4", rx: "1.1" }],
+          ["rect", { paint: "fill", x: "9.6", y: "14.7", width: "2.5", height: "3.4", rx: "1.1" }],
+          ["rect", { paint: "fill", x: "13.2", y: "14.7", width: "2.5", height: "3.4", rx: "1.1" }],
+        ],
+      },
+    },
+    "swarm-bee": {
+      sig: "sig-flutter",
+      varOrder: { l3: 1, l2: 2, l1: 3 },
+      layers: {
+        l3: [
+          ["path", { paint: "fill", d: "M9.4 13.4c-2.9.9-4.5 2.8-3.4 4.4 1 1.3 2.7.2 3.6-1.6Z" }],
+          ["path", { paint: "fill", d: "M14.6 13.4c2.9.9 4.5 2.8 3.4 4.4-1 1.3-2.7.2-3.6-1.6Z" }],
+        ],
+        l2: [
+          ["path", { paint: "fill", d: "M9.5 10.6C5.6 7.8 2.4 8.8 2.8 11.6c.4 2.2 3.6 2.6 6.7 1.3Z" }],
+          ["path", { paint: "fill", d: "M14.5 10.6c3.9-2.8 7.1-1.8 6.7 1-.4 2.2-3.6 2.6-6.7 1.3Z" }],
+        ],
+        l1: [
+          ["path", { paint: "stroke", "stroke-width": "1.6", d: "M10.7 5.8C9.9 4.2 8.7 3.4 7.6 3.4M13.3 5.8c.8-1.6 2-2.4 3.1-2.4" }],
+          ["circle", { paint: "fill", cx: "12", cy: "7.2", r: "2.1" }],
+          ["path", { paint: "fill", "fill-rule": "evenodd", d: "M9.2 11.4c0-2.2 1.2-3.3 2.8-3.3s2.8 1.1 2.8 3.3v3.8c0 3-1.2 5-2.8 6-1.6-1-2.8-3-2.8-6Zm.6 1.3v1.3h4.4v-1.3Zm.3 3.1V17h3.8v-1.2Z" }],
+        ],
+      },
+    },
+  };
+
+  function reviewSfIcon(iconId, sizePx = 22) {
+    const spec = REVIEW_SF_ICONS[iconId];
+    if (!spec) return null;
+    const ns = "http://www.w3.org/2000/svg";
+    const gradId = `astk-sfg-${++sfGradSeq}`;
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("data-sf-icon", iconId);
+    svg.classList.add("sf-icon", "fx-signature", spec.sig);
+    svg.style.width = `${sizePx}px`;
+    svg.style.height = `${sizePx}px`;
+
+    const defs = document.createElementNS(ns, "defs");
+    const grad = document.createElementNS(ns, "linearGradient");
+    grad.setAttribute("id", gradId);
+    grad.setAttribute("x1", "0");
+    grad.setAttribute("y1", "0");
+    grad.setAttribute("x2", "0");
+    grad.setAttribute("y2", "24");
+    grad.setAttribute("gradientUnits", "userSpaceOnUse");
+
+    const stopTop = document.createElementNS(ns, "stop");
+    stopTop.setAttribute("offset", "0%");
+    stopTop.setAttribute("stop-color", "#3cb0ff");
+    stopTop.classList.add("sf-stop-top");
+    const stopBot = document.createElementNS(ns, "stop");
+    stopBot.setAttribute("offset", "100%");
+    stopBot.setAttribute("stop-color", "#0064df");
+    stopBot.classList.add("sf-stop-bot");
+    grad.appendChild(stopTop);
+    grad.appendChild(stopBot);
+    defs.appendChild(grad);
+    svg.appendChild(defs);
+
+    const paintUrl = `url(#${gradId})`;
+    for (const layerKey of ["l3", "l2", "l1"]) {
+      const shapes = spec.layers[layerKey];
+      if (!shapes || shapes.length === 0) continue;
+      const g = document.createElementNS(ns, "g");
+      const varStep = spec.varOrder[layerKey] || 1;
+      g.classList.add("sf-layer", `sf-${layerKey}`, `sf-v${varStep}`);
+      for (const [tag, attrs] of shapes) {
+        const node = document.createElementNS(ns, tag);
+        if (attrs.paint === "stroke") {
+          node.setAttribute("fill", "none");
+          node.setAttribute("stroke", paintUrl);
+          node.setAttribute("stroke-linecap", "round");
+          node.setAttribute("stroke-linejoin", "round");
+        } else {
+          node.setAttribute("fill", paintUrl);
+        }
+        for (const [k, v] of Object.entries(attrs)) {
+          if (k === "paint") continue;
+          node.setAttribute(k, v);
+        }
+        g.appendChild(node);
+      }
+      svg.appendChild(g);
+    }
+
+    return svg;
+  }
+
   function syncScheme() {
     const bg = getComputedStyle(document.documentElement).backgroundColor;
     const nums = (bg.match(/[\d.]+/g) || []).map(Number);
@@ -4081,6 +4326,15 @@
     const card = el("div", detectedSet.has(step.command) ? "cr-step-card is-active" : "cr-step-card");
     card.dataset.testid = `cr-step-${step.command.replace(/[^a-z0-9_-]/gi, "")}-${idx}`;
 
+    const sfSvg = step.icon ? reviewSfIcon(step.icon, 22) : null;
+    if (sfSvg) {
+      const iconWell = el("span", "cr-step-icon");
+      iconWell.dataset.testid = `cr-step-icon-${step.icon}`;
+      iconWell.appendChild(sfSvg);
+      card.appendChild(iconWell);
+    }
+
+    const body = el("div", "cr-step-body");
     const head = el("div", "cr-step-head");
     const titleText = isNumbered && step.step ? `${step.step}. ${step.title}` : step.title;
     head.appendChild(el("span", "cr-step-title", titleText));
@@ -4091,10 +4345,10 @@
     if (detectedSet.has(step.command)) {
       head.appendChild(el("span", "cr-badge is-ran", "Ran"));
     }
-    card.appendChild(head);
+    body.appendChild(head);
 
     if (step.condition) {
-      card.appendChild(el("p", "cr-step-cond", step.condition));
+      body.appendChild(el("p", "cr-step-cond", step.condition));
     }
 
     const actions = el("div", "cr-step-actions");
@@ -4106,14 +4360,25 @@
     copyBtn.appendChild(el("span", "", "Copy prompt"));
     copyBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
+      if (sfSvg) {
+        if (sfSvg._popTimer) clearTimeout(sfSvg._popTimer);
+        sfSvg.classList.remove("is-popping");
+        void sfSvg.getBoundingClientRect?.();
+        sfSvg.classList.add("is-popping");
+        sfSvg._popTimer = setTimeout(() => {
+          sfSvg.classList.remove("is-popping");
+          sfSvg._popTimer = null;
+        }, 480);
+      }
       copyCommand({ command: step.command, copyText: step.prompt }, copyBtn, true);
     });
     actions.appendChild(copyBtn);
-    card.appendChild(actions);
+    body.appendChild(actions);
 
     if (step.prompt) {
-      card.appendChild(el("p", "cr-step-prompt", step.prompt));
+      body.appendChild(el("p", "cr-step-prompt", step.prompt));
     }
+    card.appendChild(body);
     return card;
   }
 
@@ -4177,6 +4442,14 @@
         state.reviewPrExpandedIntent = intent.id;
         renderColleagueReviewPanel(state.snap);
       });
+
+      const intentSvg = intent.icon ? reviewSfIcon(intent.icon, 20) : null;
+      if (intentSvg) {
+        const iconWrap = el("span", "cr-intent-icon");
+        iconWrap.dataset.testid = `cr-intent-icon-${intent.id}`;
+        iconWrap.appendChild(intentSvg);
+        btn.appendChild(iconWrap);
+      }
 
       const copyWrap = el("span", "guide-acc-copy");
       copyWrap.appendChild(el("span", "guide-acc-title", intent.title));
