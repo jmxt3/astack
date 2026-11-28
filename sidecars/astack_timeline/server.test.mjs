@@ -1774,6 +1774,34 @@ test("app.js mounts Beast B Corner Glow, one-shot ignition + toast, Autopilot ca
     const glow0 = harness.byId.get("beast-glow-slot").findByTestId("beast-glow-frame");
     assert.ok(glow0, "Initial Beast load must mount glow frame");
     assert.equal(glow0.classList.contains("is-igniting"), false, "Reloading in Beast must stay resting without ignition");
+    const collectByClass = (rootNode, cls) => {
+      const hits = [];
+      const walk = (n) => {
+        if (n?.classList?.contains(cls)) hits.push(n);
+        for (const ch of n?.children || []) walk(ch);
+      };
+      walk(rootNode);
+      return hits;
+    };
+    const haloNodes = collectByClass(glow0, "beast-sweep-halo");
+    const coreNodes = collectByClass(glow0, "beast-sweep-core");
+    assert.equal(haloNodes.length, 1, "Glow frame must mount one continuous halo sweep layer");
+    assert.equal(coreNodes.length, 1, "Glow frame must mount one continuous core sweep layer");
+    assert.equal(collectByClass(haloNodes[0], "beast-sweep-mask").length, 1, "Halo sweep must mask before blur");
+    assert.equal(collectByClass(haloNodes[0], "beast-sweep-rotor").length, 1);
+    assert.equal(collectByClass(coreNodes[0], "beast-sweep-rotor").length, 1);
+    for (const legacyCls of ["beast-sx", "beast-sy", "beast-s-top", "beast-s-right", "beast-s-bottom", "beast-s-left"]) {
+      assert.equal(collectByClass(glow0, legacyCls).length, 0, `Legacy edge strip ${legacyCls} must be removed`);
+    }
+    const stylesCss = await (await fetch(`${srv.url}styles.css`)).text();
+    assert.match(stylesCss, /@keyframes astk-beast-orbit\s*\{\s*from\s*\{\s*transform:\s*rotate\(0deg\);\s*\}\s*to\s*\{\s*transform:\s*rotate\(360deg\);\s*\}\s*\}/);
+    assert.match(stylesCss, /-webkit-mask-composite:\s*xor;/);
+    assert.match(stylesCss, /mask-composite:\s*exclude;/);
+    assert.match(stylesCss, /\.panel-view\.is-paused[\s\S]*?\.beast-sweep-rotor/);
+    assert.match(stylesCss, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.beast-sweep-rotor/);
+    for (const legacyKeyframes of ["astk-sweep-r", "astk-sweep-l", "astk-sweep-d", "astk-sweep-u"]) {
+      assert.equal(stylesCss.includes(legacyKeyframes), false, `Legacy keyframes ${legacyKeyframes} must be removed`);
+    }
     assert.equal(harness.byId.get("beast-toast-slot").children.length, 0, "Reloading in Beast must not show activation toast");
     assert.equal(harness.byId.get("timeline-view").findByTestId("beast-header-bar"), null, "Top BEAST MODE header bar must stay removed");
     assert.ok(harness.byId.get("status-banner").textContent.includes("Autopilot"), "Running Beast must show Autopilot card");

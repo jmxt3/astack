@@ -2542,18 +2542,15 @@
       frame.appendChild(b);
     }
     frame.appendChild(el("div", "beast-ring"));
-    for (const cls of [
-      "beast-sweep beast-sx beast-s-top",
-      "beast-sweep beast-sx beast-halo beast-s-top",
-      "beast-sweep beast-sy beast-s-right",
-      "beast-sweep beast-sy beast-halo beast-s-right",
-      "beast-sweep beast-sx beast-s-bottom",
-      "beast-sweep beast-sx beast-halo beast-s-bottom",
-      "beast-sweep beast-sy beast-s-left",
-      "beast-sweep beast-sy beast-halo beast-s-left",
-    ]) {
-      frame.appendChild(el("div", cls));
-    }
+    const halo = el("div", "beast-sweep beast-sweep-halo");
+    const haloMask = el("div", "beast-sweep-mask");
+    haloMask.appendChild(el("div", "beast-sweep-rotor"));
+    halo.appendChild(haloMask);
+
+    const core = el("div", "beast-sweep beast-sweep-core");
+    core.appendChild(el("div", "beast-sweep-rotor"));
+
+    frame.append(halo, core);
     const rnd = (s) => {
       const x = Math.sin(s * 127.1 + 311.7) * 43758.5453;
       return x - Math.floor(x);
